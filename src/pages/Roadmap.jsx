@@ -9,7 +9,6 @@ import {
 } from "lucide-react";
 
 const Roadmap = () => {
-  // Production-grade data structure for the timeline engine
   const timelineData = [
     {
       id: 1,
@@ -18,7 +17,7 @@ const Roadmap = () => {
       description:
         "Establish your professional ledger. Build a high-conversion resume, optimize GitHub, and document initial projects.",
       icon: FileText,
-      status: "completed", // 'completed', 'current', or 'upcoming'
+      status: "completed",
     },
     {
       id: 2,

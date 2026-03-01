@@ -3,12 +3,35 @@
 @tailwind utilities;
 
 @layer base {
-  html,
-  body {
-    @apply bg-slate-50 text-slate-900 antialiased h-full w-full m-0 p-0 font-sans;
+  html {
+    -webkit-tap-highlight-color: transparent;
   }
 
-  #root {
-    @apply min-h-screen flex flex-col;
+  body {
+    @apply bg-slate-50 text-slate-900 dark:bg-[#0a0a0a] dark:text-white antialiased;
+  }
+}
+
+@layer utilities {
+  .hide-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .hide-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    @apply bg-slate-300 dark:bg-slate-700 rounded-full;
+  }
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    @apply bg-slate-400 dark:bg-slate-600;
   }
 }
