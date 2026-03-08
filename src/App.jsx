@@ -10,19 +10,30 @@ import Auth from "./pages/Auth";
 import MainLayout from "./layouts/MainLayout";
 import Dashboard from "./pages/Dashboard";
 
-// Guard for the OS (Must be logged in). Kicks back to Landing Page if not.
 const ProtectedRoute = ({ children }) => {
   const { currentUser } = useAuth();
   if (!currentUser) return <Navigate to="/" replace />;
   return children;
 };
 
-// Guard for Public Pages (Redirects to OS if already logged in)
 const PublicRoute = ({ children }) => {
   const { currentUser } = useAuth();
   if (currentUser) return <Navigate to="/app" replace />;
   return children;
 };
+
+// Reusable dummy component for coming soon pages
+const ComingSoon = ({ title }) => (
+  <div className="flex flex-col items-center justify-center h-full text-center p-10 animate-pulse">
+    <div className="w-16 h-16 bg-white/5 rounded-2xl flex items-center justify-center mb-6">
+      <div className="w-8 h-8 border-2 border-slate-600 rounded-full" />
+    </div>
+    <h1 className="text-3xl font-extrabold text-white mb-2">{title}</h1>
+    <p className="text-slate-500 font-medium">
+      This module is currently in development.
+    </p>
+  </div>
+);
 
 function App() {
   return (
@@ -57,59 +68,39 @@ function App() {
             <Route index element={<Dashboard />} />
             <Route
               path="roadmap"
-              element={
-                <div className="p-10 text-white font-bold text-2xl">
-                  Execution Timeline (Coming Soon)
-                </div>
-              }
+              element={<ComingSoon title="Execution Timeline" />}
             />
             <Route
-              path="score"
-              element={
-                <div className="p-10 text-white font-bold text-2xl">
-                  Discotive Score (Coming Soon)
-                </div>
-              }
+              path="leaderboard"
+              element={<ComingSoon title="Global Leaderboard" />}
             />
             <Route
               path="finance"
-              element={
-                <div className="p-10 text-white font-bold text-2xl">
-                  Financial Ledger (Coming Soon)
-                </div>
-              }
+              element={<ComingSoon title="Financial Ledger" />}
             />
-            <Route
-              path="network"
-              element={
-                <div className="p-10 text-white font-bold text-2xl">
-                  Network & Hubs (Coming Soon)
-                </div>
-              }
-            />
+            <Route path="network" element={<ComingSoon title="Network" />} />
+            <Route path="hubs" element={<ComingSoon title="Career Hubs" />} />
             <Route
               path="opportunities"
-              element={
-                <div className="p-10 text-white font-bold text-2xl">
-                  Opportunities (Coming Soon)
-                </div>
-              }
+              element={<ComingSoon title="Opportunities" />}
+            />
+            <Route path="vault" element={<ComingSoon title="Asset Vault" />} />
+            <Route
+              path="podcasts"
+              element={<ComingSoon title="Podcasts & Media" />}
             />
             <Route
-              path="vault"
-              element={
-                <div className="p-10 text-white font-bold text-2xl">
-                  Asset Vault (Coming Soon)
-                </div>
-              }
+              path="assessments"
+              element={<ComingSoon title="Workshops & Assessments" />}
+            />
+            <Route path="discover" element={<ComingSoon title="Discover" />} />
+            <Route
+              path="profile"
+              element={<ComingSoon title="User Profile" />}
             />
             <Route
               path="settings"
-              element={
-                <div className="p-10 text-white font-bold text-2xl">
-                  Settings (Coming Soon)
-                </div>
-              }
+              element={<ComingSoon title="OS Settings" />}
             />
           </Route>
         </Routes>

@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
+import AuthLoader from "../components/AuthLoader";
+
 import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
@@ -54,6 +56,7 @@ const Auth = () => {
   const [error, setError] = useState("");
   const [step, setStep] = useState(1);
   const [currentSlide, setCurrentSlide] = useState(0);
+  const [isBooting, setIsBooting] = useState(false);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -122,10 +125,11 @@ const Auth = () => {
 
   const handleFinalSubmit = async (e) => {
     e.preventDefault();
-    setLoading(true);
+    setIsBooting(true); // Trigger the cinematic full-screen AI loader instantly!
     setError("");
+
     try {
-      // 1. Create the Auth user NOW at the very end
+      // 1. Create the Auth user in the background
       const userCredential = await createUserWithEmailAndPassword(
         auth,
         email,
@@ -133,7 +137,7 @@ const Auth = () => {
       );
       const user = userCredential.user;
 
-      // 2. Save all collected data to Firestore Database
+      // 2. Save all data to Firestore in the background
       await setDoc(doc(db, "users", user.uid), {
         identity: { firstName, lastName, email },
         baseline: {
@@ -156,12 +160,11 @@ const Auth = () => {
         discotiveScore: 500,
         createdAt: new Date().toISOString(),
       });
-      // The ProtectedRoute will automatically catch this and redirect, but we force it here too
-      navigate("/app");
+      // We do NOT navigate here. The AuthLoader handles navigation after 6 seconds.
     } catch (err) {
+      // If Firebase fails, kill the loader and show the error
+      setIsBooting(false);
       setError(err.message.replace("Firebase: ", ""));
-    } finally {
-      setLoading(false);
     }
   };
 
