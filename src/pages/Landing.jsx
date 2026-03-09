@@ -773,7 +773,7 @@ const Landing = () => {
                   Keshav Bansal
                 </h3>
                 <p className="text-sm font-bold text-slate-500 uppercase tracking-widest mb-8">
-                  Founder & Architect
+                  Founder & CEO
                 </p>
 
                 <div className="flex flex-col md:flex-row gap-8 md:gap-16">

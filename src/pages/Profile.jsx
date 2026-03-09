@@ -1,114 +1,258 @@
+import { motion } from "framer-motion";
 import {
-  Mail,
+  ShieldCheck,
   MapPin,
-  Building,
-  GraduationCap,
-  Github,
-  Linkedin,
+  Terminal,
+  Briefcase,
+  Zap,
+  Target,
+  Crosshair,
+  GitCommit,
+  Share2,
+  Copy,
   ExternalLink,
-  Edit2,
-  Upload,
+  Award,
+  Camera,
 } from "lucide-react";
+import { useUserData } from "../hooks/useUserData";
+import { Skeleton } from "../components/ui/Skeleton";
+import { cn } from "../components/ui/BentoCard";
 
 const Profile = () => {
+  const { userData, loading } = useUserData();
+
+  // Simulated Authentic Data based on your profile
+  const firstName = userData?.identity?.firstName || "Keshav";
+  const lastName = userData?.identity?.lastName || "Bansal";
+  const fullName = `${firstName} ${lastName}`.trim();
+  const initials = "KB";
+
+  const institution = userData?.baseline?.institution || "JECRC Foundation";
+  const course = userData?.baseline?.course || "B.Tech CSE (Section D)";
+  const year = userData?.baseline?.year || "1st Year";
+
+  const primaryRole = "Founder & Systems Architect";
+  const secondaryRole = "Technical BD Intern @ RG Consultancy";
+  const score = userData?.discotiveScore || 742;
+
   return (
-    <div className="max-w-5xl mx-auto animate-in fade-in duration-500 pb-12">
-      {/* Cover & Avatar */}
-      <div className="relative rounded-3xl overflow-hidden mb-16 bg-white dark:bg-[#121212] border border-slate-200 dark:border-slate-800 shadow-sm">
-        <div className="h-48 bg-gradient-to-r from-primary-600 to-blue-400 relative">
-          <button className="absolute top-4 right-4 p-2 bg-white/20 hover:bg-white/30 backdrop-blur-md rounded-xl text-white transition-colors">
-            <Edit2 className="w-4 h-4" />
-          </button>
-        </div>
+    <div className="bg-[#030303] min-h-screen text-white selection:bg-white selection:text-black pb-32 relative">
+      <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-[0.03] pointer-events-none z-0" />
 
-        <div className="px-8 pb-8 relative">
-          <div className="flex flex-col md:flex-row items-start md:items-end justify-between gap-4 -mt-12 md:-mt-16 mb-6">
-            <div className="flex items-end gap-6">
-              <div className="w-24 h-24 md:w-32 md:h-32 rounded-2xl bg-white dark:bg-[#121212] p-1.5 shadow-xl relative">
-                <div className="w-full h-full bg-gradient-to-tr from-primary-600 to-blue-400 rounded-xl flex items-center justify-center text-white text-4xl font-bold">
-                  JD
-                </div>
-                <button className="absolute bottom-2 right-2 p-1.5 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-lg shadow-sm border border-slate-200 dark:border-slate-700 hover:text-primary-600 transition-colors">
-                  <Upload className="w-4 h-4" />
-                </button>
-              </div>
-              <div className="mb-2">
-                <h1 className="text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight">
-                  John Doe
-                </h1>
-                <p className="text-primary-600 dark:text-primary-400 font-semibold mt-1 flex items-center gap-2">
-                  <Building className="w-4 h-4" /> B.Tech Computer Science and
-                  Engineering
-                </p>
-              </div>
-            </div>
+      <div className="max-w-[1200px] mx-auto px-6 md:px-12 relative z-10 pt-12 space-y-12">
+        {/* --- TOP ACTIONS --- */}
+        <div className="flex justify-between items-center">
+          <div className="flex items-center gap-3 px-4 py-2 rounded-full border border-green-500/30 bg-[#050505]">
+            <ShieldCheck className="w-4 h-4 text-green-500" />
+            <span className="text-[10px] font-extrabold text-green-500 uppercase tracking-[0.2em]">
+              Level 3 Clearance • Verified
+            </span>
+          </div>
 
-            <button className="px-6 py-2.5 bg-slate-900 dark:bg-white text-white dark:text-slate-900 font-bold rounded-xl shadow-sm hover:shadow transition-all w-full md:w-auto">
-              Share Profile
+          <div className="flex items-center gap-4">
+            <button className="flex items-center gap-2 px-6 py-3 bg-[#0a0a0a] border border-[#333] text-white font-bold text-xs uppercase tracking-widest hover:bg-white hover:text-black hover:border-white transition-colors group">
+              <Copy className="w-4 h-4" /> Copy ID
+            </button>
+            <button className="flex items-center gap-2 px-6 py-3 bg-white text-black font-extrabold text-xs uppercase tracking-widest hover:bg-[#ccc] transition-colors">
+              <Share2 className="w-4 h-4" /> Share Dossier
             </button>
           </div>
+        </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-y-4 gap-x-8 mt-8 border-t border-slate-100 dark:border-slate-800/50 pt-8">
-            <div className="flex items-center gap-3 text-slate-600 dark:text-slate-300">
-              <div className="p-2 bg-slate-50 dark:bg-slate-800/50 rounded-lg">
-                <GraduationCap className="w-5 h-5 text-slate-500" />
-              </div>
-              <div>
-                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-                  University
-                </p>
-                <p className="font-medium text-slate-900 dark:text-white">
-                  JECRC Foundation
-                </p>
-              </div>
+        {/* --- HERO: THE IDENTITY CARD --- */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-[#0a0a0a] border border-[#222] rounded-[2rem] p-8 md:p-12 shadow-2xl flex flex-col md:flex-row gap-10 items-center md:items-start group hover:border-[#444] transition-colors"
+        >
+          {/* Avatar Base */}
+          <div className="relative shrink-0">
+            <div className="w-40 h-40 md:w-48 md:h-48 rounded-full bg-[#030303] border-4 border-[#222] flex items-center justify-center shadow-[0_0_50px_rgba(0,0,0,0.8)] z-10 relative group-hover:border-white group-hover:bg-white group-hover:text-black transition-all duration-500">
+              <span className="text-5xl md:text-6xl font-extrabold tracking-tighter">
+                {initials}
+              </span>
             </div>
-            <div className="flex items-center gap-3 text-slate-600 dark:text-slate-300">
-              <div className="p-2 bg-slate-50 dark:bg-slate-800/50 rounded-lg">
-                <MapPin className="w-5 h-5 text-slate-500" />
-              </div>
-              <div>
-                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-                  Location
-                </p>
-                <p className="font-medium text-slate-900 dark:text-white">
-                  Jaipur, Rajasthan
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center gap-3 text-slate-600 dark:text-slate-300">
-              <div className="p-2 bg-slate-50 dark:bg-slate-800/50 rounded-lg">
-                <Mail className="w-5 h-5 text-slate-500" />
-              </div>
-              <div>
-                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider">
-                  Email
-                </p>
-                <p className="font-medium text-slate-900 dark:text-white">
-                  john.doe@jecrc.ac.in
-                </p>
-              </div>
-            </div>
-            <div className="flex items-center gap-4 mt-2 md:mt-0">
-              <a
-                href="#"
-                className="p-2 bg-slate-50 hover:bg-slate-100 dark:bg-slate-800/50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-lg transition-colors"
-              >
-                <Github className="w-5 h-5" />
-              </a>
-              <a
-                href="#"
-                className="p-2 bg-slate-50 hover:bg-slate-100 dark:bg-slate-800/50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-lg transition-colors"
-              >
-                <Linkedin className="w-5 h-5" />
-              </a>
-              <a
-                href="#"
-                className="p-2 bg-slate-50 hover:bg-slate-100 dark:bg-slate-800/50 dark:hover:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-lg transition-colors"
-              >
-                <ExternalLink className="w-5 h-5" />
-              </a>
+            <div className="absolute -bottom-4 left-1/2 -translate-x-1/2 bg-white text-black text-[10px] font-extrabold uppercase tracking-[0.2em] px-5 py-2 rounded-full border-4 border-[#0a0a0a] whitespace-nowrap z-20">
+              Top 1% Builder
             </div>
           </div>
+
+          {/* Core Info */}
+          <div className="flex-1 text-center md:text-left z-10 w-full mt-4 md:mt-0 flex flex-col justify-center">
+            <h1 className="text-5xl md:text-7xl font-extrabold text-white tracking-tighter mb-4 leading-none">
+              {fullName}
+            </h1>
+
+            <div className="flex flex-col md:flex-row items-center gap-4 md:gap-8 text-sm font-bold text-[#888] mb-8">
+              <span className="flex items-center gap-2">
+                <Briefcase className="w-4 h-4 text-[#555]" /> {primaryRole}
+              </span>
+              <span className="flex items-center gap-2">
+                <MapPin className="w-4 h-4 text-[#555]" /> Jaipur, India
+              </span>
+            </div>
+
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 w-full">
+              <div className="bg-[#050505] border border-[#222] rounded-2xl p-5 hover:border-[#444] transition-colors">
+                <p className="text-[10px] font-bold text-[#666] uppercase tracking-[0.2em] mb-2 flex items-center gap-1.5">
+                  <Zap className="w-3.5 h-3.5 text-amber-500" /> Momentum
+                </p>
+                <p className="text-2xl font-extrabold text-white tracking-tighter">
+                  {score}
+                </p>
+              </div>
+              <div className="bg-[#050505] border border-[#222] rounded-2xl p-5 hover:border-[#444] transition-colors">
+                <p className="text-[10px] font-bold text-[#666] uppercase tracking-[0.2em] mb-2 flex items-center gap-1.5">
+                  <Award className="w-3.5 h-3.5 text-blue-500" /> Global Rank
+                </p>
+                <p className="text-2xl font-extrabold text-white tracking-tighter">
+                  #421
+                </p>
+              </div>
+              <div className="bg-[#050505] border border-[#222] rounded-2xl p-5 hover:border-[#444] transition-colors hidden md:block">
+                <p className="text-[10px] font-bold text-[#666] uppercase tracking-[0.2em] mb-2 flex items-center gap-1.5">
+                  <Terminal className="w-3.5 h-3.5 text-green-500" /> Vault
+                  Nodes
+                </p>
+                <p className="text-2xl font-extrabold text-white tracking-tighter">
+                  14
+                </p>
+              </div>
+              <div className="bg-[#050505] border border-[#222] rounded-2xl p-5 hover:border-[#444] transition-colors hidden md:block">
+                <p className="text-[10px] font-bold text-[#666] uppercase tracking-[0.2em] mb-2 flex items-center gap-1.5">
+                  <Crosshair className="w-3.5 h-3.5 text-purple-500" /> Startups
+                </p>
+                <p className="text-2xl font-extrabold text-white tracking-tighter">
+                  2
+                </p>
+              </div>
+            </div>
+          </div>
+        </motion.div>
+
+        {/* --- BOTTOM GRID: VISION & BASELINE --- */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+          {/* Baseline & Domains (Left Column) */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.1 }}
+            className="space-y-8"
+          >
+            <div className="bg-[#0a0a0a] border border-[#222] rounded-[2rem] p-8 md:p-10 hover:border-[#333] transition-colors h-full flex flex-col">
+              <h3 className="text-xs font-bold text-[#888] uppercase tracking-[0.3em] mb-8 flex items-center gap-2">
+                <Terminal className="w-4 h-4 text-white" /> Execution Baseline
+              </h3>
+
+              <div className="space-y-6 flex-1">
+                <div className="p-6 bg-[#050505] rounded-2xl border border-[#222] group hover:border-[#444] transition-colors">
+                  <p className="text-[10px] font-bold text-[#666] uppercase tracking-[0.2em] mb-2">
+                    Current Institution
+                  </p>
+                  <p className="font-extrabold text-white text-xl tracking-tight mb-1">
+                    {institution}
+                  </p>
+                  <p className="text-xs font-mono text-[#888]">
+                    {course} • {year}
+                  </p>
+                </div>
+
+                <div className="p-6 bg-[#050505] rounded-2xl border border-[#222] group hover:border-[#444] transition-colors">
+                  <p className="text-[10px] font-bold text-[#666] uppercase tracking-[0.2em] mb-2">
+                    Active Deployment
+                  </p>
+                  <p className="font-extrabold text-white text-lg tracking-tight mb-1">
+                    {secondaryRole}
+                  </p>
+                  <p className="text-xs font-mono text-[#888]">
+                    Technical Stack • B2B Protocol
+                  </p>
+                </div>
+
+                <div className="pt-4">
+                  <p className="text-[10px] font-bold text-[#666] uppercase tracking-[0.2em] mb-4">
+                    Core Competencies
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {[
+                      "React.js",
+                      "Firebase",
+                      "UI/UX Systems",
+                      "AI Workflows",
+                      "Cinematic Filmmaking",
+                    ].map((skill) => (
+                      <span
+                        key={skill}
+                        className="px-3 py-2 bg-[#111] border border-[#333] rounded-lg text-xs font-bold text-[#ccc] hover:bg-white hover:text-black hover:border-white transition-colors cursor-default"
+                      >
+                        {skill}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </motion.div>
+
+          {/* The Ledger & Vision (Right Column) */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.2 }}
+            className="space-y-8"
+          >
+            <div className="bg-[#0a0a0a] border border-[#222] rounded-[2rem] p-8 md:p-10 hover:border-[#333] transition-colors h-full flex flex-col">
+              <h3 className="text-xs font-bold text-[#888] uppercase tracking-[0.3em] mb-8 flex items-center gap-2">
+                <GitCommit className="w-4 h-4 text-white" /> Immutable Ledger
+              </h3>
+
+              <div className="space-y-8 flex-1">
+                <div className="relative pl-6 border-l-2 border-[#222]">
+                  <div className="absolute -left-[9px] top-0 w-4 h-4 rounded-full bg-[#050505] border-2 border-[#444]" />
+                  <p className="text-[10px] font-mono text-[#666] mb-1">
+                    Mar 2026
+                  </p>
+                  <p className="font-bold text-white text-lg tracking-tight mb-1">
+                    Architecting Discotive Core
+                  </p>
+                  <p className="text-sm text-[#888] leading-relaxed">
+                    Building the OS for the next generation of founders and
+                    builders. Heavy focus on brutalist UI and Firebase
+                    architecture.
+                  </p>
+                </div>
+
+                <div className="relative pl-6 border-l-2 border-[#222]">
+                  <div className="absolute -left-[9px] top-0 w-4 h-4 rounded-full bg-[#050505] border-2 border-[#444]" />
+                  <p className="text-[10px] font-mono text-[#666] mb-1">
+                    Feb 2026
+                  </p>
+                  <p className="font-bold text-white text-lg tracking-tight mb-1">
+                    RG Consultancy Deployment
+                  </p>
+                  <p className="text-sm text-[#888] leading-relaxed">
+                    Cleared technical rounds and commenced BD infrastructure
+                    tasks.
+                  </p>
+                </div>
+
+                <div className="relative pl-6 border-l-2 border-transparent">
+                  <div className="absolute -left-[9px] top-0 w-4 h-4 rounded-full bg-[#050505] border-2 border-[#444]" />
+                  <p className="text-[10px] font-mono text-[#666] mb-1">
+                    Oct 2025
+                  </p>
+                  <p className="font-bold text-white text-lg tracking-tight mb-1 flex items-center gap-2">
+                    Smart India Hackathon{" "}
+                    <Award className="w-4 h-4 text-amber-500" />
+                  </p>
+                  <p className="text-sm text-[#888] leading-relaxed">
+                    Ranked 6th out of 250+ teams alongside senior cohort.
+                    Executed 36-hour continuous sprint.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </motion.div>
         </div>
       </div>
     </div>

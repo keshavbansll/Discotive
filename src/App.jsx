@@ -9,6 +9,13 @@ import Landing from "./pages/Landing";
 import Auth from "./pages/Auth";
 import MainLayout from "./layouts/MainLayout";
 import Dashboard from "./pages/Dashboard";
+import Roadmap from "./pages/Roadmap";
+import Leaderboard from "./pages/Leaderboard";
+import Opportunities from "./pages/Opportunities";
+import Vault from "./pages/Vault";
+import Hubs from "./pages/Hubs";
+import Profile from "./pages/Profile";
+import Settings from "./pages/Settings";
 
 const ProtectedRoute = ({ children }) => {
   const { currentUser } = useAuth();
@@ -66,25 +73,19 @@ function App() {
             }
           >
             <Route index element={<Dashboard />} />
-            <Route
-              path="roadmap"
-              element={<ComingSoon title="Execution Timeline" />}
-            />
-            <Route
-              path="leaderboard"
-              element={<ComingSoon title="Global Leaderboard" />}
-            />
+            <Route path="roadmap" element={<Roadmap />} />
+            <Route path="leaderboard" element={<Leaderboard />} />
+            <Route path="opportunities" element={<Opportunities />} />
+            <Route path="vault" element={<Vault />} />
+            <Route path="hubs" element={<Hubs />} />
+            <Route path="profile" element={<Profile />} />
+            <Route path="settings" element={<Settings />} />
             <Route
               path="finance"
               element={<ComingSoon title="Financial Ledger" />}
             />
             <Route path="network" element={<ComingSoon title="Network" />} />
-            <Route path="hubs" element={<ComingSoon title="Career Hubs" />} />
-            <Route
-              path="opportunities"
-              element={<ComingSoon title="Opportunities" />}
-            />
-            <Route path="vault" element={<ComingSoon title="Asset Vault" />} />
+
             <Route
               path="podcasts"
               element={<ComingSoon title="Podcasts & Media" />}
@@ -94,14 +95,6 @@ function App() {
               element={<ComingSoon title="Workshops & Assessments" />}
             />
             <Route path="discover" element={<ComingSoon title="Discover" />} />
-            <Route
-              path="profile"
-              element={<ComingSoon title="User Profile" />}
-            />
-            <Route
-              path="settings"
-              element={<ComingSoon title="OS Settings" />}
-            />
           </Route>
         </Routes>
       </Router>
