@@ -812,7 +812,7 @@ const Landing = () => {
                   alt="Reshmi Kumari"
                   onError={(e) => {
                     e.target.src = "/stock/Reshmi Kumari.jpg";
-                  }} // Fallback if image not found
+                  }}
                   className="w-full h-full object-cover grayscale hover:grayscale-0 transition-all duration-500"
                 />
               </div>
@@ -1064,25 +1064,19 @@ const Landing = () => {
               </div>
               <div className="flex items-center gap-6 text-slate-400">
                 <a
-                  href="#"
-                  className="hover:text-white transition-colors cursor-none"
-                >
-                  <Twitter className="w-5 h-5" />
-                </a>
-                <a
-                  href="#"
+                  href="https://www.instagram.com/discotive/"
                   className="hover:text-white transition-colors cursor-none"
                 >
                   <Instagram className="w-5 h-5" />
                 </a>
                 <a
-                  href="#"
+                  href="https://www.youtube.com/@discotive"
                   className="hover:text-white transition-colors cursor-none"
                 >
                   <Youtube className="w-5 h-5" />
                 </a>
                 <a
-                  href="#"
+                  href="https://www.linkedin.com/company/discotive"
                   className="hover:text-white transition-colors cursor-none"
                 >
                   <Linkedin className="w-5 h-5" />
