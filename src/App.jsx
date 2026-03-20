@@ -19,6 +19,8 @@ import Settings from "./pages/Settings";
 import About from "./pages/About";
 import Network from "./pages/Network";
 import PublicProfile from "./pages/PublicProfile";
+import Premium from "./pages/Premium";
+import Checkout from "./pages/Checkout";
 
 const ProtectedRoute = ({ children }) => {
   const { currentUser } = useAuth();
@@ -68,6 +70,8 @@ function App() {
           />
 
           <Route path="/about" element={<About />} />
+          <Route path="/premium" element={<Premium />} />
+          <Route path="/checkout" element={<Checkout />} />
 
           <Route
             path="/app"

@@ -1,7 +1,15 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { doc, getDoc, setDoc, addDoc, collection } from "firebase/firestore";
-import { db, auth } from "../firebase";
+import {
+  doc,
+  updateDoc,
+  getDoc,
+  setDoc,
+  addDoc,
+  collection,
+} from "firebase/firestore";
+import { db } from "../firebase";
 import ReactFlow, {
   Background,
   Controls,
@@ -43,6 +51,7 @@ import {
   AlertOctagon,
   Check,
   SlidersHorizontal,
+  Lock,
 } from "lucide-react";
 import { useUserData } from "../hooks/useUserData";
 import { cn } from "../components/ui/BentoCard";
@@ -445,6 +454,7 @@ const FlowCanvas = ({
 // ============================================================================
 const Roadmap = () => {
   const { userData } = useUserData();
+  const navigate = useNavigate();
 
   // --- CORE STATES ---
   const [nodes, setNodes] = useState([]);
@@ -462,6 +472,10 @@ const Roadmap = () => {
 
   const [activeEditNodeId, setActiveEditNodeId] = useState(null);
   const [calendarDate, setCalendarDate] = useState(new Date());
+
+  // --- SUBSCRIPTION STATE ---
+  const [subscriptionTier, setSubscriptionTier] = useState("free");
+  const [isProModalOpen, setIsProModalOpen] = useState(false);
 
   // --- TELEMETRY & TOASTS ---
   const [systemLedger, setSystemLedger] = useState([]);
@@ -499,13 +513,19 @@ const Roadmap = () => {
     }
   }, []);
 
-  // --- FIREBASE FETCH (SUBCOLLECTION) ---
+  // --- FIREBASE FETCH (ROADMAP + SUBSCRIPTION) ---
   useEffect(() => {
-    const fetchRoadmap = async () => {
-      const uid = auth.currentUser?.uid || userData?.id;
-      if (!uid) return;
+    const fetchData = async () => {
+      if (!userData?.id) return;
       try {
-        const docRef = doc(db, "users", uid, "execution_map", "current");
+        // 1. Fetch Roadmap
+        const docRef = doc(
+          db,
+          "users",
+          userData.id,
+          "execution_map",
+          "current",
+        );
         const docSnap = await getDoc(docRef);
         if (docSnap.exists()) {
           const rm = docSnap.data();
@@ -528,22 +548,35 @@ const Roadmap = () => {
             },
           ]);
         }
+
+        // 2. Fetch Subscription
+        const subRef = doc(db, "users", userData.id, "subscription", "current");
+        const subSnap = await getDoc(subRef);
+        if (subSnap.exists()) {
+          setSubscriptionTier(subSnap.data().tier || "free");
+        } else {
+          // Auto-initialize free tier for new users
+          await setDoc(subRef, {
+            tier: "free",
+            status: "active",
+            createdAt: new Date().toISOString(),
+          });
+          setSubscriptionTier("free");
+        }
       } catch (e) {
         console.error("Failed to load databank.", e);
       }
     };
-    fetchRoadmap();
+    fetchData();
   }, [userData?.id]);
 
-  // --- FIREBASE SAVE (SUBCOLLECTION) ---
+  // --- FIREBASE SAVE (ROADMAP) ---
   const handleCloudSave = useCallback(async () => {
-    const uid = auth.currentUser?.uid || userData?.id; // Fallback check
-
-    if (!hasUnsavedChanges || !uid) return;
+    if (!hasUnsavedChanges || !userData?.id) return;
     setIsSaving(true);
     try {
       await setDoc(
-        doc(db, "users", uid, "execution_map", "current"),
+        doc(db, "users", userData.id, "execution_map", "current"),
         {
           nodes,
           edges,
@@ -562,12 +595,12 @@ const Roadmap = () => {
     }
   }, [hasUnsavedChanges, userData?.id, nodes, edges, dailyStats, addToast]);
 
-  // useEffect(() => {
-  //   if (hasUnsavedChanges) {
-  //     const timer = setTimeout(() => handleCloudSave(), 3000);
-  //     return () => clearTimeout(timer);
-  //   }
-  // }, [hasUnsavedChanges, handleCloudSave]);
+  useEffect(() => {
+    if (hasUnsavedChanges) {
+      const timer = setTimeout(() => handleCloudSave(), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [hasUnsavedChanges, handleCloudSave]);
 
   // --- TASK AUTO-MIGRATION ALGORITHM (Overdue handling) ---
   useEffect(() => {
@@ -1110,16 +1143,13 @@ const Roadmap = () => {
   });
 
   const handleSaveJournal = async () => {
-    const uid = auth.currentUser?.uid || userData?.id;
-
+    const uid = userData?.id;
     if (!journalText.trim() || !uid) return;
-
     try {
       await addDoc(collection(db, "users", uid, "journal_entries"), {
         timestamp: new Date().toISOString(),
         content: journalText,
       });
-
       setJournalText("");
       addToast("Journal entry secured to databank.", "green");
       addLedgerEntry("Logged execution journal entry");
@@ -1215,12 +1245,11 @@ const Roadmap = () => {
             const isToday = isSameDay(d, new Date());
             const isSelected = isSameDay(d, selectedJournalDate);
 
-            // Dynamic Circle Styling Algorithm
             let dayClass = "text-[#444] hover:bg-[#222] hover:text-white";
             if (isSelected) {
-              dayClass = "bg-white text-black font-extrabold"; // Solid White Circle
+              dayClass = "bg-white text-black font-extrabold";
             } else if (isToday) {
-              dayClass = "border border-white text-white font-bold"; // Hollow White Circle
+              dayClass = "border border-white text-white font-bold";
             }
 
             return (
@@ -1531,15 +1560,37 @@ const Roadmap = () => {
           <div className="flex items-center gap-3 text-sm font-bold text-[#888] tracking-tight">
             <CalendarIcon className="w-4 h-4" /> {formattedDate}
           </div>
+
           <button
-            onClick={() => setIsJournalOpen(true)}
-            className="flex-1 max-w-lg w-full bg-[#111] border border-[#333] hover:border-white transition-all rounded-full py-3 px-6 flex items-center justify-center gap-3 group"
+            onClick={() =>
+              subscriptionTier === "free"
+                ? setIsProModalOpen(true)
+                : setIsJournalOpen(true)
+            }
+            className={cn(
+              "flex-1 max-w-lg w-full transition-all rounded-full py-3 px-6 flex items-center justify-center gap-3 group border",
+              subscriptionTier === "free"
+                ? "bg-red-500/10 border-red-500/30 hover:bg-red-500/20 text-red-500"
+                : "bg-[#111] border-[#333] hover:border-white text-[#ccc] hover:text-white",
+            )}
           >
-            <Edit3 className="w-4 h-4 text-[#888] group-hover:text-white transition-colors" />
-            <span className="text-sm font-bold text-[#ccc] group-hover:text-white transition-colors">
-              Open Execution Journal
-            </span>
+            {subscriptionTier === "free" ? (
+              <>
+                <Lock className="w-4 h-4" />
+                <span className="text-sm font-bold">
+                  Open Execution Journal
+                </span>
+              </>
+            ) : (
+              <>
+                <Edit3 className="w-4 h-4 text-[#888] group-hover:text-white transition-colors" />
+                <span className="text-sm font-bold text-[#ccc] group-hover:text-white transition-colors">
+                  Open Execution Journal
+                </span>
+              </>
+            )}
           </button>
+
           <div className="flex items-center gap-2 text-sm font-mono text-white tracking-widest">
             {formattedTime}
           </div>
@@ -1681,6 +1732,52 @@ const Roadmap = () => {
           ))}
         </AnimatePresence>
       </div>
+
+      {/* PRO UPGRADE MODAL */}
+      <AnimatePresence>
+        {isProModalOpen && (
+          <div className="fixed inset-0 z-[300] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsProModalOpen(false)}
+              className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="relative w-full max-w-md bg-[#0a0a0a] border border-[#222] rounded-[2rem] p-8 text-center shadow-2xl"
+            >
+              <div className="w-16 h-16 rounded-full bg-red-500/10 border border-red-500/30 flex items-center justify-center mx-auto mb-6">
+                <Lock className="w-8 h-8 text-red-500" />
+              </div>
+              <h3 className="text-2xl font-extrabold text-white mb-2">
+                Protocol Locked
+              </h3>
+              <p className="text-[#888] text-sm mb-8 leading-relaxed">
+                The Execution Journal and historical ledger are Discotive Pro
+                features. Do you wish to upgrade your clearance?
+              </p>
+              <div className="flex gap-4">
+                <button
+                  onClick={() => setIsProModalOpen(false)}
+                  className="flex-1 py-3 bg-[#111] border border-[#333] text-white font-bold rounded-xl hover:bg-[#222] transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => navigate("/premium")}
+                  className="flex-1 py-3 bg-white text-black font-extrabold rounded-xl hover:bg-[#ccc] transition-colors"
+                >
+                  Upgrade to Pro
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* EXECUTION JOURNAL MODAL */}
       <AnimatePresence>
