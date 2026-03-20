@@ -420,7 +420,7 @@ const Leaderboard = () => {
                 {user ? (
                   // POPULATED PODIUM CARD
                   <Link
-                    to={`/user/${user._username}`}
+                    to={`/${user._username}`}
                     className="block group w-full h-full relative flex flex-col items-center"
                   >
                     <div
