@@ -59,24 +59,24 @@ const StaticStars = () => {
 // ============================================================================
 const CHARACTERS = {
   rank1: {
-    Male: "/characters/Boy - 1.gif",
-    Female: "/characters/Boy - 1.gif",
-    Other: "/characters/Boy - 1.gif",
+    Male: "/Characters/Boy-1.gif",
+    Female: "/Characters/Girl-1.gif",
+    Other: "/Characters/Others-1.gif",
   },
   rank2: {
-    Male: "/characters/Boy - 1.gif",
-    Female: "/characters/Boy - 1.gif",
-    Other: "/characters/Boy - 1.gif",
+    Male: "/Characters/Boy-2.gif",
+    Female: "/Characters/Girl-2.gif",
+    Other: "/Characters/Others-1.gif",
   },
   rank3: {
-    Male: "/characters/Boy - 1.gif",
-    Female: "/characters/Boy - 1.gif",
-    Other: "/characters/Boy - 1.gif",
+    Male: "/Characters/Boy-3.gif",
+    Female: "/Characters/Girl-3.gif",
+    Other: "/Characters/Others-1.gif",
   },
   observer: {
-    Male: "/characters/Boy - 1.gif",
-    Female: "/characters/Boy - 1.gif",
-    Other: "/characters/Boy - 1.gif",
+    Male: "/Characters/Observer.gif",
+    Female: "/Characters/Observer.gif",
+    Other: "/Characters/Observer.gif",
   },
 };
 const getAvatar = (rankKey, gender) =>
