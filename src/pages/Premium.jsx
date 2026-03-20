@@ -86,7 +86,7 @@ const Premium = () => {
                 <p className="text-sm font-bold text-[#ccc] pt-0.5">
                   Execution Plan{" "}
                   <span className="text-[#666] font-mono text-[10px] ml-1 uppercase tracking-widest">
-                    (Max 20 Nodes)
+                    (Max 10 Nodes)
                   </span>
                 </p>
               </div>

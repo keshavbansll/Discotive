@@ -1094,6 +1094,7 @@ const Auth = () => {
   const [lastName, setLastName] = useState("");
   const [username, setUsername] = useState("");
   const [usernameAvailable, setUsernameAvailable] = useState(null);
+  const [gender, setGender] = useState("");
 
   const [userState, setUserState] = useState("");
   const [country, setCountry] = useState("");
@@ -1288,6 +1289,7 @@ const Auth = () => {
           lastName,
           email,
           username: username.toLowerCase(),
+          gender,
         },
         location: {
           state: userState,
@@ -1602,6 +1604,24 @@ const Auth = () => {
                       className={inputClass}
                       required
                     />
+                  </div>
+                  <div>
+                    <label className={labelClass}>
+                      Avatar Identity (For Leaderboard)
+                    </label>
+                    <select
+                      value={gender}
+                      onChange={(e) => setGender(e.target.value)}
+                      className={inputClass}
+                      required
+                    >
+                      <option value="" disabled>
+                        Select identity...
+                      </option>
+                      <option value="Male">Male</option>
+                      <option value="Female">Female</option>
+                      <option value="Other">Other / Stealth</option>
+                    </select>
                   </div>
 
                   <div className="grid grid-cols-2 gap-4">

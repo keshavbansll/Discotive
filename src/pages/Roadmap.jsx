@@ -228,10 +228,23 @@ const FlowCanvas = ({
   setActiveEditNodeId,
   addToast,
   addLedgerEntry,
+  subscriptionTier,
+  totalNodesCount,
+  onLimitReached,
 }) => {
   const { screenToFlowPosition, fitView } = useReactFlow();
   const [paneMenu, setPaneMenu] = useState(null);
   const [nodeMenu, setNodeMenu] = useState(null);
+  const [edgeMenu, setEdgeMenu] = useState(null);
+
+  const deleteEdge = () => {
+    if (!edgeMenu) return;
+    setEdges((eds) => eds.filter((e) => e.id !== edgeMenu.edge.id));
+    setHasUnsavedChanges(true);
+    addToast("Connection severed.", "grey");
+    addLedgerEntry("Severed node connection");
+    setEdgeMenu(null);
+  };
 
   const onNodesChange = useCallback(
     (c) => {
@@ -269,6 +282,11 @@ const FlowCanvas = ({
 
   const addNode = (type) => {
     if (!paneMenu) return;
+    if (subscriptionTier === "free" && totalNodesCount >= 10) {
+      onLimitReached();
+      setPaneMenu(null);
+      return;
+    }
     const position = screenToFlowPosition({
       x: paneMenu.left,
       y: paneMenu.top,
@@ -376,21 +394,32 @@ const FlowCanvas = ({
         onPaneContextMenu={(e) => {
           e.preventDefault();
           setNodeMenu(null);
+          setEdgeMenu(null);
           setPaneMenu({ top: e.clientY, left: e.clientX });
         }}
         onNodeContextMenu={(e, node) => {
           e.preventDefault();
           setPaneMenu(null);
+          setEdgeMenu(null);
           setNodeMenu({ top: e.clientY, left: e.clientX, node });
+        }}
+        // <-- ADD THIS PROP -->
+        onEdgeContextMenu={(e, edge) => {
+          e.preventDefault();
+          setPaneMenu(null);
+          setNodeMenu(null);
+          setEdgeMenu({ top: e.clientY, left: e.clientX, edge });
         }}
         onNodeClick={(e, node) => {
           e.preventDefault();
           e.stopPropagation();
           setActiveEditNodeId(node.id);
         }}
+        // <-- UPDATE THIS PROP to clear the edge menu too -->
         onPaneClick={() => {
           setPaneMenu(null);
           setNodeMenu(null);
+          setEdgeMenu(null);
         }}
         fitView
         className="bg-[#030303]"
@@ -444,6 +473,22 @@ const FlowCanvas = ({
             </button>
           </motion.div>
         )}
+        {edgeMenu && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            style={{ top: edgeMenu.top, left: edgeMenu.left }}
+            className="fixed z-[100] bg-[#0a0a0a] border border-[#222] rounded-xl shadow-2xl overflow-hidden min-w-[200px]"
+          >
+            <button
+              onClick={deleteEdge}
+              className="w-full px-4 py-3 text-left text-sm font-bold text-red-500 hover:bg-[#111] flex items-center gap-3"
+            >
+              <Trash2 className="w-4 h-4" /> Sever Connection
+            </button>
+          </motion.div>
+        )}
       </AnimatePresence>
     </div>
   );
@@ -476,6 +521,7 @@ const Roadmap = () => {
   // --- SUBSCRIPTION STATE ---
   const [subscriptionTier, setSubscriptionTier] = useState("free");
   const [isProModalOpen, setIsProModalOpen] = useState(false);
+  const [proModalReason, setProModalReason] = useState("journal");
 
   // --- TELEMETRY & TOASTS ---
   const [systemLedger, setSystemLedger] = useState([]);
@@ -1354,6 +1400,12 @@ const Roadmap = () => {
               setActiveEditNodeId={setActiveEditNodeId}
               addToast={addToast}
               addLedgerEntry={addLedgerEntry}
+              subscriptionTier={subscriptionTier}
+              totalNodesCount={nodes.length}
+              onLimitReached={() => {
+                setProModalReason("nodes");
+                setIsProModalOpen(true);
+              }}
             />
           </ReactFlowProvider>
         ) : (
@@ -1551,11 +1603,14 @@ const Roadmap = () => {
           </div>
 
           <button
-            onClick={() =>
-              subscriptionTier === "free"
-                ? setIsProModalOpen(true)
-                : setIsJournalOpen(true)
-            }
+            onClick={() => {
+              if (subscriptionTier === "free") {
+                setProModalReason("journal");
+                setIsProModalOpen(true);
+              } else {
+                setIsJournalOpen(true);
+              }
+            }}
             className={cn(
               "flex-1 max-w-lg w-full transition-all rounded-full py-3 px-6 flex items-center justify-center gap-3 group border",
               subscriptionTier === "free"
@@ -1746,8 +1801,9 @@ const Roadmap = () => {
                 Protocol Locked
               </h3>
               <p className="text-[#888] text-sm mb-8 leading-relaxed">
-                The Execution Journal and historical ledger are Discotive Pro
-                features. Do you wish to upgrade your clearance?
+                {proModalReason === "nodes"
+                  ? "The Free tier is strictly limited to 10 active execution nodes. Delete previous nodes or upgrade your clearance to deploy an unlimited map."
+                  : "The Execution Journal and historical ledger are Discotive Pro features. Do you wish to upgrade your clearance?"}
               </p>
               <div className="flex gap-4">
                 <button
