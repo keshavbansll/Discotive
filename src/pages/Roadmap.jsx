@@ -1223,10 +1223,15 @@ const Roadmap = () => {
 
   const handleCompleteAll = () => {
     if (window.confirm("Mark node and all tasks as completed?")) {
+      const incompleteTasksCount = (activeNode.data.tasks || []).filter(
+        (t) => !t.completed,
+      ).length;
+
       const tasks = (activeNode.data.tasks || []).map((t) => ({
         ...t,
         completed: true,
       }));
+
       setNodes((nds) =>
         nds.map((n) =>
           n.id === activeEditNodeId
@@ -1236,8 +1241,14 @@ const Roadmap = () => {
       );
       setHasUnsavedChanges(true);
 
-      // Pass the specific nodeType to layer the gradient properly
+      // Log the Node itself
       logDailyStat(activeNode.data.nodeType, 1);
+
+      // Log all unfinished tasks nested inside it
+      if (incompleteTasksCount > 0) {
+        logDailyStat("task", incompleteTasksCount);
+      }
+
       addToast(`Milestone Secured: ${activeNode.data.title}`, "green");
       addLedgerEntry(`Completed Milestone: ${activeNode.data.title}`);
     }
@@ -1245,13 +1256,18 @@ const Roadmap = () => {
 
   // Upgraded Ledger Counter for Multi-Layer Gradients
   const logDailyStat = (type, count = 1) => {
-    const todayStr = new Date().toISOString().split("T")[0];
+    // 1. Get exact local date string (prevents UTC shift bugs)
+    const d = new Date();
+    const offset = d.getTimezoneOffset() * 60000;
+    const todayStr = new Date(d.getTime() - offset).toISOString().split("T")[0];
+
     setDailyStats((prev) => {
+      // 2. Safely capture old schema data if it exists
       const current = prev[todayStr] || {
-        total: 0,
+        total: prev[todayStr]?.count || 0,
         subTasks: 0,
-        branches: 0,
-        cores: 0,
+        branches: prev[todayStr]?.hasBranch ? 1 : 0,
+        cores: prev[todayStr]?.hasCore ? 1 : 0,
       };
       return {
         ...prev,
@@ -1411,35 +1427,7 @@ const Roadmap = () => {
     let startX;
     let scrollLeft;
 
-    // Generate exactly 31 days (-15 days to +15 days) so Today is perfectly centered
-    const days = Array.from({ length: 31 }, (_, i) => {
-      const d = new Date();
-      d.setDate(d.getDate() - (15 - i));
-      const ds = d.toISOString().split("T")[0];
-      return {
-        date: d,
-        ds,
-        stat: dailyStats[ds] || {
-          total: 0,
-          subTasks: 0,
-          branches: 0,
-          cores: 0,
-        },
-      };
-    });
-
-    // Auto-scroll to center "Today" on initial render
-    useEffect(() => {
-      if (chartRef.current) {
-        const container = chartRef.current;
-        // Scroll exactly to the middle minus half the container width
-        const childWidth = container.scrollWidth / 31;
-        const middleOffset =
-          15 * childWidth - container.clientWidth / 2 + childWidth / 2;
-        container.scrollLeft = middleOffset;
-      }
-    }, [dailyStats]);
-
+    // 1. Define mouse handlers FIRST
     const handleMouseDown = (e) => {
       isDown = true;
       startX = e.pageX - chartRef.current.offsetLeft;
@@ -1459,6 +1447,40 @@ const Roadmap = () => {
       chartRef.current.scrollLeft = scrollLeft - walk;
     };
 
+    // 2. Generate days array
+    const days = Array.from({ length: 31 }, (_, i) => {
+      const d = new Date();
+      d.setDate(d.getDate() - (15 - i));
+
+      // Localize Timezone
+      const offset = d.getTimezoneOffset() * 60000;
+      const ds = new Date(d.getTime() - offset).toISOString().split("T")[0];
+
+      const rawStat = dailyStats[ds] || {};
+
+      return {
+        date: d,
+        ds,
+        stat: {
+          total: rawStat.total || rawStat.count || 0,
+          subTasks: rawStat.subTasks || 0,
+          branches: rawStat.branches || (rawStat.hasBranch ? 1 : 0),
+          cores: rawStat.cores || (rawStat.hasCore ? 1 : 0),
+        },
+      };
+    });
+
+    // 3. Auto-scroll to center "Today" on initial render
+    useEffect(() => {
+      if (chartRef.current) {
+        const container = chartRef.current;
+        const childWidth = container.scrollWidth / 31;
+        const middleOffset =
+          15 * childWidth - container.clientWidth / 2 + childWidth / 2;
+        container.scrollLeft = middleOffset;
+      }
+    }, [dailyStats]);
+
     return (
       <div
         ref={chartRef}
@@ -1466,7 +1488,8 @@ const Roadmap = () => {
         onMouseLeave={handleMouseLeave}
         onMouseUp={handleMouseUp}
         onMouseMove={handleMouseMove}
-        className="flex items-end gap-1.5 h-full w-full mt-auto overflow-x-auto custom-scrollbar cursor-grab active:cursor-grabbing pb-2"
+        // Added pt-20 to give the tooltip headroom inside the scroll container
+        className="flex items-end gap-1.5 h-full w-full mt-auto overflow-x-auto custom-scrollbar cursor-grab active:cursor-grabbing pb-2 pt-20"
       >
         {days.map(({ date, ds, stat }, i) => {
           const isToday = isSameDay(date, new Date());
@@ -1475,17 +1498,13 @@ const Roadmap = () => {
           let bgClass = "bg-[#222]";
           if (stat.total > 0) {
             if (stat.cores > 0 && stat.branches > 0) {
-              // All Three: Darkest Olive -> Light Green
               bgClass =
                 "bg-gradient-to-b from-[#052e16] via-[#15803d] to-[#4ade80]";
             } else if (stat.cores > 0) {
-              // Core + Tasks: Dark Green -> Light Green
               bgClass = "bg-gradient-to-b from-[#14532d] to-[#4ade80]";
             } else if (stat.branches > 0) {
-              // Branch + Tasks: Medium Green -> Light Green
               bgClass = "bg-gradient-to-b from-[#16a34a] to-[#86efac]";
             } else {
-              // Only Subtasks: Solid Light Green
               bgClass = "bg-[#4ade80]";
             }
           }
@@ -1494,11 +1513,17 @@ const Roadmap = () => {
             <div
               key={i}
               className="relative group flex-1 min-w-[14px] flex flex-col justify-end items-center h-full"
+              // Native fallback for mobile long-press
+              title={`${date.toLocaleDateString("en-US", {
+                month: "short",
+                day: "numeric",
+              })}\nTasks: ${stat.subTasks}\nBranches: ${stat.branches}\nCores: ${stat.cores}`}
             >
               <div
                 className={cn("w-full rounded-sm transition-all", bgClass)}
+                // Capped at 75% so the tooltip never hits the ceiling and gets clipped off
                 style={{
-                  height: `${Math.max(5, Math.min(100, stat.total * 15))}%`,
+                  height: `${Math.max(5, Math.min(75, stat.total * 15))}%`,
                 }}
               />
               {isToday && (
@@ -1506,7 +1531,7 @@ const Roadmap = () => {
               )}
 
               {/* Tooltip showing specific count breakdown */}
-              <div className="absolute bottom-full mb-2 opacity-0 group-hover:opacity-100 bg-black border border-[#333] shadow-2xl text-white text-[10px] px-3 py-2 rounded-lg pointer-events-none whitespace-nowrap z-50 flex flex-col gap-1">
+              <div className="absolute bottom-[calc(100%+8px)] opacity-0 group-hover:opacity-100 bg-black border border-[#333] shadow-2xl text-white text-[10px] px-3 py-2 rounded-lg pointer-events-none whitespace-nowrap z-50 flex flex-col gap-1 transition-opacity duration-200">
                 <span className="font-extrabold border-b border-[#333] pb-1 mb-1">
                   {date.toLocaleDateString("en-US", {
                     month: "short",
@@ -2042,7 +2067,7 @@ const Roadmap = () => {
                   Milestones Completed
                 </p>
                 <p className="text-4xl md:text-5xl font-extrabold text-white tracking-tighter">
-                  {nodes.filter((n) => Number(n.data.progress) === 100).length}
+                  {nodesWithPriority.filter((n) => n.data.isCompleted).length}
                 </p>
                 <p className="text-xs md:text-sm text-[#888] mt-2">
                   Roadmap completions (All Time)
