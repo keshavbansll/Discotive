@@ -216,7 +216,7 @@ const About = () => {
 
             <div className="flex items-center gap-4">
               <AnimatedButton
-                to="/login"
+                to="/auth"
                 variant="outline"
                 className="px-6 py-2.5 hidden md:flex cursor-none"
                 onMouseEnter={() => setIsHoveringCard(true)}

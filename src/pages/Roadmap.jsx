@@ -20,6 +20,8 @@ import ReactFlow, {
   ReactFlowProvider,
   useReactFlow,
 } from "reactflow";
+import { toPng } from "html-to-image";
+import { jsPDF } from "jspdf";
 import "reactflow/dist/style.css";
 import {
   Calendar as CalendarIcon,
@@ -49,8 +51,12 @@ import {
   ChevronRight,
   AlertOctagon,
   Check,
-  SlidersHorizontal,
   Lock,
+  Download,
+  Image as ImageIcon,
+  FileText,
+  Edit2,
+  Minus,
 } from "lucide-react";
 import { useUserData } from "../hooks/useUserData";
 import { cn } from "../components/ui/BentoCard";
@@ -124,7 +130,7 @@ const ExecutionNode = ({ data, selected }) => {
   return (
     <div
       className={cn(
-        "w-[320px] rounded-[24px] p-6 relative z-10 transition-all duration-500 border",
+        "w-[280px] md:w-[320px] rounded-[24px] p-5 md:p-6 relative z-10 transition-all duration-500 border",
         containerClass,
         glow,
       )}
@@ -137,7 +143,7 @@ const ExecutionNode = ({ data, selected }) => {
 
       <div className="flex justify-between items-start mb-4 pointer-events-none">
         <div className="flex flex-col">
-          <span className="text-[10px] font-bold text-[#666] uppercase tracking-[0.2em] mb-1 flex items-center gap-2">
+          <span className="text-[9px] md:text-[10px] font-bold text-[#666] uppercase tracking-[0.2em] mb-1 flex items-center gap-2">
             {isBranch ? "Sub-Branch" : "Core Milestone"}
             {priorityStatus === "READY" && !isOverdue && (
               <span className="w-2 h-2 rounded-full bg-white animate-pulse" />
@@ -150,13 +156,13 @@ const ExecutionNode = ({ data, selected }) => {
         {icon}
       </div>
 
-      <h3 className="text-xl font-extrabold tracking-tight text-white mb-1 pointer-events-none">
+      <h3 className="text-lg md:text-xl font-extrabold tracking-tight text-white mb-1 pointer-events-none">
         {data.title || "Untitled Milestone"}
       </h3>
       {data.subtitle && (
         <p
           className={cn(
-            "text-[10px] font-bold uppercase tracking-widest mb-3 pointer-events-none",
+            "text-[9px] md:text-[10px] font-bold uppercase tracking-widest mb-3 pointer-events-none",
             isOverdue
               ? "text-red-400"
               : priorityStatus === "READY"
@@ -168,25 +174,27 @@ const ExecutionNode = ({ data, selected }) => {
         </p>
       )}
 
-      <p className="text-[#888] text-sm leading-relaxed mb-6 pointer-events-none line-clamp-2">
+      <p className="text-[#888] text-xs md:text-sm leading-relaxed mb-6 pointer-events-none line-clamp-2">
         {data.desc || "No parameters defined."}
       </p>
 
       <div className="flex items-end justify-between pt-4 border-t border-[#222]">
         <div className="pointer-events-none">
-          <p className="text-[10px] font-bold text-[#666] uppercase tracking-[0.2em] mb-1">
+          <p className="text-[9px] md:text-[10px] font-bold text-[#666] uppercase tracking-[0.2em] mb-1">
             Target
           </p>
           <p
             className={cn(
-              "text-xs font-mono",
+              "text-[10px] md:text-xs font-mono",
               isOverdue ? "text-red-500 font-bold" : "text-white",
             )}
           >
             {data.deadline || "TBD"}
           </p>
         </div>
-        <p className="text-[10px] font-mono text-[#666]">{progress}%</p>
+        <p className="text-[9px] md:text-[10px] font-mono text-[#666]">
+          {progress}%
+        </p>
       </div>
 
       <div
@@ -200,7 +208,6 @@ const ExecutionNode = ({ data, selected }) => {
           style={{ width: `${progress}%` }}
         />
       </div>
-
       <Handle
         type="source"
         position={Position.Right}
@@ -233,18 +240,28 @@ const FlowCanvas = ({
   onLimitReached,
 }) => {
   const { screenToFlowPosition, fitView } = useReactFlow();
+
+  // --- MENUS & STATES ---
   const [paneMenu, setPaneMenu] = useState(null);
   const [nodeMenu, setNodeMenu] = useState(null);
   const [edgeMenu, setEdgeMenu] = useState(null);
+  const [isDownloadOpen, setIsDownloadOpen] = useState(false);
+  const downloadRef = useRef(null);
 
-  const deleteEdge = () => {
-    if (!edgeMenu) return;
-    setEdges((eds) => eds.filter((e) => e.id !== edgeMenu.edge.id));
-    setHasUnsavedChanges(true);
-    addToast("Connection severed.", "grey");
-    addLedgerEntry("Severed node connection");
-    setEdgeMenu(null);
-  };
+  // --- MOBILE RESPONSIVE STATES ---
+  const [isMobileEditMode, setIsMobileEditMode] = useState(false);
+  const [selectedMobileElement, setSelectedMobileElement] = useState(null); // { type: 'node' | 'edge', id }
+
+  // Close download dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (downloadRef.current && !downloadRef.current.contains(event.target)) {
+        setIsDownloadOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   const onNodesChange = useCallback(
     (c) => {
@@ -280,17 +297,19 @@ const FlowCanvas = ({
     [filteredNodes, setEdges, setHasUnsavedChanges],
   );
 
-  const addNode = (type) => {
-    if (!paneMenu) return;
+  // --- NODE DEPLOYMENT LOGIC ---
+  const addNode = (type, mobilePos = null) => {
+    if (!paneMenu && !mobilePos) return;
     if (subscriptionTier === "free" && totalNodesCount >= 10) {
       onLimitReached();
       setPaneMenu(null);
       return;
     }
-    const position = screenToFlowPosition({
-      x: paneMenu.left,
-      y: paneMenu.top,
-    });
+
+    // Support for both desktop right-click position and mobile center-screen position
+    const position =
+      mobilePos || screenToFlowPosition({ x: paneMenu.left, y: paneMenu.top });
+
     const newNode = {
       id: `node_${Date.now()}`,
       type: "executionNode",
@@ -316,18 +335,128 @@ const FlowCanvas = ({
     setPaneMenu(null);
   };
 
-  const deleteNode = () => {
-    if (!nodeMenu) return;
-    setNodes((nds) => nds.filter((n) => n.id !== nodeMenu.node.id));
+  const deleteNode = (overrideId = null) => {
+    const targetId = overrideId || nodeMenu?.node?.id;
+    if (!targetId) return;
+    setNodes((nds) => nds.filter((n) => n.id !== targetId));
     setEdges((eds) =>
-      eds.filter(
-        (e) => e.source !== nodeMenu.node.id && e.target !== nodeMenu.node.id,
-      ),
+      eds.filter((e) => e.source !== targetId && e.target !== targetId),
     );
     setHasUnsavedChanges(true);
     addToast("Node obliterated.", "red");
-    addLedgerEntry(`Deleted node: ${nodeMenu.node.data.title}`);
     setNodeMenu(null);
+    setSelectedMobileElement(null);
+  };
+
+  const deleteEdge = (overrideId = null) => {
+    const targetId = overrideId || edgeMenu?.edge?.id;
+    if (!targetId) return;
+    setEdges((eds) => eds.filter((e) => e.id !== targetId));
+    setHasUnsavedChanges(true);
+    addToast("Connection severed.", "grey");
+    setEdgeMenu(null);
+    setSelectedMobileElement(null);
+  };
+
+  // --- DOWNLOAD ENGINE (PNG/PDF) ---
+  const handleDownload = async (format) => {
+    setIsDownloadOpen(false);
+    addToast("Processing export...", "grey");
+
+    // 1. Re-center and fit map
+    fitView({ duration: 800, padding: 0.2 });
+    await new Promise((resolve) => setTimeout(resolve, 1000)); // Wait for animation
+
+    const flowElement = document.querySelector(".react-flow");
+    if (!flowElement) return;
+
+    try {
+      // 2. Inject temporary Watermark
+      const watermark = document.createElement("img");
+      watermark.src = "/logox.png";
+      watermark.id = "discotive-export-watermark";
+      watermark.style.cssText =
+        "position: absolute; bottom: 20px; right: 20px; width: 60px; height: 60px; object-fit: contain; opacity: 0.7; z-index: 9999;";
+      flowElement.appendChild(watermark);
+
+      // Hide UI controls temporarily
+      const controls = document.querySelectorAll(
+        ".react-flow__controls, .absolute.z-\\[70\\]",
+      );
+      controls.forEach((el) => (el.style.display = "none"));
+
+      // 3. Generate Image
+      const dataUrl = await toPng(flowElement, {
+        backgroundColor: "#030303",
+        quality: 1,
+        pixelRatio: 2, // High Res
+      });
+
+      // Restore UI & Remove Watermark
+      controls.forEach((el) => (el.style.display = "flex"));
+      const wm = document.getElementById("discotive-export-watermark");
+      if (wm) wm.remove();
+
+      // 4. Trigger Download based on format
+      if (format === "png") {
+        const link = document.createElement("a");
+        link.download = `Discotive-Execution-Map-${new Date().toISOString().split("T")[0]}.png`;
+        link.href = dataUrl;
+        link.click();
+        addToast("PNG Exported successfully.", "green");
+      } else if (format === "pdf") {
+        const pdf = new jsPDF({
+          orientation: "landscape",
+          unit: "px",
+          format: [flowElement.clientWidth, flowElement.clientHeight],
+        });
+        pdf.addImage(
+          dataUrl,
+          "PNG",
+          0,
+          0,
+          flowElement.clientWidth,
+          flowElement.clientHeight,
+        );
+        pdf.save(
+          `Discotive-Execution-Map-${new Date().toISOString().split("T")[0]}.pdf`,
+        );
+        addToast("PDF Exported successfully.", "green");
+      }
+    } catch (err) {
+      console.error(err);
+      addToast("Export failed.", "red");
+    }
+  };
+
+  // --- MOBILE FULLSCREEN ORIENTATION ---
+  const toggleFullscreen = async () => {
+    const newFsState = !isMapFullscreen;
+    setIsMapFullscreen(newFsState);
+
+    // Attempt to lock screen to landscape if going fullscreen on mobile
+    if (newFsState && window.innerWidth <= 768) {
+      try {
+        if (screen.orientation && screen.orientation.lock) {
+          await document.documentElement.requestFullscreen();
+          await screen.orientation.lock("landscape");
+        }
+      } catch (err) {
+        console.warn("Orientation lock not supported or failed", err);
+      }
+    } else if (!newFsState) {
+      try {
+        if (document.fullscreenElement) {
+          await document.exitFullscreen();
+        }
+        if (screen.orientation && screen.orientation.unlock) {
+          screen.orientation.unlock();
+        }
+      } catch (err) {
+        console.warn("Exit fullscreen failed", err);
+      }
+      setIsMobileEditMode(false);
+    }
   };
 
   return (
@@ -336,11 +465,19 @@ const FlowCanvas = ({
         "relative transition-all duration-500 overflow-hidden",
         isMapFullscreen
           ? "fixed inset-0 z-[60] bg-[#030303]"
-          : "w-full h-[700px] border-y border-[#111]",
+          : "w-full h-[600px] md:h-[700px] border-y border-[#111]",
       )}
     >
-      <div className="absolute top-6 left-6 z-[70] flex items-center gap-3 bg-[#0a0a0a]/90 backdrop-blur-xl border border-[#222] p-2 rounded-full shadow-2xl">
-        <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-[#666] ml-2 mr-2">
+      {/* DESKTOP / DEFAULT TOP CONTROLS */}
+      <div
+        className={cn(
+          "absolute top-4 left-4 md:top-6 md:left-6 z-[70] flex items-center gap-2 md:gap-3 bg-[#0a0a0a]/90 backdrop-blur-xl border border-[#222] p-1.5 md:p-2 rounded-full shadow-2xl transition-opacity",
+          isMapFullscreen && window.innerWidth <= 768
+            ? "opacity-0 pointer-events-none"
+            : "opacity-100",
+        )}
+      >
+        <div className="hidden md:flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-[#666] ml-2 mr-2">
           {isSaving ? (
             <>
               <RefreshCw className="w-3 h-3 animate-spin text-amber-500" />{" "}
@@ -356,25 +493,78 @@ const FlowCanvas = ({
             </>
           )}
         </div>
+        {/* Mobile Simplified Indicator */}
+        <div className="flex md:hidden items-center justify-center w-8 h-8 rounded-full bg-[#111]">
+          {isSaving ? (
+            <RefreshCw className="w-4 h-4 animate-spin text-amber-500" />
+          ) : hasUnsavedChanges ? (
+            <CloudOff className="w-4 h-4 text-amber-500" />
+          ) : (
+            <Cloud className="w-4 h-4 text-green-500" />
+          )}
+        </div>
         <button
           onClick={handleCloudSave}
           disabled={!hasUnsavedChanges || isSaving}
-          className="bg-white text-black px-5 py-2 rounded-full font-bold text-xs hover:bg-[#ccc] transition-colors disabled:opacity-50"
+          className="bg-white text-black px-3 md:px-5 py-1.5 md:py-2 rounded-full font-bold text-xs hover:bg-[#ccc] transition-colors disabled:opacity-50 flex items-center gap-2"
         >
-          Save to Cloud
+          <span className="hidden md:inline">Save to Cloud</span>
+          <Cloud className="w-4 h-4 md:hidden" />
         </button>
       </div>
 
-      <div className="absolute top-6 right-6 z-[70] flex gap-2">
+      {/* TOP RIGHT CONTROLS (Target, Download, Fullscreen) */}
+      <div
+        className={cn(
+          "absolute top-4 right-4 md:top-6 md:right-6 z-[70] flex gap-2",
+          isMapFullscreen && window.innerWidth <= 768
+            ? "opacity-0 pointer-events-none"
+            : "opacity-100",
+        )}
+      >
         <button
           onClick={() => fitView({ duration: 800, padding: 0.2 })}
-          className="w-10 h-10 bg-[#0a0a0a]/90 backdrop-blur-xl border border-[#222] rounded-full flex items-center justify-center text-[#888] hover:text-white hover:bg-[#222] transition-colors shadow-2xl"
+          className="w-9 h-9 md:w-10 md:h-10 bg-[#0a0a0a]/90 backdrop-blur-xl border border-[#222] rounded-full flex items-center justify-center text-[#888] hover:text-white hover:bg-[#222] transition-colors shadow-2xl"
         >
           <Target className="w-4 h-4" />
         </button>
+
+        {/* DOWNLOAD DROPDOWN ENGINE */}
+        <div className="relative" ref={downloadRef}>
+          <button
+            onClick={() => setIsDownloadOpen(!isDownloadOpen)}
+            className="w-9 h-9 md:w-10 md:h-10 bg-[#0a0a0a]/90 backdrop-blur-xl border border-[#222] rounded-full flex items-center justify-center text-[#888] hover:text-white hover:bg-[#222] transition-colors shadow-2xl"
+          >
+            <Download className="w-4 h-4" />
+          </button>
+          <AnimatePresence>
+            {isDownloadOpen && (
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: 10 }}
+                className="absolute top-full right-0 mt-2 w-40 bg-[#0a0a0a] border border-[#222] rounded-xl shadow-2xl overflow-hidden flex flex-col z-[100]"
+              >
+                <button
+                  onClick={() => handleDownload("png")}
+                  className="flex items-center gap-3 px-4 py-3 text-xs font-bold text-white hover:bg-[#111] border-b border-[#222]"
+                >
+                  <ImageIcon className="w-4 h-4 text-[#888]" /> Save as PNG
+                </button>
+                <button
+                  onClick={() => handleDownload("pdf")}
+                  className="flex items-center gap-3 px-4 py-3 text-xs font-bold text-white hover:bg-[#111]"
+                >
+                  <FileText className="w-4 h-4 text-[#888]" /> Save as PDF
+                </button>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+
         <button
-          onClick={() => setIsMapFullscreen(!isMapFullscreen)}
-          className="w-10 h-10 bg-[#0a0a0a]/90 backdrop-blur-xl border border-[#222] rounded-full flex items-center justify-center text-[#888] hover:text-white hover:bg-[#222] transition-colors shadow-2xl"
+          onClick={toggleFullscreen}
+          className="w-9 h-9 md:w-10 md:h-10 bg-[#0a0a0a]/90 backdrop-blur-xl border border-[#222] rounded-full flex items-center justify-center text-[#888] hover:text-white hover:bg-[#222] transition-colors shadow-2xl"
         >
           {isMapFullscreen ? (
             <Minimize className="w-4 h-4" />
@@ -384,9 +574,108 @@ const FlowCanvas = ({
         </button>
       </div>
 
+      {/* MOBILE FULLSCREEN EDIT CONTROLS */}
+      {isMapFullscreen && (
+        <div className="md:hidden absolute top-4 left-4 z-[80] flex flex-col gap-3">
+          <button
+            onClick={() => {
+              setIsMobileEditMode(!isMobileEditMode);
+              setSelectedMobileElement(null);
+            }}
+            className={cn(
+              "w-10 h-10 rounded-full flex items-center justify-center shadow-2xl border transition-colors",
+              isMobileEditMode
+                ? "bg-white text-black border-white"
+                : "bg-[#0a0a0a]/90 backdrop-blur-xl text-[#888] border-[#222]",
+            )}
+          >
+            <Edit2 className="w-4 h-4" />
+          </button>
+
+          <AnimatePresence>
+            {isMobileEditMode && (
+              <motion.div
+                initial={{ opacity: 0, x: -10 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -10 }}
+                className="flex flex-col gap-2"
+              >
+                <button
+                  onClick={() => {
+                    fitView();
+                    setTimeout(() => addNode("core", { x: 250, y: 250 }), 500);
+                  }}
+                  className="w-10 h-10 bg-[#0a0a0a]/90 backdrop-blur-xl border border-[#222] rounded-full flex items-center justify-center text-white shadow-2xl"
+                >
+                  <Plus className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => {
+                    fitView();
+                    setTimeout(
+                      () => addNode("branch", { x: 250, y: 250 }),
+                      500,
+                    );
+                  }}
+                  className="w-10 h-10 bg-[#0a0a0a]/90 backdrop-blur-xl border border-[#222] rounded-full flex items-center justify-center text-white shadow-2xl"
+                >
+                  <GitBranch className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() =>
+                    selectedMobileElement?.type === "node"
+                      ? deleteNode(selectedMobileElement.id)
+                      : deleteEdge(selectedMobileElement.id)
+                  }
+                  disabled={!selectedMobileElement}
+                  className="w-10 h-10 bg-[#450a0a]/90 backdrop-blur-xl border border-red-500/30 rounded-full flex items-center justify-center text-red-500 disabled:opacity-30 shadow-2xl transition-opacity"
+                >
+                  <Minus className="w-4 h-4" />
+                </button>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+      )}
+
+      {/* MOBILE FULLSCREEN EXIT CONTROLS */}
+      {isMapFullscreen && (
+        <div className="md:hidden absolute top-4 right-4 z-[80]">
+          <button
+            onClick={toggleFullscreen}
+            className="w-10 h-10 bg-[#0a0a0a]/90 backdrop-blur-xl border border-[#222] rounded-full flex items-center justify-center text-white shadow-2xl"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+      )}
+
       <ReactFlow
-        nodes={filteredNodes}
-        edges={edges}
+        nodes={filteredNodes.map((n) => ({
+          ...n,
+          style: {
+            ...n.style,
+            // Visually highlight the selected node in mobile edit mode
+            boxShadow:
+              isMobileEditMode && selectedMobileElement?.id === n.id
+                ? "0 0 0 2px white"
+                : "none",
+            borderRadius: "24px",
+          },
+        }))}
+        edges={edges.map((e) => ({
+          ...e,
+          style: {
+            ...e.style,
+            // Visually highlight the selected edge in mobile edit mode
+            stroke:
+              isMobileEditMode && selectedMobileElement?.id === e.id
+                ? "white"
+                : e.style?.stroke || "#666",
+            strokeWidth:
+              isMobileEditMode && selectedMobileElement?.id === e.id ? 4 : 2,
+          },
+        }))}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
@@ -403,7 +692,6 @@ const FlowCanvas = ({
           setEdgeMenu(null);
           setNodeMenu({ top: e.clientY, left: e.clientX, node });
         }}
-        // <-- ADD THIS PROP -->
         onEdgeContextMenu={(e, edge) => {
           e.preventDefault();
           setPaneMenu(null);
@@ -413,13 +701,24 @@ const FlowCanvas = ({
         onNodeClick={(e, node) => {
           e.preventDefault();
           e.stopPropagation();
-          setActiveEditNodeId(node.id);
+          if (isMobileEditMode) {
+            setSelectedMobileElement({ type: "node", id: node.id });
+          } else {
+            setActiveEditNodeId(node.id);
+          }
         }}
-        // <-- UPDATE THIS PROP to clear the edge menu too -->
+        onEdgeClick={(e, edge) => {
+          if (isMobileEditMode) {
+            e.preventDefault();
+            e.stopPropagation();
+            setSelectedMobileElement({ type: "edge", id: edge.id });
+          }
+        }}
         onPaneClick={() => {
           setPaneMenu(null);
           setNodeMenu(null);
           setEdgeMenu(null);
+          if (isMobileEditMode) setSelectedMobileElement(null);
         }}
         fitView
         className="bg-[#030303]"
@@ -428,9 +727,10 @@ const FlowCanvas = ({
         proOptions={{ hideAttribution: true }}
       >
         <Background color="#222" gap={24} size={2} />
+        {/* Hide default controls on Mobile so custom mobile controls take over */}
         <Controls
           showInteractive={false}
-          className="!bg-transparent !border-none shadow-2xl [&_.react-flow__controls-button]:bg-[#0a0a0a] [&_.react-flow__controls-button]:border-[#222] [&_.react-flow__controls-button]:fill-[#888] hover:[&_.react-flow__controls-button]:fill-white hover:[&_.react-flow__controls-button]:bg-[#222] [&_.react-flow__controls-button]:transition-colors overflow-hidden rounded-xl border border-[#222] z-30"
+          className="!bg-transparent !border-none shadow-2xl [&_.react-flow__controls-button]:bg-[#0a0a0a] [&_.react-flow__controls-button]:border-[#222] [&_.react-flow__controls-button]:fill-[#888] hover:[&_.react-flow__controls-button]:fill-white hover:[&_.react-flow__controls-button]:bg-[#222] [&_.react-flow__controls-button]:transition-colors overflow-hidden rounded-xl border border-[#222] z-30 hidden md:flex"
         />
       </ReactFlow>
 
@@ -438,7 +738,7 @@ const FlowCanvas = ({
         {/* Invisible Backdrop to close menus when clicking anywhere else */}
         {(paneMenu || nodeMenu || edgeMenu) && (
           <div
-            className="fixed inset-0 z-[90]"
+            className="fixed inset-0 z-[90] hidden md:block"
             onClick={() => {
               setPaneMenu(null);
               setNodeMenu(null);
@@ -459,7 +759,7 @@ const FlowCanvas = ({
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.95 }}
             style={{ top: paneMenu.top, left: paneMenu.left }}
-            className="fixed z-[100] bg-[#0a0a0a] border border-[#222] rounded-xl shadow-2xl overflow-hidden min-w-[220px]"
+            className="fixed z-[100] bg-[#0a0a0a] border border-[#222] rounded-xl shadow-2xl overflow-hidden min-w-[220px] hidden md:block"
           >
             <button
               onClick={() => addNode("core")}
@@ -481,10 +781,10 @@ const FlowCanvas = ({
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.95 }}
             style={{ top: nodeMenu.top, left: nodeMenu.left }}
-            className="fixed z-[100] bg-[#0a0a0a] border border-[#222] rounded-xl shadow-2xl overflow-hidden min-w-[200px]"
+            className="fixed z-[100] bg-[#0a0a0a] border border-[#222] rounded-xl shadow-2xl overflow-hidden min-w-[200px] hidden md:block"
           >
             <button
-              onClick={deleteNode}
+              onClick={() => deleteNode()}
               className="w-full px-4 py-3 text-left text-sm font-bold text-red-500 hover:bg-[#111] flex items-center gap-3"
             >
               <Trash2 className="w-4 h-4" /> Delete Milestone
@@ -497,10 +797,10 @@ const FlowCanvas = ({
             animate={{ opacity: 1, scale: 1 }}
             exit={{ opacity: 0, scale: 0.95 }}
             style={{ top: edgeMenu.top, left: edgeMenu.left }}
-            className="fixed z-[100] bg-[#0a0a0a] border border-[#222] rounded-xl shadow-2xl overflow-hidden min-w-[200px]"
+            className="fixed z-[100] bg-[#0a0a0a] border border-[#222] rounded-xl shadow-2xl overflow-hidden min-w-[200px] hidden md:block"
           >
             <button
-              onClick={deleteEdge}
+              onClick={() => deleteEdge()}
               className="w-full px-4 py-3 text-left text-sm font-bold text-red-500 hover:bg-[#111] flex items-center gap-3"
             >
               <Trash2 className="w-4 h-4" /> Sever Connection
@@ -522,6 +822,9 @@ const Roadmap = () => {
   // --- CORE STATES ---
   const [nodes, setNodes] = useState([]);
   const [edges, setEdges] = useState([]);
+
+  // dailyStats now tracks detailed counts per node type
+  // e.g., { '2026-03-22': { subTasks: 5, branches: 1, cores: 0 } }
   const [dailyStats, setDailyStats] = useState({});
 
   const [viewMode, setViewMode] = useState("timeline");
@@ -588,13 +891,12 @@ const Roadmap = () => {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
-  // --- FIREBASE FETCH (ROADMAP + SUBSCRIPTION) ---
+  // --- FIREBASE FETCH ---
   useEffect(() => {
     const fetchData = async () => {
-      const uid = auth.currentUser?.uid || userData?.id; // <-- ADD THIS
+      const uid = auth.currentUser?.uid || userData?.id;
       if (!uid) return;
       try {
-        // 1. Fetch Roadmap
         const docRef = doc(db, "users", uid, "execution_map", "current");
         const docSnap = await getDoc(docRef);
         if (docSnap.exists()) {
@@ -619,7 +921,6 @@ const Roadmap = () => {
           ]);
         }
 
-        // 2. Fetch Subscription
         const subRef = doc(db, "users", uid, "subscription", "current");
         const subSnap = await getDoc(subRef);
         if (subSnap.exists()) {
@@ -639,9 +940,9 @@ const Roadmap = () => {
     fetchData();
   }, [userData?.id]);
 
-  // --- FIREBASE SAVE (ROADMAP) ---
+  // --- FIREBASE SAVE ---
   const handleCloudSave = useCallback(async () => {
-    const uid = auth.currentUser?.uid || userData?.id; // <-- ADD THIS
+    const uid = auth.currentUser?.uid || userData?.id;
     if (!hasUnsavedChanges || !uid) return;
 
     setIsSaving(true);
@@ -915,7 +1216,7 @@ const Roadmap = () => {
     const wasCompleted = !tasks.find((t) => t.id === taskId).completed;
     if (wasCompleted) {
       addToast("Task sequence executed.", "grey");
-      logDailyStat(activeNode.data.nodeType);
+      logDailyStat("task", 1);
       addLedgerEntry(`Executed sub-task in: ${activeNode.data.title}`);
     }
   };
@@ -934,26 +1235,31 @@ const Roadmap = () => {
         ),
       );
       setHasUnsavedChanges(true);
-      logDailyStat(activeNode.data.nodeType);
+
+      // Pass the specific nodeType to layer the gradient properly
+      logDailyStat(activeNode.data.nodeType, 1);
       addToast(`Milestone Secured: ${activeNode.data.title}`, "green");
       addLedgerEntry(`Completed Milestone: ${activeNode.data.title}`);
     }
   };
 
-  const logDailyStat = (nodeType) => {
+  // Upgraded Ledger Counter for Multi-Layer Gradients
+  const logDailyStat = (type, count = 1) => {
     const todayStr = new Date().toISOString().split("T")[0];
     setDailyStats((prev) => {
       const current = prev[todayStr] || {
-        count: 0,
-        hasCore: false,
-        hasBranch: false,
+        total: 0,
+        subTasks: 0,
+        branches: 0,
+        cores: 0,
       };
       return {
         ...prev,
         [todayStr]: {
-          count: current.count + 1,
-          hasCore: current.hasCore || nodeType === "core",
-          hasBranch: current.hasBranch || nodeType === "branch",
+          total: current.total + count,
+          subTasks: current.subTasks + (type === "task" ? count : 0),
+          branches: current.branches + (type === "branch" ? count : 0),
+          cores: current.cores + (type === "core" ? count : 0),
         },
       };
     });
@@ -1047,14 +1353,12 @@ const Roadmap = () => {
                 {d}
               </div>
             ))}
-
             {Array.from({ length: firstDay }).map((_, i) => (
               <div
                 key={`empty-${i}`}
                 className="h-24 md:h-32 rounded-2xl bg-transparent"
               />
             ))}
-
             {days.map(({ day, date, nodes }) => {
               const isToday = isSameDay(date, new Date());
               return (
@@ -1100,12 +1404,41 @@ const Roadmap = () => {
     );
   };
 
-  // --- DRAGGABLE INSIGHTS CHART ---
+  // --- UPGRADED ADVANCED INSIGHTS TRACKER CHART ---
   const InsightsChart = () => {
     const chartRef = useRef(null);
     let isDown = false;
     let startX;
     let scrollLeft;
+
+    // Generate exactly 31 days (-15 days to +15 days) so Today is perfectly centered
+    const days = Array.from({ length: 31 }, (_, i) => {
+      const d = new Date();
+      d.setDate(d.getDate() - (15 - i));
+      const ds = d.toISOString().split("T")[0];
+      return {
+        date: d,
+        ds,
+        stat: dailyStats[ds] || {
+          total: 0,
+          subTasks: 0,
+          branches: 0,
+          cores: 0,
+        },
+      };
+    });
+
+    // Auto-scroll to center "Today" on initial render
+    useEffect(() => {
+      if (chartRef.current) {
+        const container = chartRef.current;
+        // Scroll exactly to the middle minus half the container width
+        const childWidth = container.scrollWidth / 31;
+        const middleOffset =
+          15 * childWidth - container.clientWidth / 2 + childWidth / 2;
+        container.scrollLeft = middleOffset;
+      }
+    }, [dailyStats]);
 
     const handleMouseDown = (e) => {
       isDown = true;
@@ -1126,17 +1459,6 @@ const Roadmap = () => {
       chartRef.current.scrollLeft = scrollLeft - walk;
     };
 
-    const days = Array.from({ length: 30 }, (_, i) => {
-      const d = new Date();
-      d.setDate(d.getDate() - (29 - i));
-      const ds = d.toISOString().split("T")[0];
-      return {
-        date: d,
-        ds,
-        stat: dailyStats[ds] || { count: 0, hasCore: false, hasBranch: false },
-      };
-    });
-
     return (
       <div
         ref={chartRef}
@@ -1148,33 +1470,65 @@ const Roadmap = () => {
       >
         {days.map(({ date, ds, stat }, i) => {
           const isToday = isSameDay(date, new Date());
-          let bgColor = "bg-[#222]";
-          if (stat.count > 0)
-            bgColor = stat.hasCore ? "bg-green-500" : "bg-[#114020]";
-          if (stat.count > 0 && !stat.hasCore && !stat.hasBranch)
-            bgColor = "bg-white";
+
+          // --- ADVANCED GRADIENT LOGIC ---
+          let bgClass = "bg-[#222]";
+          if (stat.total > 0) {
+            if (stat.cores > 0 && stat.branches > 0) {
+              // All Three: Darkest Olive -> Light Green
+              bgClass =
+                "bg-gradient-to-b from-[#052e16] via-[#15803d] to-[#4ade80]";
+            } else if (stat.cores > 0) {
+              // Core + Tasks: Dark Green -> Light Green
+              bgClass = "bg-gradient-to-b from-[#14532d] to-[#4ade80]";
+            } else if (stat.branches > 0) {
+              // Branch + Tasks: Medium Green -> Light Green
+              bgClass = "bg-gradient-to-b from-[#16a34a] to-[#86efac]";
+            } else {
+              // Only Subtasks: Solid Light Green
+              bgClass = "bg-[#4ade80]";
+            }
+          }
 
           return (
             <div
               key={i}
-              className="relative group flex-1 min-w-[12px] flex flex-col justify-end items-center h-full"
+              className="relative group flex-1 min-w-[14px] flex flex-col justify-end items-center h-full"
             >
               <div
-                className={cn("w-full rounded-sm transition-all", bgColor)}
+                className={cn("w-full rounded-sm transition-all", bgClass)}
                 style={{
-                  height: `${Math.max(5, Math.min(100, stat.count * 20))}%`,
+                  height: `${Math.max(5, Math.min(100, stat.total * 15))}%`,
                 }}
               />
               {isToday && (
                 <div className="w-full h-1 bg-white mt-1 rounded-full shrink-0" />
               )}
 
-              <div className="absolute bottom-full mb-2 opacity-0 group-hover:opacity-100 bg-black text-white text-[10px] font-bold px-2 py-1 rounded pointer-events-none whitespace-nowrap z-50">
-                {stat.count} tasks •{" "}
-                {date.toLocaleDateString("en-US", {
-                  month: "short",
-                  day: "numeric",
-                })}
+              {/* Tooltip showing specific count breakdown */}
+              <div className="absolute bottom-full mb-2 opacity-0 group-hover:opacity-100 bg-black border border-[#333] shadow-2xl text-white text-[10px] px-3 py-2 rounded-lg pointer-events-none whitespace-nowrap z-50 flex flex-col gap-1">
+                <span className="font-extrabold border-b border-[#333] pb-1 mb-1">
+                  {date.toLocaleDateString("en-US", {
+                    month: "short",
+                    day: "numeric",
+                  })}
+                </span>
+                <span className="text-[#888]">
+                  <span className="text-[#4ade80] font-bold">
+                    {stat.subTasks}
+                  </span>{" "}
+                  Sub-Tasks
+                </span>
+                <span className="text-[#888]">
+                  <span className="text-[#16a34a] font-bold">
+                    {stat.branches}
+                  </span>{" "}
+                  Branches
+                </span>
+                <span className="text-[#888]">
+                  <span className="text-[#14532d] font-bold">{stat.cores}</span>{" "}
+                  Cores
+                </span>
               </div>
             </div>
           );
@@ -1195,6 +1549,7 @@ const Roadmap = () => {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(timer);
   }, []);
+
   const formattedDate = currentTime.toLocaleDateString("en-US", {
     weekday: "long",
     month: "long",
@@ -1207,7 +1562,7 @@ const Roadmap = () => {
   });
 
   const handleSaveJournal = async () => {
-    const uid = auth.currentUser?.uid || userData?.id; // <-- ADD THIS
+    const uid = auth.currentUser?.uid || userData?.id;
     if (!journalText.trim() || !uid) return;
     try {
       await addDoc(collection(db, "users", uid, "journal_entries"), {
@@ -1299,7 +1654,6 @@ const Roadmap = () => {
           {Array.from({ length: firstDay }).map((_, i) => (
             <div key={`empty-${i}`} />
           ))}
-
           {days.map((day) => {
             const d = new Date(
               journalCalDate.getFullYear(),
@@ -1310,11 +1664,9 @@ const Roadmap = () => {
             const isSelected = isSameDay(d, selectedJournalDate);
 
             let dayClass = "text-[#444] hover:bg-[#222] hover:text-white";
-            if (isSelected) {
-              dayClass = "bg-white text-black font-extrabold";
-            } else if (isToday) {
+            if (isSelected) dayClass = "bg-white text-black font-extrabold";
+            else if (isToday)
               dayClass = "border border-white text-white font-bold";
-            }
 
             return (
               <div
@@ -1337,20 +1689,20 @@ const Roadmap = () => {
   return (
     <div className="bg-[#030303] min-h-screen text-white selection:bg-white selection:text-black pb-20">
       {/* HEADER */}
-      <div className="max-w-[1600px] mx-auto px-6 md:px-12 pt-12 pb-8 flex flex-col md:flex-row justify-between items-start md:items-end gap-8 relative z-20">
+      <div className="max-w-[1600px] mx-auto px-4 md:px-12 pt-10 md:pt-12 pb-6 md:pb-8 flex flex-col md:flex-row justify-between items-start md:items-end gap-6 md:gap-8 relative z-20">
         <div>
-          <h1 className="text-5xl md:text-7xl font-extrabold tracking-tighter text-white mb-2 leading-none">
+          <h1 className="text-4xl md:text-7xl font-extrabold tracking-tighter text-white mb-2 leading-none">
             Execution Plan.
           </h1>
-          <p className="text-lg md:text-xl text-[#888] font-medium tracking-tight">
+          <p className="text-sm md:text-xl text-[#888] font-medium tracking-tight">
             The algorithmic blueprint of your monopoly.
           </p>
         </div>
-        <div className="flex items-center gap-4 w-full md:w-auto relative">
+        <div className="flex items-center gap-2 md:gap-4 w-full md:w-auto relative">
           <div className="relative w-full md:w-64" ref={dropdownRef}>
             <button
               onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-              className="w-full flex items-center justify-between gap-4 bg-[#0a0a0a] border border-[#222] px-6 py-4 rounded-full font-bold text-sm text-white hover:border-[#444] transition-colors"
+              className="w-full flex items-center justify-between gap-4 bg-[#0a0a0a] border border-[#222] px-4 md:px-6 py-3 md:py-4 rounded-full font-bold text-xs md:text-sm text-white hover:border-[#444] transition-colors"
             >
               <span className="truncate">{timeframe}</span>{" "}
               <ChevronDown className="w-4 h-4 text-[#666] shrink-0" />
@@ -1375,7 +1727,7 @@ const Roadmap = () => {
                         setTimeframe(t);
                         setIsDropdownOpen(false);
                       }}
-                      className="w-full text-left px-6 py-4 text-sm font-bold text-[#888] hover:text-white hover:bg-[#111] transition-colors"
+                      className="w-full text-left px-6 py-4 text-xs md:text-sm font-bold text-[#888] hover:text-white hover:bg-[#111] transition-colors"
                     >
                       {t}
                     </button>
@@ -1388,24 +1740,24 @@ const Roadmap = () => {
             <button
               onClick={() => setViewMode("timeline")}
               className={cn(
-                "p-3 rounded-full transition-all",
+                "p-2 md:p-3 rounded-full transition-all",
                 viewMode === "timeline"
                   ? "bg-[#222] text-white"
                   : "text-[#666] hover:text-white",
               )}
             >
-              <GitBranch className="w-5 h-5" />
+              <GitBranch className="w-4 h-4 md:w-5 md:h-5" />
             </button>
             <button
               onClick={() => setViewMode("calendar")}
               className={cn(
-                "p-3 rounded-full transition-all",
+                "p-2 md:p-3 rounded-full transition-all",
                 viewMode === "calendar"
                   ? "bg-[#222] text-white"
                   : "text-[#666] hover:text-white",
               )}
             >
-              <CalendarIcon className="w-5 h-5" />
+              <CalendarIcon className="w-4 h-4 md:w-5 md:h-5" />
             </button>
           </div>
         </div>
@@ -1625,9 +1977,9 @@ const Roadmap = () => {
       </div>
 
       {/* DATE/TIME/JOURNAL BAR */}
-      <div className="bg-[#050505] border-b border-[#222] py-5 shadow-lg relative z-20">
-        <div className="max-w-[1600px] mx-auto px-6 md:px-12 flex flex-col md:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-3 text-sm font-bold text-[#888] tracking-tight">
+      <div className="bg-[#050505] border-b border-[#222] py-4 md:py-5 shadow-lg relative z-20">
+        <div className="max-w-[1600px] mx-auto px-4 md:px-12 flex flex-col md:flex-row items-center justify-between gap-4">
+          <div className="flex items-center gap-3 text-xs md:text-sm font-bold text-[#888] tracking-tight">
             <CalendarIcon className="w-4 h-4" /> {formattedDate}
           </div>
 
@@ -1664,96 +2016,97 @@ const Roadmap = () => {
             )}
           </button>
 
-          <div className="flex items-center gap-2 text-sm font-mono text-white tracking-widest">
+          <div className="flex items-center gap-2 text-xs md:text-sm font-mono text-white tracking-widest">
             {formattedTime}
           </div>
         </div>
       </div>
 
       {/* PROGRESS INSIGHTS (TELEMETRY) */}
-      <div className="max-w-[1600px] mx-auto px-6 md:px-12 py-20 relative z-20">
-        <div className="mb-12">
-          <h2 className="text-3xl font-extrabold tracking-tight text-white mb-2">
+      <div className="max-w-[1600px] mx-auto px-4 md:px-12 py-12 md:py-20 relative z-20">
+        <div className="mb-8 md:mb-12">
+          <h2 className="text-2xl md:text-3xl font-extrabold tracking-tight text-white mb-1 md:mb-2">
             Progress Insights.
           </h2>
-          <p className="text-[#888] font-medium">
+          <p className="text-xs md:text-sm text-[#888] font-medium">
             Tracking verified execution data.
           </p>
         </div>
 
         {/* RESTRICTED HEIGHT GRID TO PREVENT STRETCHING BUG */}
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-8 h-auto lg:h-[400px]">
-          <div className="lg:col-span-2 bg-[#0a0a0a] border border-[#222] rounded-[2rem] p-8 md:p-12 hover:border-[#333] transition-colors flex flex-col h-full">
-            <div className="flex justify-between items-start mb-8">
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 md:gap-8 h-auto lg:h-[400px]">
+          <div className="lg:col-span-2 bg-[#0a0a0a] border border-[#222] rounded-[2rem] p-6 md:p-12 hover:border-[#333] transition-colors flex flex-col h-[300px] lg:h-full">
+            <div className="flex justify-between items-start mb-4 md:mb-8">
               <div>
-                <p className="text-xs font-bold text-[#666] uppercase tracking-[0.2em] mb-2">
+                <p className="text-[10px] md:text-xs font-bold text-[#666] uppercase tracking-[0.2em] mb-2">
                   Milestones Completed
                 </p>
-                <p className="text-5xl font-extrabold text-white tracking-tighter">
+                <p className="text-4xl md:text-5xl font-extrabold text-white tracking-tighter">
                   {nodes.filter((n) => Number(n.data.progress) === 100).length}
                 </p>
-                <p className="text-[#888] mt-2">
+                <p className="text-xs md:text-sm text-[#888] mt-2">
                   Roadmap completions (All Time)
                 </p>
               </div>
-              <Activity className="w-8 h-8 text-[#444]" />
+              <Activity className="w-6 h-6 md:w-8 md:h-8 text-[#444]" />
             </div>
             <div className="flex-1 min-h-[100px]">
               <InsightsChart />
             </div>
           </div>
 
-          <div className="flex flex-col gap-8 h-full">
-            <div className="flex-1 bg-[#0a0a0a] border border-[#222] rounded-[2rem] p-8 flex flex-col justify-center hover:border-[#333] transition-colors min-h-0">
-              <p className="text-xs font-bold text-[#666] uppercase tracking-[0.2em] mb-4 flex items-center gap-2">
+          <div className="flex flex-col gap-6 md:gap-8 h-full">
+            <div className="flex-1 bg-[#0a0a0a] border border-[#222] rounded-[2rem] p-6 md:p-8 flex flex-col justify-center hover:border-[#333] transition-colors min-h-0">
+              <p className="text-[10px] md:text-xs font-bold text-[#666] uppercase tracking-[0.2em] mb-3 md:mb-4 flex items-center gap-2">
                 <ShieldCheck className="w-4 h-4" /> Profile Reach
               </p>
               <div className="flex items-baseline gap-2">
-                <span className="text-5xl md:text-6xl font-extrabold tracking-tighter text-white">
+                <span className="text-4xl md:text-6xl font-extrabold tracking-tighter text-white">
                   0
                 </span>
-                <span className="text-[#888] font-medium">views</span>
+                <span className="text-xs md:text-sm text-[#888] font-medium">
+                  views
+                </span>
               </div>
-              <p className="text-[#666] text-sm mt-2">
+              <p className="text-xs md:text-sm text-[#666] mt-2">
                 Public visibility over 7 days.
               </p>
             </div>
 
-            <div className="flex-1 bg-white text-black rounded-[2rem] p-8 flex flex-col justify-between hover:scale-[1.02] transition-transform cursor-pointer min-h-0">
+            <div className="flex-1 bg-white text-black rounded-[2rem] p-6 md:p-8 flex flex-col justify-between hover:scale-[1.02] transition-transform cursor-pointer min-h-0">
               <div className="flex justify-between items-start">
-                <p className="text-xs font-extrabold uppercase tracking-[0.2em]">
+                <p className="text-[10px] md:text-xs font-extrabold uppercase tracking-[0.2em]">
                   Current Focus
                 </p>
                 <div className="w-2 h-2 bg-black rounded-full animate-pulse" />
               </div>
               <div>
-                <h3 className="text-xl font-extrabold tracking-tight mb-1 truncate">
+                <h3 className="text-lg md:text-xl font-extrabold tracking-tight mb-1 truncate">
                   {nodesWithPriority.find(
                     (n) => n.data.priorityStatus === "READY",
                   )?.data.title || "Awaiting Assignment"}
                 </h3>
-                <p className="text-xs font-bold opacity-70 flex items-center gap-2">
+                <p className="text-[10px] md:text-xs font-bold opacity-70 flex items-center gap-2">
                   <Clock className="w-3.5 h-3.5" /> Deploy node to start
                 </p>
               </div>
             </div>
           </div>
 
-          <div className="bg-[#0a0a0a] border border-[#222] rounded-[2rem] p-8 flex flex-col h-full overflow-hidden hover:border-[#333] transition-colors">
-            <div className="flex justify-between items-center mb-6 shrink-0">
-              <p className="text-xs font-bold text-[#666] uppercase tracking-[0.2em] flex items-center gap-2">
+          <div className="bg-[#0a0a0a] border border-[#222] rounded-[2rem] p-6 md:p-8 flex flex-col h-[300px] lg:h-full overflow-hidden hover:border-[#333] transition-colors">
+            <div className="flex justify-between items-center mb-4 md:mb-6 shrink-0">
+              <p className="text-[10px] md:text-xs font-bold text-[#666] uppercase tracking-[0.2em] flex items-center gap-2">
                 <List className="w-4 h-4" /> System Ledger
               </p>
-              <span className="text-[9px] font-mono text-[#444] uppercase">
+              <span className="text-[8px] md:text-[9px] font-mono text-[#444] uppercase">
                 24H Cache
               </span>
             </div>
-            {/* Scrollable Ledger Box */}
             <div className="flex flex-col flex-1 overflow-y-auto custom-scrollbar space-y-4 pr-2">
               {systemLedger.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-full opacity-50">
-                  <Hash className="w-8 h-8 text-[#444] mb-3" />
-                  <p className="text-xs font-bold text-[#888]">
+                  <Hash className="w-6 h-6 md:w-8 md:h-8 text-[#444] mb-3" />
+                  <p className="text-[10px] md:text-xs font-bold text-[#888]">
                     No activity logged yet.
                   </p>
                 </div>
@@ -1763,10 +2116,10 @@ const Roadmap = () => {
                     key={entry.id}
                     className="border-l-2 border-[#333] pl-3 py-1 shrink-0"
                   >
-                    <p className="text-xs font-bold text-[#ccc] truncate">
+                    <p className="text-[10px] md:text-xs font-bold text-[#ccc] truncate">
                       {entry.action}
                     </p>
-                    <p className="text-[9px] font-mono text-[#666]">
+                    <p className="text-[8px] md:text-[9px] font-mono text-[#666]">
                       {new Date(entry.time).toLocaleTimeString()}
                     </p>
                   </div>
@@ -1778,7 +2131,7 @@ const Roadmap = () => {
       </div>
 
       {/* TOAST SYSTEM (Bottom Left Pop-ups) */}
-      <div className="fixed bottom-6 left-6 z-[200] flex flex-col gap-2 pointer-events-none">
+      <div className="fixed bottom-4 md:bottom-6 left-4 md:left-6 z-[200] flex flex-col gap-2 pointer-events-none w-[calc(100vw-32px)] md:w-auto">
         <AnimatePresence>
           {toasts.map((t) => (
             <motion.div
@@ -1795,12 +2148,16 @@ const Roadmap = () => {
                     : "bg-[#111] border-[#333] text-white",
               )}
             >
-              {t.type === "green" && <CheckCircle2 className="w-4 h-4" />}
-              {t.type === "red" && <AlertOctagon className="w-4 h-4" />}
-              {t.type === "grey" && (
-                <Activity className="w-4 h-4 text-[#888]" />
+              {t.type === "green" && (
+                <CheckCircle2 className="w-4 h-4 shrink-0" />
               )}
-              {t.msg}
+              {t.type === "red" && (
+                <AlertOctagon className="w-4 h-4 shrink-0" />
+              )}
+              {t.type === "grey" && (
+                <Activity className="w-4 h-4 text-[#888] shrink-0" />
+              )}
+              <span className="truncate">{t.msg}</span>
             </motion.div>
           ))}
         </AnimatePresence>
@@ -1821,29 +2178,29 @@ const Roadmap = () => {
               initial={{ opacity: 0, scale: 0.95, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
               exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="relative w-full max-w-md bg-[#0a0a0a] border border-[#222] rounded-[2rem] p-8 text-center shadow-2xl"
+              className="relative w-full max-w-md bg-[#0a0a0a] border border-[#222] rounded-[2rem] p-6 md:p-8 text-center shadow-2xl"
             >
-              <div className="w-16 h-16 rounded-full bg-red-500/10 border border-red-500/30 flex items-center justify-center mx-auto mb-6">
-                <Lock className="w-8 h-8 text-red-500" />
+              <div className="w-12 h-12 md:w-16 md:h-16 rounded-full bg-red-500/10 border border-red-500/30 flex items-center justify-center mx-auto mb-4 md:mb-6">
+                <Lock className="w-6 h-6 md:w-8 md:h-8 text-red-500" />
               </div>
-              <h3 className="text-2xl font-extrabold text-white mb-2">
+              <h3 className="text-xl md:text-2xl font-extrabold text-white mb-2">
                 Protocol Locked
               </h3>
-              <p className="text-[#888] text-sm mb-8 leading-relaxed">
+              <p className="text-[#888] text-xs md:text-sm mb-6 md:mb-8 leading-relaxed">
                 {proModalReason === "nodes"
                   ? "The Free tier is strictly limited to 10 active execution nodes. Delete previous nodes or upgrade your clearance to deploy an unlimited map."
                   : "The Execution Journal and historical ledger are Discotive Pro features. Do you wish to upgrade your clearance?"}
               </p>
-              <div className="flex gap-4">
+              <div className="flex gap-3 md:gap-4">
                 <button
                   onClick={() => setIsProModalOpen(false)}
-                  className="flex-1 py-3 bg-[#111] border border-[#333] text-white font-bold rounded-xl hover:bg-[#222] transition-colors"
+                  className="flex-1 py-2.5 md:py-3 bg-[#111] border border-[#333] text-white text-xs md:text-sm font-bold rounded-xl hover:bg-[#222] transition-colors"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={() => navigate("/premium")}
-                  className="flex-1 py-3 bg-white text-black font-extrabold rounded-xl hover:bg-[#ccc] transition-colors"
+                  className="flex-1 py-2.5 md:py-3 bg-white text-black text-xs md:text-sm font-extrabold rounded-xl hover:bg-[#ccc] transition-colors"
                 >
                   Upgrade to Pro
                 </button>
@@ -1856,7 +2213,7 @@ const Roadmap = () => {
       {/* EXECUTION JOURNAL MODAL */}
       <AnimatePresence>
         {isJournalOpen && (
-          <div className="fixed inset-0 z-[150] flex items-center justify-center p-4 md:p-8">
+          <div className="fixed inset-0 z-[150] flex items-center justify-center p-0 md:p-8">
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
@@ -1873,22 +2230,22 @@ const Roadmap = () => {
                 "relative bg-[#0a0a0a] border border-[#222] shadow-2xl flex flex-col transition-all duration-300",
                 isJournalFullscreen
                   ? "w-full h-full rounded-none"
-                  : "w-full max-w-6xl h-[80vh] rounded-[2rem]",
+                  : "w-full h-full md:h-[80vh] md:max-w-6xl rounded-none md:rounded-[2rem]",
               )}
             >
-              <div className="flex justify-between items-center p-6 md:p-8 border-b border-[#222] shrink-0">
+              <div className="flex justify-between items-center p-4 md:p-8 border-b border-[#222] shrink-0">
                 <div>
-                  <h2 className="text-2xl font-extrabold tracking-tight text-white mb-1">
+                  <h2 className="text-xl md:text-2xl font-extrabold tracking-tight text-white mb-1">
                     Execution Journal.
                   </h2>
-                  <p className="text-[#666] font-mono text-xs">
+                  <p className="text-[#666] font-mono text-[10px] md:text-xs">
                     {formattedDate}
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => setIsJournalFullscreen(!isJournalFullscreen)}
-                    className="p-3 text-[#888] hover:text-white bg-[#111] hover:bg-[#222] rounded-full transition-colors"
+                    className="hidden md:block p-2 md:p-3 text-[#888] hover:text-white bg-[#111] hover:bg-[#222] rounded-full transition-colors"
                   >
                     {isJournalFullscreen ? (
                       <Minimize className="w-4 h-4" />
@@ -1898,7 +2255,7 @@ const Roadmap = () => {
                   </button>
                   <button
                     onClick={() => setIsJournalOpen(false)}
-                    className="p-3 text-[#888] hover:text-white bg-[#111] hover:bg-[#222] rounded-full transition-colors"
+                    className="p-2 md:p-3 text-[#888] hover:text-white bg-[#111] hover:bg-[#222] rounded-full transition-colors"
                   >
                     <X className="w-4 h-4" />
                   </button>
@@ -1906,20 +2263,21 @@ const Roadmap = () => {
               </div>
 
               <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
-                <div className="w-full md:w-80 border-b md:border-b-0 md:border-r border-[#222] p-6 overflow-y-auto custom-scrollbar bg-[#050505] flex flex-col">
-                  <div className="mb-8">
-                    <p className="text-[10px] font-bold text-[#666] uppercase tracking-[0.2em] mb-4 flex items-center gap-2">
+                {/* Mobile: Mini Tracker shifts to top */}
+                <div className="w-full md:w-80 border-b md:border-b-0 md:border-r border-[#222] p-4 md:p-6 overflow-y-auto custom-scrollbar bg-[#050505] flex flex-col shrink-0 md:shrink">
+                  <div className="mb-4 md:mb-8">
+                    <p className="text-[9px] md:text-[10px] font-bold text-[#666] uppercase tracking-[0.2em] mb-3 md:mb-4 flex items-center gap-2">
                       <CalendarIcon className="w-3 h-3" /> Tracker
                     </p>
-                    <div className="bg-[#111] border border-[#222] rounded-xl p-4">
+                    <div className="bg-[#111] border border-[#222] rounded-xl p-3 md:p-4">
                       {generateMiniCalendar()}
                     </div>
                   </div>
-                  <p className="text-[10px] font-bold text-[#666] uppercase tracking-[0.2em] mb-4 flex items-center gap-2">
+                  <p className="hidden md:flex text-[10px] font-bold text-[#666] uppercase tracking-[0.2em] mb-4 items-center gap-2">
                     <Clock className="w-3 h-3" /> Archive
                   </p>
-                  <div className="space-y-4 flex-1">
-                    <div className="flex flex-col items-center justify-center py-10 opacity-50">
+                  <div className="hidden md:flex space-y-4 flex-1">
+                    <div className="flex flex-col items-center justify-center py-10 opacity-50 w-full">
                       <p className="text-xs font-bold text-[#666]">
                         No previous entries.
                       </p>
@@ -1927,10 +2285,10 @@ const Roadmap = () => {
                   </div>
                 </div>
 
-                <div className="flex-1 flex flex-col p-6 md:p-10 relative">
-                  <div className="flex items-center gap-4 mb-6 opacity-50">
-                    <AlignLeft className="w-5 h-5 text-[#888]" />
-                    <span className="text-sm font-bold text-[#888]">
+                <div className="flex-1 flex flex-col p-4 md:p-10 relative bg-[#0a0a0a]">
+                  <div className="flex items-center gap-3 md:gap-4 mb-4 md:mb-6 opacity-50">
+                    <AlignLeft className="w-4 h-4 md:w-5 md:h-5 text-[#888]" />
+                    <span className="text-xs md:text-sm font-bold text-[#888]">
                       Drafting new entry...
                     </span>
                   </div>
@@ -1940,12 +2298,12 @@ const Roadmap = () => {
                     value={journalText}
                     onChange={(e) => setJournalText(e.target.value)}
                     placeholder="Document the reality of today's execution..."
-                    className="flex-1 w-full bg-transparent text-lg md:text-xl font-medium text-white placeholder-[#444] focus:outline-none resize-none leading-relaxed custom-scrollbar"
+                    className="flex-1 w-full bg-transparent text-base md:text-xl font-medium text-white placeholder-[#444] focus:outline-none resize-none leading-relaxed custom-scrollbar"
                   />
-                  <div className="flex items-center justify-between pt-6 border-t border-[#222] mt-auto shrink-0">
+                  <div className="flex items-center justify-between pt-4 md:pt-6 border-t border-[#222] mt-auto shrink-0">
                     <p
                       className={cn(
-                        "text-xs font-mono font-bold",
+                        "text-[10px] md:text-xs font-mono font-bold",
                         journalText.length >= JOURNAL_LIMIT
                           ? "text-red-500"
                           : "text-[#666]",
@@ -1955,7 +2313,7 @@ const Roadmap = () => {
                     </p>
                     <button
                       onClick={handleSaveJournal}
-                      className="px-8 py-3.5 font-extrabold text-black bg-white hover:bg-[#ccc] rounded-full transition-colors text-sm"
+                      className="px-6 md:px-8 py-2.5 md:py-3.5 font-extrabold text-black bg-white hover:bg-[#ccc] rounded-full transition-colors text-xs md:text-sm"
                     >
                       Save Entry
                     </button>
