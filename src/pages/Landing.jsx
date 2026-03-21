@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   ChevronRight,
+  ChevronLeft,
   Layout,
   Activity,
   MapPin,
@@ -24,6 +25,7 @@ import {
 } from "lucide-react";
 import GlobalLoader from "../components/GlobalLoader";
 import AnimatedButton from "../components/AnimatedButton";
+import { cn } from "../components/ui/BentoCard";
 
 // ----------------------------------------------------------------------
 // THE BACKGROUND ANIMATIONS (Falling Stars / The "Paths")
@@ -59,6 +61,100 @@ const ParticleBackground = () => {
         />
       ))}
     </div>
+  );
+};
+
+// ----------------------------------------------------------------------
+// MOBILE CAROUSEL ENGINE (Auto-play + Swipe + Desktop Grid)
+// ----------------------------------------------------------------------
+const ResponsiveCarousel = ({
+  items,
+  renderItem,
+  autoPlayInterval = 4000,
+  desktopGridClass = "md:grid-cols-3",
+}) => {
+  const [index, setIndex] = useState(0);
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setIndex((prev) => (prev + 1) % items.length);
+    }, autoPlayInterval);
+    return () => clearInterval(timer);
+  }, [items.length, autoPlayInterval]);
+
+  const handleDragEnd = (e, { offset }) => {
+    const swipe = offset.x;
+    if (swipe < -50) {
+      setIndex((prev) => (prev + 1) % items.length);
+    } else if (swipe > 50) {
+      setIndex((prev) => (prev - 1 + items.length) % items.length);
+    }
+  };
+
+  return (
+    <>
+      {/* Desktop View (Grid) */}
+      <div className={`hidden md:grid gap-6 ${desktopGridClass}`}>
+        {items.map((item, i) => (
+          <div key={i} className="h-full">
+            {renderItem(item, i)}
+          </div>
+        ))}
+      </div>
+
+      {/* Mobile View (Carousel) */}
+      <div className="block md:hidden relative w-full overflow-hidden pb-16 pt-4">
+        <motion.div
+          className="flex items-stretch touch-pan-y"
+          animate={{ x: `-${index * 100}%` }}
+          transition={{ type: "spring", bounce: 0, duration: 0.5 }}
+          drag="x"
+          dragConstraints={{ left: 0, right: 0 }}
+          dragElastic={1}
+          onDragEnd={handleDragEnd}
+        >
+          {items.map((item, i) => (
+            <div
+              key={i}
+              className="w-full shrink-0 px-2 flex justify-center h-full"
+            >
+              <div className="w-full h-full pointer-events-auto">
+                {renderItem(item, i)}
+              </div>
+            </div>
+          ))}
+        </motion.div>
+
+        {/* Navigation Controls */}
+        <div className="absolute bottom-0 left-0 right-0 flex items-center justify-center gap-6 mt-6">
+          <button
+            onClick={() =>
+              setIndex((p) => (p - 1 + items.length) % items.length)
+            }
+            className="p-2 rounded-full bg-white/5 border border-white/10 hover:bg-white/20 active:scale-95 transition-all text-white"
+          >
+            <ChevronLeft className="w-4 h-4" />
+          </button>
+          <div className="flex gap-2">
+            {items.map((_, i) => (
+              <div
+                key={i}
+                className={cn(
+                  "w-1.5 h-1.5 rounded-full transition-colors",
+                  i === index ? "bg-white" : "bg-white/20",
+                )}
+              />
+            ))}
+          </div>
+          <button
+            onClick={() => setIndex((p) => (p + 1) % items.length)}
+            className="p-2 rounded-full bg-white/5 border border-white/10 hover:bg-white/20 active:scale-95 transition-all text-white"
+          >
+            <ChevronRight className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+    </>
   );
 };
 
@@ -144,6 +240,206 @@ const Landing = () => {
     ],
   };
 
+  // --- DATA SETS FOR CAROUSELS ---
+  const reviewsData = [
+    {
+      video: "/stock/Filmmaking.mp4",
+      tag: "Filmmaker",
+      quote:
+        '"Discotive gave me the exact timeline to direct my first indie short."',
+    },
+    {
+      video: "/stock/Startup.mp4",
+      tag: "Engineer",
+      quote:
+        '"Secured my startup internship exactly when the OS predicted I would."',
+    },
+    {
+      video: "/stock/Interview.mp4",
+      tag: "Founder",
+      quote:
+        '"The daily planner built my discipline. The offline hub built my team."',
+    },
+  ];
+
+  const mainCharData = [
+    {
+      icon: Layout,
+      title: "Execution Map",
+      desc: "Turn your raw ambition into a day-by-day execution timeline. Whether you're in a degree, dropping out, or grinding as a self-taught creator.",
+      linkText: "Boot the timeline",
+      to: "/auth",
+    },
+    {
+      icon: Activity,
+      title: "Discotive Score",
+      desc: "A proprietary algorithm that calculates your exact placement readiness based on skills, consistency, and network.",
+      linkText: "Calculate your score",
+      to: "/auth",
+    },
+    {
+      icon: TrendingUp,
+      title: "Asset Strength",
+      desc: "Track your wealth, skill compounding, and tangible career assets. Treat your career like a high-growth startup.",
+      linkText: "View your assets",
+      to: "/auth",
+    },
+    {
+      icon: Search,
+      title: "Explore all features",
+      desc: "Deep dive into the AI Matchmaking, Offline Hubs, Social Ledger, and the rest of the Discotive ecosystem.",
+      linkText: "View all modules",
+      to: "/features",
+    },
+  ];
+
+  const boardData = [
+    {
+      name: "Keshav Bansal",
+      role: "Founder & CEO",
+      img: "/stock/Keshav-Bansal.jpeg",
+      fallback: "/stock/Keshav Bansal.jpg",
+      ig: "keshavbansll",
+      li: "keshavbansll",
+      email: "officialkeshavbansal@gmail.com",
+    },
+    {
+      name: "Reshmi Kumari",
+      role: "Co-Founder & Digital Marketing Head",
+      img: "/stock/Reshmi-Kumari.jpeg",
+      fallback: "/stock/Reshmi Kumari.jpg",
+      ig: null,
+      li: "reshmi-kumari-330891384",
+      email: "reshmikri227@gmail.com",
+    },
+  ];
+
+  // --- RENDER FUNCTIONS FOR CAROUSELS ---
+  const renderReviewCard = (item, i) => (
+    <div
+      className={cn(
+        "aspect-[4/5] rounded-3xl bg-[#1a1a1a] border border-white/10 overflow-hidden relative group cursor-none shadow-2xl w-full h-full",
+        i === 1 && "md:-translate-y-12",
+      )}
+      onMouseEnter={() => setIsHoveringCard(true)}
+      onMouseLeave={() => setIsHoveringCard(false)}
+    >
+      <video
+        autoPlay
+        loop
+        muted
+        playsInline
+        className="absolute inset-0 w-full h-full object-cover opacity-40 group-hover:opacity-80 transition-opacity duration-700 pointer-events-none"
+      >
+        <source src={item.video} type="video/mp4" />
+      </video>
+      <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a0a] via-[#0a0a0a]/50 to-transparent p-6 md:p-8 flex flex-col justify-between z-10 pointer-events-none">
+        <div className="flex justify-between items-start">
+          <span className="text-[10px] md:text-xs font-bold uppercase tracking-widest text-slate-300 backdrop-blur-md bg-black/30 px-3 py-1.5 rounded-full">
+            {item.tag}
+          </span>
+          <div className="w-2 h-2 rounded-full bg-white shadow-[0_0_10px_white] group-hover:scale-150 transition-transform" />
+        </div>
+        <h3 className="text-2xl md:text-3xl font-bold tracking-tight text-left text-white drop-shadow-lg group-hover:-translate-y-2 transition-transform duration-500">
+          {item.quote}
+        </h3>
+      </div>
+    </div>
+  );
+
+  const renderMainCharCard = (item) => (
+    <Link
+      to={item.to}
+      className="bg-[#1a1a1a] rounded-3xl p-8 md:p-10 border border-white/10 group hover:border-white/20 hover:shadow-[0_0_50px_rgba(255,255,255,0.05)] transition-all duration-500 relative overflow-hidden flex flex-col h-full cursor-none"
+      onMouseEnter={() => setIsHoveringCard(true)}
+      onMouseLeave={() => setIsHoveringCard(false)}
+    >
+      <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-700 pointer-events-none" />
+      <div className="relative z-10 flex-1 flex flex-col">
+        <div className="w-12 h-12 md:w-14 md:h-14 rounded-2xl bg-white/5 flex items-center justify-center text-white mb-6 md:mb-8 group-hover:bg-white group-hover:text-black group-hover:rotate-6 transition-all duration-300">
+          <item.icon className="w-6 h-6 md:w-7 md:h-7" />
+        </div>
+        <h3 className="text-2xl md:text-3xl font-bold mb-3 md:mb-4 tracking-tight transition-all duration-300">
+          {item.title}
+        </h3>
+        <p className="text-slate-400 text-sm md:text-lg mb-6 md:mb-8 leading-relaxed flex-1">
+          {item.desc}
+        </p>
+        <div className="inline-flex items-center gap-2 text-white text-sm md:text-base font-bold group-hover:gap-4 transition-all mt-auto">
+          {item.linkText} <ChevronRight className="w-4 h-4 md:w-5 md:h-5" />
+        </div>
+      </div>
+    </Link>
+  );
+
+  const renderBoardCard = (item) => (
+    <div
+      className="bg-[#f4f4f5] text-black rounded-[2.5rem] p-6 sm:p-8 lg:p-10 shadow-[0_30px_80px_rgba(0,0,0,0.8)] flex flex-col sm:flex-row items-center sm:items-start gap-6 md:gap-8 group transition-transform duration-500 hover:-translate-y-2 h-full cursor-none"
+      onMouseEnter={() => setIsHoveringCard(true)}
+      onMouseLeave={() => setIsHoveringCard(false)}
+    >
+      <div className="w-28 h-28 sm:w-32 sm:h-32 md:w-40 md:h-40 shrink-0 rounded-[1.5rem] overflow-hidden bg-zinc-300 border-4 border-white shadow-xl relative pointer-events-none">
+        <img
+          src={item.img}
+          alt={item.name}
+          onError={(e) => {
+            e.target.src = item.fallback;
+          }}
+          className="w-full h-full object-cover grayscale hover:grayscale-0 transition-all duration-500"
+        />
+      </div>
+      <div className="flex-1 text-center sm:text-left flex flex-col justify-center h-full pt-2 w-full">
+        <h3 className="text-2xl sm:text-3xl md:text-4xl font-extrabold tracking-tighter mb-1 text-black">
+          {item.name}
+        </h3>
+        <p className="text-[10px] sm:text-xs font-bold text-slate-500 uppercase tracking-widest mb-6">
+          {item.role}
+        </p>
+
+        <div className="flex flex-col gap-4 mt-auto">
+          <div>
+            <p className="text-[9px] sm:text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">
+              Social Profiles
+            </p>
+            <div className="flex items-center justify-center sm:justify-start gap-3">
+              {item.ig && (
+                <a
+                  href={`https://www.instagram.com/${item.ig}/`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="w-10 h-10 rounded-full bg-black/5 flex items-center justify-center hover:bg-black hover:text-white transition-colors text-black"
+                >
+                  <Instagram className="w-4 h-4" />
+                </a>
+              )}
+              {item.li && (
+                <a
+                  href={`https://www.linkedin.com/in/${item.li}/`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="w-10 h-10 rounded-full bg-black/5 flex items-center justify-center hover:bg-black hover:text-white transition-colors text-black"
+                >
+                  <Linkedin className="w-4 h-4" />
+                </a>
+              )}
+            </div>
+          </div>
+          <div>
+            <p className="text-[9px] sm:text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">
+              Direct Contact
+            </p>
+            <a
+              href={`mailto:${item.email}`}
+              className="text-xs sm:text-sm font-bold text-black hover:underline decoration-2 underline-offset-4 break-all"
+            >
+              {item.email}
+            </a>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+
   return (
     <>
       {!isLoaded && <GlobalLoader onComplete={handleLoadComplete} />}
@@ -177,13 +473,11 @@ const Landing = () => {
           <div className="max-w-[1400px] mx-auto px-6 h-20 flex items-center justify-between">
             <div className="flex items-center gap-0">
               <img
-                src="/logox.png"
+                src="/logo-no-bg-white.png"
                 alt="Discotive Logo"
                 className="h-8 md:h-10 w-auto object-contain hover:scale-105 transition-transform duration-300"
               />
-              <span className="text-2xl font-extrabold tracking-tighter mr-10">
-                DISCOTIVE
-              </span>
+              <span className="text-2xl font-extrabold tracking-tighter mr-10"></span>
 
               <div className="hidden md:flex items-center gap-2">
                 <AnimatedButton
@@ -366,94 +660,18 @@ const Landing = () => {
             </motion.div>
           </motion.div>
 
-          {/* Cinematic Video Cards Grid (Lighter contrast bg) */}
+          {/* Cinematic Video Cards Grid (Carousel on Mobile) */}
           <motion.div
             initial={{ opacity: 0, y: 100 }}
             animate={isLoaded ? { opacity: 1, y: 0 } : {}}
             transition={{ duration: 1, delay: 0.4 }}
-            className="w-full mt-24 grid grid-cols-1 md:grid-cols-3 gap-6"
+            className="w-full mt-24"
           >
-            <div
-              className="aspect-[4/5] rounded-3xl bg-[#1a1a1a] border border-white/10 overflow-hidden relative group cursor-none shadow-2xl"
-              onMouseEnter={() => setIsHoveringCard(true)}
-              onMouseLeave={() => setIsHoveringCard(false)}
-            >
-              <video
-                autoPlay
-                loop
-                muted
-                playsInline
-                className="absolute inset-0 w-full h-full object-cover opacity-40 group-hover:opacity-80 transition-opacity duration-700"
-              >
-                <source src="/stock/Filmmaking.mp4" type="video/mp4" />
-              </video>
-              <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a0a] via-[#0a0a0a]/50 to-transparent p-8 flex flex-col justify-between z-10">
-                <div className="flex justify-between items-start">
-                  <span className="text-xs font-bold uppercase tracking-widest text-slate-300 backdrop-blur-md bg-black/30 px-3 py-1.5 rounded-full">
-                    Filmmaker
-                  </span>
-                  <div className="w-2 h-2 rounded-full bg-white shadow-[0_0_10px_white] group-hover:scale-150 transition-transform" />
-                </div>
-                <h3 className="text-3xl font-bold tracking-tight text-left text-white drop-shadow-lg group-hover:-translate-y-2 transition-transform duration-500">
-                  "Discotive gave me the exact timeline to direct my first indie
-                  short."
-                </h3>
-              </div>
-            </div>
-            <div
-              className="aspect-[4/5] rounded-3xl bg-[#1a1a1a] border border-white/10 overflow-hidden relative group cursor-none md:-translate-y-12 shadow-2xl"
-              onMouseEnter={() => setIsHoveringCard(true)}
-              onMouseLeave={() => setIsHoveringCard(false)}
-            >
-              <video
-                autoPlay
-                loop
-                muted
-                playsInline
-                className="absolute inset-0 w-full h-full object-cover opacity-40 group-hover:opacity-80 transition-opacity duration-700"
-              >
-                <source src="/stock/Startup.mp4" type="video/mp4" />
-              </video>
-              <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a0a] via-[#0a0a0a]/50 to-transparent p-8 flex flex-col justify-between z-10">
-                <div className="flex justify-between items-start">
-                  <span className="text-xs font-bold uppercase tracking-widest text-slate-300 backdrop-blur-md bg-black/30 px-3 py-1.5 rounded-full">
-                    Engineer
-                  </span>
-                  <div className="w-2 h-2 rounded-full bg-white shadow-[0_0_10px_white] group-hover:scale-150 transition-transform" />
-                </div>
-                <h3 className="text-3xl font-bold tracking-tight text-left text-white drop-shadow-lg group-hover:-translate-y-2 transition-transform duration-500">
-                  "Secured my startup internship exactly when the OS predicted I
-                  would."
-                </h3>
-              </div>
-            </div>
-            <div
-              className="aspect-[4/5] rounded-3xl bg-[#1a1a1a] border border-white/10 overflow-hidden relative group cursor-none shadow-2xl"
-              onMouseEnter={() => setIsHoveringCard(true)}
-              onMouseLeave={() => setIsHoveringCard(false)}
-            >
-              <video
-                autoPlay
-                loop
-                muted
-                playsInline
-                className="absolute inset-0 w-full h-full object-cover opacity-40 group-hover:opacity-80 transition-opacity duration-700"
-              >
-                <source src="/stock/Interview.mp4" type="video/mp4" />
-              </video>
-              <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a0a] via-[#0a0a0a]/50 to-transparent p-8 flex flex-col justify-between z-10">
-                <div className="flex justify-between items-start">
-                  <span className="text-xs font-bold uppercase tracking-widest text-slate-300 backdrop-blur-md bg-black/30 px-3 py-1.5 rounded-full">
-                    Founder
-                  </span>
-                  <div className="w-2 h-2 rounded-full bg-white shadow-[0_0_10px_white] group-hover:scale-150 transition-transform" />
-                </div>
-                <h3 className="text-3xl font-bold tracking-tight text-left text-white drop-shadow-lg group-hover:-translate-y-2 transition-transform duration-500">
-                  "The daily planner built my discipline. The offline hub built
-                  my team."
-                </h3>
-              </div>
-            </div>
+            <ResponsiveCarousel
+              items={reviewsData}
+              renderItem={renderReviewCard}
+              desktopGridClass="md:grid-cols-3"
+            />
           </motion.div>
         </main>
 
@@ -467,9 +685,7 @@ const Landing = () => {
               transition={{ duration: 0.8 }}
             >
               <h2 className="text-5xl md:text-7xl font-extrabold tracking-tighter leading-tight mb-6">
-                Connect. <br />
-                Collaborate. <br />
-                Conquer.
+                Connect. <br /> Collaborate. <br /> Conquer.
               </h2>
               <p className="text-xl text-slate-400 font-medium leading-relaxed mb-8">
                 Discotive is a social ledger. Keep your profile private, or go
@@ -590,7 +806,6 @@ const Landing = () => {
                 Net Earnings
               </h4>
               <div className="text-5xl font-extrabold mb-8">₹12,40,500</div>
-
               <div className="w-full h-40 border-b border-l border-white/10 relative">
                 <svg
                   className="absolute inset-0 w-full h-full"
@@ -627,7 +842,7 @@ const Landing = () => {
           </div>
         </section>
 
-        {/* MAIN CHARACTER ENERGY */}
+        {/* MAIN CHARACTER ENERGY (4 Cards Grid -> Mobile Carousel) */}
         <section className="py-32 bg-[#050505] text-white px-6 border-y border-white/5 relative z-10 overflow-hidden">
           <div className="absolute top-1/2 left-1/4 w-[800px] h-[800px] bg-red-600/10 blur-[150px] rounded-full -translate-y-1/2 -translate-x-1/2 pointer-events-none animate-pulse" />
 
@@ -636,7 +851,7 @@ const Landing = () => {
               initial={{ opacity: 0, y: 30 }}
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true }}
-              className="mb-20 max-w-3xl"
+              className="mb-16 md:mb-20 max-w-3xl"
             >
               <h2 className="text-5xl md:text-7xl font-extrabold tracking-tighter leading-tight mb-6 text-transparent bg-clip-text bg-gradient-to-r from-white to-red-100">
                 Main character
@@ -650,57 +865,12 @@ const Landing = () => {
               </p>
             </motion.div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-              <Link
-                to="/auth"
-                className="bg-[#1a1a1a] rounded-3xl p-10 border border-white/10 group hover:border-white/20 hover:shadow-[0_0_50px_rgba(255,255,255,0.05)] transition-all duration-500 relative overflow-hidden block cursor-none"
-                onMouseEnter={() => setIsHoveringCard(true)}
-                onMouseLeave={() => setIsHoveringCard(false)}
-              >
-                <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-700" />
-                <div className="relative z-10">
-                  <div className="w-14 h-14 rounded-2xl bg-white/5 flex items-center justify-center text-white mb-8 group-hover:bg-white group-hover:text-black group-hover:rotate-6 transition-all duration-300">
-                    <Layout className="w-7 h-7" />
-                  </div>
-                  <h3 className="text-3xl font-bold mb-4 tracking-tight transition-all duration-300">
-                    The Career Engine
-                  </h3>
-                  <p className="text-slate-400 text-lg mb-8 leading-relaxed">
-                    Turn your raw ambition into a day-by-day execution timeline.
-                    Whether you're in a degree, dropping out to build a startup,
-                    or grinding as a self-taught creator.
-                  </p>
-                  <div className="inline-flex items-center gap-2 text-white font-bold group-hover:gap-4 transition-all">
-                    Boot the timeline <ChevronRight className="w-5 h-5" />
-                  </div>
-                </div>
-              </Link>
-
-              <Link
-                to="/auth"
-                className="bg-[#1a1a1a] rounded-3xl p-10 border border-white/10 group hover:border-white/20 hover:shadow-[0_0_50px_rgba(255,255,255,0.05)] transition-all duration-500 relative overflow-hidden block cursor-none"
-                onMouseEnter={() => setIsHoveringCard(true)}
-                onMouseLeave={() => setIsHoveringCard(false)}
-              >
-                <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-700" />
-                <div className="relative z-10">
-                  <div className="w-14 h-14 rounded-2xl bg-white/5 flex items-center justify-center text-white mb-8 group-hover:bg-white group-hover:text-black group-hover:-rotate-6 transition-all duration-300">
-                    <Activity className="w-7 h-7" />
-                  </div>
-                  <h3 className="text-3xl font-bold mb-4 tracking-tight transition-all duration-300">
-                    The Discotive Score
-                  </h3>
-                  <p className="text-slate-400 text-lg mb-8 leading-relaxed">
-                    A proprietary algorithm that calculates your exact placement
-                    readiness based on skills, consistency, and network. Let our
-                    AI match you with the opportunities you deserve.
-                  </p>
-                  <div className="inline-flex items-center gap-2 text-white font-bold group-hover:gap-4 transition-all">
-                    Calculate your score <ChevronRight className="w-5 h-5" />
-                  </div>
-                </div>
-              </Link>
-            </div>
+            <ResponsiveCarousel
+              items={mainCharData}
+              renderItem={renderMainCharCard}
+              desktopGridClass="lg:grid-cols-2"
+              autoPlayInterval={5000}
+            />
           </div>
         </section>
 
@@ -730,13 +900,12 @@ const Landing = () => {
           </div>
         </section>
 
-        {/* MEET THE BOARD */}
+        {/* MEET THE BOARD (Grid -> Mobile Carousel) */}
         <section className="py-24 px-6 relative z-10 border-t border-white/5 overflow-hidden bg-[#050505]">
-          {/* Ambient Background Glow */}
           <div className="absolute top-1/2 left-1/2 w-[700px] h-[500px] bg-blue-600/10 blur-[150px] rounded-full -translate-y-1/2 -translate-x-1/2 pointer-events-none" />
 
           <div
-            className="text-center mb-16 relative z-10 max-w-2xl mx-auto"
+            className="text-center mb-10 md:mb-16 relative z-10 max-w-2xl mx-auto"
             onMouseEnter={() => setIsHoveringCard(true)}
             onMouseLeave={() => setIsHoveringCard(false)}
           >
@@ -748,119 +917,13 @@ const Landing = () => {
             </p>
           </div>
 
-          {/* Two-Card Grid */}
-          <div
-            className="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-12 max-w-7xl mx-auto relative z-20"
-            onMouseEnter={() => setIsHoveringCard(true)}
-            onMouseLeave={() => setIsHoveringCard(false)}
-          >
-            {/* Card 1: Keshav Bansal */}
-            <div className="bg-[#f4f4f5] text-black rounded-[2.5rem] p-8 lg:p-10 shadow-[0_30px_80px_rgba(0,0,0,0.8)] flex flex-col sm:flex-row items-center sm:items-start gap-8 group transition-transform duration-500 hover:-translate-y-2 cursor-none">
-              <div className="w-32 h-32 sm:w-40 sm:h-40 shrink-0 rounded-[1.5rem] overflow-hidden bg-zinc-300 border-4 border-white shadow-xl relative">
-                <img
-                  src="/stock/Keshav-Bansal.jpeg"
-                  alt="Keshav Bansal"
-                  className="w-full h-full object-cover grayscale hover:grayscale-0 transition-all duration-500"
-                />
-              </div>
-              <div className="flex-1 text-center sm:text-left flex flex-col justify-center h-full pt-2">
-                <h3 className="text-3xl sm:text-4xl font-extrabold tracking-tighter mb-1 text-black">
-                  Keshav Bansal
-                </h3>
-                <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-6">
-                  Founder & CEO
-                </p>
-
-                <div className="flex flex-col gap-5 mt-auto">
-                  <div>
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">
-                      Social Profiles
-                    </p>
-                    <div className="flex items-center justify-center sm:justify-start gap-3">
-                      <a
-                        href="https://www.instagram.com/keshavbansll/"
-                        target="_blank"
-                        rel="noreferrer"
-                        className="w-10 h-10 rounded-full bg-black/5 flex items-center justify-center hover:bg-black hover:text-white transition-colors text-black"
-                      >
-                        <Instagram className="w-4 h-4" />
-                      </a>
-                      <a
-                        href="https://www.linkedin.com/in/keshavbansll/"
-                        target="_blank"
-                        rel="noreferrer"
-                        className="w-10 h-10 rounded-full bg-black/5 flex items-center justify-center hover:bg-black hover:text-white transition-colors text-black"
-                      >
-                        <Linkedin className="w-4 h-4" />
-                      </a>
-                    </div>
-                  </div>
-                  <div>
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">
-                      Direct Contact
-                    </p>
-                    <a
-                      href="mailto:officialkeshavbansal@gmail.com"
-                      className="text-sm font-bold text-black hover:underline decoration-2 underline-offset-4 break-all"
-                    >
-                      officialkeshavbansal@gmail.com
-                    </a>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Card 2: Reshmi Kumari */}
-            <div className="bg-[#f4f4f5] text-black rounded-[2.5rem] p-8 lg:p-10 shadow-[0_30px_80px_rgba(0,0,0,0.8)] flex flex-col sm:flex-row items-center sm:items-start gap-8 group transition-transform duration-500 hover:-translate-y-2 cursor-none">
-              <div className="w-32 h-32 sm:w-40 sm:h-40 shrink-0 rounded-[1.5rem] overflow-hidden bg-zinc-300 border-4 border-white shadow-xl relative">
-                {/* Replace src with Reshmi's actual photo path if you have one */}
-                <img
-                  src="/stock/Reshmi-Kumari.jpeg"
-                  alt="Reshmi Kumari"
-                  onError={(e) => {
-                    e.target.src = "/stock/Reshmi Kumari.jpg";
-                  }}
-                  className="w-full h-full object-cover grayscale hover:grayscale-0 transition-all duration-500"
-                />
-              </div>
-              <div className="flex-1 text-center sm:text-left flex flex-col justify-center h-full pt-2">
-                <h3 className="text-3xl sm:text-4xl font-extrabold tracking-tighter mb-1 text-black">
-                  Reshmi Kumari
-                </h3>
-                <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-6">
-                  Co-Founder & Digital Marketing Head
-                </p>
-
-                <div className="flex flex-col gap-5 mt-auto">
-                  <div>
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">
-                      Social Profiles
-                    </p>
-                    <div className="flex items-center justify-center sm:justify-start gap-3">
-                      <a
-                        href="https://www.linkedin.com/in/reshmi-kumari-330891384"
-                        target="_blank"
-                        rel="noreferrer"
-                        className="w-10 h-10 rounded-full bg-black/5 flex items-center justify-center hover:bg-black hover:text-white transition-colors text-black"
-                      >
-                        <Linkedin className="w-4 h-4" />
-                      </a>
-                    </div>
-                  </div>
-                  <div>
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">
-                      Direct Contact
-                    </p>
-                    <a
-                      href="mailto:reshmikri227@gmail.com"
-                      className="text-sm font-bold text-black hover:underline decoration-2 underline-offset-4 break-all"
-                    >
-                      reshmikri227@gmail.com
-                    </a>
-                  </div>
-                </div>
-              </div>
-            </div>
+          <div className="max-w-7xl mx-auto relative z-20">
+            <ResponsiveCarousel
+              items={boardData}
+              renderItem={renderBoardCard}
+              desktopGridClass="lg:grid-cols-2"
+              autoPlayInterval={6000}
+            />
           </div>
         </section>
 
@@ -902,7 +965,7 @@ const Landing = () => {
           </div>
         </section>
 
-        {/* THE PATREON-STYLE MEGA FOOTER */}
+        {/* MEGA FOOTER */}
         <footer className="border-t border-white/10 bg-[#0a0a0a] pt-20 pb-10 px-6 relative z-10">
           <div className="max-w-[1400px] mx-auto">
             <div className="grid grid-cols-2 md:grid-cols-5 gap-10 mb-20">

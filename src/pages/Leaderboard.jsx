@@ -21,7 +21,6 @@ import {
 } from "lucide-react";
 import { cn } from "../components/ui/BentoCard";
 
-// --- THE RESTRICTED NIGHT SKY ---
 const StaticStars = () => {
   const [stars, setStars] = useState([]);
   useEffect(() => {
@@ -54,9 +53,10 @@ const StaticStars = () => {
   );
 };
 
-// ============================================================================
-// CHARACTER ASSET MATRIX
-// ============================================================================
+// =========================================
+// CHARACTER ASSETS
+// =========================================
+
 const CHARACTERS = {
   rank1: {
     Male: "/Characters/Boy-1.gif",
@@ -66,7 +66,7 @@ const CHARACTERS = {
   rank2: {
     Male: "/Characters/Boy-2.gif",
     Female: "/Characters/Girl-2.gif",
-    Other: "/Characters/Others-1.gif",
+    Other: "/Characters/Others-1     .gif",
   },
   rank3: {
     Male: "/Characters/Boy-3.gif",
@@ -82,9 +82,10 @@ const CHARACTERS = {
 const getAvatar = (rankKey, gender) =>
   CHARACTERS[rankKey][gender] || CHARACTERS[rankKey]["Other"];
 
-// ============================================================================
-// THE COMPARE MODAL (WHATSAPP-STYLE AI TERMINAL)
-// ============================================================================
+// =============================================
+// THE COMPARE MODAL
+// ==============================================
+
 const CompareTerminal = ({ isOpen, onClose, targetUser, currentUser }) => {
   if (!isOpen) return null;
 
@@ -179,9 +180,10 @@ const CompareTerminal = ({ isOpen, onClose, targetUser, currentUser }) => {
   );
 };
 
-// ============================================================================
+// ===================================
 // MAIN LEADERBOARD COMPONENT
-// ============================================================================
+// ===================================
+
 const Leaderboard = () => {
   const { userData, loading: userLoading } = useUserData();
   const navigate = useNavigate();
