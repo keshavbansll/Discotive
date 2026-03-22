@@ -620,10 +620,25 @@ const Network = () => {
     batch.update(doc(db, "users", targetId), {
       inboundRequests: arrayUnion(myId),
     });
+
     try {
-      updateLocalUser({
-        outboundRequests: [...currentUserObj.outboundRequests, targetId],
-      });
+      // Correct UI Update using setDbUsers
+      setDbUsers((prev) =>
+        prev.map((user) => {
+          if (user.id === myId)
+            return {
+              ...user,
+              outboundRequests: [...(user.outboundRequests || []), targetId],
+            };
+          if (user.id === targetId)
+            return {
+              ...user,
+              inboundRequests: [...(user.inboundRequests || []), myId],
+            };
+          return user;
+        }),
+      );
+
       await batch.commit();
 
       // SCORE ENGINE: The person receiving the request gets +1
@@ -645,13 +660,31 @@ const Network = () => {
       allies: arrayUnion(myId),
       outboundRequests: arrayRemove(myId),
     });
+
     try {
-      updateLocalUser({
-        allies: [...currentUserObj.allies, requesterId],
-        inboundRequests: currentUserObj.inboundRequests.filter(
-          (id) => id !== requesterId,
-        ),
-      });
+      // Correct UI Update using setDbUsers
+      setDbUsers((prev) =>
+        prev.map((user) => {
+          if (user.id === myId)
+            return {
+              ...user,
+              allies: [...(user.allies || []), requesterId],
+              inboundRequests: (user.inboundRequests || []).filter(
+                (id) => id !== requesterId,
+              ),
+            };
+          if (user.id === requesterId)
+            return {
+              ...user,
+              allies: [...(user.allies || []), myId],
+              outboundRequests: (user.outboundRequests || []).filter(
+                (id) => id !== myId,
+              ),
+            };
+          return user;
+        }),
+      );
+
       await batch.commit();
 
       // SCORE ENGINE: The person who originally sent the request gets +2 for success
@@ -671,12 +704,29 @@ const Network = () => {
     batch.update(doc(db, "users", requesterId), {
       outboundRequests: arrayRemove(myId),
     });
+
     try {
-      updateLocalUser({
-        inboundRequests: currentUserObj.inboundRequests.filter(
-          (id) => id !== requesterId,
-        ),
-      });
+      // Correct UI Update using setDbUsers
+      setDbUsers((prev) =>
+        prev.map((user) => {
+          if (user.id === myId)
+            return {
+              ...user,
+              inboundRequests: (user.inboundRequests || []).filter(
+                (id) => id !== requesterId,
+              ),
+            };
+          if (user.id === requesterId)
+            return {
+              ...user,
+              outboundRequests: (user.outboundRequests || []).filter(
+                (id) => id !== myId,
+              ),
+            };
+          return user;
+        }),
+      );
+
       await batch.commit();
 
       // SCORE ENGINE: The person who sent the request gets penalized -1 for rejection
