@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import {
   collection,
   getDocs,
+  onSnapshot,
   doc,
   writeBatch,
   arrayUnion,
@@ -500,11 +501,14 @@ const Network = () => {
     setIsCompareOpen(true);
   };
 
-  // --- FETCH REAL DATA ---
+  // --- FETCH REAL DATA (100% LIVE REAL-TIME ENGINE) ---
   useEffect(() => {
-    const fetchNetwork = async () => {
-      try {
-        const querySnapshot = await getDocs(collection(db, "users"));
+    if (!userData?.identity?.email) return;
+
+    // onSnapshot creates a live WebSocket connection to the DB
+    const unsubscribe = onSnapshot(
+      collection(db, "users"),
+      (querySnapshot) => {
         const rawUsers = [];
         querySnapshot.forEach((doc) => {
           const data = doc.data();
@@ -544,17 +548,21 @@ const Network = () => {
         // Smart Tab Routing: If Watchlist is empty on initial load, default to Global Arena
         const me = sorted.find((u) => u._email === userData?.identity?.email);
         if (me && (!me.watchlist || me.watchlist.length === 0)) {
-          setActiveTab("Global Arena");
+          setActiveTab((prev) =>
+            prev === "The Watchlist" ? "Global Arena" : prev,
+          );
         }
-      } catch (error) {
-        console.error("Network Sync Failed:", error);
-      } finally {
+
         setIsFetching(false);
-      }
-    };
-    if (userData?.identity?.email) {
-      fetchNetwork();
-    }
+      },
+      (error) => {
+        console.error("Network Sync Failed:", error);
+        setIsFetching(false);
+      },
+    );
+
+    // Clean up the live listener when the component unmounts
+    return () => unsubscribe();
   }, [userData]);
 
   // Sync Current User Object locally for instant UI reactions

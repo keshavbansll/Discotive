@@ -35,10 +35,14 @@ import {
   Circle,
   Trash2,
   BookOpen,
+  Keyboard,
+  Shield,
+  Languages,
+  Moon,
 } from "lucide-react";
 import { cn } from "../components/ui/BentoCard";
 
-// --- UPDATED SIDEBAR ROUTES ---
+// --- NAVIGATION GROUPS ---
 const topNavItems = [
   { icon: LayoutDashboard, label: "Command Center", path: "/app" },
   { icon: Target, label: "Execution Timeline", path: "/app/roadmap" },
@@ -48,634 +52,727 @@ const topNavItems = [
 
 const middleNavItems = [
   { icon: FolderOpen, label: "Asset Vault", path: "/app/vault" },
-  { icon: MapPin, label: "Career Hubs", path: "/app/hubs" },
-  { icon: Users, label: "Network", path: "/app/network" },
-  { icon: LineChart, label: "Financial Ledger", path: "/app/finance" },
+  { icon: Users, label: "Networking", path: "/app/network" },
+  { icon: Compass, label: "Discover Hubs", path: "/app/hubs" },
 ];
 
 const contentNavItems = [
   { icon: BookOpen, label: "Learn", path: "/app/learn" },
   { icon: Mic, label: "Podcasts", path: "/app/podcasts" },
-  { icon: FileText, label: "Assessments & Live", path: "/app/assessments" },
+  { icon: FileText, label: "Assessments", path: "/app/assessments" },
 ];
 
 const bottomNavItems = [
-  { icon: User, label: "Profile", path: "/app/profile" },
+  { icon: LineChart, label: "Financial Ledger", path: "/app/finance" },
   { icon: Settings, label: "Settings", path: "/app/settings" },
 ];
 
+// --- MAIN LAYOUT COMPONENT ---
 const MainLayout = () => {
+  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+
+  // Dropdown States
+  const [showProfileMenu, setShowProfileMenu] = useState(false);
+  const [showNotifMenu, setShowNotifMenu] = useState(false);
+  const [showLanguageMenu, setShowLanguageMenu] = useState(false);
+
   const location = useLocation();
   const navigate = useNavigate();
-  const searchRef = useRef(null);
+  const { userData, loading } = useUserData();
 
-  const { userData } = useUserData();
+  // --- STRICT CLICK-OUTSIDE REFS ---
+  const profileMenuRef = useRef(null);
+  const notifMenuRef = useRef(null);
 
-  // --- UI STATES ---
-  const [isSidebarHovered, setIsSidebarHovered] = useState(false);
-  const [isMobileMoreOpen, setIsMobileMoreOpen] = useState(false);
-  const [isProfileOpen, setIsProfileOpen] = useState(false);
-  const [isNotificationsOpen, setIsNotificationsOpen] = useState(false);
-
-  // --- DYNAMIC NOTIFICATION ENGINE ---
-  const [notifications, setNotifications] = useState(() => {
-    const saved = localStorage.getItem("discotive_notifications");
-    if (saved) return JSON.parse(saved);
-    return [
-      {
-        id: 1,
-        title: "System Online",
-        message:
-          "Welcome to Discotive OS. Your baseline profile has been synced.",
-        time: "Just now",
-        read: false,
-        type: "system",
-      },
-    ];
-  });
-
-  // Save to browser memory instantly whenever a change happens
   useEffect(() => {
-    localStorage.setItem(
-      "discotive_notifications",
-      JSON.stringify(notifications),
-    );
-  }, [notifications]);
-
-  const unreadCount = notifications.filter((n) => !n.read).length;
-
-  const markAllAsRead = () =>
-    setNotifications(notifications.map((n) => ({ ...n, read: true })));
-  const toggleReadStatus = (id) =>
-    setNotifications(
-      notifications.map((n) => (n.id === id ? { ...n, read: !n.read } : n)),
-    );
-  const deleteNotification = (id) =>
-    setNotifications(notifications.filter((n) => n.id !== id));
-
-  // --- KEYBOARD SHORTCUTS ---
-  useEffect(() => {
-    const handleKeyDown = (e) => {
-      if ((e.metaKey || e.ctrlKey) && e.altKey && e.key.toLowerCase() === "k") {
-        e.preventDefault();
-        searchRef.current?.focus();
+    const handleClickOutside = (event) => {
+      // Close profile menu if clicked outside
+      if (
+        profileMenuRef.current &&
+        !profileMenuRef.current.contains(event.target)
+      ) {
+        setShowProfileMenu(false);
+        setShowLanguageMenu(false); // Reset nested menu
+      }
+      // Close notification menu if clicked outside
+      if (
+        notifMenuRef.current &&
+        !notifMenuRef.current.contains(event.target)
+      ) {
+        setShowNotifMenu(false);
       }
     };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  // Close mobile menu on route change
+  useEffect(() => {
+    setIsMobileMenuOpen(false);
+  }, [location.pathname]);
+
   const handleLogout = async () => {
-    await signOut(auth);
-    navigate("/");
+    try {
+      await signOut(auth);
+      navigate("/");
+    } catch (error) {
+      console.error("Logout failed:", error);
+    }
   };
 
-  const isExpanded = isSidebarHovered;
+  const NavItem = ({ item, isCollapsed }) => {
+    const Icon = item.icon;
+    const isActive = location.pathname === item.path;
 
-  const firstName = userData?.identity?.firstName || "B";
-  const lastName = userData?.identity?.lastName || "";
-  const initials =
-    `${firstName.charAt(0)}${lastName ? lastName.charAt(0) : ""}`.toUpperCase();
-
-  const NavItem = ({ item }) => {
-    const active =
-      location.pathname === item.path ||
-      (item.path !== "/app" && location.pathname.startsWith(item.path));
     return (
       <Link
         to={item.path}
-        onClick={() => setIsMobileMoreOpen(false)}
         className={cn(
-          "flex items-center space-x-3 px-3 py-3 rounded-2xl transition-all duration-300 font-bold text-sm group relative overflow-hidden",
-          active
-            ? "text-white bg-white/10"
-            : "text-slate-500 hover:text-white hover:bg-white/5",
+          "flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 group relative",
+          isActive
+            ? "bg-white text-black font-bold shadow-[0_0_20px_rgba(255,255,255,0.1)]"
+            : "text-[#888] hover:bg-[#111] hover:text-white font-medium",
         )}
+        title={isCollapsed ? item.label : undefined}
       >
-        {active && (
-          <div className="absolute left-0 top-1/4 bottom-1/4 w-1 bg-white rounded-r-full shadow-[0_0_10px_white]" />
-        )}
-        <item.icon
+        <Icon
           className={cn(
-            "w-5 h-5 shrink-0 transition-transform duration-300",
-            active ? "scale-110 text-white" : "group-hover:scale-110",
+            "w-5 h-5 shrink-0",
+            isActive ? "text-black" : "text-[#888] group-hover:text-white",
           )}
         />
-        <span
-          className={cn(
-            "whitespace-nowrap transition-opacity duration-300",
-            isExpanded ? "opacity-100" : "opacity-0 md:hidden",
-          )}
-        >
-          {item.label}
-        </span>
+        {!isCollapsed && (
+          <span className="truncate text-sm tracking-wide">{item.label}</span>
+        )}
       </Link>
     );
   };
 
   return (
-    <div className="flex h-screen bg-[#0a0a0a] text-white overflow-hidden selection:bg-white selection:text-black font-sans">
-      {/* --- PC SIDEBAR --- */}
-      <div className="hidden md:block shrink-0 w-20" />
-
-      <aside
-        onMouseEnter={() => setIsSidebarHovered(true)}
-        onMouseLeave={() => setIsSidebarHovered(false)}
-        className={cn(
-          "hidden md:flex fixed top-0 left-0 h-full bg-[#0a0a0a] border-r border-white/5 flex-col z-50 transition-all duration-300 ease-in-out",
-          isExpanded ? "w-72 shadow-[20px_0_50px_rgba(0,0,0,0.5)]" : "w-20",
-        )}
+    <div className="flex h-screen bg-[#030303] overflow-hidden text-white selection:bg-white selection:text-black">
+      {/* ========================================================= */}
+      {/* DESKTOP SIDEBAR (Strict z-[100] to overlay content)       */}
+      {/* ========================================================= */}
+      <motion.aside
+        animate={{ width: isSidebarOpen ? 260 : 80 }}
+        transition={{ type: "spring", damping: 25, stiffness: 200 }}
+        className="hidden md:flex flex-col bg-[#050505] border-r border-[#222] h-full z-[100] relative shadow-[10px_0_50px_rgba(0,0,0,0.5)]"
       >
-        <div className="p-5 flex items-center justify-between">
-          <Link
-            to="/app"
-            className="flex items-center gap-3 overflow-hidden whitespace-nowrap group"
-          >
-            <img
-              src="/logo-no-bg-white.png"
-              alt="Discotive"
-              className="w-7 h-7 object-contain"
-            />
-            <div
-              className={cn(
-                "transition-opacity duration-300",
-                isExpanded ? "opacity-100" : "opacity-0",
-              )}
-            >
-              <h1 className="text-xl font-extrabold tracking-tighter leading-tight">
-                DISCOTIVE
-              </h1>
-              <p className="text-[9px] text-slate-500 uppercase tracking-widest font-bold">
-                Career Engine
-              </p>
+        {/* Logo Section */}
+        <div className="h-20 flex items-center justify-between px-6 shrink-0 border-b border-[#111]">
+          <Link to="/app" className="flex items-center gap-3 overflow-hidden">
+            <div className="w-8 h-8 rounded-lg bg-white flex items-center justify-center shrink-0 shadow-[0_0_20px_rgba(255,255,255,0.3)]">
+              <span className="text-black font-black text-xl leading-none tracking-tighter">
+                D
+              </span>
             </div>
+            <AnimatePresence>
+              {isSidebarOpen && (
+                <motion.span
+                  initial={{ opacity: 0, x: -10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -10 }}
+                  className="font-extrabold text-lg tracking-tight whitespace-nowrap"
+                >
+                  DISCOTIVE
+                </motion.span>
+              )}
+            </AnimatePresence>
           </Link>
         </div>
 
-        <nav className="flex-1 px-3 py-4 space-y-6 overflow-y-auto overflow-x-hidden [&::-webkit-scrollbar]:hidden">
+        {/* Navigation Sections */}
+        <div className="flex-1 overflow-y-auto custom-scrollbar px-3 py-6 space-y-8">
           <div className="space-y-1">
+            {isSidebarOpen && (
+              <p className="px-3 text-[10px] font-bold text-[#555] uppercase tracking-[0.2em] mb-2">
+                Primary
+              </p>
+            )}
             {topNavItems.map((item) => (
-              <NavItem key={item.path} item={item} />
-            ))}
-          </div>
-          <div className="space-y-1 border-t border-white/5 pt-4">
-            <p
-              className={cn(
-                "px-4 text-[10px] font-bold text-slate-600 uppercase tracking-widest mb-2 transition-opacity",
-                isExpanded ? "opacity-100" : "opacity-0",
-              )}
-            >
-              Career Hub
-            </p>
-            {middleNavItems.map((item) => (
-              <NavItem key={item.path} item={item} />
-            ))}
-          </div>
-          <div className="space-y-1 border-t border-white/5 pt-4">
-            <p
-              className={cn(
-                "px-4 text-[10px] font-bold text-slate-600 uppercase tracking-widest mb-2 transition-opacity",
-                isExpanded ? "opacity-100" : "opacity-0",
-              )}
-            >
-              Media & Tests
-            </p>
-            {contentNavItems.map((item) => (
-              <NavItem key={item.path} item={item} />
-            ))}
-          </div>
-        </nav>
-
-        <div className="p-3 border-t border-white/5 space-y-1">
-          {bottomNavItems.map((item) => (
-            <NavItem key={item.path} item={item} />
-          ))}
-        </div>
-      </aside>
-
-      {/* --- MAIN CONTENT AREA --- */}
-      <div className="flex-1 flex flex-col h-full overflow-hidden relative w-full bg-[#0a0a0a]">
-        {/* --- NAVBAR --- */}
-        <header className="h-16 md:h-20 bg-[#0a0a0a]/90 backdrop-blur-2xl border-b border-white/5 flex items-center justify-between px-4 md:px-8 z-30 shrink-0">
-          <div className="md:hidden">
-            <Link
-              to="/app/discover"
-              className="p-2 text-slate-500 hover:text-white transition-colors block"
-            >
-              <Compass className="w-6 h-6" />
-            </Link>
-          </div>
-          <div className="hidden md:flex items-center">
-            <Link
-              to="/app/discover"
-              className="flex items-center gap-2 text-slate-400 hover:text-white font-bold text-sm transition-colors group"
-            >
-              <Compass className="w-5 h-5 group-hover:rotate-45 transition-transform duration-500" />
-              <span>Discover</span>
-            </Link>
-          </div>
-
-          <div className="flex-1 max-w-md mx-4 md:mx-8">
-            <div className="flex items-center bg-[#121212] rounded-full px-4 py-2.5 w-full border border-white/10 focus-within:border-white/40 focus-within:bg-white/5 transition-all group">
-              <Search className="w-4 h-4 text-slate-500 group-focus-within:text-white transition-colors shrink-0" />
-              <input
-                ref={searchRef}
-                type="text"
-                placeholder="Search ledger..."
-                className="bg-transparent border-none outline-none ml-3 w-full text-sm placeholder-slate-600 text-white font-medium"
+              <NavItem
+                key={item.path}
+                item={item}
+                isCollapsed={!isSidebarOpen}
               />
-              <div className="hidden md:flex items-center gap-1 opacity-40">
-                <span className="px-1.5 py-0.5 rounded bg-white/10 text-[10px] font-bold">
-                  ⌘/Ctrl
-                </span>
-                <span className="px-1.5 py-0.5 rounded bg-white/10 text-[10px] font-bold">
-                  Alt
-                </span>
-                <span className="px-1.5 py-0.5 rounded bg-white/10 text-[10px] font-bold">
-                  K
-                </span>
+            ))}
+          </div>
+          <div className="space-y-1">
+            {isSidebarOpen && (
+              <p className="px-3 text-[10px] font-bold text-[#555] uppercase tracking-[0.2em] mb-2">
+                Career Hub
+              </p>
+            )}
+            {middleNavItems.map((item) => (
+              <NavItem
+                key={item.path}
+                item={item}
+                isCollapsed={!isSidebarOpen}
+              />
+            ))}
+          </div>
+          <div className="space-y-1">
+            {isSidebarOpen && (
+              <p className="px-3 text-[10px] font-bold text-[#555] uppercase tracking-[0.2em] mb-2">
+                Media & Tests
+              </p>
+            )}
+            {contentNavItems.map((item) => (
+              <NavItem
+                key={item.path}
+                item={item}
+                isCollapsed={!isSidebarOpen}
+              />
+            ))}
+          </div>
+        </div>
+
+        {/* Bottom Section (Settings & Toggle) */}
+        <div className="p-3 border-t border-[#111] bg-[#050505] shrink-0 space-y-1">
+          {bottomNavItems.map((item) => (
+            <NavItem key={item.path} item={item} isCollapsed={!isSidebarOpen} />
+          ))}
+          <button
+            onClick={() => setIsSidebarOpen(!isSidebarOpen)}
+            className="w-full flex items-center justify-center py-3 text-[#666] hover:text-white hover:bg-[#111] rounded-xl transition-colors mt-2"
+          >
+            {isSidebarOpen ? (
+              <ChevronLeft className="w-5 h-5" />
+            ) : (
+              <ChevronRight className="w-5 h-5" />
+            )}
+          </button>
+        </div>
+      </motion.aside>
+
+      {/* ========================================================= */}
+      {/* MAIN CONTENT WRAPPER                                      */}
+      {/* ========================================================= */}
+      <div className="flex-1 flex flex-col h-full min-w-0 relative z-10">
+        {/* TOPBAR (Strict z-[90] to sit above pages but below dropdowns) */}
+        <header className="h-16 md:h-20 bg-[#030303]/80 backdrop-blur-xl border-b border-[#222] flex items-center justify-between px-4 md:px-8 shrink-0 sticky top-0 z-[90]">
+          <div className="flex items-center gap-4">
+            <span className="md:hidden font-extrabold text-xl tracking-tight text-white">
+              DISCOTIVE
+            </span>
+            <div className="hidden md:flex items-center bg-[#0a0a0a] border border-[#222] rounded-xl px-4 py-2.5 focus-within:border-[#555] transition-colors w-72 lg:w-96 group">
+              <Search className="w-4 h-4 text-[#555] group-focus-within:text-white shrink-0" />
+              <input
+                type="text"
+                placeholder="Search operators, vaults, assets..."
+                className="w-full bg-transparent border-none outline-none text-xs px-3 text-white placeholder-[#555] font-medium"
+              />
+              <div className="px-1.5 py-0.5 rounded border border-[#333] bg-[#111] text-[10px] text-[#666] font-mono shrink-0">
+                ⌘K
               </div>
             </div>
           </div>
 
-          <div className="flex items-center space-x-4 md:space-x-6">
-            {/* --- ALIVE NOTIFICATION ENGINE --- */}
-            <div className="relative">
+          <div className="flex items-center gap-3 md:gap-5">
+            {/* NOTIFICATIONS DROPDOWN */}
+            <div className="relative" ref={notifMenuRef}>
               <button
-                onClick={() => {
-                  setIsNotificationsOpen(!isNotificationsOpen);
-                  setIsProfileOpen(false);
-                }}
-                className="relative p-2 text-slate-500 hover:text-white transition-colors rounded-full hover:bg-white/5"
-              >
-                <Bell className="w-5 h-5 md:w-6 md:h-6" />
-                {unreadCount > 0 && (
-                  <span className="absolute top-1.5 right-1.5 w-4 h-4 bg-red-500 rounded-full shadow-[0_0_10px_rgba(239,68,68,0.8)] border-2 border-[#0a0a0a] flex items-center justify-center text-[8px] font-extrabold text-white">
-                    {unreadCount}
-                  </span>
+                onClick={() => setShowNotifMenu(!showNotifMenu)}
+                className={cn(
+                  "p-2 md:p-2.5 rounded-full transition-all relative border",
+                  showNotifMenu
+                    ? "bg-white text-black border-white"
+                    : "bg-[#0a0a0a] border-[#222] text-[#888] hover:text-white hover:border-[#444]",
                 )}
+              >
+                <Bell className="w-4 h-4 md:w-5 md:h-5" />
+                <span className="absolute top-0 right-0 w-2.5 h-2.5 bg-red-500 border-2 border-[#030303] rounded-full" />
               </button>
-
+              {/* --- NOTIFICATIONS DROPDOWN CONTENT --- */}
               <AnimatePresence>
-                {isNotificationsOpen && (
-                  <>
-                    <div
-                      className="fixed inset-0 z-40"
-                      onClick={() => setIsNotificationsOpen(false)}
-                    />
-                    <motion.div
-                      initial={{ opacity: 0, y: 10, scale: 0.95 }}
-                      animate={{ opacity: 1, y: 0, scale: 1 }}
-                      exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                      transition={{ duration: 0.2, ease: "easeOut" }}
-                      className="absolute right-0 md:-right-4 top-full mt-4 w-[320px] sm:w-[380px] bg-[#121212] border border-white/10 rounded-2xl shadow-[0_20px_60px_rgba(0,0,0,0.8)] z-50 overflow-hidden flex flex-col max-h-[80vh]"
-                    >
-                      {/* Header */}
-                      <div className="p-4 border-b border-white/5 flex items-center justify-between bg-[#1a1a1a]/50">
-                        <h3 className="font-bold text-white flex items-center gap-2">
-                          Notifications{" "}
-                          {unreadCount > 0 && (
-                            <span className="px-2 py-0.5 bg-white/10 rounded-full text-xs text-slate-300">
-                              {unreadCount}
-                            </span>
-                          )}
-                        </h3>
-                        {notifications.length > 0 && unreadCount > 0 && (
-                          <button
-                            onClick={markAllAsRead}
-                            className="text-xs font-bold text-blue-400 hover:text-blue-300 transition-colors"
-                          >
-                            Mark all read
-                          </button>
-                        )}
-                      </div>
+                {showNotifMenu && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                    transition={{ duration: 0.15 }}
+                    className="absolute right-0 top-full mt-3 w-[320px] md:w-[380px] bg-[#0a0a0a] border border-[#222] rounded-2xl shadow-[0_30px_60px_rgba(0,0,0,0.9)] overflow-hidden z-[120] flex flex-col max-h-[80vh]"
+                  >
+                    <div className="flex items-center justify-between p-4 border-b border-[#222] bg-[#050505] shrink-0">
+                      <h3 className="font-extrabold text-white text-sm md:text-base">
+                        Notifications
+                      </h3>
+                      <button
+                        className="p-1.5 hover:bg-[#111] rounded-lg transition-colors"
+                        title="Settings"
+                      >
+                        <Settings className="w-4 h-4 text-[#888]" />
+                      </button>
+                    </div>
 
-                      {/* List or Empty State */}
-                      <div className="overflow-y-auto custom-scrollbar flex-1">
-                        {notifications.length === 0 ? (
-                          <div className="flex flex-col items-center justify-center py-16 px-4 text-center">
-                            <div className="w-16 h-16 rounded-full bg-white/5 flex items-center justify-center mb-4">
-                              <BellOff className="w-8 h-8 text-slate-600" />
-                            </div>
-                            <p className="font-bold text-white mb-1">
-                              No unread messages
-                            </p>
-                            <p className="text-xs text-slate-500">
-                              You're all caught up on your ledger.
-                            </p>
-                          </div>
-                        ) : (
-                          <div className="divide-y divide-white/5">
-                            {notifications.map((notif) => (
-                              <div
-                                key={notif.id}
-                                className={cn(
-                                  "p-4 flex gap-4 group transition-colors hover:bg-white/5",
-                                  !notif.read ? "bg-blue-500/5" : "",
-                                )}
-                              >
-                                <div className="mt-1 shrink-0">
-                                  {!notif.read ? (
-                                    <div className="w-2.5 h-2.5 bg-blue-500 rounded-full shadow-[0_0_8px_rgba(59,130,246,0.8)]" />
-                                  ) : (
-                                    <div className="w-2.5 h-2.5 bg-slate-600 rounded-full" />
-                                  )}
-                                </div>
-                                <div className="flex-1 min-w-0">
-                                  <p
-                                    className={cn(
-                                      "text-sm mb-1",
-                                      !notif.read
-                                        ? "font-bold text-white"
-                                        : "font-medium text-slate-300",
-                                    )}
-                                  >
-                                    {notif.title}
-                                  </p>
-                                  <p className="text-xs text-slate-400 leading-relaxed mb-2">
-                                    {notif.message}
-                                  </p>
-                                  <p className="text-[10px] font-bold text-slate-600 uppercase tracking-widest">
-                                    {notif.time}
-                                  </p>
-                                </div>
-                                <div className="flex flex-col items-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                  <button
-                                    onClick={() => toggleReadStatus(notif.id)}
-                                    className="p-1.5 text-slate-500 hover:text-white hover:bg-white/10 rounded-md transition-colors"
-                                    title={
-                                      notif.read
-                                        ? "Mark as unread"
-                                        : "Mark as read"
-                                    }
-                                  >
-                                    {notif.read ? (
-                                      <Circle className="w-4 h-4" />
-                                    ) : (
-                                      <CheckCircle2 className="w-4 h-4" />
-                                    )}
-                                  </button>
-                                  <button
-                                    onClick={() => deleteNotification(notif.id)}
-                                    className="p-1.5 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-md transition-colors"
-                                    title="Delete"
-                                  >
-                                    <Trash2 className="w-4 h-4" />
-                                  </button>
-                                </div>
+                    <div className="flex-1 overflow-y-auto custom-scrollbar">
+                      {/* Using real data: if no notifications exist in DB, show this premium empty state */}
+                      {!userData?.notifications ||
+                      userData.notifications.length === 0 ? (
+                        <div className="flex flex-col items-center justify-center py-12 px-6 text-center">
+                          <BellOff className="w-10 h-10 text-[#222] mb-4" />
+                          <p className="text-sm font-bold text-white mb-1">
+                            You're all caught up
+                          </p>
+                          <p className="text-xs text-[#666] leading-relaxed">
+                            System alerts, alliance requests, and protocol
+                            updates will appear here.
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="divide-y divide-[#111]">
+                          {userData.notifications.map((notif, i) => (
+                            <div
+                              key={i}
+                              className="p-4 hover:bg-[#111] transition-colors cursor-pointer flex gap-3"
+                            >
+                              <div className="w-2 h-2 mt-1.5 rounded-full bg-blue-500 shrink-0" />
+                              <div>
+                                <p className="text-xs md:text-sm text-[#ccc] leading-relaxed">
+                                  {notif.message}
+                                </p>
+                                <p className="text-[10px] text-[#666] font-mono mt-2 uppercase">
+                                  {notif.time || "Just now"}
+                                </p>
                               </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    </motion.div>
-                  </>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </motion.div>
                 )}
               </AnimatePresence>
             </div>
 
-            {/* --- MINIMAL PROFILE TRIGGER --- */}
-            <div className="relative">
+            {/* --- PROFILE DROPDOWN ENGINE --- */}
+            <div className="relative" ref={profileMenuRef}>
               <button
                 onClick={() => {
-                  setIsProfileOpen(!isProfileOpen);
-                  setIsNotificationsOpen(false);
+                  setShowProfileMenu(!showProfileMenu);
+                  setShowLanguageMenu(false);
                 }}
-                className="flex items-center pl-2 md:pl-6 md:border-l border-white/10 focus:outline-none group"
+                className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-[#111] border border-[#333] flex items-center justify-center text-[10px] md:text-xs font-bold text-[#888] hover:text-white hover:border-white transition-colors shrink-0"
               >
-                <div className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-[#1a1a1a] border border-white/20 flex items-center justify-center text-white text-xs md:text-sm font-extrabold group-hover:border-white/50 group-hover:bg-white group-hover:text-black transition-all duration-300 shadow-xl">
-                  {initials}
-                </div>
+                {userData?.identity?.firstName?.charAt(0) || "U"}
               </button>
 
-              <AnimatePresence>
-                {isProfileOpen && (
-                  <>
-                    <div
-                      className="fixed inset-0 z-40"
-                      onClick={() => setIsProfileOpen(false)}
-                    />
-                    <motion.div
-                      initial={{ opacity: 0, y: 10, scale: 0.95 }}
-                      animate={{ opacity: 1, y: 0, scale: 1 }}
-                      exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                      transition={{ duration: 0.2, ease: "easeOut" }}
-                      className="absolute right-0 top-full mt-4 w-72 bg-[#121212] border border-white/10 rounded-2xl shadow-[0_20px_60px_rgba(0,0,0,0.8)] z-50 overflow-hidden"
-                    >
-                      {/* Header */}
-                      <div className="p-4 border-b border-white/5 flex items-start gap-4">
-                        <div className="w-12 h-12 rounded-full bg-white text-black flex items-center justify-center font-extrabold text-lg shrink-0">
-                          {initials}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="font-bold text-white truncate">
-                            {firstName} {lastName}
-                          </p>
-                          <p className="text-xs text-slate-400 truncate mb-2">
-                            @{firstName.toLowerCase()}_
-                            {userData?.vision?.passion
-                              ?.toLowerCase()
-                              ?.replace(/\s+/g, "") || "builder"}
-                          </p>
-                          <Link
-                            to="/app/profile"
-                            onClick={() => setIsProfileOpen(false)}
-                            className="text-xs font-bold text-blue-400 hover:text-blue-300 transition-colors"
-                          >
-                            Go to Account
-                          </Link>
-                        </div>
+              <AnimatePresence mode="wait">
+                {/* 1. MAIN PROFILE MENU */}
+                {showProfileMenu && !showLanguageMenu && (
+                  <motion.div
+                    key="main-menu"
+                    initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                    transition={{ duration: 0.15 }}
+                    className="absolute right-0 top-full mt-3 w-[280px] md:w-[320px] bg-[#0a0a0a] border border-[#222] rounded-2xl shadow-[0_30px_60px_rgba(0,0,0,0.9)] overflow-hidden z-[120] flex flex-col py-2"
+                  >
+                    {/* Header: User Info */}
+                    <div className="px-4 py-3 flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-full bg-[#111] border border-[#333] flex items-center justify-center text-sm font-bold text-[#666] shrink-0">
+                        {userData?.identity?.firstName?.charAt(0) || "U"}
                       </div>
+                      <div className="min-w-0">
+                        <p className="font-extrabold text-sm text-white truncate">
+                          {userData?.identity?.firstName}{" "}
+                          {userData?.identity?.lastName}
+                        </p>
+                        <p className="text-[10px] md:text-xs text-[#888] font-mono truncate">
+                          @{userData?.identity?.username}
+                        </p>
+                      </div>
+                    </div>
 
-                      {/* Options */}
-                      <div className="py-2">
-                        <div className="px-2 pb-2 mb-2 border-b border-white/5">
-                          <button className="w-full flex items-center justify-between px-3 py-2.5 text-sm font-bold text-slate-300 hover:text-white hover:bg-white/5 rounded-xl transition-colors group">
-                            <div className="flex items-center gap-3">
-                              <Zap className="w-4 h-4 text-amber-400" />{" "}
-                              Discotive Pro
-                            </div>
-                            <ChevronRightIcon className="w-4 h-4 text-slate-600 group-hover:text-slate-400 transition-colors" />
-                          </button>
-                        </div>
-                        <div className="px-2 pb-2 mb-2 border-b border-white/5">
-                          <button className="w-full flex items-center justify-between px-3 py-2.5 text-sm font-bold text-slate-300 hover:text-white hover:bg-white/5 rounded-xl transition-colors group">
-                            <div className="flex items-center gap-3">
-                              <Globe className="w-4 h-4 text-slate-400 group-hover:text-white transition-colors" />{" "}
-                              Language: English
-                            </div>
-                            <ChevronRightIcon className="w-4 h-4 text-slate-600 group-hover:text-slate-400 transition-colors" />
-                          </button>
-                          <button className="w-full flex items-center justify-between px-3 py-2.5 text-sm font-bold text-slate-300 hover:text-white hover:bg-white/5 rounded-xl transition-colors group">
-                            <div className="flex items-center gap-3">
-                              <MapPin className="w-4 h-4 text-slate-400 group-hover:text-white transition-colors" />{" "}
-                              Location: India
-                            </div>
-                            <ChevronRightIcon className="w-4 h-4 text-slate-600 group-hover:text-slate-400 transition-colors" />
-                          </button>
-                        </div>
-                        <div className="px-2 pb-2 mb-2 border-b border-white/5">
-                          <button className="w-full flex items-center gap-3 px-3 py-2.5 text-sm font-bold text-slate-300 hover:text-white hover:bg-white/5 rounded-xl transition-colors group">
-                            <HelpCircle className="w-4 h-4 text-slate-400 group-hover:text-white transition-colors" />{" "}
-                            Help & Support
-                          </button>
-                          <button className="w-full flex items-center gap-3 px-3 py-2.5 text-sm font-bold text-slate-300 hover:text-white hover:bg-white/5 rounded-xl transition-colors group">
-                            <MessageSquare className="w-4 h-4 text-slate-400 group-hover:text-white transition-colors" />{" "}
-                            Send Feedback
-                          </button>
-                        </div>
-                        <div className="px-2">
-                          <button
-                            onClick={handleLogout}
-                            className="w-full flex items-center gap-3 px-3 py-2.5 text-sm font-bold text-red-400 hover:text-red-300 hover:bg-red-500/10 rounded-xl transition-colors"
-                          >
-                            <LogOut className="w-4 h-4" /> Sign Out
-                          </button>
-                        </div>
+                    <div className="px-4 pb-2 border-b border-[#222]">
+                      <Link
+                        to="/app/profile"
+                        onClick={() => setShowProfileMenu(false)}
+                        className="text-blue-400 text-xs font-bold hover:text-blue-300 transition-colors"
+                      >
+                        View full profile
+                      </Link>
+                    </div>
+
+                    {/* Section 1: Localization */}
+                    <div className="py-2 border-b border-[#222]">
+                      <div className="px-4 py-2.5 flex items-center gap-3 text-[#ccc] text-xs md:text-sm pointer-events-none">
+                        <MapPin className="w-4 h-4 text-[#888]" />
+                        <span>
+                          Location:{" "}
+                          {userData?.footprint?.location || "Unmapped"}
+                        </span>
                       </div>
-                    </motion.div>
-                  </>
+                      <button
+                        onClick={() => setShowLanguageMenu(true)}
+                        className="w-full px-4 py-2.5 flex items-center justify-between text-[#ccc] hover:bg-[#111] transition-colors text-xs md:text-sm text-left"
+                      >
+                        <div className="flex items-center gap-3">
+                          <Languages className="w-4 h-4 text-[#888]" />
+                          <span>Language: English</span>
+                        </div>
+                        <ChevronRightIcon className="w-4 h-4 text-[#666]" />
+                      </button>
+                    </div>
+
+                    {/* Section 2: Account Controls */}
+                    <div className="py-2 border-b border-[#222]">
+                      <Link
+                        to="/app/settings"
+                        onClick={() => setShowProfileMenu(false)}
+                        className="px-4 py-2.5 flex items-center gap-3 text-[#ccc] hover:bg-[#111] transition-colors text-xs md:text-sm"
+                      >
+                        <Settings className="w-4 h-4 text-[#888]" /> Settings
+                      </Link>
+                      <Link
+                        to="/premium"
+                        onClick={() => setShowProfileMenu(false)}
+                        className="px-4 py-2.5 flex items-center gap-3 text-[#ccc] hover:bg-[#111] transition-colors text-xs md:text-sm"
+                      >
+                        <Shield className="w-4 h-4 text-[#888]" /> Discotive Pro
+                      </Link>
+                      <button className="w-full px-4 py-2.5 flex items-center justify-between text-[#ccc] hover:bg-[#111] transition-colors text-xs md:text-sm text-left">
+                        <div className="flex items-center gap-3">
+                          <Moon className="w-4 h-4 text-[#888]" /> Appearance:
+                          Dark
+                        </div>
+                      </button>
+                    </div>
+
+                    {/* Section 3: Support */}
+                    <div className="py-2 border-b border-[#222]">
+                      <Link
+                        to="/support"
+                        onClick={() => setShowProfileMenu(false)}
+                        className="px-4 py-2.5 flex items-center gap-3 text-[#ccc] hover:bg-[#111] transition-colors text-xs md:text-sm"
+                      >
+                        <HelpCircle className="w-4 h-4 text-[#888]" /> Help &
+                        Support
+                      </Link>
+                      <Link
+                        to="/feedback"
+                        onClick={() => setShowProfileMenu(false)}
+                        className="px-4 py-2.5 flex items-center gap-3 text-[#ccc] hover:bg-[#111] transition-colors text-xs md:text-sm"
+                      >
+                        <MessageSquare className="w-4 h-4 text-[#888]" /> Send
+                        Feedback
+                      </Link>
+                    </div>
+
+                    {/* Section 4: Sign Out */}
+                    <div className="py-2">
+                      <button
+                        onClick={handleLogout}
+                        className="w-full px-4 py-2.5 flex items-center gap-3 text-[#ccc] hover:bg-[#111] transition-colors text-xs md:text-sm text-left"
+                      >
+                        <LogOut className="w-4 h-4 text-[#888]" /> Sign out
+                      </button>
+                    </div>
+                  </motion.div>
+                )}
+
+                {/* 2. NESTED LANGUAGE MENU */}
+                {showProfileMenu && showLanguageMenu && (
+                  <motion.div
+                    key="language-menu"
+                    initial={{ opacity: 0, x: 20 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: 20 }}
+                    transition={{ duration: 0.15 }}
+                    className="absolute right-0 top-full mt-3 w-[280px] md:w-[320px] bg-[#0a0a0a] border border-[#222] rounded-2xl shadow-[0_30px_60px_rgba(0,0,0,0.9)] overflow-hidden z-[120] flex flex-col py-2"
+                  >
+                    <div className="flex items-center gap-2 px-2 pb-2 border-b border-[#222]">
+                      <button
+                        onClick={() => setShowLanguageMenu(false)}
+                        className="p-2 hover:bg-[#111] rounded-full transition-colors"
+                      >
+                        <ChevronLeft className="w-5 h-5 text-white" />
+                      </button>
+                      <span className="font-bold text-sm text-white">
+                        Choose Language
+                      </span>
+                    </div>
+
+                    <div className="py-2">
+                      <button className="w-full px-4 py-3 flex items-center justify-between hover:bg-[#111] transition-colors">
+                        <span className="text-sm text-white font-medium">
+                          English (US)
+                        </span>
+                        <Check className="w-4 h-4 text-white" />
+                      </button>
+                    </div>
+
+                    <div className="px-4 py-6 text-center border-t border-[#222]">
+                      <Globe className="w-8 h-8 text-[#333] mx-auto mb-3" />
+                      <p className="text-xs font-bold text-[#888] uppercase tracking-widest">
+                        More languages coming soon
+                      </p>
+                    </div>
+                  </motion.div>
                 )}
               </AnimatePresence>
             </div>
           </div>
         </header>
 
-        {/* --- PAGE CONTENT --- */}
-        <main className="flex-1 overflow-y-auto p-4 md:p-10 pb-28 md:pb-10 custom-scrollbar relative">
-          <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[400px] bg-white/5 blur-[120px] rounded-full pointer-events-none -z-10" />
+        {/* --- MAIN PAGE CONTENT OUTLET (Behind dropdowns, above background) --- */}
+        <main className="flex-1 overflow-y-auto overflow-x-hidden relative z-0">
           <Outlet />
         </main>
       </div>
 
-      {/* --- MOBILE BOTTOM NAVBAR --- */}
-      <nav className="md:hidden fixed bottom-0 left-0 w-full bg-[#0a0a0a]/90 backdrop-blur-2xl border-t border-white/10 z-50 px-6 py-4 pb-safe flex justify-between items-center">
-        <Link
-          to="/app"
-          className={cn(
-            "p-2 rounded-xl transition-colors",
-            location.pathname === "/app"
-              ? "text-white bg-white/10"
-              : "text-slate-500 hover:text-white",
-          )}
-        >
-          <LayoutDashboard className="w-6 h-6" />
-        </Link>
-        <Link
-          to="/app/roadmap"
-          className={cn(
-            "p-2 rounded-xl transition-colors",
-            location.pathname === "/app/roadmap"
-              ? "text-white bg-white/10"
-              : "text-slate-500 hover:text-white",
-          )}
-        >
-          <Target className="w-6 h-6" />
-        </Link>
-        <Link
-          to="/app/discover"
-          className={cn(
-            "p-2 rounded-xl transition-colors",
-            location.pathname === "/app/discover"
-              ? "text-white bg-white/10"
-              : "text-slate-500 hover:text-white",
-          )}
-        >
-          <Compass className="w-6 h-6" />
-        </Link>
-        <Link
-          to="/app/vault"
-          className={cn(
-            "p-2 rounded-xl transition-colors",
-            location.pathname === "/app/vault"
-              ? "text-white bg-white/10"
-              : "text-slate-500 hover:text-white",
-          )}
-        >
-          <FolderOpen className="w-6 h-6" />
-        </Link>
+      {/* ========================================================= */}
+      {/* MOBILE BOTTOM NAVIGATION BAR (Strictly 5 Icons)           */}
+      {/* ========================================================= */}
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 h-16 bg-[#050505]/95 backdrop-blur-2xl border-t border-[#222] z-[100] flex items-center justify-around px-2 safe-area-pb">
+        {[
+          { icon: LayoutDashboard, path: "/app", label: "Dashboard" },
+          { icon: Target, path: "/app/roadmap", label: "Roadmap" },
+          { icon: Trophy, path: "/app/leaderboard", label: "Leaderboard" },
+          { icon: Users, path: "/app/network", label: "Network" },
+        ].map((item) => {
+          const Icon = item.icon;
+          const isActive = location.pathname === item.path;
+          return (
+            <Link
+              key={item.path}
+              to={item.path}
+              className={cn(
+                "flex flex-col items-center justify-center w-14 h-full gap-1 transition-colors relative",
+                isActive ? "text-white" : "text-[#666] hover:text-[#aaa]",
+              )}
+            >
+              {isActive && (
+                <motion.div
+                  layoutId="mobile-nav-indicator"
+                  className="absolute top-0 w-8 h-0.5 bg-white rounded-b-full shadow-[0_2px_10px_rgba(255,255,255,0.5)]"
+                />
+              )}
+              <Icon className="w-5 h-5" />
+              <span className="text-[9px] font-bold tracking-wider">
+                {item.label}
+              </span>
+            </Link>
+          );
+        })}
+
+        {/* The Hamburger Trigger */}
         <button
-          onClick={() => setIsMobileMoreOpen(true)}
-          className="p-2 text-slate-500 hover:text-white transition-colors rounded-xl"
+          onClick={() => setIsMobileMenuOpen(true)}
+          className={cn(
+            "flex flex-col items-center justify-center w-14 h-full gap-1 transition-colors",
+            isMobileMenuOpen ? "text-white" : "text-[#666] hover:text-[#aaa]",
+          )}
         >
-          <Menu className="w-6 h-6" />
+          <Menu className="w-5 h-5" />
+          <span className="text-[9px] font-bold tracking-wider">Menu</span>
         </button>
       </nav>
 
-      {/* --- MOBILE BOTTOM SHEET --- */}
+      {/* ========================================================= */}
+      {/* MOBILE HAMBURGER OVERLAY MENU                             */}
+      {/* ========================================================= */}
       <AnimatePresence>
-        {isMobileMoreOpen && (
-          <>
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setIsMobileMoreOpen(false)}
-              className="md:hidden fixed inset-0 bg-black/80 backdrop-blur-sm z-[60]"
-            />
-            <motion.div
-              initial={{ y: "100%" }}
-              animate={{ y: 0 }}
-              exit={{ y: "100%" }}
-              transition={{ type: "spring", damping: 25, stiffness: 200 }}
-              className="md:hidden fixed bottom-0 left-0 w-full bg-[#121212] border-t border-white/10 rounded-t-[2.5rem] z-[70] p-6 pb-12 max-h-[85vh] overflow-y-auto custom-scrollbar flex flex-col"
-            >
-              <div className="w-12 h-1.5 bg-white/20 rounded-full mx-auto mb-8 shrink-0" />
-              <div className="flex justify-between items-center mb-6 px-2">
-                <h2 className="text-2xl font-extrabold tracking-tight">
-                  Full Ledger
-                </h2>
-                <button
-                  onClick={() => setIsMobileMoreOpen(false)}
-                  className="p-2 bg-white/5 rounded-full text-slate-400 hover:text-white"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-              <div className="space-y-6 flex-1">
-                <div>
-                  <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-3 px-2">
-                    Core OS
-                  </p>
-                  <div className="grid grid-cols-2 gap-2">
-                    {topNavItems.map((item) => (
-                      <NavItem key={item.path} item={item} />
-                    ))}
-                  </div>
+        {isMobileMenuOpen && (
+          <motion.div
+            initial={{ opacity: 0, y: "100%" }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: "100%" }}
+            transition={{ type: "spring", damping: 25, stiffness: 200 }}
+            className="md:hidden fixed inset-0 bg-[#050505] z-[200] flex flex-col"
+          >
+            {/* Overlay Header */}
+            <div className="h-16 flex items-center justify-between px-6 border-b border-[#222] shrink-0 bg-[#0a0a0a]">
+              <span className="font-extrabold text-lg tracking-widest text-white">
+                DISCOTIVE OS
+              </span>
+              <button
+                onClick={() => setIsMobileMenuOpen(false)}
+                className="p-2 bg-[#111] border border-[#333] rounded-full text-[#888] hover:text-white transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Scrollable Overlay Content */}
+            <div className="flex-1 overflow-y-auto custom-scrollbar px-6 py-8 space-y-8 pb-24">
+              {/* User Snapshot */}
+              <div className="flex items-center gap-4 p-4 bg-[#111] border border-[#222] rounded-2xl">
+                <div className="w-12 h-12 rounded-full bg-[#222] border border-[#444] flex items-center justify-center text-lg font-bold text-[#888]">
+                  {userData?.identity?.firstName?.charAt(0) || "U"}
                 </div>
                 <div>
-                  <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-3 px-2">
-                    Career Hub
+                  <p className="font-extrabold text-white">
+                    {userData?.identity?.firstName}{" "}
+                    {userData?.identity?.lastName}
                   </p>
-                  <div className="grid grid-cols-2 gap-2">
-                    {middleNavItems.map((item) => (
-                      <NavItem key={item.path} item={item} />
-                    ))}
-                  </div>
-                </div>
-                <div>
-                  <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-3 px-2">
-                    Media & Tests
+                  <p className="text-[10px] text-[#888] font-mono tracking-widest uppercase">
+                    Lvl{" "}
+                    {Math.min(
+                      Math.floor((userData?.discotiveScore || 0) / 1000) + 1,
+                      10,
+                    )}{" "}
+                    Operator
                   </p>
-                  <div className="grid grid-cols-2 gap-2">
-                    {contentNavItems.map((item) => (
-                      <NavItem key={item.path} item={item} />
-                    ))}
-                  </div>
-                </div>
-                <div>
-                  <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-3 px-2">
-                    Account
-                  </p>
-                  <div className="grid grid-cols-2 gap-2">
-                    {bottomNavItems.map((item) => (
-                      <NavItem key={item.path} item={item} />
-                    ))}
-                  </div>
                 </div>
               </div>
-            </motion.div>
-          </>
+
+              {/* Sections */}
+              <div>
+                <p className="text-[10px] font-bold text-[#555] uppercase tracking-[0.2em] mb-3">
+                  Career Hub
+                </p>
+                <div className="grid grid-cols-2 gap-3">
+                  <Link
+                    to="/app/vault"
+                    className="flex flex-col items-center justify-center gap-2 p-4 bg-[#0a0a0a] border border-[#222] rounded-2xl active:bg-[#111]"
+                  >
+                    <FolderOpen className="w-5 h-5 text-white" />
+                    <span className="text-xs font-bold text-[#ccc]">
+                      Asset Vault
+                    </span>
+                  </Link>
+                  <Link
+                    to="/app/hubs"
+                    className="flex flex-col items-center justify-center gap-2 p-4 bg-[#0a0a0a] border border-[#222] rounded-2xl active:bg-[#111]"
+                  >
+                    <Compass className="w-5 h-5 text-white" />
+                    <span className="text-xs font-bold text-[#ccc]">
+                      Discover Hubs
+                    </span>
+                  </Link>
+                  <Link
+                    to="/app/opportunities"
+                    className="col-span-2 flex flex-col items-center justify-center gap-2 p-4 bg-[#0a0a0a] border border-[#222] rounded-2xl active:bg-[#111]"
+                  >
+                    <Briefcase className="w-5 h-5 text-white" />
+                    <span className="text-xs font-bold text-[#ccc]">
+                      Opportunities
+                    </span>
+                  </Link>
+                </div>
+              </div>
+
+              <div>
+                <p className="text-[10px] font-bold text-[#555] uppercase tracking-[0.2em] mb-3">
+                  Media & Assessment
+                </p>
+                <div className="space-y-2">
+                  <Link
+                    to="/app/learn"
+                    className="flex items-center gap-4 p-4 bg-[#0a0a0a] border border-[#222] rounded-xl active:bg-[#111]"
+                  >
+                    <BookOpen className="w-5 h-5 text-[#888]" />
+                    <span className="text-sm font-bold text-white">
+                      Learning Center
+                    </span>
+                  </Link>
+                  <Link
+                    to="/app/podcasts"
+                    className="flex items-center gap-4 p-4 bg-[#0a0a0a] border border-[#222] rounded-xl active:bg-[#111]"
+                  >
+                    <Mic className="w-5 h-5 text-[#888]" />
+                    <span className="text-sm font-bold text-white">
+                      Podcasts & Media
+                    </span>
+                  </Link>
+                  <Link
+                    to="/app/assessments"
+                    className="flex items-center gap-4 p-4 bg-[#0a0a0a] border border-[#222] rounded-xl active:bg-[#111]"
+                  >
+                    <FileText className="w-5 h-5 text-[#888]" />
+                    <span className="text-sm font-bold text-white">
+                      Assessments
+                    </span>
+                  </Link>
+                </div>
+              </div>
+
+              <div>
+                <p className="text-[10px] font-bold text-[#555] uppercase tracking-[0.2em] mb-3">
+                  System & Account
+                </p>
+                <div className="space-y-2">
+                  <Link
+                    to="/app/profile"
+                    className="flex items-center gap-4 p-4 bg-[#0a0a0a] border border-[#222] rounded-xl active:bg-[#111]"
+                  >
+                    <User className="w-5 h-5 text-[#888]" />
+                    <span className="text-sm font-bold text-white">
+                      Operator Profile
+                    </span>
+                  </Link>
+                  <Link
+                    to="/app/finance"
+                    className="flex items-center gap-4 p-4 bg-[#0a0a0a] border border-[#222] rounded-xl active:bg-[#111]"
+                  >
+                    <LineChart className="w-5 h-5 text-[#888]" />
+                    <span className="text-sm font-bold text-white">
+                      Financial Ledger
+                    </span>
+                  </Link>
+                  <Link
+                    to="/app/settings"
+                    className="flex items-center gap-4 p-4 bg-[#0a0a0a] border border-[#222] rounded-xl active:bg-[#111]"
+                  >
+                    <Settings className="w-5 h-5 text-[#888]" />
+                    <span className="text-sm font-bold text-white">
+                      Settings
+                    </span>
+                  </Link>
+                  <Link
+                    to="/premium"
+                    className="flex items-center justify-between p-4 bg-gradient-to-r from-amber-500/10 to-transparent border border-amber-500/20 rounded-xl active:bg-amber-500/20"
+                  >
+                    <div className="flex items-center gap-4">
+                      <Shield className="w-5 h-5 text-amber-500" />
+                      <span className="text-sm font-bold text-amber-500">
+                        Discotive Pro
+                      </span>
+                    </div>
+                    <Zap className="w-4 h-4 text-amber-500" />
+                  </Link>
+                </div>
+              </div>
+
+              <div>
+                <p className="text-[10px] font-bold text-[#555] uppercase tracking-[0.2em] mb-3">
+                  Support
+                </p>
+                <div className="space-y-2">
+                  <Link
+                    to="/support"
+                    className="flex items-center gap-4 p-4 bg-[#0a0a0a] border border-[#222] rounded-xl active:bg-[#111]"
+                  >
+                    <HelpCircle className="w-5 h-5 text-[#888]" />
+                    <span className="text-sm font-bold text-white">
+                      Help Center
+                    </span>
+                  </Link>
+                  <Link
+                    to="/feedback"
+                    className="flex items-center gap-4 p-4 bg-[#0a0a0a] border border-[#222] rounded-xl active:bg-[#111]"
+                  >
+                    <MessageSquare className="w-5 h-5 text-[#888]" />
+                    <span className="text-sm font-bold text-white">
+                      Send Feedback
+                    </span>
+                  </Link>
+                  <button
+                    onClick={handleLogout}
+                    className="w-full flex items-center gap-4 p-4 bg-red-500/10 border border-red-500/20 rounded-xl active:bg-red-500/20"
+                  >
+                    <LogOut className="w-5 h-5 text-red-500" />
+                    <span className="text-sm font-bold text-red-500">
+                      Sign Out
+                    </span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </motion.div>
         )}
       </AnimatePresence>
     </div>

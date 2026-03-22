@@ -395,7 +395,9 @@ const Leaderboard = () => {
                   <img
                     src={getAvatar("rank1", top3[0]._gender)}
                     alt="Rank 1"
-                    className="w-full h-full object-contain"
+                    className="w-full h-full object-contain select-none pointer-events-none"
+                    draggable={false}
+                    onContextMenu={(e) => e.preventDefault()}
                   />
                 </div>
                 <div className="w-full bg-gradient-to-t from-[#221705] to-[#1a1205] border border-amber-900/50 rounded-t-xl h-36 md:h-80 flex flex-col items-center pt-4 md:pt-8 shadow-[0_-20px_50px_rgba(245,158,11,0.15)] relative z-0">
@@ -418,7 +420,9 @@ const Leaderboard = () => {
                   <img
                     src={getAvatar("rank2", top3[1]._gender)}
                     alt="Rank 2"
-                    className="w-full h-full object-contain"
+                    className="w-full h-full object-contain select-none pointer-events-none"
+                    draggable={false}
+                    onContextMenu={(e) => e.preventDefault()}
                   />
                 </div>
                 <div className="w-full bg-gradient-to-t from-[#1a1205] to-[#140e05] border border-amber-900/30 rounded-t-xl h-28 md:h-56 flex flex-col items-center pt-3 md:pt-6 relative z-0">
@@ -441,7 +445,9 @@ const Leaderboard = () => {
                   <img
                     src={getAvatar("rank3", top3[2]._gender)}
                     alt="Rank 3"
-                    className="w-full h-full object-contain"
+                    className="w-full h-full object-contain select-none pointer-events-none"
+                    draggable={false}
+                    onContextMenu={(e) => e.preventDefault()}
                   />
                 </div>
                 <div className="w-full bg-gradient-to-t from-[#140e05] to-[#0a0702] border border-amber-900/20 rounded-t-xl h-20 md:h-36 flex flex-col items-center pt-2 md:pt-5 relative z-0">
@@ -466,7 +472,9 @@ const Leaderboard = () => {
                 <img
                   src={getAvatar("observer", currentUserObj._gender)}
                   alt="You"
-                  className="w-full h-full object-contain grayscale brightness-75 opacity-70"
+                  className="w-full h-full object-contain grayscale brightness-75 opacity-70 select-none pointer-events-none"
+                  draggable={false}
+                  onContextMenu={(e) => e.preventDefault()}
                 />
               </div>
               <div className="w-full bg-gradient-to-t from-[#111] to-[#050505] border border-[#222] rounded-t-xl h-12 md:h-20 flex flex-col items-center pt-2 md:pt-3 relative z-0">

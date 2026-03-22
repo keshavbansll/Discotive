@@ -22,6 +22,7 @@ import PublicProfile from "./pages/PublicProfile";
 import Premium from "./pages/Premium";
 import Checkout from "./pages/Checkout";
 import VerifyAsset from "./pages/VerifyAsset";
+import EditProfile from "./pages/EditProfile";
 
 const ProtectedRoute = ({ children }) => {
   const { currentUser } = useAuth();
@@ -69,10 +70,13 @@ function App() {
               </PublicRoute>
             }
           />
-
           <Route path="/about" element={<About />} />
           <Route path="/premium" element={<Premium />} />
           <Route path="/checkout" element={<Checkout />} />
+          <Route path="/verify-asset" element={<VerifyAsset />} />
+
+          {/* PUBLIC PROFILE ROUTE (Accessible to anyone, but uses /app/ prefix) */}
+          <Route path="/app/:username" element={<PublicProfile />} />
 
           <Route
             path="/app"
@@ -91,17 +95,17 @@ function App() {
             />
             <Route path="vault" element={<Vault />} />
             <Route path="hubs" element={<ComingSoon title="Hubs" />} />
+            {/* PROFILE ROUTES */}
             <Route path="profile" element={<Profile />} />
-
+            <Route path="profile/edit" element={<EditProfile />} />{" "}
+            {/* NEW ROUTE */}
             <Route path="settings" element={<Settings />} />
-
             <Route
               path="finance"
               element={<ComingSoon title="Financial Ledger" />}
             />
             <Route path="network" element={<Network />} />
             <Route path="learn" element={<ComingSoon title="learn" />} />
-
             <Route
               path="podcasts"
               element={<ComingSoon title="Podcasts & Media" />}
@@ -112,8 +116,6 @@ function App() {
             />
             <Route path="discover" element={<ComingSoon title="Discover" />} />
           </Route>
-          <Route path="/verify-asset" element={<VerifyAsset />} />
-          <Route path="/:username" element={<PublicProfile />} />
         </Routes>
       </Router>
     </AuthProvider>
