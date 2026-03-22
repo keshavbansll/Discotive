@@ -61,6 +61,7 @@ import {
   FileText,
   Edit2,
   Minus,
+  Sparkles,
 } from "lucide-react";
 import { useUserData } from "../hooks/useUserData";
 import { cn } from "../components/ui/BentoCard";
