@@ -26,6 +26,8 @@ import { jsPDF } from "jspdf";
 import "reactflow/dist/style.css";
 import {
   Calendar as CalendarIcon,
+  Wand2,
+  ChevronRight as ChevronRightIcon,
   ChevronDown,
   Clock,
   Edit3,
@@ -62,6 +64,11 @@ import {
 import { useUserData } from "../hooks/useUserData";
 import { cn } from "../components/ui/BentoCard";
 import { db, auth } from "../firebase";
+import AILoader from "../components/AILoader";
+import {
+  generateCalibrationQuestions,
+  generateExecutionMap,
+} from "../lib/gemini";
 
 // ============================================================================
 // UTILITIES
@@ -249,6 +256,8 @@ const FlowCanvas = ({
   subscriptionTier,
   totalNodesCount,
   onLimitReached,
+  isFirstTime, // <--- ADD THIS
+  handleStartCalibration, // <--- ADD THIS
 }) => {
   const { screenToFlowPosition, fitView } = useReactFlow();
 
@@ -522,6 +531,20 @@ const FlowCanvas = ({
             : "opacity-100",
         )}
       >
+        {/* NEW REGENERATE BUTTON */}
+        <button
+          onClick={() => {
+            // Need to trigger the parent's handleStartCalibration.
+            // *Ensure you pass handleStartCalibration down as a prop to FlowCanvas!*
+            handleStartCalibration();
+          }}
+          className="flex items-center justify-center w-9 h-9 md:w-10 md:h-10 bg-[#111] border border-[#333] hover:border-amber-500 rounded-full text-[#888] hover:text-amber-500 transition-colors relative group"
+        >
+          <Wand2 className="w-4 h-4 md:w-5 md:h-5" />
+          {subscriptionTier === "free" && !isFirstTime && (
+            <Lock className="w-3 h-3 absolute -bottom-1 -right-1 text-red-500 bg-[#0a0a0a] rounded-full" />
+          )}
+        </button>
         <div className="hidden md:flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-[#666] ml-2 mr-2">
           {isSaving ? (
             <>
@@ -877,10 +900,29 @@ const Roadmap = () => {
   const [nodes, setNodes] = useState([]);
   const [edges, setEdges] = useState([]);
 
-  // dailyStats now tracks detailed counts per node type
-  // e.g., { '2026-03-22': { subTasks: 5, branches: 1, cores: 0 } }
-  const [dailyStats, setDailyStats] = useState({});
+  // --- 1. SUBSCRIPTION STATE (MUST BE DECLARED FIRST) ---
+  const [subscriptionTier, setSubscriptionTier] = useState("free");
+  const [isProModalOpen, setIsProModalOpen] = useState(false);
+  const [proModalReason, setProModalReason] = useState("journal");
 
+  // --- 2. AI GENERATION STATES ---
+  const [aiPhase, setAiPhase] = useState("idle");
+  const [aiQuestions, setAiQuestions] = useState([]);
+  const [aiAnswers, setAiAnswers] = useState({});
+  const [currentQuestionIdx, setCurrentQuestionIdx] = useState(0);
+
+  // Check if it's a completely empty/new roadmap
+  const isFirstTime = nodes.length <= 1 && nodes[0]?.id === "init_1";
+
+  // --- 3. PRO LIMIT CALCULATIONS (Safely uses subscriptionTier now) ---
+  const lastGenDate = userData?.telemetry?.lastRoadmapGen;
+  const daysSinceLastGen = lastGenDate
+    ? (new Date() - new Date(lastGenDate)) / (1000 * 60 * 60 * 24)
+    : 999;
+  const canRegenerate = subscriptionTier === "pro" && daysSinceLastGen >= 14;
+
+  // dailyStats now tracks detailed counts per node type
+  const [dailyStats, setDailyStats] = useState({});
   const [viewMode, setViewMode] = useState("timeline");
   const [timeframe, setTimeframe] = useState("Macro Vision");
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
@@ -893,11 +935,6 @@ const Roadmap = () => {
 
   const [activeEditNodeId, setActiveEditNodeId] = useState(null);
   const [calendarDate, setCalendarDate] = useState(new Date());
-
-  // --- SUBSCRIPTION STATE ---
-  const [subscriptionTier, setSubscriptionTier] = useState("free");
-  const [isProModalOpen, setIsProModalOpen] = useState(false);
-  const [proModalReason, setProModalReason] = useState("journal");
 
   // --- TELEMETRY & TOASTS ---
   const [systemLedger, setSystemLedger] = useState([]);
@@ -922,6 +959,123 @@ const Roadmap = () => {
       return updated;
     });
   }, []);
+
+  // --- AI HANDLERS (Live Gemini Integration) ---
+  const handleStartCalibration = async () => {
+    if (subscriptionTier === "free" && !isFirstTime) {
+      setProModalReason("regenerate");
+      setIsProModalOpen(true);
+      return;
+    }
+    if (subscriptionTier === "pro" && !canRegenerate && !isFirstTime) {
+      addToast(
+        `Regeneration locked. Try again in ${Math.ceil(14 - daysSinceLastGen)} days.`,
+        "red",
+      );
+      return;
+    }
+
+    setAiPhase("loading_questions");
+    setAiAnswers({});
+    setCurrentQuestionIdx(0);
+
+    try {
+      // 1. Call Gemini to generate personalized questions
+      const questions = await generateCalibrationQuestions(userData);
+      setAiQuestions(questions);
+      setAiPhase("questions");
+    } catch (err) {
+      addToast("Failed to initialize AI neural link. Try again.", "red");
+      setAiPhase("idle");
+    }
+  };
+
+  const handleGenerateRoadmap = async () => {
+    setAiPhase("loading_roadmap");
+
+    try {
+      // 1. Send Answers to Gemini to build the JSON map
+      const aiData = await generateExecutionMap(
+        userData,
+        aiAnswers,
+        subscriptionTier,
+      );
+
+      // 2. Parse Gemini's simple JSON into React Flow's complex Math UI
+      const newNodes = [];
+      const newEdges = [];
+
+      // Calculate realistic deadlines starting from today
+      let currentDate = new Date();
+
+      aiData.phases.forEach((phase, index) => {
+        const nodeId = `node_ai_${Date.now()}_${index}`;
+
+        // Add 14 days for each phase to create rolling deadlines
+        currentDate.setDate(currentDate.getDate() + 14);
+
+        newNodes.push({
+          id: nodeId,
+          type: "executionNode",
+          position: { x: 0, y: 0 }, // Math layout will override this
+          data: {
+            title: phase.title,
+            subtitle: phase.subtitle,
+            desc: phase.desc,
+            nodeType: phase.nodeType || "core",
+            deadline: currentDate.toISOString().split("T")[0],
+            isCompleted: false,
+            priorityStatus: index === 0 ? "READY" : "FUTURE",
+            tasks: phase.tasks.map((t, i) => ({
+              id: `${nodeId}_t${i}`,
+              text: t,
+              completed: false,
+            })),
+          },
+        });
+
+        // Connect this node to the previous one
+        if (index > 0) {
+          const prevNodeId = newNodes[index - 1].id;
+          newEdges.push({
+            id: `edge_${prevNodeId}-${nodeId}`,
+            source: prevNodeId,
+            target: nodeId,
+            animated: phase.nodeType === "branch",
+            style: {
+              stroke: "#666",
+              strokeWidth: 2,
+              strokeDasharray: phase.nodeType === "branch" ? "5,5" : "none",
+            },
+          });
+        }
+      });
+
+      // 3. Apply the mathematical Sprawling Web Layout
+      const layoutedNodes = generateWebLayout(newNodes);
+
+      // 4. Update the Canvas
+      setNodes(layoutedNodes);
+      setEdges(newEdges);
+      setHasUnsavedChanges(true); // Triggers the Cloud Save button to appear
+
+      // 5. Update the backend timestamp to enforce the 14-day rule
+      const uid = auth.currentUser?.uid || userData?.id;
+      if (uid) {
+        await updateDoc(doc(db, "users", uid), {
+          "telemetry.lastRoadmapGen": new Date().toISOString(),
+        });
+      }
+
+      setAiPhase("idle");
+      addToast("Neural Map successfully deployed.", "green");
+      addLedgerEntry("Generated new AI Execution Map");
+    } catch (err) {
+      console.error(err);
+      addToast("Synthesis failed. Neural link severed.", "red");
+      setAiPhase("idle");
+    }
+  };
 
   // ============================================================================
   // TASK OVERFLOW ENGINE (Rollover past-due tasks)
@@ -1893,32 +2047,166 @@ const Roadmap = () => {
       </div>
 
       {/* VIEW ENGINE */}
-      {/* overflow-x-hidden instead of overflow-x-clip: clip is unsupported on older iOS Safari */}
       <div className="relative overflow-x-hidden">
         {viewMode === "timeline" ? (
-          <ReactFlowProvider>
-            <FlowCanvas
-              filteredNodes={filteredNodes}
-              edges={edges}
-              setNodes={setNodes}
-              setEdges={setEdges}
-              hasUnsavedChanges={hasUnsavedChanges}
-              setHasUnsavedChanges={setHasUnsavedChanges}
-              isSaving={isSaving}
-              handleCloudSave={handleCloudSave}
-              isMapFullscreen={isMapFullscreen}
-              setIsMapFullscreen={setIsMapFullscreen}
-              setActiveEditNodeId={setActiveEditNodeId}
-              addToast={addToast}
-              addLedgerEntry={addLedgerEntry}
-              subscriptionTier={subscriptionTier}
-              totalNodesCount={nodes.length}
-              onLimitReached={() => {
-                setProModalReason("nodes");
-                setIsProModalOpen(true);
-              }}
-            />
-          </ReactFlowProvider>
+          <div className="relative h-full w-full">
+            {/* FIRST TIME BLUR OVERLAY */}
+            {isFirstTime && aiPhase === "idle" && (
+              <div className="absolute inset-0 z-[80] bg-black/60 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center">
+                <div className="w-16 h-16 rounded-full bg-amber-500/10 border border-amber-500/30 flex items-center justify-center mb-6">
+                  <Sparkles className="w-8 h-8 text-amber-500" />
+                </div>
+                <h2 className="text-2xl md:text-4xl font-extrabold text-white mb-4">
+                  Initialize Your Trajectory
+                </h2>
+                <p className="text-[#888] max-w-lg mb-8 leading-relaxed">
+                  Your Execution Map is empty. Deploy the Discotive AI to
+                  analyze your operator profile and synthesize a
+                  hyper-personalized, mathematical career roadmap.
+                </p>
+                <button
+                  onClick={handleStartCalibration}
+                  className="px-8 py-4 bg-white text-black font-extrabold rounded-xl hover:bg-[#ccc] transition-colors shadow-[0_0_40px_rgba(255,255,255,0.2)] flex items-center gap-3"
+                >
+                  <Wand2 className="w-5 h-5" /> Generate Career Roadmap
+                </button>
+              </div>
+            )}
+
+            {/* AI GENERATION FULL-PAGE MODAL */}
+            <AnimatePresence>
+              {aiPhase !== "idle" && (
+                <div className="fixed inset-0 z-[999] flex items-center justify-center p-4 md:p-8 bg-black/90 backdrop-blur-xl">
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.95 }}
+                    className="w-full max-w-2xl bg-[#0a0a0a] border border-[#222] rounded-[2rem] p-6 md:p-12 shadow-2xl flex flex-col min-h-[400px] justify-center"
+                  >
+                    {(aiPhase === "loading_questions" ||
+                      aiPhase === "loading_roadmap") && (
+                      <AILoader
+                        phase={
+                          aiPhase === "loading_questions"
+                            ? "questions"
+                            : "roadmap"
+                        }
+                      />
+                    )}
+
+                    {aiPhase === "questions" && aiQuestions.length > 0 && (
+                      <div className="flex flex-col h-full">
+                        <div className="mb-8">
+                          <p className="text-[10px] font-bold text-amber-500 uppercase tracking-widest mb-2">
+                            Calibration {currentQuestionIdx + 1} of{" "}
+                            {aiQuestions.length}
+                          </p>
+                          <h3 className="text-xl md:text-2xl font-extrabold text-white">
+                            {aiQuestions[currentQuestionIdx].question}
+                          </h3>
+                        </div>
+
+                        <div className="flex-1">
+                          {aiQuestions[currentQuestionIdx].type === "text" ? (
+                            <textarea
+                              autoFocus
+                              value={
+                                aiAnswers[aiQuestions[currentQuestionIdx].id] ||
+                                ""
+                              }
+                              onChange={(e) =>
+                                setAiAnswers({
+                                  ...aiAnswers,
+                                  [aiQuestions[currentQuestionIdx].id]:
+                                    e.target.value,
+                                })
+                              }
+                              placeholder="Type your response..."
+                              className="w-full h-32 bg-[#111] border border-[#333] rounded-xl p-4 text-white focus:border-amber-500 outline-none resize-none custom-scrollbar"
+                            />
+                          ) : (
+                            <div className="space-y-3">
+                              {aiQuestions[currentQuestionIdx].options.map(
+                                (opt) => (
+                                  <button
+                                    key={opt}
+                                    onClick={() =>
+                                      setAiAnswers({
+                                        ...aiAnswers,
+                                        [aiQuestions[currentQuestionIdx].id]:
+                                          opt,
+                                      })
+                                    }
+                                    className={cn(
+                                      "w-full text-left px-5 py-4 border rounded-xl font-bold transition-all text-sm",
+                                      aiAnswers[
+                                        aiQuestions[currentQuestionIdx].id
+                                      ] === opt
+                                        ? "bg-amber-500/10 border-amber-500 text-amber-500"
+                                        : "bg-[#111] border-[#333] text-[#888] hover:bg-[#222] hover:text-white",
+                                    )}
+                                  >
+                                    {opt}
+                                  </button>
+                                ),
+                              )}
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="mt-8 flex justify-end pt-6 border-t border-[#222]">
+                          <button
+                            onClick={() => {
+                              if (currentQuestionIdx < aiQuestions.length - 1) {
+                                setCurrentQuestionIdx((prev) => prev + 1);
+                              } else {
+                                handleGenerateRoadmap();
+                              }
+                            }}
+                            disabled={
+                              !aiAnswers[aiQuestions[currentQuestionIdx].id]
+                            }
+                            className="px-8 py-3 bg-white text-black font-extrabold rounded-xl hover:bg-[#ccc] disabled:opacity-30 flex items-center gap-2"
+                          >
+                            {currentQuestionIdx < aiQuestions.length - 1
+                              ? "Next"
+                              : "Synthesize Roadmap"}{" "}
+                            <ChevronRightIcon className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </motion.div>
+                </div>
+              )}
+            </AnimatePresence>
+
+            <ReactFlowProvider>
+              <FlowCanvas
+                filteredNodes={filteredNodes}
+                edges={edges}
+                setNodes={setNodes}
+                setEdges={setEdges}
+                hasUnsavedChanges={hasUnsavedChanges}
+                setHasUnsavedChanges={setHasUnsavedChanges}
+                isSaving={isSaving}
+                handleCloudSave={handleCloudSave}
+                isMapFullscreen={isMapFullscreen}
+                setIsMapFullscreen={setIsMapFullscreen}
+                setActiveEditNodeId={setActiveEditNodeId}
+                addToast={addToast}
+                addLedgerEntry={addLedgerEntry}
+                subscriptionTier={subscriptionTier}
+                totalNodesCount={nodes.length}
+                onLimitReached={() => {
+                  setProModalReason("nodes");
+                  setIsProModalOpen(true);
+                }}
+                isFirstTime={isFirstTime}
+                handleStartCalibration={handleStartCalibration}
+              />
+            </ReactFlowProvider>
+          </div>
         ) : (
           renderCalendarView()
         )}
