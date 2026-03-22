@@ -13,6 +13,8 @@ import {
   MapPin,
   ChevronLeft,
   ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
   ShieldCheck,
   TrendingUp,
   TrendingDown,
@@ -21,6 +23,7 @@ import {
 } from "lucide-react";
 import { cn } from "../components/ui/BentoCard";
 
+// --- THE RESTRICTED NIGHT SKY ---
 const StaticStars = () => {
   const [stars, setStars] = useState([]);
   useEffect(() => {
@@ -53,10 +56,9 @@ const StaticStars = () => {
   );
 };
 
-// =========================================
-// CHARACTER ASSETS
-// =========================================
-
+// ============================================================================
+// CHARACTER ASSET MATRIX
+// ============================================================================
 const CHARACTERS = {
   rank1: {
     Male: "/Characters/Boy-1.gif",
@@ -66,26 +68,25 @@ const CHARACTERS = {
   rank2: {
     Male: "/Characters/Boy-2.gif",
     Female: "/Characters/Girl-2.gif",
-    Other: "/Characters/Others-1     .gif",
-  },
-  rank3: {
-    Male: "/Characters/Boy-3.gif",
-    Female: "/Characters/Girl-3.gif",
     Other: "/Characters/Others-1.gif",
   },
+  rank3: {
+    Male: "/characters/Boy-3.gif",
+    Female: "/characters/Boy-1.gif",
+    Other: "/characters/Boy-1.gif",
+  },
   observer: {
-    Male: "/Characters/Observer.gif",
-    Female: "/Characters/Observer.gif",
-    Other: "/Characters/Observer.gif",
+    Male: "/characters/Observer.gif",
+    Female: "/characters/Observer.gif",
+    Other: "/characters/Observer.gif",
   },
 };
 const getAvatar = (rankKey, gender) =>
   CHARACTERS[rankKey][gender] || CHARACTERS[rankKey]["Other"];
 
-// =============================================
-// THE COMPARE MODAL
-// ==============================================
-
+// ============================================================================
+// THE COMPARE MODAL (WHATSAPP-STYLE AI TERMINAL)
+// ============================================================================
 const CompareTerminal = ({ isOpen, onClose, targetUser, currentUser }) => {
   if (!isOpen) return null;
 
@@ -129,7 +130,6 @@ const CompareTerminal = ({ isOpen, onClose, targetUser, currentUser }) => {
 
         {/* Chat Area */}
         <div className="flex-1 overflow-y-auto p-6 bg-[#050505] flex flex-col gap-6">
-          {/* User Message Bubble */}
           <motion.div
             initial={{ opacity: 0, scale: 0.95, x: 20 }}
             animate={{ opacity: 1, scale: 1, x: 0 }}
@@ -146,7 +146,6 @@ const CompareTerminal = ({ isOpen, onClose, targetUser, currentUser }) => {
             </div>
           </motion.div>
 
-          {/* AI Typing Indicator Bubble */}
           <motion.div
             initial={{ opacity: 0, scale: 0.95, x: -20 }}
             animate={{ opacity: 1, scale: 1, x: 0 }}
@@ -180,10 +179,9 @@ const CompareTerminal = ({ isOpen, onClose, targetUser, currentUser }) => {
   );
 };
 
-// ===================================
+// ============================================================================
 // MAIN LEADERBOARD COMPONENT
-// ===================================
-
+// ============================================================================
 const Leaderboard = () => {
   const { userData, loading: userLoading } = useUserData();
   const navigate = useNavigate();
@@ -191,9 +189,12 @@ const Leaderboard = () => {
   const [dbUsers, setDbUsers] = useState([]);
   const [isFetching, setIsFetching] = useState(true);
 
-  // Click-Outside Ref for Dropdowns
-  const filterBarRef = useRef(null);
+  // States
   const [activeDropdown, setActiveDropdown] = useState(null);
+  const [isFilterMenuOpen, setIsFilterMenuOpen] = useState(false);
+  const pageDropdownRef = useRef(null);
+  const filterMenuRef = useRef(null);
+  const [isPageDropdownOpen, setIsPageDropdownOpen] = useState(false);
 
   // Pagination & Filters State
   const [page, setPage] = useState(1);
@@ -209,11 +210,18 @@ const Leaderboard = () => {
   const [compareTarget, setCompareTarget] = useState(null);
   const [isCompareOpen, setIsCompareOpen] = useState(false);
 
+  // Click-Outside Handlers
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (
-        filterBarRef.current &&
-        !filterBarRef.current.contains(event.target)
+        pageDropdownRef.current &&
+        !pageDropdownRef.current.contains(event.target)
+      ) {
+        setIsPageDropdownOpen(false);
+      }
+      if (
+        filterMenuRef.current &&
+        !filterMenuRef.current.contains(event.target)
       ) {
         setActiveDropdown(null);
       }
@@ -222,6 +230,7 @@ const Leaderboard = () => {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
 
+  // Fetch Database
   useEffect(() => {
     const fetchData = async () => {
       try {
@@ -234,15 +243,12 @@ const Leaderboard = () => {
         const sorted = rawUsers
           .sort((a, b) => (b.discotiveScore || 0) - (a.discotiveScore || 0))
           .map((u, index) => {
-            const fName = u.identity?.firstName || "Unknown";
-            const lName = u.identity?.lastName || "";
             const mockVelocity = Math.floor(Math.random() * 15) - 5;
-
             return {
               ...u,
               _globalRank: index + 1,
-              _firstName: fName,
-              _lastName: lName,
+              _firstName: u.identity?.firstName || "Unknown",
+              _lastName: u.identity?.lastName || "",
               _email: u.identity?.email || "",
               _username: u.identity?.username || "user",
               _gender: u.identity?.gender || "Other",
@@ -253,7 +259,6 @@ const Leaderboard = () => {
               _velocity: mockVelocity,
             };
           });
-
         setDbUsers(sorted);
       } catch (error) {
         console.error("Sync Failed:", error);
@@ -290,17 +295,49 @@ const Leaderboard = () => {
     });
   }, [dbUsers, filters]);
 
-  const paginatedLedger = filteredLedger.slice(
-    (page - 1) * filters.limit,
-    page * filters.limit,
+  const totalPages = Math.max(
+    1,
+    Math.ceil(filteredLedger.length / filters.limit),
   );
-
   const currentUserObj = dbUsers.find(
     (u) => u._email === userData?.identity?.email,
   );
   const currentUserGlobalRank = currentUserObj
     ? currentUserObj._globalRank
     : -1;
+
+  // --- SMART AUTO-PAGINATION ---
+  // Default to the page where the current user resides whenever filters update
+  useEffect(() => {
+    if (!isFetching && filteredLedger.length > 0 && userData?.identity?.email) {
+      const userIndex = filteredLedger.findIndex(
+        (u) => u._email === userData?.identity?.email,
+      );
+      if (userIndex !== -1) {
+        setPage(Math.floor(userIndex / filters.limit) + 1);
+      } else {
+        setPage(1);
+      }
+    }
+  }, [
+    isFetching,
+    filters.domain,
+    filters.niche,
+    filters.location,
+    filters.timeframe,
+    filters.limit,
+    filteredLedger.length,
+  ]);
+
+  // Enforce page bounds
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [totalPages, page]);
+
+  const paginatedLedger = filteredLedger.slice(
+    (page - 1) * filters.limit,
+    page * filters.limit,
+  );
 
   // Linear Podium Logic
   const top3 = [filteredLedger[0], filteredLedger[1], filteredLedger[2]];
@@ -315,25 +352,25 @@ const Leaderboard = () => {
   }
 
   return (
-    <div className="bg-[#030303] min-h-screen text-white selection:bg-white selection:text-black pb-20 relative overflow-hidden">
+    <div className="bg-[#030303] min-h-screen text-white selection:bg-white selection:text-black pb-20 relative overflow-x-hidden">
       <StaticStars />
       <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[400px] bg-white opacity-[0.01] blur-[150px] rounded-full pointer-events-none" />
 
-      <div className="max-w-[1400px] mx-auto px-6 md:px-12 relative z-10 pt-12 space-y-16">
+      <div className="max-w-[1400px] mx-auto px-4 md:px-12 relative z-10 pt-12 space-y-12 md:space-y-16">
         {/* HEADER */}
-        <div className="text-center space-y-4">
+        <div className="text-center space-y-3 md:space-y-4">
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            className="flex justify-center items-center gap-3 text-xs font-bold text-[#666] uppercase tracking-[0.3em] mb-4"
+            className="flex justify-center items-center gap-2 md:gap-3 text-[10px] md:text-xs font-bold text-[#666] uppercase tracking-[0.3em] mb-2 md:mb-4"
           >
-            <ShieldCheck className="w-4 h-4 text-[#888]" /> Protocol Access
-            Verified
+            <ShieldCheck className="w-3 h-3 md:w-4 md:h-4 text-[#888]" />{" "}
+            Protocol Access Verified
           </motion.div>
           <motion.h1
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
-            className="text-5xl md:text-7xl font-extrabold tracking-tighter text-white leading-none"
+            className="text-4xl md:text-7xl font-extrabold tracking-tighter text-white leading-none"
           >
             The Discotive Arena.
           </motion.h1>
@@ -341,98 +378,102 @@ const Leaderboard = () => {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             transition={{ delay: 0.1 }}
-            className="text-[#888] font-medium text-lg md:text-xl tracking-tight max-w-2xl mx-auto"
+            className="text-sm md:text-xl text-[#888] font-medium tracking-tight max-w-2xl mx-auto px-4"
           >
             Cryptographic Proof of Work on the Discotive Chain.
           </motion.p>
         </div>
 
-        {/* --- THE OSCAR PODIUM --- */}
-        <div className="flex justify-center items-end gap-2 md:gap-4 h-[450px] md:h-[500px] pt-10 overflow-x-auto custom-scrollbar px-4">
-          {/* Rank 1 */}
-          {top3[0] && (
-            <div className="flex flex-col items-center justify-end w-[110px] md:w-56 h-full shrink-0">
-              <div className="w-32 h-32 md:w-44 md:h-44 mb-[-20px] z-10 flex items-end justify-center drop-shadow-[0_0_20px_rgba(245,158,11,0.5)]">
-                <img
-                  src={getAvatar("rank1", top3[0]._gender)}
-                  alt="Rank 1"
-                  className="w-full h-full object-contain"
-                />
-              </div>
-              <div className="w-full bg-gradient-to-t from-[#221705] to-[#1a1205] border border-amber-900/50 rounded-t-xl h-64 md:h-80 flex flex-col items-center pt-8 shadow-[0_-20px_50px_rgba(245,158,11,0.15)] relative z-0">
-                <h3 className="font-extrabold text-white text-sm md:text-lg truncate w-full text-center px-2">
-                  {top3[0]._firstName}
-                </h3>
-                <p className="text-[8px] md:text-[10px] font-bold uppercase tracking-widest text-amber-500 truncate w-full text-center px-2 mt-1">
-                  {top3[0]._niche}
-                </p>
-                <div className="mt-auto pb-4 font-black text-5xl text-amber-500/20">
-                  01
+        {/* --- THE SCALED MOBILE-FIRST PODIUM --- */}
+        <div className="flex flex-col md:flex-row justify-center items-center md:items-end gap-6 md:gap-4 pt-6 md:pt-10 px-2">
+          {/* Top 3 Row (Kept inline but scaled down aggressively on mobile) */}
+          <div className="flex justify-center items-end gap-2 md:gap-4 h-[220px] md:h-[500px]">
+            {/* Rank 1 (Tallest) */}
+            {top3[0] && (
+              <div className="flex flex-col items-center justify-end w-[90px] md:w-56 h-full shrink-0">
+                <div className="w-20 h-20 md:w-44 md:h-44 mb-[-10px] md:mb-[-20px] z-10 flex items-end justify-center drop-shadow-[0_0_20px_rgba(245,158,11,0.5)]">
+                  <img
+                    src={getAvatar("rank1", top3[0]._gender)}
+                    alt="Rank 1"
+                    className="w-full h-full object-contain"
+                  />
+                </div>
+                <div className="w-full bg-gradient-to-t from-[#221705] to-[#1a1205] border border-amber-900/50 rounded-t-xl h-36 md:h-80 flex flex-col items-center pt-4 md:pt-8 shadow-[0_-20px_50px_rgba(245,158,11,0.15)] relative z-0">
+                  <h3 className="font-extrabold text-white text-[10px] md:text-lg truncate w-full text-center px-1 md:px-2">
+                    {top3[0]._firstName}
+                  </h3>
+                  <p className="text-[6px] md:text-[10px] font-bold uppercase tracking-widest text-amber-500 truncate w-full text-center px-1 md:px-2 mt-0.5 md:mt-1">
+                    {top3[0]._niche}
+                  </p>
+                  <div className="mt-auto pb-2 md:pb-4 font-black text-2xl md:text-5xl text-amber-500/20">
+                    01
+                  </div>
                 </div>
               </div>
-            </div>
-          )}
-          {/* Rank 2 */}
-          {top3[1] && (
-            <div className="flex flex-col items-center justify-end w-[110px] md:w-48 h-full shrink-0">
-              <div className="w-24 h-24 md:w-32 md:h-32 mb-[-15px] z-10 flex items-end justify-center drop-shadow-[0_0_15px_rgba(245,158,11,0.3)]">
-                <img
-                  src={getAvatar("rank2", top3[1]._gender)}
-                  alt="Rank 2"
-                  className="w-full h-full object-contain"
-                />
-              </div>
-              <div className="w-full bg-gradient-to-t from-[#1a1205] to-[#140e05] border border-amber-900/30 rounded-t-xl h-44 md:h-56 flex flex-col items-center pt-6 relative z-0">
-                <h3 className="font-extrabold text-white text-sm md:text-base truncate w-full text-center px-2">
-                  {top3[1]._firstName}
-                </h3>
-                <p className="text-[8px] font-bold uppercase tracking-widest text-amber-500/70 truncate w-full text-center px-2 mt-1">
-                  {top3[1]._niche}
-                </p>
-                <div className="mt-auto pb-4 font-black text-4xl text-amber-500/10">
-                  02
+            )}
+            {/* Rank 2 (Medium) */}
+            {top3[1] && (
+              <div className="flex flex-col items-center justify-end w-[85px] md:w-48 h-full shrink-0">
+                <div className="w-16 h-16 md:w-32 md:h-32 mb-[-8px] md:mb-[-15px] z-10 flex items-end justify-center drop-shadow-[0_0_15px_rgba(245,158,11,0.3)]">
+                  <img
+                    src={getAvatar("rank2", top3[1]._gender)}
+                    alt="Rank 2"
+                    className="w-full h-full object-contain"
+                  />
+                </div>
+                <div className="w-full bg-gradient-to-t from-[#1a1205] to-[#140e05] border border-amber-900/30 rounded-t-xl h-28 md:h-56 flex flex-col items-center pt-3 md:pt-6 relative z-0">
+                  <h3 className="font-extrabold text-white text-[10px] md:text-base truncate w-full text-center px-1 md:px-2">
+                    {top3[1]._firstName}
+                  </h3>
+                  <p className="text-[6px] md:text-[8px] font-bold uppercase tracking-widest text-amber-500/70 truncate w-full text-center px-1 md:px-2 mt-0.5 md:mt-1">
+                    {top3[1]._niche}
+                  </p>
+                  <div className="mt-auto pb-2 md:pb-4 font-black text-xl md:text-4xl text-amber-500/10">
+                    02
+                  </div>
                 </div>
               </div>
-            </div>
-          )}
-          {/* Rank 3 */}
-          {top3[2] && (
-            <div className="flex flex-col items-center justify-end w-[110px] md:w-44 h-full shrink-0">
-              <div className="w-20 h-20 md:w-28 md:h-28 mb-[-10px] z-10 flex items-end justify-center drop-shadow-[0_0_10px_rgba(245,158,11,0.2)]">
-                <img
-                  src={getAvatar("rank3", top3[2]._gender)}
-                  alt="Rank 3"
-                  className="w-full h-full object-contain"
-                />
-              </div>
-              <div className="w-full bg-gradient-to-t from-[#140e05] to-[#0a0702] border border-amber-900/20 rounded-t-xl h-28 md:h-36 flex flex-col items-center pt-5 relative z-0">
-                <h3 className="font-extrabold text-[#ccc] text-sm truncate w-full text-center px-2">
-                  {top3[2]._firstName}
-                </h3>
-                <p className="text-[8px] font-bold uppercase tracking-widest text-amber-500/50 truncate w-full text-center px-2 mt-1">
-                  {top3[2]._niche}
-                </p>
-                <div className="mt-auto pb-4 font-black text-3xl text-amber-500/5">
-                  03
+            )}
+            {/* Rank 3 (Shortest) */}
+            {top3[2] && (
+              <div className="flex flex-col items-center justify-end w-[85px] md:w-44 h-full shrink-0">
+                <div className="w-14 h-14 md:w-28 md:h-28 mb-[-5px] md:mb-[-10px] z-10 flex items-end justify-center drop-shadow-[0_0_10px_rgba(245,158,11,0.2)]">
+                  <img
+                    src={getAvatar("rank3", top3[2]._gender)}
+                    alt="Rank 3"
+                    className="w-full h-full object-contain"
+                  />
+                </div>
+                <div className="w-full bg-gradient-to-t from-[#140e05] to-[#0a0702] border border-amber-900/20 rounded-t-xl h-20 md:h-36 flex flex-col items-center pt-2 md:pt-5 relative z-0">
+                  <h3 className="font-extrabold text-[#ccc] text-[9px] md:text-sm truncate w-full text-center px-1 md:px-2">
+                    {top3[2]._firstName}
+                  </h3>
+                  <p className="text-[5px] md:text-[8px] font-bold uppercase tracking-widest text-amber-500/50 truncate w-full text-center px-1 md:px-2 mt-0.5 md:mt-1">
+                    {top3[2]._niche}
+                  </p>
+                  <div className="mt-auto pb-1.5 md:pb-4 font-black text-lg md:text-3xl text-amber-500/5">
+                    03
+                  </div>
                 </div>
               </div>
-            </div>
-          )}
-          {/* Rank 4: THE OBSERVER */}
+            )}
+          </div>
+
+          {/* Rank 4: THE OBSERVER (Breaks to new line on mobile automatically via flex-col) */}
           {!isMeInTop3 && currentUserObj && (
-            <div className="flex flex-col items-center justify-end w-[110px] md:w-40 h-full shrink-0 opacity-80 pl-4 md:pl-8 border-l border-[#222]">
-              <div className="w-16 h-16 md:w-24 md:h-24 mb-[-5px] z-10 flex items-end justify-center drop-shadow-[0_0_10px_rgba(255,255,255,0.1)]">
+            <div className="flex flex-col items-center justify-end w-[120px] md:w-40 h-[100px] md:h-[500px] shrink-0 opacity-80 md:pl-8 md:border-l border-[#222]">
+              <div className="w-12 h-12 md:w-24 md:h-24 mb-[-5px] z-10 flex items-end justify-center drop-shadow-[0_0_10px_rgba(255,255,255,0.1)]">
                 <img
                   src={getAvatar("observer", currentUserObj._gender)}
                   alt="You"
                   className="w-full h-full object-contain grayscale brightness-75 opacity-70"
                 />
               </div>
-              <div className="w-full bg-gradient-to-t from-[#111] to-[#050505] border border-[#222] rounded-t-xl h-16 md:h-20 flex flex-col items-center pt-3 relative z-0">
-                <h3 className="font-bold text-[#888] text-xs truncate w-full text-center px-2">
+              <div className="w-full bg-gradient-to-t from-[#111] to-[#050505] border border-[#222] rounded-t-xl h-12 md:h-20 flex flex-col items-center pt-2 md:pt-3 relative z-0">
+                <h3 className="font-bold text-[#888] text-[9px] md:text-xs truncate w-full text-center px-2">
                   You
                 </h3>
-                <div className="mt-auto pb-2 font-mono text-[10px] text-[#555]">
+                <div className="mt-auto pb-1 md:pb-2 font-mono text-[8px] md:text-[10px] text-[#555]">
                   #{currentUserGlobalRank}
                 </div>
               </div>
@@ -440,243 +481,297 @@ const Leaderboard = () => {
           )}
         </div>
 
-        {/* --- DYNAMIC QUERY ENGINE --- */}
-        <motion.div
-          ref={filterBarRef}
-          className="bg-[#0a0a0a] border border-[#222] p-6 md:p-8 rounded-[2rem] shadow-2xl relative z-30"
-        >
-          <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6 mb-8 border-b border-[#222] pb-6">
-            <div className="flex items-center gap-4">
-              <h3 className="text-xs font-bold text-white uppercase tracking-[0.3em] flex items-center gap-2">
-                <Filter className="w-4 h-4" /> Ledger Engine
-              </h3>
-              <div className="px-3 py-1 bg-[#111] rounded border border-[#333] text-[10px] font-mono text-[#888]">
-                {filteredLedger.length} Operators found
-              </div>
+        {/* --- HEADER: LEDGER ENGINE & FILTER TOGGLE --- */}
+        <div className="bg-[#0a0a0a] border border-[#222] p-4 md:p-6 rounded-2xl md:rounded-[2rem] shadow-2xl relative z-30 flex items-center justify-between">
+          <div className="flex items-center gap-3 md:gap-4">
+            <h3 className="text-[10px] md:text-xs font-bold text-white uppercase tracking-[0.2em] md:tracking-[0.3em] flex items-center gap-1.5 md:gap-2">
+              <Filter className="w-3 h-3 md:w-4 md:h-4" /> Ledger Engine
+            </h3>
+            <div className="px-2 md:px-3 py-0.5 md:py-1 bg-[#111] rounded border border-[#333] text-[8px] md:text-[10px] font-mono text-[#888]">
+              {filteredLedger.length} Operators
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center gap-4">
-            {/* DOMAIN FILTER */}
-            <div className="relative flex-1 min-w-[200px]">
-              <p className="text-[10px] font-bold text-[#555] uppercase tracking-[0.2em] mb-2 px-1">
-                Macro Domain
-              </p>
-              <button
-                onClick={() =>
-                  setActiveDropdown(
-                    activeDropdown === "domain" ? null : "domain",
-                  )
-                }
-                className="w-full flex items-center justify-between px-4 py-3 bg-[#050505] border border-[#222] rounded-xl text-sm font-bold text-white hover:border-[#444] transition-colors"
-              >
-                <span className="truncate">
-                  {filters.domain === "All" ? "Global" : filters.domain}
-                </span>{" "}
-                <ChevronDown className="w-4 h-4 text-[#666]" />
-              </button>
-              <AnimatePresence>
-                {activeDropdown === "domain" && (
-                  <motion.div
-                    initial={{ opacity: 0, y: -10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -10 }}
-                    className="absolute top-[calc(100%+8px)] left-0 w-full bg-[#0a0a0a] border border-[#333] rounded-xl z-40 shadow-2xl max-h-60 overflow-y-auto custom-scrollbar"
-                  >
-                    {uniqueDomains.map((d) => (
-                      <button
-                        key={d}
-                        onClick={() => {
-                          setFilters({ ...filters, domain: d });
-                          setActiveDropdown(null);
-                          setPage(1);
-                        }}
-                        className="w-full text-left px-4 py-3 text-xs font-bold text-[#888] hover:text-white hover:bg-[#111] truncate border-b border-[#111]"
-                      >
-                        {d === "All" ? "Global (All Domains)" : d}
-                      </button>
-                    ))}
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
+          <button
+            onClick={() => setIsFilterMenuOpen(true)}
+            className="px-3 md:px-4 py-1.5 md:py-2 bg-white text-black text-[10px] md:text-xs font-bold uppercase tracking-widest rounded-lg flex items-center gap-2 hover:bg-[#ccc] transition-colors"
+          >
+            Filters <Filter className="w-3 h-3" />
+          </button>
+        </div>
 
-            {/* NICHE FILTER */}
-            <div className="relative flex-1 min-w-[200px]">
-              <p className="text-[10px] font-bold text-[#555] uppercase tracking-[0.2em] mb-2 px-1">
-                Micro Niche
-              </p>
-              <button
-                onClick={() =>
-                  setActiveDropdown(activeDropdown === "niche" ? null : "niche")
-                }
-                className="w-full flex items-center justify-between px-4 py-3 bg-[#050505] border border-[#222] rounded-xl text-sm font-bold text-white hover:border-[#444] transition-colors"
+        {/* --- FILTER SIDE DRAWER MENU --- */}
+        <AnimatePresence>
+          {isFilterMenuOpen && (
+            <>
+              {/* Backdrop */}
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="fixed inset-0 bg-black/80 z-[400] backdrop-blur-sm"
+                onClick={() => setIsFilterMenuOpen(false)}
+              />
+              {/* Drawer */}
+              <motion.div
+                initial={{ x: "100%" }}
+                animate={{ x: 0 }}
+                exit={{ x: "100%" }}
+                transition={{ type: "spring", damping: 25, stiffness: 200 }}
+                ref={filterMenuRef}
+                className="fixed right-0 top-0 h-full w-[70vw] sm:w-[50vw] max-w-[320px] bg-[#0a0a0a] border-l border-[#222] z-[500] flex flex-col shadow-[auto_0_100px_rgba(0,0,0,0.9)]"
               >
-                <span className="truncate">
-                  {filters.niche === "All" ? "Any Niche" : filters.niche}
-                </span>{" "}
-                <ChevronDown className="w-4 h-4 text-[#666]" />
-              </button>
-              <AnimatePresence>
-                {activeDropdown === "niche" && (
-                  <motion.div
-                    initial={{ opacity: 0, y: -10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -10 }}
-                    className="absolute top-[calc(100%+8px)] left-0 w-full bg-[#0a0a0a] border border-[#333] rounded-xl z-40 shadow-2xl max-h-60 overflow-y-auto custom-scrollbar"
+                <div className="flex justify-between items-center p-5 md:p-6 border-b border-[#222] shrink-0 bg-[#050505]">
+                  <h2 className="text-xs md:text-sm font-extrabold tracking-widest uppercase text-white flex items-center gap-2">
+                    <Filter className="w-4 h-4 text-[#888]" /> Engine Filters
+                  </h2>
+                  <button
+                    onClick={() => setIsFilterMenuOpen(false)}
+                    className="p-2 bg-[#111] rounded-full text-[#666] hover:text-white transition-colors"
                   >
-                    {uniqueNiches.map((n) => (
-                      <button
-                        key={n}
-                        onClick={() => {
-                          setFilters({ ...filters, niche: n });
-                          setActiveDropdown(null);
-                          setPage(1);
-                        }}
-                        className="w-full text-left px-4 py-3 text-xs font-bold text-[#888] hover:text-white hover:bg-[#111] truncate border-b border-[#111]"
-                      >
-                        {n === "All" ? "Any Niche" : n}
-                      </button>
-                    ))}
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
+                    <X className="w-3 h-3 md:w-4 md:h-4" />
+                  </button>
+                </div>
 
-            {/* LOCATION FILTER */}
-            <div className="relative flex-1 min-w-[200px]">
-              <p className="text-[10px] font-bold text-[#555] uppercase tracking-[0.2em] mb-2 px-1">
-                State / Country
-              </p>
-              <button
-                onClick={() =>
-                  setActiveDropdown(
-                    activeDropdown === "location" ? null : "location",
-                  )
-                }
-                className="w-full flex items-center justify-between px-4 py-3 bg-[#050505] border border-[#222] rounded-xl text-sm font-bold text-white hover:border-[#444] transition-colors"
-              >
-                <span className="truncate">
-                  {filters.location === "All" ? "Worldwide" : filters.location}
-                </span>{" "}
-                <ChevronDown className="w-4 h-4 text-[#666]" />
-              </button>
-              <AnimatePresence>
-                {activeDropdown === "location" && (
-                  <motion.div
-                    initial={{ opacity: 0, y: -10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -10 }}
-                    className="absolute top-[calc(100%+8px)] left-0 w-full bg-[#0a0a0a] border border-[#333] rounded-xl z-40 shadow-2xl max-h-60 overflow-y-auto custom-scrollbar"
-                  >
-                    {uniqueLocations.map((l) => (
-                      <button
-                        key={l}
-                        onClick={() => {
-                          setFilters({ ...filters, location: l });
-                          setActiveDropdown(null);
-                          setPage(1);
-                        }}
-                        className="w-full text-left px-4 py-3 text-xs font-bold text-[#888] hover:text-white hover:bg-[#111] truncate border-b border-[#111]"
-                      >
-                        {l === "All" ? "Worldwide" : l}
-                      </button>
-                    ))}
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-
-            {/* TIMEFRAME FILTER */}
-            <div className="relative w-32">
-              <p className="text-[10px] font-bold text-[#555] uppercase tracking-[0.2em] mb-2 px-1">
-                Timeframe
-              </p>
-              <button
-                onClick={() =>
-                  setActiveDropdown(
-                    activeDropdown === "timeframe" ? null : "timeframe",
-                  )
-                }
-                className="w-full flex items-center justify-between px-4 py-3 bg-[#050505] border border-[#222] rounded-xl text-sm font-bold text-white hover:border-[#444] transition-colors"
-              >
-                <span className="truncate">{filters.timeframe}</span>{" "}
-                <ChevronDown className="w-4 h-4 text-[#666]" />
-              </button>
-              <AnimatePresence>
-                {activeDropdown === "timeframe" && (
-                  <motion.div
-                    initial={{ opacity: 0, y: -10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -10 }}
-                    className="absolute top-[calc(100%+8px)] left-0 w-full bg-[#0a0a0a] border border-[#333] rounded-xl z-40 shadow-2xl max-h-60 overflow-y-auto custom-scrollbar"
-                  >
-                    {["All-Time", "This Year", "This Month", "Today"].map(
-                      (t) => (
-                        <button
-                          key={t}
-                          onClick={() => {
-                            setFilters({ ...filters, timeframe: t });
-                            setActiveDropdown(null);
-                            setPage(1);
-                          }}
-                          className="w-full text-left px-4 py-3 text-xs font-bold text-[#888] hover:text-white hover:bg-[#111] truncate border-b border-[#111]"
+                <div className="flex-1 overflow-y-auto custom-scrollbar p-5 md:p-6 space-y-6">
+                  {/* DOMAIN FILTER */}
+                  <div className="relative">
+                    <p className="text-[9px] font-bold text-[#555] uppercase tracking-[0.2em] mb-2 pl-1">
+                      Macro Domain
+                    </p>
+                    <button
+                      onClick={() =>
+                        setActiveDropdown(
+                          activeDropdown === "domain" ? null : "domain",
+                        )
+                      }
+                      className="w-full flex items-center justify-between px-3 md:px-4 py-2 md:py-3 bg-[#111] border border-[#222] rounded-xl text-[10px] md:text-xs font-bold text-white hover:border-[#444] transition-colors"
+                    >
+                      <span className="truncate">
+                        {filters.domain === "All" ? "Global" : filters.domain}
+                      </span>{" "}
+                      <ChevronDown className="w-3 h-3 md:w-4 md:h-4 text-[#666]" />
+                    </button>
+                    <AnimatePresence>
+                      {activeDropdown === "domain" && (
+                        <motion.div
+                          initial={{ opacity: 0, y: -5 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: -5 }}
+                          className="absolute top-[calc(100%+4px)] left-0 w-full bg-[#1a1a1a] border border-[#333] rounded-xl z-40 shadow-2xl max-h-48 overflow-y-auto custom-scrollbar"
                         >
-                          {t}
-                        </button>
-                      ),
-                    )}
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
+                          {uniqueDomains.map((d) => (
+                            <button
+                              key={d}
+                              onClick={() => {
+                                setFilters({ ...filters, domain: d });
+                                setActiveDropdown(null);
+                                setPage(1);
+                              }}
+                              className="w-full text-left px-4 py-2.5 text-[10px] font-bold text-[#888] hover:text-white hover:bg-[#222] truncate border-b border-[#222] last:border-0"
+                            >
+                              {d === "All" ? "Global (All)" : d}
+                            </button>
+                          ))}
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
 
-            {/* ROWS PER PAGE FILTER */}
-            <div className="relative w-24">
-              <p className="text-[10px] font-bold text-[#555] uppercase tracking-[0.2em] mb-2 px-1">
-                Display
-              </p>
-              <button
-                onClick={() =>
-                  setActiveDropdown(activeDropdown === "limit" ? null : "limit")
-                }
-                className="w-full flex items-center justify-between px-4 py-3 bg-[#050505] border border-[#222] rounded-xl text-sm font-bold text-white hover:border-[#444] transition-colors"
-              >
-                <span className="truncate">{filters.limit}</span>{" "}
-                <ChevronDown className="w-4 h-4 text-[#666]" />
-              </button>
-              <AnimatePresence>
-                {activeDropdown === "limit" && (
-                  <motion.div
-                    initial={{ opacity: 0, y: -10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: -10 }}
-                    className="absolute top-[calc(100%+8px)] left-0 w-full bg-[#0a0a0a] border border-[#333] rounded-xl z-40 shadow-2xl max-h-60 overflow-y-auto custom-scrollbar"
+                  {/* NICHE FILTER */}
+                  <div className="relative">
+                    <p className="text-[9px] font-bold text-[#555] uppercase tracking-[0.2em] mb-2 pl-1">
+                      Micro Niche
+                    </p>
+                    <button
+                      onClick={() =>
+                        setActiveDropdown(
+                          activeDropdown === "niche" ? null : "niche",
+                        )
+                      }
+                      className="w-full flex items-center justify-between px-3 md:px-4 py-2 md:py-3 bg-[#111] border border-[#222] rounded-xl text-[10px] md:text-xs font-bold text-white hover:border-[#444] transition-colors"
+                    >
+                      <span className="truncate">
+                        {filters.niche === "All" ? "Any Niche" : filters.niche}
+                      </span>{" "}
+                      <ChevronDown className="w-3 h-3 md:w-4 md:h-4 text-[#666]" />
+                    </button>
+                    <AnimatePresence>
+                      {activeDropdown === "niche" && (
+                        <motion.div
+                          initial={{ opacity: 0, y: -5 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: -5 }}
+                          className="absolute top-[calc(100%+4px)] left-0 w-full bg-[#1a1a1a] border border-[#333] rounded-xl z-40 shadow-2xl max-h-48 overflow-y-auto custom-scrollbar"
+                        >
+                          {uniqueNiches.map((n) => (
+                            <button
+                              key={n}
+                              onClick={() => {
+                                setFilters({ ...filters, niche: n });
+                                setActiveDropdown(null);
+                                setPage(1);
+                              }}
+                              className="w-full text-left px-4 py-2.5 text-[10px] font-bold text-[#888] hover:text-white hover:bg-[#222] truncate border-b border-[#222] last:border-0"
+                            >
+                              {n === "All" ? "Any Niche" : n}
+                            </button>
+                          ))}
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+
+                  {/* LOCATION FILTER */}
+                  <div className="relative">
+                    <p className="text-[9px] font-bold text-[#555] uppercase tracking-[0.2em] mb-2 pl-1">
+                      State / Country
+                    </p>
+                    <button
+                      onClick={() =>
+                        setActiveDropdown(
+                          activeDropdown === "location" ? null : "location",
+                        )
+                      }
+                      className="w-full flex items-center justify-between px-3 md:px-4 py-2 md:py-3 bg-[#111] border border-[#222] rounded-xl text-[10px] md:text-xs font-bold text-white hover:border-[#444] transition-colors"
+                    >
+                      <span className="truncate">
+                        {filters.location === "All"
+                          ? "Worldwide"
+                          : filters.location}
+                      </span>{" "}
+                      <ChevronDown className="w-3 h-3 md:w-4 md:h-4 text-[#666]" />
+                    </button>
+                    <AnimatePresence>
+                      {activeDropdown === "location" && (
+                        <motion.div
+                          initial={{ opacity: 0, y: -5 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: -5 }}
+                          className="absolute top-[calc(100%+4px)] left-0 w-full bg-[#1a1a1a] border border-[#333] rounded-xl z-40 shadow-2xl max-h-48 overflow-y-auto custom-scrollbar"
+                        >
+                          {uniqueLocations.map((l) => (
+                            <button
+                              key={l}
+                              onClick={() => {
+                                setFilters({ ...filters, location: l });
+                                setActiveDropdown(null);
+                                setPage(1);
+                              }}
+                              className="w-full text-left px-4 py-2.5 text-[10px] font-bold text-[#888] hover:text-white hover:bg-[#222] truncate border-b border-[#222] last:border-0"
+                            >
+                              {l === "All" ? "Worldwide" : l}
+                            </button>
+                          ))}
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+
+                  {/* TIMEFRAME FILTER */}
+                  <div className="relative">
+                    <p className="text-[9px] font-bold text-[#555] uppercase tracking-[0.2em] mb-2 pl-1">
+                      Timeframe
+                    </p>
+                    <button
+                      onClick={() =>
+                        setActiveDropdown(
+                          activeDropdown === "timeframe" ? null : "timeframe",
+                        )
+                      }
+                      className="w-full flex items-center justify-between px-3 md:px-4 py-2 md:py-3 bg-[#111] border border-[#222] rounded-xl text-[10px] md:text-xs font-bold text-white hover:border-[#444] transition-colors"
+                    >
+                      <span className="truncate">{filters.timeframe}</span>{" "}
+                      <ChevronDown className="w-3 h-3 md:w-4 md:h-4 text-[#666]" />
+                    </button>
+                    <AnimatePresence>
+                      {activeDropdown === "timeframe" && (
+                        <motion.div
+                          initial={{ opacity: 0, y: -5 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: -5 }}
+                          className="absolute top-[calc(100%+4px)] left-0 w-full bg-[#1a1a1a] border border-[#333] rounded-xl z-40 shadow-2xl max-h-48 overflow-y-auto custom-scrollbar"
+                        >
+                          {["All-Time", "This Year", "This Month", "Today"].map(
+                            (t) => (
+                              <button
+                                key={t}
+                                onClick={() => {
+                                  setFilters({ ...filters, timeframe: t });
+                                  setActiveDropdown(null);
+                                  setPage(1);
+                                }}
+                                className="w-full text-left px-4 py-2.5 text-[10px] font-bold text-[#888] hover:text-white hover:bg-[#222] truncate border-b border-[#222] last:border-0"
+                              >
+                                {t}
+                              </button>
+                            ),
+                          )}
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+
+                  {/* LIMIT FILTER */}
+                  <div className="relative">
+                    <p className="text-[9px] font-bold text-[#555] uppercase tracking-[0.2em] mb-2 pl-1">
+                      Display Per Page
+                    </p>
+                    <button
+                      onClick={() =>
+                        setActiveDropdown(
+                          activeDropdown === "limit" ? null : "limit",
+                        )
+                      }
+                      className="w-full flex items-center justify-between px-3 md:px-4 py-2 md:py-3 bg-[#111] border border-[#222] rounded-xl text-[10px] md:text-xs font-bold text-white hover:border-[#444] transition-colors"
+                    >
+                      <span className="truncate">{filters.limit} Users</span>{" "}
+                      <ChevronDown className="w-3 h-3 md:w-4 md:h-4 text-[#666]" />
+                    </button>
+                    <AnimatePresence>
+                      {activeDropdown === "limit" && (
+                        <motion.div
+                          initial={{ opacity: 0, y: -5 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: -5 }}
+                          className="absolute top-[calc(100%+4px)] left-0 w-full bg-[#1a1a1a] border border-[#333] rounded-xl z-40 shadow-2xl max-h-48 overflow-y-auto custom-scrollbar"
+                        >
+                          {[5, 10, 15, 20].map((l) => (
+                            <button
+                              key={l}
+                              onClick={() => {
+                                setFilters({ ...filters, limit: l });
+                                setActiveDropdown(null);
+                                setPage(1);
+                              }}
+                              className="w-full text-left px-4 py-2.5 text-[10px] font-bold text-[#888] hover:text-white hover:bg-[#222] border-b border-[#222] last:border-0"
+                            >
+                              {l}
+                            </button>
+                          ))}
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                </div>
+
+                <div className="p-5 md:p-6 border-t border-[#222] bg-[#050505] shrink-0">
+                  <button
+                    onClick={() => setIsFilterMenuOpen(false)}
+                    className="w-full bg-white text-black py-3 rounded-xl font-extrabold text-xs uppercase tracking-widest hover:bg-[#ccc] transition-colors"
                   >
-                    {[5, 10, 15, 20].map((l) => (
-                      <button
-                        key={l}
-                        onClick={() => {
-                          setFilters({ ...filters, limit: l });
-                          setActiveDropdown(null);
-                          setPage(1);
-                        }}
-                        className="w-full text-left px-4 py-3 text-xs font-bold text-[#888] hover:text-white hover:bg-[#111] border-b border-[#111]"
-                      >
-                        {l}
-                      </button>
-                    ))}
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-          </div>
-        </motion.div>
+                    Apply Filters
+                  </button>
+                </div>
+              </motion.div>
+            </>
+          )}
+        </AnimatePresence>
 
-        {/* --- THE LEADERBOARD TABLE --- */}
-        <div className="bg-[#0a0a0a] border border-[#222] rounded-[2rem] shadow-2xl relative z-10 w-full overflow-x-auto custom-scrollbar">
-          <div className="min-w-[1000px]">
-            <div className="sticky top-0 z-20 grid grid-cols-12 gap-4 px-8 py-4 border-b border-[#222] bg-[#050505]/80 backdrop-blur-xl text-[10px] font-bold text-[#666] uppercase tracking-[0.2em]">
+        {/* --- THE SCALED LEADERBOARD TABLE --- */}
+        <div className="bg-[#0a0a0a] border border-[#222] rounded-2xl md:rounded-[2rem] shadow-2xl relative z-10 w-full overflow-x-auto custom-scrollbar">
+          <div className="min-w-[800px] md:min-w-[1000px]">
+            <div className="sticky top-0 z-20 grid grid-cols-12 gap-3 px-4 md:px-8 py-3 md:py-4 border-b border-[#222] bg-[#050505]/90 backdrop-blur-xl text-[8px] md:text-[10px] font-bold text-[#666] uppercase tracking-[0.2em]">
               <div className="col-span-1">Rank</div>
               <div className="col-span-4">Identity</div>
               <div className="col-span-3">Domain & Velocity</div>
@@ -686,7 +781,7 @@ const Leaderboard = () => {
 
             <div className="divide-y divide-[#111]">
               {paginatedLedger.length === 0 ? (
-                <div className="py-20 text-center text-[#555] font-mono text-sm uppercase tracking-widest">
+                <div className="py-16 md:py-20 text-center text-[#555] font-mono text-[10px] md:text-sm uppercase tracking-widest">
                   [ NULL RESULT ]
                 </div>
               ) : (
@@ -701,7 +796,7 @@ const Leaderboard = () => {
                     <div
                       key={user.id}
                       className={cn(
-                        "grid grid-cols-12 gap-4 px-8 py-5 items-center bg-[#0a0a0a] transition-all duration-300 group relative border-l-2 border-transparent",
+                        "grid grid-cols-12 gap-3 px-4 md:px-8 py-3 md:py-4 items-center bg-[#0a0a0a] transition-all duration-300 group relative border-l-2 border-transparent",
                         "hover:bg-[#111] hover:-translate-y-0.5 hover:shadow-[0_10px_30px_rgba(0,0,0,0.5)] hover:z-10 hover:border-white",
                         isMe && "bg-[#111] border-white",
                         isGhostTarget &&
@@ -714,28 +809,28 @@ const Leaderboard = () => {
                     >
                       {/* Rank & Momentum */}
                       <div className="col-span-1 font-mono font-bold flex flex-col items-start justify-center">
-                        <div className="flex items-center gap-2">
-                          <span className="text-[#666] text-sm group-hover:text-white transition-colors">
+                        <div className="flex items-center gap-1.5 md:gap-2">
+                          <span className="text-[#666] text-xs md:text-sm group-hover:text-white transition-colors">
                             {String(rank).padStart(2, "0")}
                           </span>
                           {isGhostTarget && (
                             <Target
-                              className="w-3.5 h-3.5 text-red-500 animate-pulse"
+                              className="w-3 h-3 text-red-500 animate-pulse"
                               title="Direct Target"
                             />
                           )}
                         </div>
-                        <div className="flex items-center gap-1 mt-1">
+                        <div className="flex items-center gap-1 mt-0.5">
                           {user._velocity > 0 ? (
-                            <TrendingUp className="w-3 h-3 text-green-500" />
+                            <TrendingUp className="w-2.5 h-2.5 text-green-500" />
                           ) : user._velocity < 0 ? (
-                            <TrendingDown className="w-3 h-3 text-red-500" />
+                            <TrendingDown className="w-2.5 h-2.5 text-red-500" />
                           ) : (
-                            <Minus className="w-3 h-3 text-[#444]" />
+                            <Minus className="w-2.5 h-2.5 text-[#444]" />
                           )}
                           <span
                             className={cn(
-                              "text-[9px] font-bold",
+                              "text-[8px] md:text-[9px] font-bold",
                               user._velocity > 0
                                 ? "text-green-500"
                                 : user._velocity < 0
@@ -749,10 +844,10 @@ const Leaderboard = () => {
                       </div>
 
                       {/* Identity */}
-                      <div className="col-span-4 flex items-center gap-4">
+                      <div className="col-span-4 flex items-center gap-3 md:gap-4">
                         <Link
                           to={`/user/${user._username}`}
-                          className="w-10 h-10 rounded-full bg-[#1a1a1a] border border-[#333] flex items-center justify-center text-xs font-bold text-[#888] group-hover:border-white group-hover:text-white transition-colors shrink-0"
+                          className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-[#1a1a1a] border border-[#333] flex items-center justify-center text-[10px] md:text-xs font-bold text-[#888] group-hover:border-white group-hover:text-white transition-colors shrink-0"
                         >
                           {user._firstName.charAt(0)}
                           {user._lastName ? user._lastName.charAt(0) : ""}
@@ -760,66 +855,66 @@ const Leaderboard = () => {
                         <div className="truncate">
                           <Link
                             to={`/user/${user._username}`}
-                            className="font-extrabold text-sm text-white truncate flex items-center gap-2 hover:underline"
+                            className="font-extrabold text-xs md:text-sm text-white truncate flex items-center gap-1.5 hover:underline"
                           >
                             {user._firstName} {user._lastName}
                             {isMe && (
-                              <span className="text-[8px] bg-white text-black px-1.5 rounded uppercase tracking-wider font-bold">
+                              <span className="text-[6px] md:text-[8px] bg-white text-black px-1.5 py-0.5 rounded uppercase tracking-wider font-bold">
                                 You
                               </span>
                             )}
                           </Link>
-                          <p className="text-[10px] font-mono text-[#555] group-hover:text-[#888] tracking-wider truncate">
+                          <p className="text-[8px] md:text-[10px] font-mono text-[#555] group-hover:text-[#888] tracking-wider truncate">
                             @{user._username}
                           </p>
                         </div>
                       </div>
 
                       {/* Domain & Niche */}
-                      <div className="col-span-3 truncate pr-4">
-                        <p className="text-sm font-bold text-[#ccc] group-hover:text-white truncate">
+                      <div className="col-span-3 truncate pr-2 md:pr-4">
+                        <p className="text-xs md:text-sm font-bold text-[#ccc] group-hover:text-white truncate">
                           {user._domain}
                         </p>
-                        <p className="text-[10px] font-bold uppercase tracking-widest text-[#555] group-hover:text-[#888] truncate">
+                        <p className="text-[8px] md:text-[10px] font-bold uppercase tracking-widest text-[#555] group-hover:text-[#888] truncate mt-0.5">
                           {user._niche}
                         </p>
                       </div>
 
                       {/* Location */}
-                      <div className="col-span-2 flex items-center gap-2 text-sm font-medium">
+                      <div className="col-span-2 flex items-center gap-1.5 md:gap-2 text-[10px] md:text-xs font-medium">
                         {user._location && user._location !== "Unknown" ? (
                           <>
-                            <MapPin className="w-3 h-3 text-[#555]" />
-                            <span className="text-[#888] truncate group-hover:text-white transition-colors text-xs">
+                            <MapPin className="w-2.5 h-2.5 md:w-3 md:h-3 text-[#555]" />
+                            <span className="text-[#888] truncate group-hover:text-white transition-colors">
                               {user._location}
                             </span>
                           </>
                         ) : (
-                          <span className="font-mono text-[10px] text-[#444] tracking-[0.2em]">
+                          <span className="font-mono text-[8px] md:text-[10px] text-[#444] tracking-[0.2em]">
                             [ UNMAPPED ]
                           </span>
                         )}
                       </div>
 
                       {/* Actions */}
-                      <div className="col-span-2 flex items-center justify-end gap-4">
+                      <div className="col-span-2 flex items-center justify-end gap-2 md:gap-4">
                         {!isMe && (
                           <button
                             onClick={() => {
                               setCompareTarget(user);
                               setIsCompareOpen(true);
                             }}
-                            className="px-3 py-1.5 bg-[#111] border border-[#333] hover:border-amber-500 rounded-full text-[10px] font-bold text-[#888] hover:text-amber-500 transition-colors uppercase tracking-widest flex items-center gap-1.5 group/btn"
+                            className="px-2 md:px-3 py-1 md:py-1.5 bg-[#111] border border-[#333] hover:border-amber-500 rounded-full text-[8px] md:text-[10px] font-bold text-[#888] hover:text-amber-500 transition-colors uppercase tracking-widest flex items-center gap-1 md:gap-1.5 group/btn"
                           >
                             VS{" "}
-                            <Sparkles className="w-3 h-3 opacity-0 group-hover/btn:opacity-100 transition-opacity" />
+                            <Sparkles className="w-2.5 h-2.5 md:w-3 md:h-3 opacity-0 group-hover/btn:opacity-100 transition-opacity" />
                           </button>
                         )}
-                        <div className="flex flex-col items-end justify-center w-16">
-                          <span className="font-extrabold text-white text-lg tracking-tighter">
+                        <div className="flex flex-col items-end justify-center w-12 md:w-16">
+                          <span className="font-extrabold text-white text-sm md:text-lg tracking-tighter">
                             - -
                           </span>
-                          <span className="font-mono text-[8px] text-[#444] tracking-widest">
+                          <span className="font-mono text-[6px] md:text-[8px] text-[#444] tracking-widest">
                             [ PENDING ]
                           </span>
                         </div>
@@ -831,24 +926,82 @@ const Leaderboard = () => {
             </div>
           </div>
 
-          {/* TABLE PAGINATION */}
-          <div className="bg-[#050505] border-t border-[#222] px-8 py-4 flex items-center justify-between">
-            <span className="text-[10px] font-mono text-[#666] tracking-widest">
-              PAGE {page}
+          {/* --- SMART PAGINATION ENGINE --- */}
+          <div className="bg-[#050505] border-t border-[#222] px-4 md:px-8 py-3 md:py-4 flex items-center justify-between">
+            <span className="text-[8px] md:text-[10px] font-mono text-[#666] tracking-widest hidden sm:block">
+              {filteredLedger.length} OPERATORS
             </span>
-            <div className="flex gap-2">
+
+            <div className="flex items-center gap-1 md:gap-2 mx-auto sm:mx-0">
+              <button
+                disabled={page === 1}
+                onClick={() => setPage(1)}
+                className="p-1.5 md:p-2 bg-[#111] border border-[#333] rounded-lg text-white hover:bg-[#222] disabled:opacity-30 transition-colors"
+              >
+                <ChevronsLeft className="w-3 h-3 md:w-4 md:h-4" />
+              </button>
               <button
                 disabled={page === 1}
                 onClick={() => setPage((p) => p - 1)}
-                className="p-2 bg-[#111] border border-[#333] rounded-lg text-white hover:bg-[#222] disabled:opacity-50 transition-colors"
+                className="p-1.5 md:p-2 bg-[#111] border border-[#333] rounded-lg text-white hover:bg-[#222] disabled:opacity-30 transition-colors"
               >
-                <ChevronLeft className="w-4 h-4" />
+                <ChevronLeft className="w-3 h-3 md:w-4 md:h-4" />
+              </button>
+
+              {/* Jump-To Page Dropdown */}
+              <div className="relative mx-1 md:mx-2" ref={pageDropdownRef}>
+                <button
+                  onClick={() => setIsPageDropdownOpen(!isPageDropdownOpen)}
+                  className="flex items-center gap-1.5 px-3 md:px-4 py-1.5 md:py-2 bg-[#1a1a1a] border border-[#333] rounded-lg text-white font-mono text-[10px] md:text-xs font-bold hover:bg-[#222] transition-colors"
+                >
+                  {page} <span className="text-[#666]">/ {totalPages}</span>{" "}
+                  <ChevronDown className="w-3 h-3 text-[#666]" />
+                </button>
+                <AnimatePresence>
+                  {isPageDropdownOpen && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 5 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: 5 }}
+                      className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-16 bg-[#1a1a1a] border border-[#333] rounded-lg shadow-[0_-10px_40px_rgba(0,0,0,0.8)] max-h-40 overflow-y-auto custom-scrollbar z-50"
+                    >
+                      {Array.from({ length: totalPages }, (_, i) => i + 1).map(
+                        (p) => (
+                          <button
+                            key={p}
+                            onClick={() => {
+                              setPage(p);
+                              setIsPageDropdownOpen(false);
+                            }}
+                            className={cn(
+                              "w-full py-2 text-[10px] font-mono text-center transition-colors border-b border-[#222] last:border-0",
+                              p === page
+                                ? "bg-white text-black font-extrabold"
+                                : "text-[#888] hover:text-white hover:bg-[#222]",
+                            )}
+                          >
+                            {p}
+                          </button>
+                        ),
+                      )}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+
+              <button
+                disabled={page === totalPages}
+                onClick={() => setPage((p) => p + 1)}
+                className="p-1.5 md:p-2 bg-[#111] border border-[#333] rounded-lg text-white hover:bg-[#222] disabled:opacity-30 transition-colors"
+              >
+                <ChevronRight className="w-3 h-3 md:w-4 md:h-4" />
               </button>
               <button
-                onClick={() => setPage((p) => p + 1)}
-                className="p-2 bg-[#111] border border-[#333] rounded-lg text-white hover:bg-[#222] transition-colors"
+                disabled={page === totalPages}
+                onClick={() => setPage(totalPages)}
+                className="p-1.5 md:p-2 bg-[#111] border border-[#333] rounded-lg text-white hover:bg-[#222] disabled:opacity-30 transition-colors"
               >
-                <ChevronRight className="w-4 h-4" />
+                <ChevronsRight className="w-3 h-3 md:w-4 md:h-4" />
               </button>
             </div>
           </div>

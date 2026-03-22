@@ -499,7 +499,7 @@ const FlowCanvas = ({
         "relative transition-all duration-500 overflow-hidden",
         isMapFullscreen
           ? "fixed inset-0 z-[60] bg-[#030303]"
-          : "w-full h-[600px] md:h-[700px] border-y border-[#111]",
+          : "w-full h-[350px] md:h-[700px] border-y border-[#111]",
       )}
     >
       {/* DESKTOP / DEFAULT TOP CONTROLS */}
@@ -609,7 +609,14 @@ const FlowCanvas = ({
       </div>
 
       {/* MOBILE EDIT CONTROLS (Always visible on mobile) */}
-      <div className="md:hidden absolute bottom-6 right-6 z-[80] flex flex-col-reverse gap-3 items-end">
+      <div
+        className={cn(
+          "md:hidden flex flex-col-reverse gap-3 items-end z-[9999]",
+          isMapFullscreen
+            ? "fixed bottom-8 right-8"
+            : "absolute bottom-4 right-4",
+        )}
+      >
         <button
           onClick={() => {
             setIsMobileEditMode(!isMobileEditMode);
@@ -683,35 +690,9 @@ const FlowCanvas = ({
         nodes={mappedNodes}
         edges={mappedEdges}
         nodeTypes={memoizedNodeTypes}
-        nodes={filteredNodes.map((n) => ({
-          ...n,
-          style: {
-            ...n.style,
-            // Visually highlight the selected node in mobile edit mode
-            boxShadow:
-              isMobileEditMode && selectedMobileElement?.id === n.id
-                ? "0 0 0 2px white"
-                : "none",
-            borderRadius: "24px",
-          },
-        }))}
-        edges={edges.map((e) => ({
-          ...e,
-          style: {
-            ...e.style,
-            // Visually highlight the selected edge in mobile edit mode
-            stroke:
-              isMobileEditMode && selectedMobileElement?.id === e.id
-                ? "white"
-                : e.style?.stroke || "#666",
-            strokeWidth:
-              isMobileEditMode && selectedMobileElement?.id === e.id ? 4 : 2,
-          },
-        }))}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
-        nodeTypes={nodeTypes}
         onPaneContextMenu={(e) => {
           e.preventDefault();
           setNodeMenu(null);
@@ -1740,7 +1721,7 @@ const Roadmap = () => {
   };
 
   return (
-    <div className="bg-[#030303] min-h-screen w-full overflow-x-clip text-white selection:bg-white selection:text-black pb-20">
+    <div className="bg-[#030303] min-h-screen w-full max-w-full overflow-x-hidden text-white selection:bg-white selection:text-black pb-20 relative">
       {/* HEADER */}
       <div className="max-w-[1600px] mx-auto px-4 md:px-12 pt-10 md:pt-12 pb-6 md:pb-8 flex flex-col md:flex-row justify-between items-start md:items-end gap-6 md:gap-8 relative z-20">
         <div>
@@ -1818,7 +1799,8 @@ const Roadmap = () => {
       </div>
 
       {/* VIEW ENGINE */}
-      <div className="relative">
+      {/* overflow-x-hidden instead of overflow-x-clip: clip is unsupported on older iOS Safari */}
+      <div className="relative overflow-x-hidden">
         {viewMode === "timeline" ? (
           <ReactFlowProvider>
             <FlowCanvas
@@ -1856,7 +1838,7 @@ const Roadmap = () => {
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
                 onClick={() => setActiveEditNodeId(null)}
-                className="absolute inset-0 z-[100] bg-black/50 backdrop-blur-[2px]"
+                className="fixed inset-0 z-[100] bg-black/50 backdrop-blur-[2px]"
               />
               <motion.div
                 initial={{ x: "100%" }}
@@ -1864,7 +1846,7 @@ const Roadmap = () => {
                 exit={{ x: "100%" }}
                 transition={{ type: "spring", damping: 25, stiffness: 200 }}
                 onClick={(e) => e.stopPropagation()}
-                className="absolute top-0 right-0 h-full w-full sm:w-[450px] bg-[#0a0a0a] border-l border-[#222] shadow-[auto_0_100px_rgba(0,0,0,0.9)] z-[110] flex flex-col"
+                className="fixed top-0 right-0 h-full w-full sm:w-[450px] bg-[#0a0a0a] border-l border-[#222] shadow-[auto_0_100px_rgba(0,0,0,0.9)] z-[110] flex flex-col"
               >
                 <div className="flex justify-between items-center p-6 border-b border-[#222] shrink-0 bg-[#050505]">
                   <div className="flex items-center gap-3">

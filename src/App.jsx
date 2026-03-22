@@ -21,6 +21,7 @@ import Network from "./pages/Network";
 import PublicProfile from "./pages/PublicProfile";
 import Premium from "./pages/Premium";
 import Checkout from "./pages/Checkout";
+import VerifyAsset from "./pages/VerifyAsset";
 
 const ProtectedRoute = ({ children }) => {
   const { currentUser } = useAuth();
@@ -111,6 +112,7 @@ function App() {
             />
             <Route path="discover" element={<ComingSoon title="Discover" />} />
           </Route>
+          <Route path="/verify-asset" element={<VerifyAsset />} />
           <Route path="/:username" element={<PublicProfile />} />
         </Routes>
       </Router>
