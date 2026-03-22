@@ -34,7 +34,10 @@ import {
   Search,
   X,
   Check,
+  Sparkles,
 } from "lucide-react";
+
+import { cn } from "../components/ui/BentoCard";
 
 // --- EMAILJS CONFIG ---
 const EMAILJS_SERVICE_ID = "discotive";
@@ -1060,6 +1063,8 @@ const Auth = () => {
   const [isBooting, setIsBooting] = useState(false);
   const [authTaskComplete, setAuthTaskComplete] = useState(false);
 
+  const [showSetupSequence, setShowSetupSequence] = useState(false);
+
   const slides = [
     {
       image: "/stock/Wolf of Wall Street 1.jpg",
@@ -1320,10 +1325,17 @@ const Auth = () => {
           location: `${userState}, ${country}`,
         },
         wildcard: { wildcardInfo, coreMotivation },
-        discotiveScore: 500,
+        discotiveScore: {
+          current: 70,
+          last24h: 0,
+          lastLoginDate: new Date().toISOString().split("T")[0],
+        }, // Set Initial Gamification State!
         createdAt: new Date().toISOString(),
       });
-      setAuthTaskComplete(true);
+
+      // TRIGGER THE NEW SETUP SEQUENCE INSTEAD OF THE OLD LOADER!
+      setIsBooting(false);
+      setShowSetupSequence(true);
     } catch (err) {
       setIsBooting(false);
       setError(err.message.replace("Firebase: ", ""));
@@ -2425,6 +2437,170 @@ const Auth = () => {
         </div>
       </div>
     </div>
+  );
+};
+
+// ============================================================================
+// OS INITIALIZATION SEQUENCE (Post-Signup Animation)
+// ============================================================================
+const SetupSequence = ({ onComplete }) => {
+  const [taskIndex, setTaskIndex] = useState(0);
+  const [score, setScore] = useState(0);
+  const [phase, setPhase] = useState("tasks"); // 'tasks', 'bonus', 'done'
+
+  const tasks = [
+    "Initializing command center",
+    "Deploying execution timeline",
+    "Calibrating leaderboard",
+    "Securing asset vault",
+    "Establishing network hub",
+    "Building operator profile",
+  ];
+
+  const animateScore = (start, end, durationStr = 30) => {
+    let current = start;
+    const interval = setInterval(() => {
+      current += 1;
+      setScore(current);
+      if (current >= end) clearInterval(interval);
+    }, durationStr);
+  };
+
+  useEffect(() => {
+    if (phase !== "tasks") return;
+
+    if (taskIndex < tasks.length) {
+      const timer = setTimeout(
+        () => {
+          if (taskIndex === 0) animateScore(0, 20, 40);
+          setTaskIndex((prev) => prev + 1);
+        },
+        taskIndex === 0 ? 2000 : 1200,
+      );
+      return () => clearTimeout(timer);
+    } else {
+      const timer = setTimeout(() => setPhase("bonus"), 500);
+      return () => clearTimeout(timer);
+    }
+  }, [taskIndex, phase]);
+
+  useEffect(() => {
+    if (phase === "bonus") {
+      const timer1 = setTimeout(() => {
+        animateScore(20, 70, 30);
+        const timer2 = setTimeout(() => {
+          setPhase("done");
+        }, 2500);
+        return () => clearTimeout(timer2);
+      }, 1500);
+      return () => clearTimeout(timer1);
+    }
+  }, [phase]);
+
+  useEffect(() => {
+    if (phase === "done") onComplete();
+  }, [phase, onComplete]);
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-[9999] bg-[#030303] flex flex-col items-center justify-center p-8 text-white selection:bg-white selection:text-black"
+    >
+      <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-[0.03] pointer-events-none" />
+
+      <motion.div
+        initial={{ y: -20, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        transition={{ delay: 0.5 }}
+        className="absolute top-12 left-1/2 -translate-x-1/2 text-center"
+      >
+        <h1 className="text-xl md:text-2xl font-extrabold tracking-[0.3em] uppercase text-[#888]">
+          Welcome to Discotive
+        </h1>
+      </motion.div>
+
+      <div className="w-full max-w-5xl grid grid-cols-1 md:grid-cols-2 gap-12 items-center relative z-10">
+        <div className="space-y-6">
+          {tasks.map((task, i) => {
+            const isPending = i > taskIndex;
+            const isActive = i === taskIndex && phase === "tasks";
+            const isDone = i < taskIndex || phase !== "tasks";
+
+            if (isPending) return null;
+
+            return (
+              <motion.div
+                key={task}
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                className={cn(
+                  "flex items-center gap-4 text-sm md:text-base font-bold tracking-wide",
+                  isDone ? "text-[#888]" : "text-white",
+                )}
+              >
+                <div className="w-6 h-6 shrink-0 flex items-center justify-center">
+                  {isActive ? (
+                    <Loader2 className="w-5 h-5 text-amber-500 animate-spin" />
+                  ) : (
+                    <CheckCircle2 className="w-5 h-5 text-green-500" />
+                  )}
+                </div>
+                <span>{task}...</span>
+              </motion.div>
+            );
+          })}
+        </div>
+
+        <div className="flex flex-col items-center md:items-end justify-center border-t md:border-t-0 md:border-l border-[#222] pt-12 md:pt-0 md:pl-12 h-64">
+          <p className="text-[10px] md:text-xs font-bold text-[#666] uppercase tracking-[0.3em] mb-4">
+            Baseline Score
+          </p>
+
+          <div className="relative flex items-center justify-center">
+            <motion.span
+              className={cn(
+                "text-8xl md:text-9xl font-black font-mono tracking-tighter transition-colors duration-500",
+                phase === "bonus"
+                  ? "text-amber-500 drop-shadow-[0_0_40px_rgba(245,158,11,0.5)]"
+                  : "text-white",
+              )}
+            >
+              {score}
+            </motion.span>
+
+            <AnimatePresence>
+              {phase === "bonus" && score === 20 && (
+                <motion.div
+                  initial={{ opacity: 0, y: 20, scale: 0.5 }}
+                  animate={{ opacity: 1, y: -60, scale: 1 }}
+                  exit={{ opacity: 0, y: -100 }}
+                  className="absolute top-0 right-0 md:-right-12 text-3xl font-extrabold text-amber-400 drop-shadow-[0_0_20px_rgba(251,191,36,0.8)]"
+                >
+                  +50
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+
+          <AnimatePresence>
+            {phase === "bonus" && (
+              <motion.div
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="mt-6 px-4 py-1.5 bg-amber-500/10 border border-amber-500/30 rounded-lg flex items-center gap-2"
+              >
+                <Sparkles className="w-4 h-4 text-amber-500" />
+                <span className="text-xs font-extrabold text-amber-500 uppercase tracking-widest">
+                  Discotive Initialization Bonus
+                </span>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+      </div>
+    </motion.div>
   );
 };
 
