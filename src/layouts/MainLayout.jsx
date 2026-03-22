@@ -163,10 +163,13 @@ const MainLayout = () => {
         {/* Logo Section */}
         <div className="h-20 flex items-center justify-between px-6 shrink-0 border-b border-[#111]">
           <Link to="/app" className="flex items-center gap-3 overflow-hidden">
-            <div className="w-8 h-8 rounded-lg bg-white flex items-center justify-center shrink-0 shadow-[0_0_20px_rgba(255,255,255,0.3)]">
-              <span className="text-black font-black text-xl leading-none tracking-tighter">
-                D
-              </span>
+            {/* Swapped the 'D' block for your custom PNG logo */}
+            <div className="w-8 h-8 flex items-center justify-center shrink-0">
+              <img
+                src="/logo-no-bg-white.png"
+                alt="Discotive Logo"
+                className="w-full h-full object-contain"
+              />
             </div>
             <AnimatePresence>
               {isSidebarOpen && (
@@ -283,7 +286,10 @@ const MainLayout = () => {
                 )}
               >
                 <Bell className="w-4 h-4 md:w-5 md:h-5" />
-                <span className="absolute top-0 right-0 w-2.5 h-2.5 bg-red-500 border-2 border-[#030303] rounded-full" />
+                {/* Only show the red dot if there are actual notifications */}
+                {userData?.notifications?.length > 0 && (
+                  <span className="absolute top-0 right-0 w-2.5 h-2.5 bg-red-500 border-2 border-[#030303] rounded-full" />
+                )}
               </button>
               {/* --- NOTIFICATIONS DROPDOWN CONTENT --- */}
               <AnimatePresence>

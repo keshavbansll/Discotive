@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -73,145 +74,155 @@ const isSameDay = (d1, d2) =>
 const parseDate = (dateStr) => (dateStr ? new Date(dateStr) : null);
 
 // ============================================================================
-// 1. CUSTOM EXECUTION NODE
+// 1. CUSTOM EXECUTION NODE (Deep Dark Glassmorphism)
 // ============================================================================
 const ExecutionNode = ({ data, selected }) => {
-  const tasks = data.tasks || [];
-  const progress =
-    tasks.length > 0
-      ? Math.round(
-          (tasks.filter((t) => t.completed).length / tasks.length) * 100,
-        )
-      : data.isCompleted
-        ? 100
-        : 0;
-  const isComplete = progress === 100;
-  const isBranch = data.nodeType === "branch";
-  const priorityStatus = data.priorityStatus || "FUTURE";
-
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const deadlineDate = parseDate(data.deadline);
-  const isOverdue = !isComplete && deadlineDate && deadlineDate < today;
-
-  let containerClass = "border-[#222] bg-[#0a0a0a]";
-  let glow = "";
-  let icon = <Circle className="w-5 h-5 text-[#444]" />;
-
-  if (isOverdue) {
-    containerClass = "border-red-500 bg-[#1a0505]";
-    icon = <AlertOctagon className="w-5 h-5 text-red-500" />;
-  } else if (isComplete) {
-    containerClass = "border-green-500/30 bg-[#050a05] opacity-80";
-    icon = <CheckCircle2 className="w-5 h-5 text-green-500" />;
-  } else if (priorityStatus === "READY") {
-    containerClass = "border-white bg-[#111]";
-    glow = "shadow-[0_0_30px_rgba(255,255,255,0.1)]";
-    icon = <Circle className="w-5 h-5 text-white" />;
-  } else if (priorityStatus === "NEXT") {
-    containerClass = "border-[#444] bg-[#0a0a0a]";
-  } else if (priorityStatus === "FUTURE") {
-    containerClass = "border-[#111] bg-[#050505] opacity-50 hover:opacity-100";
-  }
-
-  if (selected) glow = "shadow-[0_0_40px_rgba(255,255,255,0.2)] border-white";
-
-  const barColor = isOverdue
-    ? "bg-[#450a0a]"
-    : isComplete
-      ? "bg-[#052e16]"
-      : "bg-[#222]";
-  const barFill = isOverdue
-    ? "bg-red-500"
-    : isComplete
-      ? "bg-green-500"
-      : "bg-white";
+  // Map actual database priority logic to 4 distinct visual states
+  const isActive = data.priorityStatus === "READY" && !data.isCompleted;
+  const isNext = data.priorityStatus === "NEXT" && !data.isCompleted;
+  const isFuture = data.priorityStatus === "FUTURE" && !data.isCompleted;
+  const isCompleted = data.isCompleted;
 
   return (
     <div
       className={cn(
-        "w-[280px] md:w-[320px] rounded-[24px] p-5 md:p-6 relative z-10 transition-all duration-500 border",
-        containerClass,
-        glow,
+        "w-[320px] bg-[#0a0a0a]/90 backdrop-blur-xl rounded-[24px] p-6 relative overflow-hidden transition-all duration-500",
+        // Golden highlight for active node
+        isActive &&
+          "border border-amber-500/30 shadow-[0_0_40px_rgba(245,158,11,0.15)]",
+        // Silver highlight for immediate next nodes
+        isNext &&
+          "border border-slate-300/30 shadow-[0_0_30px_rgba(203,213,225,0.1)]",
+        // Faded grey for distant future nodes
+        (isCompleted || isFuture) && "border border-white/5",
+        isFuture && "opacity-50 grayscale",
+
+        selected && "border-white/50 shadow-[0_0_30px_rgba(255,255,255,0.1)]",
       )}
     >
+      {/* Top Glowing Accent Lines */}
+      {isActive && (
+        <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-amber-500 to-transparent shadow-[0_0_15px_rgba(245,158,11,1)]" />
+      )}
+      {isNext && (
+        <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-slate-300 to-transparent shadow-[0_0_15px_rgba(203,213,225,0.8)]" />
+      )}
+      {isCompleted && (
+        <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-green-500 to-transparent" />
+      )}
+
+      {/* Connection Handles */}
+      <Handle
+        type="target"
+        position={Position.Top}
+        className="w-3 h-3 bg-[#222] border-2 border-[#444]"
+      />
       <Handle
         type="target"
         position={Position.Left}
-        className="w-4 h-4 bg-[#111] border-2 border-[#333] transition-all -ml-2"
+        id="left-target"
+        className="w-3 h-3 bg-[#222] border-2 border-[#444]"
       />
 
       <div className="flex justify-between items-start mb-4 pointer-events-none">
-        <div className="flex flex-col">
-          <span className="text-[9px] md:text-[10px] font-bold text-[#666] uppercase tracking-[0.2em] mb-1 flex items-center gap-2">
-            {isBranch ? "Sub-Branch" : "Core Milestone"}
-            {priorityStatus === "READY" && !isOverdue && (
-              <span className="w-2 h-2 rounded-full bg-white animate-pulse" />
-            )}
-            {isOverdue && (
-              <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-            )}
-          </span>
-        </div>
-        {icon}
-      </div>
-
-      <h3 className="text-lg md:text-xl font-extrabold tracking-tight text-white mb-1 pointer-events-none">
-        {data.title || "Untitled Milestone"}
-      </h3>
-      {data.subtitle && (
-        <p
-          className={cn(
-            "text-[9px] md:text-[10px] font-bold uppercase tracking-widest mb-3 pointer-events-none",
-            isOverdue
-              ? "text-red-400"
-              : priorityStatus === "READY"
-                ? "text-[#ccc]"
-                : "text-[#666]",
-          )}
-        >
-          {data.subtitle}
-        </p>
-      )}
-
-      <p className="text-[#888] text-xs md:text-sm leading-relaxed mb-6 pointer-events-none line-clamp-2">
-        {data.desc || "No parameters defined."}
-      </p>
-
-      <div className="flex items-end justify-between pt-4 border-t border-[#222]">
-        <div className="pointer-events-none">
-          <p className="text-[9px] md:text-[10px] font-bold text-[#666] uppercase tracking-[0.2em] mb-1">
-            Target
+        <div>
+          <p className="text-[10px] font-mono text-[#666] uppercase tracking-widest mb-1">
+            {data.deadline
+              ? new Date(data.deadline).toLocaleDateString()
+              : "TBD"}
           </p>
-          <p
+          <h3
             className={cn(
-              "text-[10px] md:text-xs font-mono",
-              isOverdue ? "text-red-500 font-bold" : "text-white",
+              "text-lg font-extrabold tracking-tight",
+              isActive
+                ? "text-amber-500"
+                : isNext
+                  ? "text-slate-200"
+                  : "text-white",
             )}
           >
-            {data.deadline || "TBD"}
-          </p>
+            {data.title || "Untitled Milestone"}
+          </h3>
+          {data.subtitle && (
+            <p className="text-[10px] font-bold text-[#666] uppercase tracking-widest mt-1">
+              {data.subtitle}
+            </p>
+          )}
         </div>
-        <p className="text-[9px] md:text-[10px] font-mono text-[#666]">
-          {progress}%
-        </p>
+        <div
+          className={cn(
+            "p-2 rounded-xl shrink-0",
+            isActive
+              ? "bg-amber-500/10 text-amber-500"
+              : isNext
+                ? "bg-slate-300/10 text-slate-300"
+                : isCompleted
+                  ? "bg-green-500/10 text-green-500"
+                  : "bg-[#111] text-[#555]",
+          )}
+        >
+          {isCompleted ? (
+            <CheckCircle2 className="w-5 h-5" />
+          ) : isActive || isNext ? (
+            <Activity className={cn("w-5 h-5", isActive && "animate-pulse")} />
+          ) : (
+            <Lock className="w-5 h-5" />
+          )}
+        </div>
       </div>
 
-      <div
-        className={cn(
-          "absolute bottom-0 left-6 right-6 h-[3px] rounded-t-lg overflow-hidden translate-y-[1px] pointer-events-none",
-          barColor,
+      {/* Task List */}
+      <div className="space-y-2 mt-4">
+        {(data.tasks || []).map((task, i) => (
+          <div
+            key={i}
+            className="flex flex-col gap-1 p-2.5 bg-[#111] border border-[#222] rounded-xl hover:border-[#333] transition-colors"
+          >
+            <div className="flex items-start gap-3">
+              <div
+                className={cn(
+                  "w-4 h-4 mt-0.5 rounded-md border flex items-center justify-center shrink-0 transition-colors",
+                  task.completed
+                    ? "bg-green-500/20 border-green-500/50 text-green-500"
+                    : "bg-[#050505] border-[#444]",
+                )}
+              >
+                {task.completed && <Check className="w-3 h-3" />}
+              </div>
+              <p
+                className={cn(
+                  "text-xs font-medium leading-relaxed",
+                  task.completed ? "text-[#666] line-through" : "text-[#ccc]",
+                )}
+              >
+                {task.text || task.title}
+              </p>
+            </div>
+            {/* Rollover Badge */}
+            {task.isRollover && !task.completed && (
+              <span className="ml-7 text-[8px] font-bold text-red-400 uppercase tracking-widest bg-red-500/10 px-1.5 py-0.5 rounded w-max">
+                Rolled Over
+              </span>
+            )}
+          </div>
+        ))}
+        {(!data.tasks || data.tasks.length === 0) && (
+          <p className="text-xs text-[#555] font-mono italic">
+            No tasks defined.
+          </p>
         )}
-      >
-        <div
-          className={cn("h-full transition-all duration-500", barFill)}
-          style={{ width: `${progress}%` }}
-        />
       </div>
+
+      <Handle
+        type="source"
+        position={Position.Bottom}
+        className="w-3 h-3 bg-[#222] border-2 border-[#444]"
+      />
       <Handle
         type="source"
         position={Position.Right}
-        className="w-4 h-4 bg-[#111] border-2 border-[#333] transition-all -mr-2"
+        id="right-source"
+        className="w-3 h-3 bg-[#222] border-2 border-[#444]"
       />
     </div>
   );
@@ -826,6 +837,36 @@ const FlowCanvas = ({
 };
 
 // ============================================================================
+// MATHEMATICAL LAYOUT ENGINE (Spine & Branch Neural Web)
+// ============================================================================
+const generateWebLayout = (nodes) => {
+  const SPINE_X = 0; // Center spine
+  const Y_SPACING = 350; // Vertical distance
+  const BRANCH_OFFSET = 450; // Horizontal distance for side branches
+
+  return nodes.map((node, index) => {
+    let xPos = SPINE_X;
+    let yPos = index * Y_SPACING;
+
+    // Create a sprawling zig-zag or branching effect
+    // Main phases stay on the spine. Sub-tasks branch left/right.
+    if (node.data?.isBranch) {
+      // Alternate left and right for branches
+      xPos = index % 2 === 0 ? BRANCH_OFFSET : -BRANCH_OFFSET;
+      yPos = (index - 1) * Y_SPACING + Y_SPACING / 2; // Offset vertically between spine nodes
+    } else {
+      // Slight stagger on the spine to make it look organic
+      xPos = index % 2 === 0 ? 50 : -50;
+    }
+
+    return {
+      ...node,
+      position: { x: xPos, y: yPos },
+    };
+  });
+};
+
+// ============================================================================
 // 3. MAIN ROADMAP COMPONENT
 // ============================================================================
 const Roadmap = () => {
@@ -880,6 +921,59 @@ const Roadmap = () => {
       localStorage.setItem("discotive_ledger", JSON.stringify(updated));
       return updated;
     });
+  }, []);
+
+  // ============================================================================
+  // TASK OVERFLOW ENGINE (Rollover past-due tasks)
+  // ============================================================================
+  useEffect(() => {
+    // Only run this if we have nodes and haven't already processed them today
+    if (nodes.length === 0) return;
+
+    const today = new Date();
+    let hasChanges = false;
+    let pendingRolloverTasks = [];
+
+    // Deep clone nodes to avoid mutating state directly
+    let processedNodes = JSON.parse(JSON.stringify(nodes));
+
+    for (let i = 0; i < processedNodes.length; i++) {
+      let node = processedNodes[i];
+      let nodeDeadline = new Date(node.data.deadline);
+
+      // 1. If this node's deadline is in the past
+      if (nodeDeadline < today && node.data.status !== "Completed") {
+        const unfinishedTasks = node.data.tasks.filter((t) => !t.completed);
+
+        if (unfinishedTasks.length > 0) {
+          // Tag them as rollover and add to queue
+          pendingRolloverTasks.push(
+            ...unfinishedTasks.map((t) => ({ ...t, isRollover: true })),
+          );
+
+          // Remove them from the old node, mark old node as completed
+          node.data.tasks = node.data.tasks.filter((t) => t.completed);
+          node.data.status = "Completed";
+          hasChanges = true;
+        }
+      }
+      // 2. Dump the rollover queue into the FIRST active/future node we find
+      else if (nodeDeadline >= today && pendingRolloverTasks.length > 0) {
+        node.data.tasks = [...pendingRolloverTasks, ...node.data.tasks];
+        pendingRolloverTasks = []; // Clear the queue
+        hasChanges = true;
+      }
+    }
+
+    // If the engine detected and moved tasks, update the UI & Database
+    if (hasChanges) {
+      // Apply the mathematical layout before setting state
+      const layoutedNodes = generateWebLayout(processedNodes);
+      setNodes(layoutedNodes);
+
+      // TODO: When API is connected, we will also fire an updateDoc here
+      // to permanently save the rolled-over state to Firebase!
+    }
   }, []);
 
   useEffect(() => {
@@ -2167,37 +2261,40 @@ const Roadmap = () => {
       </div>
 
       {/* TOAST SYSTEM (Bottom Left Pop-ups) */}
-      <div className="fixed bottom-4 md:bottom-6 left-4 right-4 md:left-6 md:right-auto z-[200] flex flex-col gap-2 pointer-events-none">
-        <AnimatePresence>
-          {toasts.map((t) => (
-            <motion.div
-              key={t.id}
-              initial={{ opacity: 0, x: -20, y: 10 }}
-              animate={{ opacity: 1, x: 0, y: 0 }}
-              exit={{ opacity: 0, scale: 0.9 }}
-              className={cn(
-                "px-4 py-3 rounded-xl shadow-2xl flex items-center gap-3 border text-xs font-bold tracking-wide pointer-events-auto",
-                t.type === "green"
-                  ? "bg-[#052e16] border-green-500/30 text-green-400"
-                  : t.type === "red"
-                    ? "bg-[#450a0a] border-red-500/30 text-red-400"
-                    : "bg-[#111] border-[#333] text-white",
-              )}
-            >
-              {t.type === "green" && (
-                <CheckCircle2 className="w-4 h-4 shrink-0" />
-              )}
-              {t.type === "red" && (
-                <AlertOctagon className="w-4 h-4 shrink-0" />
-              )}
-              {t.type === "grey" && (
-                <Activity className="w-4 h-4 text-[#888] shrink-0" />
-              )}
-              <span className="truncate">{t.msg}</span>
-            </motion.div>
-          ))}
-        </AnimatePresence>
-      </div>
+      {createPortal(
+        <div className="fixed bottom-4 md:bottom-6 left-4 right-4 md:left-6 md:right-auto z-[9999] flex flex-col gap-2 pointer-events-none">
+          <AnimatePresence>
+            {toasts.map((t) => (
+              <motion.div
+                key={t.id}
+                initial={{ opacity: 0, x: -20, y: 10 }}
+                animate={{ opacity: 1, x: 0, y: 0 }}
+                exit={{ opacity: 0, scale: 0.9 }}
+                className={cn(
+                  "px-4 py-3 rounded-xl shadow-2xl flex items-center gap-3 border text-xs font-bold tracking-wide pointer-events-auto",
+                  t.type === "green"
+                    ? "bg-[#052e16] border-green-500/30 text-green-400"
+                    : t.type === "red"
+                      ? "bg-[#450a0a] border-red-500/30 text-red-400"
+                      : "bg-[#111] border-[#333] text-white",
+                )}
+              >
+                {t.type === "green" && (
+                  <CheckCircle2 className="w-4 h-4 shrink-0" />
+                )}
+                {t.type === "red" && (
+                  <AlertOctagon className="w-4 h-4 shrink-0" />
+                )}
+                {t.type === "grey" && (
+                  <Activity className="w-4 h-4 text-[#888] shrink-0" />
+                )}
+                <span className="truncate">{t.msg}</span>
+              </motion.div>
+            ))}
+          </AnimatePresence>
+        </div>,
+        document.body,
+      )}
 
       {/* PRO UPGRADE MODAL */}
       <AnimatePresence>
