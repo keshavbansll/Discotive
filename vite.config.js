@@ -9,7 +9,10 @@ export default defineConfig({
       registerType: "autoUpdate",
       injectRegister: "auto",
       includeAssets: ["logo-no-bg-white.png"],
-      // --- ADD THIS BLOCK ---
+      workbox: {
+        maximumFileSizeToCacheInBytes: 4000000,
+        globPatterns: ["**/*.{js,css,html,ico,png,svg}"],
+      },
       devOptions: {
         enabled: true,
         type: "module",
