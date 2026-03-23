@@ -73,6 +73,34 @@ const MainLayout = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
+  const [deferredPrompt, setDeferredPrompt] = useState(null);
+  const [isInstallable, setIsInstallable] = useState(false);
+
+  useEffect(() => {
+    const handleBeforeInstallPrompt = (e) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+      setIsInstallable(true);
+    };
+
+    window.addEventListener("beforeinstallprompt", handleBeforeInstallPrompt);
+    return () =>
+      window.removeEventListener(
+        "beforeinstallprompt",
+        handleBeforeInstallPrompt,
+      );
+  }, []);
+
+  const handleInstallClick = async () => {
+    if (!deferredPrompt) return;
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    if (outcome === "accepted") {
+      setIsInstallable(false);
+    }
+    setDeferredPrompt(null);
+  };
+
   // Dropdown States
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [showNotifMenu, setShowNotifMenu] = useState(false);
@@ -286,6 +314,15 @@ const MainLayout = () => {
                 ⌘K
               </div>
             </div>
+            {isInstallable && (
+              <button
+                onClick={handleInstallClick}
+                className="hidden lg:flex items-center gap-2 px-4 py-2 bg-amber-500 text-black font-extrabold text-[10px] uppercase tracking-widest rounded-xl hover:bg-amber-400 transition-all shadow-[0_0_20px_rgba(245,158,11,0.2)]"
+              >
+                <Zap className="w-3 h-3 fill-current" />
+                Install App
+              </button>
+            )}
           </div>
 
           <div className="flex items-center gap-3 md:gap-5">
@@ -784,6 +821,20 @@ const MainLayout = () => {
                       Send Feedback
                     </span>
                   </Link>
+                  {isInstallable && (
+                    <div className="py-2">
+                      <button
+                        onClick={handleInstallClick}
+                        className="w-full flex items-center justify-between p-4 bg-amber-500 text-black rounded-xl font-extrabold"
+                      >
+                        <div className="flex items-center gap-4">
+                          <Zap className="w-5 h-5 fill-current" />
+                          <span className="text-sm">Install Discotive App</span>
+                        </div>
+                        <ChevronRightIcon className="w-4 h-4" />
+                      </button>
+                    </div>
+                  )}
                   <button
                     onClick={handleLogout}
                     className="w-full flex items-center gap-4 p-4 bg-red-500/10 border border-red-500/20 rounded-xl active:bg-red-500/20"
