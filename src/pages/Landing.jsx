@@ -1,6 +1,17 @@
-import { useState, useEffect } from "react";
-import { Link } from "react-router-dom";
+import { useState, useEffect, useCallback, useMemo } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
+import ReactFlow, {
+  Background,
+  Controls,
+  applyNodeChanges,
+  applyEdgeChanges,
+  addEdge,
+  Handle,
+  Position,
+  ReactFlowProvider,
+} from "reactflow";
+import "reactflow/dist/style.css";
 import {
   ChevronRight,
   ChevronLeft,
@@ -9,7 +20,6 @@ import {
   MapPin,
   Target,
   Code,
-  Video,
   Briefcase,
   Paintbrush,
   Globe,
@@ -18,22 +28,59 @@ import {
   Linkedin,
   Youtube,
   Zap,
-  MessageSquare,
-  TrendingUp,
   Lock,
   Search,
+  CheckCircle2,
+  GitBranch,
+  Plus,
+  Trash2,
+  Trophy,
+  Crown,
+  ArrowRight,
+  Mail,
 } from "lucide-react";
 import GlobalLoader from "../components/GlobalLoader";
 import AnimatedButton from "../components/AnimatedButton";
 import { cn } from "../components/ui/BentoCard";
 
-// ----------------------------------------------------------------------
-// THE BACKGROUND ANIMATIONS (Falling Stars / The "Paths")
-// ----------------------------------------------------------------------
+// ============================================================================
+// CORE DATA (MARQUEES)
+// ============================================================================
+const COLLEGES = [
+  "JECRC Foundation",
+  "IIT Bombay",
+  "BITS Pilani",
+  "Stanford University",
+  "VIT Vellore",
+  "NIT Trichy",
+  "MIT",
+  "Harvard University",
+  "Delhi University",
+  "SRM IST",
+];
+
+const CAREERS = [
+  "AI Research Scientist",
+  "Founder & CEO",
+  "Quantitative Analyst",
+  "Venture Capitalist",
+  "Product Manager",
+  "Principal Engineer",
+  "UI/UX Architect",
+  "Protocol Developer",
+];
+
+// ============================================================================
+// THE BACKGROUND ANIMATION
+// ============================================================================
 const ParticleBackground = () => {
-  const particles = Array.from({ length: 30 });
+  const [particles, setParticles] = useState([]);
+  useEffect(() => {
+    setParticles(Array.from({ length: 30 }));
+  }, []);
+
   return (
-    <div className="absolute inset-0 overflow-hidden pointer-events-none z-0 opacity-30">
+    <div className="absolute inset-0 overflow-hidden pointer-events-none z-0 opacity-30 mask-image:linear-gradient(to_bottom,black,transparent)">
       {particles.map((_, i) => (
         <motion.div
           key={i}
@@ -42,21 +89,18 @@ const ParticleBackground = () => {
             x:
               Math.random() *
               (typeof window !== "undefined" ? window.innerWidth : 1000),
-            y: Math.random() * -1000,
-            opacity: Math.random() * 0.5 + 0.2,
-            scale: Math.random() * 2,
+            y: -10,
+            opacity: Math.random() * 0.5 + 0.1,
           }}
           animate={{
-            y: [
-              null,
-              typeof window !== "undefined" ? window.innerHeight + 100 : 1000,
-            ],
+            y: typeof window !== "undefined" ? window.innerHeight : 1000,
+            opacity: [0, 0.5, 0],
           }}
           transition={{
-            duration: Math.random() * 10 + 15,
+            duration: Math.random() * 5 + 5,
             repeat: Infinity,
             ease: "linear",
-            delay: Math.random() * 20,
+            delay: Math.random() * 5,
           }}
         />
       ))}
@@ -64,1092 +108,841 @@ const ParticleBackground = () => {
   );
 };
 
-// ----------------------------------------------------------------------
-// MOBILE CAROUSEL ENGINE (Auto-play + Swipe + Desktop Grid)
-// ----------------------------------------------------------------------
-const ResponsiveCarousel = ({
-  items,
-  renderItem,
-  autoPlayInterval = 4000,
-  desktopGridClass = "md:grid-cols-3",
-}) => {
-  const [index, setIndex] = useState(0);
-
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setIndex((prev) => (prev + 1) % items.length);
-    }, autoPlayInterval);
-    return () => clearInterval(timer);
-  }, [items.length, autoPlayInterval]);
-
-  const handleDragEnd = (e, { offset }) => {
-    const swipe = offset.x;
-    if (swipe < -50) {
-      setIndex((prev) => (prev + 1) % items.length);
-    } else if (swipe > 50) {
-      setIndex((prev) => (prev - 1 + items.length) % items.length);
-    }
-  };
+// ============================================================================
+// THE MOCK EXECUTION NODE (For Landing Page Sandbox)
+// ============================================================================
+const MockExecutionNode = ({ data, selected }) => {
+  const isActive = data.status === "ACTIVE";
+  const isNext = data.status === "NEXT";
+  const isCompleted = data.status === "COMPLETED";
 
   return (
-    <>
-      {/* Desktop View (Grid) */}
-      <div className={`hidden md:grid gap-6 ${desktopGridClass}`}>
-        {items.map((item, i) => (
-          <div key={i} className="h-full">
-            {renderItem(item, i)}
+    <div
+      className={cn(
+        "w-[280px] bg-[#0a0a0a]/90 backdrop-blur-xl rounded-2xl p-5 relative overflow-hidden transition-all duration-300",
+        isActive &&
+          "border border-amber-500/50 shadow-[0_0_30px_rgba(245,158,11,0.15)]",
+        isNext && "border border-white/20",
+        isCompleted && "border border-green-500/30 opacity-70",
+        !isActive && !isNext && !isCompleted && "border border-[#222]",
+        selected && "border-white/50 shadow-[0_0_20px_rgba(255,255,255,0.1)]",
+      )}
+    >
+      {isActive && (
+        <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-amber-500 to-transparent" />
+      )}
+      {isCompleted && (
+        <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-green-500 to-transparent" />
+      )}
+
+      <Handle
+        type="target"
+        position={Position.Left}
+        className="w-2 h-2 bg-[#222] border border-[#444]"
+      />
+
+      <div className="flex justify-between items-start mb-3 pointer-events-none">
+        <div>
+          <p className="text-[9px] font-mono text-[#666] uppercase tracking-widest mb-1">
+            {data.date}
+          </p>
+          <h3
+            className={cn(
+              "text-base font-extrabold tracking-tight",
+              isActive ? "text-amber-500" : "text-white",
+            )}
+          >
+            {data.title}
+          </h3>
+        </div>
+        <div
+          className={cn(
+            "p-1.5 rounded-lg shrink-0",
+            isActive
+              ? "bg-amber-500/10 text-amber-500"
+              : isCompleted
+                ? "bg-green-500/10 text-green-500"
+                : "bg-[#111] text-[#555]",
+          )}
+        >
+          {isCompleted ? (
+            <CheckCircle2 className="w-4 h-4" />
+          ) : isActive ? (
+            <Activity className="w-4 h-4 animate-pulse" />
+          ) : (
+            <Lock className="w-4 h-4" />
+          )}
+        </div>
+      </div>
+
+      <div className="space-y-1.5 mt-3 pointer-events-none">
+        {(data.tasks || []).map((task, i) => (
+          <div
+            key={i}
+            className="flex items-center gap-2 p-2 bg-[#111] border border-[#222] rounded-lg"
+          >
+            <div
+              className={cn(
+                "w-3 h-3 rounded-sm border flex items-center justify-center shrink-0",
+                task.completed
+                  ? "bg-green-500/20 border-green-500/50 text-green-500"
+                  : "bg-[#050505] border-[#444]",
+              )}
+            >
+              {task.completed && <CheckCircle2 className="w-2 h-2" />}
+            </div>
+            <p
+              className={cn(
+                "text-[10px] font-medium truncate",
+                task.completed ? "text-[#666] line-through" : "text-[#ccc]",
+              )}
+            >
+              {task.text}
+            </p>
           </div>
         ))}
       </div>
 
-      {/* Mobile View (Carousel) */}
-      <div className="block md:hidden relative w-full overflow-hidden pb-16 pt-4">
-        <motion.div
-          className="flex items-stretch touch-pan-y"
-          animate={{ x: `-${index * 100}%` }}
-          transition={{ type: "spring", bounce: 0, duration: 0.5 }}
-          drag="x"
-          dragConstraints={{ left: 0, right: 0 }}
-          dragElastic={1}
-          onDragEnd={handleDragEnd}
-        >
-          {items.map((item, i) => (
-            <div
-              key={i}
-              className="w-full shrink-0 px-2 flex justify-center h-full"
-            >
-              <div className="w-full h-full pointer-events-auto">
-                {renderItem(item, i)}
-              </div>
-            </div>
-          ))}
-        </motion.div>
-
-        {/* Navigation Controls */}
-        <div className="absolute bottom-0 left-0 right-0 flex items-center justify-center gap-6 mt-6">
-          <button
-            onClick={() =>
-              setIndex((p) => (p - 1 + items.length) % items.length)
-            }
-            className="p-2 rounded-full bg-white/5 border border-white/10 hover:bg-white/20 active:scale-95 transition-all text-white"
-          >
-            <ChevronLeft className="w-4 h-4" />
-          </button>
-          <div className="flex gap-2">
-            {items.map((_, i) => (
-              <div
-                key={i}
-                className={cn(
-                  "w-1.5 h-1.5 rounded-full transition-colors",
-                  i === index ? "bg-white" : "bg-white/20",
-                )}
-              />
-            ))}
-          </div>
-          <button
-            onClick={() => setIndex((p) => (p + 1) % items.length)}
-            className="p-2 rounded-full bg-white/5 border border-white/10 hover:bg-white/20 active:scale-95 transition-all text-white"
-          >
-            <ChevronRight className="w-4 h-4" />
-          </button>
-        </div>
-      </div>
-    </>
+      <Handle
+        type="source"
+        position={Position.Right}
+        className="w-2 h-2 bg-[#222] border border-[#444]"
+      />
+    </div>
   );
 };
+const mockNodeTypes = { executionNode: MockExecutionNode };
 
-// ----------------------------------------------------------------------
-// MAIN PAGE COMPONENT
-// ----------------------------------------------------------------------
-const Landing = () => {
-  const [isLoaded, setIsLoaded] = useState(() => {
-    return sessionStorage.getItem("discotive_booted") === "true";
-  });
+// ============================================================================
+// 2. THE INTERACTIVE SANDBOX (Mock React Flow for Landing Page)
+// ============================================================================
+const initialNodes = [
+  {
+    id: "1",
+    type: "executionNode",
+    position: { x: 50, y: 50 },
+    data: {
+      title: "Initialize Architecture",
+      date: "Phase 1",
+      status: "COMPLETED",
+      tasks: [
+        { text: "Design SaaS Schema", completed: true },
+        { text: "Deploy Authentication", completed: true },
+      ],
+    },
+  },
+  {
+    id: "2",
+    type: "executionNode",
+    position: { x: 400, y: 50 },
+    data: {
+      title: "Core Development",
+      date: "Phase 2",
+      status: "ACTIVE",
+      tasks: [
+        { text: "Build React Frontend", completed: true },
+        { text: "Integrate Database", completed: false },
+      ],
+    },
+  },
+  {
+    id: "3",
+    type: "executionNode",
+    position: { x: 750, y: 50 },
+    data: {
+      title: "Alpha Deployment",
+      date: "Phase 3",
+      status: "NEXT",
+      tasks: [
+        { text: "Beta Testing", completed: false },
+        { text: "Public Launch", completed: false },
+      ],
+    },
+  },
+];
 
-  const handleLoadComplete = () => {
-    sessionStorage.setItem("discotive_booted", "true");
-    setIsLoaded(true);
-  };
-  const [activeMenu, setActiveMenu] = useState(null);
+const initialEdges = [
+  {
+    id: "e1-2",
+    source: "1",
+    target: "2",
+    animated: true,
+    style: { stroke: "#f59e0b", strokeWidth: 2 },
+  },
+  {
+    id: "e2-3",
+    source: "2",
+    target: "3",
+    animated: true,
+    style: { stroke: "#333", strokeWidth: 2 },
+  },
+];
 
-  // Custom Cursor State
-  const [mousePosition, setMousePosition] = useState({ x: -100, y: -100 });
-  const [isHoveringCard, setIsHoveringCard] = useState(false);
+const InteractiveTimelineSandbox = () => {
+  const [nodes, setNodes] = useState(initialNodes);
+  const [edges, setEdges] = useState(initialEdges);
 
-  useEffect(() => {
-    const updateMousePosition = (e) => {
-      setMousePosition({ x: e.clientX, y: e.clientY });
-    };
-    window.addEventListener("mousemove", updateMousePosition);
-    return () => window.removeEventListener("mousemove", updateMousePosition);
-  }, []);
-
-  const fadeUp = {
-    hidden: { opacity: 0, y: 40 },
-    show: {
-      opacity: 1,
-      y: 0,
-      transition: { duration: 0.8, ease: [0.22, 1, 0.36, 1] },
-    },
-  };
-
-  const menuContent = {
-    features: [
-      {
-        icon: Layout,
-        title: "Career Engine",
-        desc: "Your deterministic execution roadmap.",
-      },
-      {
-        icon: Activity,
-        title: "Discotive Score",
-        desc: "The universal career credibility metric.",
-      },
-      {
-        icon: Target,
-        title: "AI Matchmaking",
-        desc: "Get paired with the right internships.",
-      },
-      {
-        icon: MapPin,
-        title: "Campus Hubs",
-        desc: "Offline co-working and mentorship.",
-      },
-    ],
-    careers: [
-      {
-        icon: Code,
-        title: "Engineering & Tech",
-        desc: "Full-stack, AI, DevOps, Data.",
-      },
-      {
-        icon: Video,
-        title: "Filmmaking & Media",
-        desc: "Directors, Editors, Producers.",
-      },
-      {
-        icon: Paintbrush,
-        title: "Design & Art",
-        desc: "UI/UX, 3D Artists, Illustrators.",
-      },
-      {
-        icon: Briefcase,
-        title: "Business & Strategy",
-        desc: "Founders, PMs, Sales, Ops.",
-      },
-    ],
-  };
-
-  // --- DATA SETS FOR CAROUSELS ---
-  const reviewsData = [
-    {
-      video: "/stock/Filmmaking.mp4",
-      tag: "Filmmaker",
-      quote:
-        '"Discotive gave me the exact timeline to direct my first indie short."',
-    },
-    {
-      video: "/stock/Startup.mp4",
-      tag: "Engineer",
-      quote:
-        '"Secured my startup internship exactly when the OS predicted I would."',
-    },
-    {
-      video: "/stock/Interview.mp4",
-      tag: "Founder",
-      quote:
-        '"The daily planner built my discipline. The offline hub built my team."',
-    },
-  ];
-
-  const mainCharData = [
-    {
-      icon: Layout,
-      title: "Execution Map",
-      desc: "Turn your raw ambition into a day-by-day execution timeline. Whether you're in a degree, dropping out, or grinding as a self-taught creator.",
-      linkText: "Boot the timeline",
-      to: "/auth",
-    },
-    {
-      icon: Activity,
-      title: "Discotive Score",
-      desc: "A proprietary algorithm that calculates your exact placement readiness based on skills, consistency, and network.",
-      linkText: "Calculate your score",
-      to: "/auth",
-    },
-    {
-      icon: TrendingUp,
-      title: "Asset Strength",
-      desc: "Track your wealth, skill compounding, and tangible career assets. Treat your career like a high-growth startup.",
-      linkText: "View your assets",
-      to: "/auth",
-    },
-    {
-      icon: Search,
-      title: "Explore all features",
-      desc: "Deep dive into the AI Matchmaking, Offline Hubs, Social Ledger, and the rest of the Discotive ecosystem.",
-      linkText: "View all modules",
-      to: "/features",
-    },
-  ];
-
-  const boardData = [
-    {
-      name: "Keshav Bansal",
-      role: "Founder & CEO",
-      img: "/stock/Keshav-Bansal.jpeg",
-      fallback: "/stock/Keshav Bansal.jpg",
-      ig: "keshavbansll",
-      li: "keshavbansll",
-      email: "officialkeshavbansal@gmail.com",
-    },
-    {
-      name: "Reshmi Kumari",
-      role: "Co-Founder & Digital Marketing Head",
-      img: "/stock/Reshmi-Kumari.jpeg",
-      fallback: "/stock/Reshmi Kumari.jpg",
-      ig: null,
-      li: "reshmi-kumari-330891384",
-      email: "reshmikri227@gmail.com",
-    },
-  ];
-
-  // --- RENDER FUNCTIONS FOR CAROUSELS ---
-  const renderReviewCard = (item, i) => (
-    <div
-      className={cn(
-        "aspect-[4/5] rounded-3xl bg-[#1a1a1a] border border-white/10 overflow-hidden relative group cursor-none shadow-2xl w-full h-full",
-        i === 1 && "md:-translate-y-12",
-      )}
-      onMouseEnter={() => setIsHoveringCard(true)}
-      onMouseLeave={() => setIsHoveringCard(false)}
-    >
-      <video
-        autoPlay
-        loop
-        muted
-        playsInline
-        className="absolute inset-0 w-full h-full object-cover opacity-40 group-hover:opacity-80 transition-opacity duration-700 pointer-events-none"
-      >
-        <source src={item.video} type="video/mp4" />
-      </video>
-      <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a0a] via-[#0a0a0a]/50 to-transparent p-6 md:p-8 flex flex-col justify-between z-10 pointer-events-none">
-        <div className="flex justify-between items-start">
-          <span className="text-[10px] md:text-xs font-bold uppercase tracking-widest text-slate-300 backdrop-blur-md bg-black/30 px-3 py-1.5 rounded-full">
-            {item.tag}
-          </span>
-          <div className="w-2 h-2 rounded-full bg-white shadow-[0_0_10px_white] group-hover:scale-150 transition-transform" />
-        </div>
-        <h3 className="text-2xl md:text-3xl font-bold tracking-tight text-left text-white drop-shadow-lg group-hover:-translate-y-2 transition-transform duration-500">
-          {item.quote}
-        </h3>
-      </div>
-    </div>
+  const onNodesChange = useCallback(
+    (changes) => setNodes((nds) => applyNodeChanges(changes, nds)),
+    [],
   );
-
-  const renderMainCharCard = (item) => (
-    <Link
-      to={item.to}
-      className="bg-[#1a1a1a] rounded-3xl p-8 md:p-10 border border-white/10 group hover:border-white/20 hover:shadow-[0_0_50px_rgba(255,255,255,0.05)] transition-all duration-500 relative overflow-hidden flex flex-col h-full cursor-none"
-      onMouseEnter={() => setIsHoveringCard(true)}
-      onMouseLeave={() => setIsHoveringCard(false)}
-    >
-      <div className="absolute inset-0 bg-gradient-to-br from-white/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-700 pointer-events-none" />
-      <div className="relative z-10 flex-1 flex flex-col">
-        <div className="w-12 h-12 md:w-14 md:h-14 rounded-2xl bg-white/5 flex items-center justify-center text-white mb-6 md:mb-8 group-hover:bg-white group-hover:text-black group-hover:rotate-6 transition-all duration-300">
-          <item.icon className="w-6 h-6 md:w-7 md:h-7" />
-        </div>
-        <h3 className="text-2xl md:text-3xl font-bold mb-3 md:mb-4 tracking-tight transition-all duration-300">
-          {item.title}
-        </h3>
-        <p className="text-slate-400 text-sm md:text-lg mb-6 md:mb-8 leading-relaxed flex-1">
-          {item.desc}
-        </p>
-        <div className="inline-flex items-center gap-2 text-white text-sm md:text-base font-bold group-hover:gap-4 transition-all mt-auto">
-          {item.linkText} <ChevronRight className="w-4 h-4 md:w-5 md:h-5" />
-        </div>
-      </div>
-    </Link>
+  const onEdgesChange = useCallback(
+    (changes) => setEdges((eds) => applyEdgeChanges(changes, eds)),
+    [],
   );
-
-  const renderBoardCard = (item) => (
-    <div
-      className="bg-[#f4f4f5] text-black rounded-[2.5rem] p-6 sm:p-8 lg:p-10 shadow-[0_30px_80px_rgba(0,0,0,0.8)] flex flex-col sm:flex-row items-center sm:items-start gap-6 md:gap-8 group transition-transform duration-500 hover:-translate-y-2 h-full cursor-none"
-      onMouseEnter={() => setIsHoveringCard(true)}
-      onMouseLeave={() => setIsHoveringCard(false)}
-    >
-      <div className="w-28 h-28 sm:w-32 sm:h-32 md:w-40 md:h-40 shrink-0 rounded-[1.5rem] overflow-hidden bg-zinc-300 border-4 border-white shadow-xl relative pointer-events-none">
-        <img
-          src={item.img}
-          alt={item.name}
-          onError={(e) => {
-            e.target.src = item.fallback;
-          }}
-          className="w-full h-full object-cover grayscale hover:grayscale-0 transition-all duration-500"
-        />
-      </div>
-      <div className="flex-1 text-center sm:text-left flex flex-col justify-center h-full pt-2 w-full">
-        <h3 className="text-2xl sm:text-3xl md:text-4xl font-extrabold tracking-tighter mb-1 text-black">
-          {item.name}
-        </h3>
-        <p className="text-[10px] sm:text-xs font-bold text-slate-500 uppercase tracking-widest mb-6">
-          {item.role}
-        </p>
-
-        <div className="flex flex-col gap-4 mt-auto">
-          <div>
-            <p className="text-[9px] sm:text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">
-              Social Profiles
-            </p>
-            <div className="flex items-center justify-center sm:justify-start gap-3">
-              {item.ig && (
-                <a
-                  href={`https://www.instagram.com/${item.ig}/`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="w-10 h-10 rounded-full bg-black/5 flex items-center justify-center hover:bg-black hover:text-white transition-colors text-black"
-                >
-                  <Instagram className="w-4 h-4" />
-                </a>
-              )}
-              {item.li && (
-                <a
-                  href={`https://www.linkedin.com/in/${item.li}/`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="w-10 h-10 rounded-full bg-black/5 flex items-center justify-center hover:bg-black hover:text-white transition-colors text-black"
-                >
-                  <Linkedin className="w-4 h-4" />
-                </a>
-              )}
-            </div>
-          </div>
-          <div>
-            <p className="text-[9px] sm:text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">
-              Direct Contact
-            </p>
-            <a
-              href={`mailto:${item.email}`}
-              className="text-xs sm:text-sm font-bold text-black hover:underline decoration-2 underline-offset-4 break-all"
-            >
-              {item.email}
-            </a>
-          </div>
-        </div>
-      </div>
-    </div>
+  const onConnect = useCallback(
+    (params) =>
+      setEdges((eds) =>
+        addEdge(
+          {
+            ...params,
+            animated: true,
+            style: { stroke: "#fff", strokeWidth: 2 },
+          },
+          eds,
+        ),
+      ),
+    [],
   );
 
   return (
-    <>
-      {!isLoaded && <GlobalLoader onComplete={handleLoadComplete} />}
-
-      <div
-        className={`min-h-screen bg-[#0a0a0a] text-white selection:bg-white selection:text-black transition-opacity duration-1000 overflow-hidden relative ${isLoaded ? "opacity-100" : "opacity-0"}`}
-      >
-        <ParticleBackground />
-
-        {/* CUSTOM TRAILING CURSOR (Difference Blending) */}
-        <motion.div
-          className="fixed top-0 left-0 w-6 h-6 bg-white rounded-full pointer-events-none z-[10000] mix-blend-difference hidden md:block"
-          animate={{
-            x: mousePosition.x - 12,
-            y: mousePosition.y - 12,
-            scale: isHoveringCard ? 3 : 1,
-          }}
-          transition={{
-            type: "spring",
-            stiffness: 150,
-            damping: 15,
-            mass: 0.1,
-          }}
-        />
-
-        {/* ANIMATED NAVBAR */}
-        <nav
-          className="fixed top-0 left-0 right-0 z-50 bg-[#0a0a0a]/80 backdrop-blur-xl border-b border-white/10"
-          onMouseLeave={() => setActiveMenu(null)}
+    <div className="w-full h-[400px] md:h-[500px] bg-[#050505] rounded-[2rem] border border-[#222] overflow-hidden relative group shadow-2xl">
+      <div className="absolute top-6 left-6 z-10 bg-[#111] border border-[#333] px-4 py-2 rounded-full flex items-center gap-2 shadow-lg">
+        <Activity className="w-4 h-4 text-amber-500 animate-pulse" />
+        <span className="text-xs font-bold text-white uppercase tracking-widest">
+          Live Sandbox (Interactive)
+        </span>
+      </div>
+      <ReactFlowProvider>
+        <ReactFlow
+          nodes={nodes}
+          edges={edges}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
+          onConnect={onConnect}
+          nodeTypes={mockNodeTypes}
+          fitView
+          className="bg-[#030303]"
+          proOptions={{ hideAttribution: true }}
         >
-          <div className="max-w-[1400px] mx-auto px-6 h-20 flex items-center justify-between">
-            <div className="flex items-center gap-0">
-              <img
-                src="/logo-no-bg-white.png"
-                alt="Discotive Logo"
-                className="h-8 md:h-10 w-auto object-contain hover:scale-105 transition-transform duration-300"
-              />
-              <span className="text-2xl font-extrabold tracking-tighter mr-10"></span>
+          <Background color="#222" gap={30} size={1.5} />
+          <Controls
+            className="hidden md:flex shadow-2xl border border-[#333] rounded-md overflow-hidden"
+            buttonStyle={{
+              backgroundColor: "#111",
+              borderBottom: "1px solid #333",
+              fill: "#ffffff",
+            }}
+          />
+        </ReactFlow>
+        {/* Force hide watermark if proOptions fails */}
+        <style>{`.react-flow__attribution { display: none !important; }`}</style>
+      </ReactFlowProvider>
+    </div>
+  );
+};
 
-              <div className="hidden md:flex items-center gap-2">
-                <AnimatedButton
-                  variant="nav"
-                  className="bg-white/5 border border-white/10 hover:border-white/20 px-5 cursor-none"
-                  onMouseEnter={() => setActiveMenu("features")}
-                >
-                  Features
-                </AnimatedButton>
-                <AnimatedButton
-                  variant="nav"
-                  className="bg-white/5 border border-white/10 hover:border-white/20 px-5 cursor-none"
-                  onMouseEnter={() => setActiveMenu("careers")}
-                >
-                  Careers
-                </AnimatedButton>
-                <AnimatedButton
-                  variant="nav"
-                  className="bg-white/5 border border-white/10 hover:border-white/20 px-5 cursor-none"
-                  href="#hubs"
-                  onMouseEnter={() => setActiveMenu(null)}
-                >
-                  Campus Hubs
-                </AnimatedButton>
-                <AnimatedButton
-                  variant="nav"
-                  className="bg-white/5 border border-white/10 hover:border-white/20 px-5 cursor-none"
-                  href="#pricing"
-                  onMouseEnter={() => setActiveMenu(null)}
-                >
-                  Pricing
-                </AnimatedButton>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-4">
-              <AnimatedButton
-                to="/auth"
-                variant="outline"
-                className="px-6 py-2.5 hidden md:flex cursor-none"
-                onMouseEnter={() => setIsHoveringCard(true)}
-                onMouseLeave={() => setIsHoveringCard(false)}
-              >
-                Log in
-              </AnimatedButton>
-              <AnimatedButton
-                to="/auth"
-                variant="solid"
-                className="px-6 py-2.5 cursor-none"
-                onMouseEnter={() => setIsHoveringCard(true)}
-                onMouseLeave={() => setIsHoveringCard(false)}
-              >
-                Get Started
-              </AnimatedButton>
-            </div>
-          </div>
-
-          <AnimatePresence>
-            {activeMenu && (
-              <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: "auto" }}
-                exit={{ opacity: 0, height: 0 }}
-                transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
-                className="absolute top-20 left-0 w-full bg-[#0a0a0a] border-b border-white/10 shadow-2xl overflow-hidden"
-              >
-                <AnimatePresence mode="wait">
-                  <motion.div
-                    key={activeMenu}
-                    initial={{ opacity: 0, x: -20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: 20 }}
-                    transition={{ duration: 0.2 }}
-                    className="max-w-[1400px] mx-auto px-6 py-10 grid grid-cols-1 md:grid-cols-4 gap-8"
-                  >
-                    {menuContent[activeMenu].map((item, idx) => (
-                      <a
-                        href="#feature"
-                        key={idx}
-                        className="group flex items-start gap-4 p-4 rounded-2xl hover:bg-white/5 transition-colors cursor-none"
-                        onMouseEnter={() => setIsHoveringCard(true)}
-                        onMouseLeave={() => setIsHoveringCard(false)}
-                      >
-                        <div className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center text-white group-hover:bg-white group-hover:text-black transition-all duration-300 shrink-0">
-                          <item.icon className="w-5 h-5" />
-                        </div>
-                        <div>
-                          <h4 className="font-bold text-white mb-1 group-hover:text-transparent group-hover:bg-clip-text group-hover:bg-gradient-to-r group-hover:from-white group-hover:to-slate-400">
-                            {item.title}
-                          </h4>
-                          <p className="text-sm text-slate-400">{item.desc}</p>
-                        </div>
-                      </a>
-                    ))}
-                  </motion.div>
-                </AnimatePresence>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </nav>
-
-        {/* HERO SECTION */}
-        <main className="pt-40 pb-20 px-6 max-w-[1400px] mx-auto flex flex-col items-center text-center relative z-10">
-          <motion.div
-            initial="hidden"
-            animate={isLoaded ? "show" : "hidden"}
-            transition={{ staggerChildren: 0.1 }}
-            className="max-w-5xl"
-          >
-            <motion.h1
-              variants={fadeUp}
-              className="text-6xl md:text-8xl lg:text-[110px] font-extrabold tracking-tighter leading-[0.9] mb-8"
-            >
-              Where <span className="text-slate-500">careers</span> <br />{" "}
-              actually happen.
-            </motion.h1>
-            <motion.p
-              variants={fadeUp}
-              className="text-lg md:text-2xl text-slate-400 max-w-2xl mx-auto font-medium leading-relaxed mb-12"
-            >
-              The operating system for the next generation of builders. Not just
-              engineers. Filmmakers, founders, artists, and strategists.
-            </motion.p>
-            <motion.div
-              variants={fadeUp}
-              className="flex flex-col sm:flex-row items-center justify-center gap-4"
-            >
-              <div
-                onMouseEnter={() => setIsHoveringCard(true)}
-                onMouseLeave={() => setIsHoveringCard(false)}
-              >
-                <AnimatedButton
-                  to="/auth"
-                  variant="solid"
-                  className="px-10 py-4 text-lg w-full sm:w-auto cursor-none"
-                >
-                  Boot the OS
-                </AnimatedButton>
-              </div>
-              <div
-                onMouseEnter={() => setIsHoveringCard(true)}
-                onMouseLeave={() => setIsHoveringCard(false)}
-              >
-                <AnimatedButton
-                  variant="outline"
-                  className="px-10 py-4 text-lg w-full sm:w-auto cursor-none"
-                >
-                  Explore features
-                </AnimatedButton>
-              </div>
-            </motion.div>
-          </motion.div>
-
-          {/* INFINITE CULTURE MARQUEE */}
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={isLoaded ? { opacity: 1 } : {}}
-            transition={{ duration: 1, delay: 0.8 }}
-            className="w-full overflow-hidden mt-20 border-y border-white/10 bg-white/5 py-3 relative flex items-center"
-          >
-            <div className="absolute left-0 w-20 h-full bg-gradient-to-r from-[#0a0a0a] to-transparent z-10" />
-            <div className="absolute right-0 w-20 h-full bg-gradient-to-l from-[#0a0a0a] to-transparent z-10" />
-            <motion.div
-              animate={{ x: [0, -1000] }}
-              transition={{ repeat: Infinity, duration: 20, ease: "linear" }}
-              className="flex items-center gap-8 whitespace-nowrap text-sm font-bold tracking-widest uppercase text-slate-400"
-            >
-              <span>✦ YC Founder</span>
-              <span>✦ Indie Hacker</span>
-              <span>✦ VTuber</span>
-              <span>✦ AI Prompt Engineer</span>
-              <span>✦ Cinematic Colorist</span>
-              <span>✦ Product Strategist</span>
-              <span>✦ Creative Director</span>
-              <span>✦ Protocol Dev</span>
-              <span>✦ YC Founder</span>
-              <span>✦ Indie Hacker</span>
-              <span>✦ VTuber</span>
-              <span>✦ AI Prompt Engineer</span>
-            </motion.div>
-          </motion.div>
-
-          {/* Cinematic Video Cards Grid (Carousel on Mobile) */}
-          <motion.div
-            initial={{ opacity: 0, y: 100 }}
-            animate={isLoaded ? { opacity: 1, y: 0 } : {}}
-            transition={{ duration: 1, delay: 0.4 }}
-            className="w-full mt-24"
-          >
-            <ResponsiveCarousel
-              items={reviewsData}
-              renderItem={renderReviewCard}
-              desktopGridClass="md:grid-cols-3"
-            />
-          </motion.div>
-        </main>
-
-        {/* SOCIAL & COMMUNITY SECTION */}
-        <section className="py-32 px-6 max-w-[1400px] mx-auto relative z-10">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-20 items-center">
-            <motion.div
-              initial={{ opacity: 0, x: -50 }}
-              whileInView={{ opacity: 1, x: 0 }}
-              viewport={{ once: true }}
-              transition={{ duration: 0.8 }}
-            >
-              <h2 className="text-5xl md:text-7xl font-extrabold tracking-tighter leading-tight mb-6">
-                Connect. <br /> Collaborate. <br /> Conquer.
-              </h2>
-              <p className="text-xl text-slate-400 font-medium leading-relaxed mb-8">
-                Discotive is a social ledger. Keep your profile private, or go
-                public to connect with a global network of ambitious builders.
-                Chat, exchange ideas, and track the progress of people in your
-                exact field.
-              </p>
-              <ul className="space-y-4">
-                <li className="flex items-center gap-3 text-lg font-bold">
-                  <Search className="w-5 h-5 text-slate-500" /> Discover public
-                  talent profiles.
-                </li>
-                <li className="flex items-center gap-3 text-lg font-bold">
-                  <MessageSquare className="w-5 h-5 text-slate-500" /> Direct
-                  real-time encrypted chat.
-                </li>
-                <li className="flex items-center gap-3 text-lg font-bold">
-                  <Lock className="w-5 h-5 text-slate-500" /> Complete privacy
-                  control.
-                </li>
-              </ul>
-            </motion.div>
-
-            <motion.div
-              initial={{ opacity: 0, y: 50 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              transition={{ duration: 0.8 }}
-              className="relative mx-auto w-full max-w-[320px] aspect-[1/2] bg-[#1a1a1a] border-[8px] border-[#222] rounded-[3rem] shadow-2xl overflow-hidden flex flex-col"
-            >
-              <div className="absolute top-0 inset-x-0 h-6 bg-[#222] rounded-b-3xl w-1/2 mx-auto z-20" />
-              <div className="flex-1 p-4 pt-10 flex flex-col gap-4 bg-gradient-to-b from-[#1a1a1a] to-[#0a0a0a]">
-                <div className="flex items-center gap-3 border-b border-white/10 pb-4">
-                  <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center text-black font-bold">
-                    JD
-                  </div>
-                  <div>
-                    <h4 className="font-bold text-sm">John Doe</h4>
-                    <p className="text-[10px] text-slate-400">Founder Track</p>
-                  </div>
-                </div>
-                <motion.div
-                  initial={{ opacity: 0, x: -20 }}
-                  whileInView={{ opacity: 1, x: 0 }}
-                  viewport={{ once: true }}
-                  transition={{ delay: 0.3 }}
-                  className="bg-[#2a2a2a] self-start p-3 rounded-2xl rounded-tl-sm text-sm w-3/4"
-                >
-                  How did you secure that UI/UX internship?
-                </motion.div>
-                <motion.div
-                  initial={{ opacity: 0, x: 20 }}
-                  whileInView={{ opacity: 1, x: 0 }}
-                  viewport={{ once: true }}
-                  transition={{ delay: 0.6 }}
-                  className="bg-white text-black self-end p-3 rounded-2xl rounded-tr-sm text-sm w-3/4"
-                >
-                  Followed the exact Discotive Roadmap. Happy to share my
-                  portfolio!
-                </motion.div>
-                <motion.div
-                  initial={{ opacity: 0, x: -20 }}
-                  whileInView={{ opacity: 1, x: 0 }}
-                  viewport={{ once: true }}
-                  transition={{ delay: 0.9 }}
-                  className="bg-[#2a2a2a] self-start p-3 rounded-2xl rounded-tl-sm text-sm w-3/4 flex items-center gap-2"
-                >
-                  <Layout className="w-4 h-4" /> Attached: Execution Plan
-                </motion.div>
-              </div>
-            </motion.div>
-          </div>
-        </section>
-
-        {/* FINANCE TRACKER SECTION */}
-        <section className="py-32 px-6 max-w-[1400px] mx-auto relative z-10 border-t border-white/5">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-20 items-center flex-col-reverse lg:flex-row-reverse">
-            <motion.div
-              initial={{ opacity: 0, x: 50 }}
-              whileInView={{ opacity: 1, x: 0 }}
-              viewport={{ once: true }}
-              transition={{ duration: 0.8 }}
-            >
-              <h2 className="text-5xl md:text-7xl font-extrabold tracking-tighter leading-tight mb-6">
-                Track your wealth.
-              </h2>
-              <p className="text-xl text-slate-400 font-medium leading-relaxed mb-8">
-                Execution leads to earnings. Discotive features a built-in
-                financial operating system. Track your salary, freelance gigs,
-                expenses, and overall net worth right next to your career
-                timeline.
-              </p>
-              <div
-                onMouseEnter={() => setIsHoveringCard(true)}
-                onMouseLeave={() => setIsHoveringCard(false)}
-                className="inline-block cursor-none"
-              >
-                <AnimatedButton
-                  variant="solid"
-                  className="px-8 py-3 text-lg cursor-none"
-                >
-                  Explore Finance Hub
-                </AnimatedButton>
-              </div>
-            </motion.div>
-
-            <motion.div
-              initial={{ opacity: 0, scale: 0.9 }}
-              whileInView={{ opacity: 1, scale: 1 }}
-              viewport={{ once: true }}
-              transition={{ duration: 0.8 }}
-              className="bg-[#1a1a1a] border border-white/10 rounded-3xl p-8 shadow-2xl relative overflow-hidden group"
-            >
-              <div className="absolute top-0 right-0 p-8">
-                <TrendingUp className="w-10 h-10 text-white/20" />
-              </div>
-              <h4 className="text-sm font-bold text-slate-500 uppercase tracking-widest mb-2">
-                Net Earnings
-              </h4>
-              <div className="text-5xl font-extrabold mb-8">₹12,40,500</div>
-              <div className="w-full h-40 border-b border-l border-white/10 relative">
-                <svg
-                  className="absolute inset-0 w-full h-full"
-                  preserveAspectRatio="none"
-                  viewBox="0 0 100 100"
-                >
-                  <motion.path
-                    d="M0 100 L20 80 L40 85 L60 40 L80 50 L100 10"
-                    fill="none"
-                    stroke="white"
-                    strokeWidth="3"
-                    initial={{ pathLength: 0 }}
-                    whileInView={{ pathLength: 1 }}
-                    viewport={{ once: true }}
-                    transition={{ duration: 2, ease: "easeInOut" }}
-                  />
-                  <motion.path
-                    d="M0 100 L20 80 L40 85 L60 40 L80 50 L100 10 L100 100 Z"
-                    fill="url(#gradient)"
-                    initial={{ opacity: 0 }}
-                    whileInView={{ opacity: 0.2 }}
-                    viewport={{ once: true }}
-                    transition={{ duration: 2, delay: 0.5 }}
-                  />
-                  <defs>
-                    <linearGradient id="gradient" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="white" />
-                      <stop offset="100%" stopColor="transparent" />
-                    </linearGradient>
-                  </defs>
-                </svg>
-              </div>
-            </motion.div>
-          </div>
-        </section>
-
-        {/* MAIN CHARACTER ENERGY (4 Cards Grid -> Mobile Carousel) */}
-        <section className="py-32 bg-[#050505] text-white px-6 border-y border-white/5 relative z-10 overflow-hidden">
-          <div className="absolute top-1/2 left-1/4 w-[800px] h-[800px] bg-red-600/10 blur-[150px] rounded-full -translate-y-1/2 -translate-x-1/2 pointer-events-none animate-pulse" />
-
-          <div className="max-w-[1400px] mx-auto relative z-10">
-            <motion.div
-              initial={{ opacity: 0, y: 30 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              className="mb-16 md:mb-20 max-w-3xl"
-            >
-              <h2 className="text-5xl md:text-7xl font-extrabold tracking-tighter leading-tight mb-6 text-transparent bg-clip-text bg-gradient-to-r from-white to-red-100">
-                Main character
-                <br />
-                energy.
-              </h2>
-              <p className="text-xl text-slate-400 font-medium leading-relaxed">
-                Everything you need to stop consuming content and start
-                executing on your legacy. Built specifically for ambitious
-                outliers ready to assume the coordinate.
-              </p>
-            </motion.div>
-
-            <ResponsiveCarousel
-              items={mainCharData}
-              renderItem={renderMainCharCard}
-              desktopGridClass="lg:grid-cols-2"
-              autoPlayInterval={5000}
-            />
-          </div>
-        </section>
-
-        {/* CINEMATIC QUOTE */}
-        <section
-          className="relative h-[80vh] w-full flex items-center justify-center overflow-hidden z-10"
+// ============================================================================
+// 3. THE NAVBAR (Apple-Tier Sleekness)
+// ============================================================================
+const Navbar = ({ setIsHoveringCard }) => {
+  const navigate = useNavigate();
+  return (
+    <motion.nav
+      initial={{ y: -100 }}
+      animate={{ y: 0 }}
+      transition={{ type: "spring", stiffness: 100, damping: 20 }}
+      className="fixed top-0 w-full z-50 bg-[#030303]/80 backdrop-blur-2xl border-b border-white/5"
+    >
+      <div className="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
+        <Link
+          to="/"
+          className="flex items-center gap-3 group"
           onMouseEnter={() => setIsHoveringCard(true)}
           onMouseLeave={() => setIsHoveringCard(false)}
         >
-          <div className="absolute inset-0 bg-black z-10 opacity-40"></div>
-          <motion.img
-            initial={{ scale: 1 }}
-            whileInView={{ scale: 1.05 }}
-            transition={{ duration: 10, ease: "linear" }}
-            src="/stock/succession-series-season-4-4k-wallpaper.jpg"
-            alt="Massive Opportunities"
-            className="absolute inset-0 w-full h-full object-cover z-0"
+          <img
+            src="/logox.png"
+            alt="Discotive Logo"
+            className="w-10 h-10 object-contain group-hover:scale-105 transition-transform duration-300 drop-shadow-[0_0_15px_rgba(255,255,255,0.2)]"
           />
-          <div className="relative z-20 max-w-4xl mx-auto px-6 text-center mt-32 md:mt-48">
-            <h2 className="text-4xl md:text-6xl font-extrabold tracking-tighter leading-tight text-white drop-shadow-2xl mb-8">
-              "The game is to act like you’re relaxed while your hand is closing
-              around something unseen."
-            </h2>
-            <h2 className="text-3xl md:text-5xl font-extrabold tracking-tighter leading-tight text-slate-300 drop-shadow-2xl">
-              ~ Logan Roy
-            </h2>
-          </div>
-        </section>
+          <span className="text-xl font-extrabold tracking-tight text-white hidden sm:block">
+            Discotive
+          </span>
+        </Link>
 
-        {/* MEET THE BOARD (Grid -> Mobile Carousel) */}
-        <section className="py-24 px-6 relative z-10 border-t border-white/5 overflow-hidden bg-[#050505]">
-          <div className="absolute top-1/2 left-1/2 w-[700px] h-[500px] bg-blue-600/10 blur-[150px] rounded-full -translate-y-1/2 -translate-x-1/2 pointer-events-none" />
-
-          <div
-            className="text-center mb-10 md:mb-16 relative z-10 max-w-2xl mx-auto"
-            onMouseEnter={() => setIsHoveringCard(true)}
-            onMouseLeave={() => setIsHoveringCard(false)}
+        {/* Optimized PC-First Navbar Links */}
+        <div className="hidden lg:flex items-center gap-8 bg-[#0a0a0a] px-8 py-3 rounded-full border border-white/10 shadow-lg">
+          <Link
+            to="/features"
+            className="text-[11px] font-extrabold text-[#888] hover:text-white transition-colors uppercase tracking-[0.2em]"
           >
-            <h2 className="text-5xl md:text-6xl font-extrabold tracking-tighter mb-4 text-white">
-              Meet the board.
-            </h2>
-            <p className="text-xl text-slate-400 font-medium">
-              The architects building the Discotive ecosystem.
+            Features
+          </Link>
+          <Link
+            to="/session"
+            className="text-[11px] font-extrabold text-[#888] hover:text-white transition-colors uppercase tracking-[0.2em]"
+          >
+            Discotive Edge
+          </Link>
+          <Link
+            to="/premium"
+            className="text-[11px] font-extrabold text-[#888] hover:text-white transition-colors uppercase tracking-[0.2em]"
+          >
+            Pricing
+          </Link>
+        </div>
+
+        <div className="flex items-center gap-4">
+          <Link
+            to="/auth"
+            className="hidden md:flex text-[11px] font-extrabold text-white hover:text-[#ccc] transition-colors uppercase tracking-[0.2em]"
+          >
+            Sign In
+          </Link>
+          <AnimatedButton
+            onClick={() => navigate("/auth")}
+            className="scale-90 sm:scale-100 shadow-[0_0_30px_rgba(255,255,255,0.1)]"
+          >
+            Initialize Protocol
+          </AnimatedButton>
+        </div>
+      </div>
+    </motion.nav>
+  );
+};
+
+// ============================================================================
+// 4. MAIN LANDING COMPONENT (Engine Start)
+// ============================================================================
+const Landing = () => {
+  const [isLoading, setIsLoading] = useState(true);
+  const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
+  const [isHoveringCard, setIsHoveringCard] = useState(false);
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    const handleMouseMove = (e) =>
+      setMousePosition({ x: e.clientX, y: e.clientY });
+    window.addEventListener("mousemove", handleMouseMove);
+    const timer = setTimeout(() => setIsLoading(false), 2500);
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      clearTimeout(timer);
+    };
+  }, []);
+
+  if (isLoading) return <GlobalLoader />;
+
+  return (
+    <>
+      {/* CUSTOM TRAILING CURSOR (Hollow Ring -> Solid Fill) */}
+      <motion.div
+        className="fixed top-0 left-0 w-8 h-8 rounded-full pointer-events-none z-[10000] mix-blend-difference hidden md:block border-2 border-white"
+        animate={{
+          x: mousePosition.x - 16, // Centers the 32px (w-8) circle perfectly
+          y: mousePosition.y - 16,
+          scale: isHoveringCard ? 2.5 : 1,
+          backgroundColor: isHoveringCard ? "#ffffff" : "transparent",
+        }}
+        transition={{
+          type: "spring",
+          stiffness: 150,
+          damping: 15,
+          mass: 0.1,
+        }}
+      />
+
+      <div className="min-h-screen bg-[#030303] text-white selection:bg-white selection:text-black font-sans overflow-x-hidden">
+        <ParticleBackground />
+        <Navbar setIsHoveringCard={setIsHoveringCard} />
+
+        {/* --- HERO SECTION --- */}
+        <div className="relative pt-40 pb-20 md:pt-48 md:pb-32 px-6 flex flex-col items-center justify-center text-center min-h-screen">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 1, ease: "easeOut" }}
+            className="relative z-10 max-w-5xl mx-auto w-full"
+          >
+            {/* Minimalist Badge */}
+            <div className="inline-flex items-center gap-3 px-4 py-2 rounded-full border border-white/10 bg-white/5 backdrop-blur-md mb-8 shadow-2xl">
+              <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+              <span className="text-xs font-bold tracking-[0.2em] text-[#ccc] uppercase">
+                The Ultimate Career Engine
+              </span>
+            </div>
+
+            <h1 className="text-6xl md:text-8xl lg:text-[110px] font-extrabold tracking-tight leading-[0.9] mb-8 mix-blend-difference">
+              Build your <br className="hidden md:block" />
+              <span className="text-transparent bg-clip-text bg-gradient-to-r from-white via-gray-400 to-[#333]">
+                Monopoly.
+              </span>
+            </h1>
+
+            <p className="text-lg md:text-2xl text-[#888] font-medium max-w-2xl mx-auto mb-12 leading-relaxed tracking-wide">
+              The operating system for the next generation of builders. Map your
+              trajectory, prove your execution, and dominate the global
+              leaderboard.
             </p>
-          </div>
 
-          <div className="max-w-7xl mx-auto relative z-20">
-            <ResponsiveCarousel
-              items={boardData}
-              renderItem={renderBoardCard}
-              desktopGridClass="lg:grid-cols-2"
-              autoPlayInterval={6000}
-            />
-          </div>
-        </section>
-
-        {/* FREEMIUM / UPGRADE TEASER */}
-        <section className="py-20 px-6 max-w-[1400px] mx-auto flex flex-col items-center text-center relative z-10 border-t border-white/5">
-          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/5 border border-white/10 text-white text-sm font-bold tracking-widest uppercase mb-8 mt-12">
-            <Zap className="w-4 h-4 text-white" /> Discotive Pro
-          </div>
-          <h2 className="text-5xl md:text-7xl font-extrabold tracking-tighter leading-tight mb-8">
-            For those who refuse
-            <br />
-            to leave it to chance.
-          </h2>
-          <p className="text-xl text-slate-400 max-w-2xl mx-auto font-medium leading-relaxed mb-12">
-            The basic OS gets you started for free. Discotive Pro unlocks
-            predictive placement AI, unlimited roadmap dependencies, and VIP
-            access to physical Campus Hubs.
-          </p>
-
-          <div
-            className="flex flex-col sm:flex-row gap-4"
-            onMouseEnter={() => setIsHoveringCard(true)}
-            onMouseLeave={() => setIsHoveringCard(false)}
-          >
-            <AnimatedButton
-              to="/auth"
-              variant="solid"
-              className="px-10 py-5 text-lg shadow-[0_0_40px_rgba(255,255,255,0.2)] cursor-none"
+            <div
+              className="flex flex-col sm:flex-row items-center justify-center gap-4"
+              onMouseEnter={() => setIsHoveringCard(true)}
+              onMouseLeave={() => setIsHoveringCard(false)}
             >
-              Get Started Free
-            </AnimatedButton>
-            <AnimatedButton
-              to="/auth"
-              variant="outline"
-              className="px-10 py-5 text-lg cursor-none text-slate-300 border-slate-700 hover:text-white hover:border-white"
-            >
-              Upgrade to Pro — ₹199/mo
-            </AnimatedButton>
-          </div>
-        </section>
+              <AnimatedButton
+                to="/auth"
+                variant="solid"
+                className="px-10 py-4 text-lg w-full sm:w-auto cursor-none"
+              >
+                Boot the OS
+              </AnimatedButton>
+              <AnimatedButton
+                to="/features"
+                variant="outline"
+                className="px-10 py-4 text-lg w-full sm:w-auto cursor-none"
+              >
+                Explore Features
+              </AnimatedButton>
+            </div>
+          </motion.div>
+        </div>
 
-        {/* MEGA FOOTER */}
-        <footer className="border-t border-white/10 bg-[#0a0a0a] pt-20 pb-10 px-6 relative z-10">
-          <div className="max-w-[1400px] mx-auto">
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-10 mb-20">
-              <div>
-                <h4 className="font-bold text-white mb-6">Careers</h4>
-                <ul className="space-y-4 text-sm text-slate-400 font-medium">
+        {/* --- DUAL INFINITE MARQUEES (Colleges & Careers) --- */}
+        <div className="py-10 border-b border-white/5 bg-[#030303] overflow-hidden relative flex flex-col gap-4">
+          {/* Fading Edges */}
+          <div className="absolute inset-y-0 left-0 w-32 bg-gradient-to-r from-[#030303] to-transparent z-10 pointer-events-none" />
+          <div className="absolute inset-y-0 right-0 w-32 bg-gradient-to-l from-[#030303] to-transparent z-10 pointer-events-none" />
+
+          {/* Marquee 1: Colleges (Left to Right) */}
+          <div className="flex whitespace-nowrap overflow-hidden">
+            <motion.div
+              className="flex items-center gap-12 shrink-0"
+              animate={{ x: [0, -1000] }}
+              transition={{ repeat: Infinity, duration: 30, ease: "linear" }}
+            >
+              {[...COLLEGES, ...COLLEGES, ...COLLEGES].map((item, i) => (
+                <span
+                  key={`col1-${i}`}
+                  className="text-sm md:text-base font-extrabold text-[#444] uppercase tracking-widest"
+                >
+                  {item}
+                </span>
+              ))}
+            </motion.div>
+          </div>
+
+          {/* Marquee 2: Careers (Right to Left) */}
+          <div className="flex whitespace-nowrap overflow-hidden">
+            <motion.div
+              className="flex items-center gap-12 shrink-0"
+              animate={{ x: [-1000, 0] }}
+              transition={{ repeat: Infinity, duration: 40, ease: "linear" }}
+            >
+              {[...CAREERS, ...CAREERS, ...CAREERS].map((item, i) => (
+                <span
+                  key={`car1-${i}`}
+                  className="text-sm md:text-base font-extrabold text-[#333] uppercase tracking-widest flex items-center gap-2"
+                >
+                  <Activity className="w-4 h-4 text-amber-500/50" /> {item}
+                </span>
+              ))}
+            </motion.div>
+          </div>
+        </div>
+
+        {/* --- MAIN CHARACTER ENERGY: FEATURES REDIRECT BAR --- */}
+        <Link
+          to="/features"
+          className="group block border-b border-white/5 bg-[#050505] hover:bg-[#0a0a0a] transition-colors cursor-none"
+        >
+          <div className="max-w-7xl mx-auto px-6 py-8 flex flex-col md:flex-row items-center justify-between gap-6">
+            <div className="flex items-center gap-4">
+              <Zap className="w-6 h-6 text-white group-hover:text-amber-500 transition-colors" />
+              <h3 className="text-xl md:text-2xl font-extrabold tracking-tight">
+                Ecosystem Architecture
+              </h3>
+            </div>
+            <div className="flex flex-wrap items-center justify-center md:justify-end gap-3 md:gap-6 flex-1">
+              {[
+                "Discotive Career Index",
+                "Execution Vault",
+                "AI Comparison",
+                "Network Watchlist",
+              ].map((feature, i) => (
+                <span
+                  key={i}
+                  className="text-[10px] md:text-xs font-bold text-[#666] uppercase tracking-widest bg-[#111] px-3 py-1.5 rounded-md border border-[#222]"
+                >
+                  {feature}
+                </span>
+              ))}
+              <ChevronRight className="w-5 h-5 text-[#444] group-hover:text-white group-hover:translate-x-2 transition-transform" />
+            </div>
+          </div>
+        </Link>
+
+        {/* --- SECTION 1: EXECUTION TIMELINE SANDBOX --- */}
+        <div className="py-24 md:py-40 px-6 max-w-7xl mx-auto border-b border-white/5">
+          <div className="flex flex-col lg:flex-row items-center gap-16 md:gap-24">
+            {/* Text Content */}
+            <motion.div
+              initial={{ opacity: 0, x: -30 }}
+              whileInView={{ opacity: 1, x: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.8 }}
+              className="flex-1 flex flex-col items-center lg:items-start text-center lg:text-left"
+            >
+              <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md border border-white/10 bg-white/5 mb-6 shadow-sm">
+                <GitBranch className="w-4 h-4 text-[#D4AF37]" />
+                <span className="text-[10px] font-extrabold tracking-widest text-[#ccc] uppercase">
+                  Execution Mapping
+                </span>
+              </div>
+              <h2 className="text-4xl md:text-5xl lg:text-6xl font-extrabold tracking-tight mb-6">
+                Map your trajectory. <br className="hidden lg:block" />
+                <span className="text-transparent bg-clip-text bg-gradient-to-r from-white to-[#555]">
+                  Execute ruthlessly.
+                </span>
+              </h2>
+              <p className="text-[#888] text-base md:text-lg mb-8 leading-relaxed max-w-xl">
+                Replace to-do lists with a military-grade execution sandbox.
+                Connect nodes, deploy assets, and build momentum that recruiters
+                cannot ignore.
+              </p>
+
+              <div className="space-y-5 mb-10 text-left w-full max-w-md mx-auto lg:mx-0">
+                {[
+                  {
+                    title: "Node-Based Architecture",
+                    desc: "Visualize your path as interconnected deployment nodes.",
+                  },
+                  {
+                    title: "Verifiable Progress",
+                    desc: "Every completed node builds your public Proof of Work.",
+                  },
+                  {
+                    title: "Compound Momentum",
+                    desc: "Maintain execution streaks to boost your global ranking.",
+                  },
+                ].map((item, i) => (
+                  <div key={i} className="flex items-start gap-4">
+                    <div className="w-6 h-6 rounded-md bg-[#111] border border-[#333] flex items-center justify-center shrink-0 mt-0.5">
+                      <CheckCircle2 className="w-3 h-3 text-white" />
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-bold text-white mb-1">
+                        {item.title}
+                      </h4>
+                      <p className="text-xs text-[#666] leading-relaxed">
+                        {item.desc}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <Link
+                onMouseEnter={() => setIsHoveringCard(true)}
+                onMouseLeave={() => setIsHoveringCard(false)}
+                to="/features"
+                className="px-8 py-3 bg-white text-black text-xs font-extrabold rounded-md uppercase tracking-widest hover:bg-[#e5e5e5] transition-colors flex items-center gap-2"
+              >
+                Explore Timeline <ArrowRight className="w-4 h-4" />
+              </Link>
+            </motion.div>
+
+            {/* Visual: The Sleek Tablet Sandbox */}
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, rotateY: 10 }}
+              whileInView={{ opacity: 1, scale: 1, rotateY: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.8 }}
+              className="flex-1 w-full max-w-2xl perspective-1000"
+            >
+              <div className="p-3 md:p-4 bg-[#0a0a0a] rounded-[2rem] border border-[#222] shadow-[0_0_50px_rgba(255,255,255,0.03)] transform-gpu hover:scale-[1.02] transition-transform duration-500">
+                <InteractiveTimelineSandbox />
+              </div>
+            </motion.div>
+          </div>
+        </div>
+
+        {/* --- SECTION 2: GLOBAL LEADERBOARD SHOWCASE --- */}
+        <div className="py-24 md:py-40 px-6 max-w-7xl mx-auto border-b border-white/5">
+          <div className="flex flex-col lg:flex-row-reverse items-center gap-16 md:gap-24">
+            <motion.div
+              initial={{ opacity: 0, x: 30 }}
+              whileInView={{ opacity: 1, x: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.8 }}
+              className="flex-1 flex flex-col items-center lg:items-start text-center lg:text-left"
+            >
+              <div className="inline-flex items-center gap-2 px-3 py-1.5 rounded-md border border-white/10 bg-white/5 mb-6 shadow-sm">
+                <Trophy className="w-4 h-4 text-[#D4AF37]" />
+                <span className="text-[10px] font-extrabold tracking-widest text-[#ccc] uppercase">
+                  Global Leaderboard
+                </span>
+              </div>
+              <h2 className="text-4xl md:text-5xl lg:text-6xl font-extrabold tracking-tight mb-6">
+                Outwork the globe. <br className="hidden lg:block" />
+                <span className="text-transparent bg-clip-text bg-gradient-to-r from-white to-[#555]">
+                  Claim your crown.
+                </span>
+              </h2>
+              <p className="text-[#888] text-base md:text-lg mb-8 leading-relaxed max-w-xl">
+                The Discotive Score is a mathematical representation of your
+                execution velocity. Compete against elite operators worldwide
+                and claim the Apex Alpha Crown.
+              </p>
+
+              <Link
+                onMouseEnter={() => setIsHoveringCard(true)}
+                onMouseLeave={() => setIsHoveringCard(false)}
+                to="/auth"
+                className="px-8 py-3 bg-[#111] border border-[#333] text-white text-xs font-extrabold rounded-md uppercase tracking-widest hover:bg-[#222] hover:border-[#444] transition-all flex items-center gap-2"
+              >
+                Enter The Arena <ChevronRight className="w-4 h-4" />
+              </Link>
+            </motion.div>
+
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              whileInView={{ opacity: 1, scale: 1, y: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.8 }}
+              className="flex-1 w-full max-w-md mx-auto"
+            >
+              {/* Mock Leaderboard UI */}
+              <div className="bg-[#050505] border border-[#222] rounded-[2rem] p-6 shadow-[0_0_50px_rgba(255,255,255,0.02)] relative overflow-hidden">
+                <div className="absolute top-0 right-0 w-64 h-64 bg-[#D4AF37] opacity-[0.03] blur-[80px] rounded-full pointer-events-none" />
+
+                <div className="flex flex-col gap-4 relative z-10">
+                  {/* Rank 1: Apex Alpha */}
+                  <div className="flex items-center justify-between p-4 bg-[#0a0a0a] border border-[#D4AF37] rounded-xl shadow-[0_0_20px_rgba(212,175,55,0.05)] transform hover:scale-[1.02] transition-transform">
+                    <div className="flex items-center gap-4">
+                      <div className="text-2xl font-extrabold text-[#D4AF37] w-6 text-center">
+                        1
+                      </div>
+                      <div className="relative">
+                        <Crown className="w-4 h-4 text-[#D4AF37] absolute -top-3 -right-2 rotate-12" />
+                        <div className="w-10 h-10 rounded-md bg-[#000] border border-[#D4AF37] flex items-center justify-center font-bold text-[#D4AF37]">
+                          KB
+                        </div>
+                      </div>
+                      <div>
+                        <p className="text-sm font-bold text-white">
+                          Keshav Bansal
+                        </p>
+                        <p className="text-[10px] text-[#888] font-mono">
+                          @keshav
+                        </p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-base font-extrabold text-[#D4AF37]">
+                        8,450
+                      </p>
+                      <p className="text-[8px] text-[#666] uppercase tracking-widest">
+                        Score
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Rank 2: Apex Beta */}
+                  <div className="flex items-center justify-between p-4 bg-[#0a0a0a] border border-[#C0C0C0] rounded-xl transform hover:scale-[1.02] transition-transform">
+                    <div className="flex items-center gap-4">
+                      <div className="text-xl font-bold text-[#C0C0C0] w-6 text-center">
+                        2
+                      </div>
+                      <div className="relative">
+                        <Crown className="w-3.5 h-3.5 text-[#C0C0C0] absolute -top-2 -right-1 rotate-12" />
+                        <div className="w-10 h-10 rounded-md bg-[#111] border border-[#C0C0C0] flex items-center justify-center font-bold text-[#C0C0C0]">
+                          JD
+                        </div>
+                      </div>
+                      <div>
+                        <p className="text-sm font-bold text-white">John Doe</p>
+                        <p className="text-[10px] text-[#666] font-mono">
+                          @johndoe
+                        </p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-sm font-extrabold text-[#C0C0C0]">
+                        7,210
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Rank 3: Apex Gamma */}
+                  <div className="flex items-center justify-between p-4 bg-[#0a0a0a] border border-[#CD7F32] rounded-xl transform hover:scale-[1.02] transition-transform">
+                    <div className="flex items-center gap-4">
+                      <div className="text-xl font-bold text-[#CD7F32] w-6 text-center">
+                        3
+                      </div>
+                      <div className="relative">
+                        <Crown className="w-3.5 h-3.5 text-[#CD7F32] absolute -top-2 -right-1 rotate-12" />
+                        <div className="w-10 h-10 rounded-md bg-[#111] border border-[#CD7F32] flex items-center justify-center font-bold text-[#CD7F32]">
+                          AS
+                        </div>
+                      </div>
+                      <div>
+                        <p className="text-sm font-bold text-white">
+                          Alice Smith
+                        </p>
+                        <p className="text-[10px] text-[#666] font-mono">
+                          @alice
+                        </p>
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-sm font-extrabold text-[#CD7F32]">
+                        6,900
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        </div>
+
+        {/* ============================================================================
+            THE MONOPOLY FOOTER (Apple-Tier Minimalism)
+        ============================================================================ */}
+        <footer
+          className="border-t border-white/5 bg-[#030303] pt-24 pb-12 px-6 relative overflow-hidden"
+          onMouseEnter={() => setIsHoveringCard(true)}
+          onMouseLeave={() => setIsHoveringCard(false)}
+        >
+          {/* Subtle Background Glow */}
+          <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[400px] bg-white opacity-[0.01] blur-[120px] rounded-full pointer-events-none" />
+
+          <div className="max-w-7xl mx-auto relative z-10">
+            {/* Main Links Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-4 md:gap-8 gap-12 mb-20">
+              {/* Brand Column */}
+              <div className="md:col-span-1 flex flex-col items-center md:items-start text-center md:text-left">
+                <Link to="/" className="flex items-center gap-3 mb-6">
+                  <img
+                    src="/logox.png"
+                    alt="Discotive Logo"
+                    className="w-10 h-10 object-contain group-hover:scale-105 transition-transform duration-300 drop-shadow-[0_0_15px_rgba(255,255,255,0.2)]"
+                  />
+                  <span className="text-xl font-extrabold tracking-tight text-white">
+                    Discotive
+                  </span>
+                </Link>
+                <p className="text-sm text-[#666] leading-relaxed max-w-[250px]">
+                  The execution protocol for elite operators. Replace your
+                  resume. Build your monopoly.
+                </p>
+              </div>
+
+              {/* Platform Column */}
+              <div className="flex flex-col items-center md:items-start">
+                <h4 className="text-white font-extrabold text-xs mb-6 uppercase tracking-widest">
+                  Platform
+                </h4>
+                <ul className="space-y-4 text-center md:text-left">
                   <li>
-                    <a
-                      href="#"
-                      className="hover:text-white transition-colors cursor-none"
+                    <Link
+                      to="/features"
+                      className="text-sm font-medium text-[#888] hover:text-white transition-colors"
                     >
-                      Software Engineers
-                    </a>
+                      Ecosystem Features
+                    </Link>
                   </li>
                   <li>
-                    <a
-                      href="#"
-                      className="hover:text-white transition-colors cursor-none"
+                    <Link
+                      to="/session"
+                      className="text-sm font-medium text-[#888] hover:text-white transition-colors"
                     >
-                      Filmmakers & Directors
-                    </a>
+                      Discotive Edge
+                    </Link>
                   </li>
                   <li>
-                    <a
-                      href="#"
-                      className="hover:text-white transition-colors cursor-none"
+                    <Link
+                      to="/premium"
+                      className="text-sm font-medium text-[#888] hover:text-white transition-colors"
                     >
-                      Founders & PMs
-                    </a>
-                  </li>
-                  <li>
-                    <a
-                      href="#"
-                      className="hover:text-white transition-colors cursor-none"
-                    >
-                      Content Creators
-                    </a>
-                  </li>
-                  <li>
-                    <a
-                      href="#"
-                      className="hover:text-white transition-colors cursor-none"
-                    >
-                      UI/UX Designers
-                    </a>
+                      Clearance Pricing
+                    </Link>
                   </li>
                 </ul>
               </div>
-              <div>
-                <h4 className="font-bold text-white mb-6">Features</h4>
-                <ul className="space-y-4 text-sm text-slate-400 font-medium">
-                  <li>
-                    <a
-                      href="#"
-                      className="hover:text-white transition-colors cursor-none"
-                    >
-                      The Career Engine
-                    </a>
-                  </li>
-                  <li>
-                    <a
-                      href="#"
-                      className="hover:text-white transition-colors cursor-none"
-                    >
-                      Discotive Score
-                    </a>
-                  </li>
-                  <li>
-                    <a
-                      href="#"
-                      className="hover:text-white transition-colors cursor-none"
-                    >
-                      Algorithmic Matchmaking
-                    </a>
-                  </li>
-                  <li>
-                    <a
-                      href="#"
-                      className="hover:text-white transition-colors cursor-none"
-                    >
-                      Execution Journal
-                    </a>
-                  </li>
-                </ul>
-              </div>
-              <div>
-                <h4 className="font-bold text-white mb-6">Pricing</h4>
-                <ul className="space-y-4 text-sm text-slate-400 font-medium">
-                  <li>
-                    <a
-                      href="#"
-                      className="hover:text-white transition-colors cursor-none"
-                    >
-                      Basic OS is Free
-                    </a>
-                  </li>
-                  <li>
-                    <a
-                      href="#"
-                      className="hover:text-white transition-colors cursor-none"
-                    >
-                      Discotive Pro
-                    </a>
-                  </li>
-                  <li>
-                    <a
-                      href="#"
-                      className="hover:text-white transition-colors cursor-none"
-                    >
-                      Campus Hub Passes
-                    </a>
-                  </li>
-                </ul>
-              </div>
-              <div>
-                <h4 className="font-bold text-white mb-6">Resources</h4>
-                <ul className="space-y-4 text-sm text-slate-400 font-medium">
-                  <li>
-                    <a
-                      href="#"
-                      className="hover:text-white transition-colors cursor-none"
-                    >
-                      OS Documentation
-                    </a>
-                  </li>
-                  <li>
-                    <a
-                      href="#"
-                      className="hover:text-white transition-colors cursor-none"
-                    >
-                      Help Center & FAQ
-                    </a>
-                  </li>
-                </ul>
-              </div>
-              <div>
-                <h4 className="font-bold text-white mb-6">Company</h4>
-                <ul className="space-y-4 text-sm text-slate-400 font-medium">
+
+              {/* Resources Column */}
+              <div className="flex flex-col items-center md:items-start">
+                <h4 className="text-white font-extrabold text-xs mb-6 uppercase tracking-widest">
+                  Resources
+                </h4>
+                <ul className="space-y-4 text-center md:text-left">
                   <li>
                     <Link
                       to="/about"
-                      className="hover:text-white transition-colors cursor-none"
-                      onMouseEnter={() => setIsHoveringCard(true)}
-                      onMouseLeave={() => setIsHoveringCard(false)}
+                      className="text-sm font-medium text-[#888] hover:text-white transition-colors"
                     >
                       About Us
                     </Link>
                   </li>
                   <li>
-                    <a
-                      href="#"
-                      className="hover:text-white transition-colors cursor-none"
+                    <Link
+                      to="/privacy"
+                      className="text-sm font-medium text-[#888] hover:text-white transition-colors"
                     >
                       Privacy Policy
+                    </Link>
+                  </li>
+                </ul>
+              </div>
+              {/* Contact Column */}
+              <div className="flex flex-col items-center md:items-start">
+                <h4 className="text-white font-extrabold text-xs mb-6 uppercase tracking-widest">
+                  Contact
+                </h4>
+                <ul className="space-y-4 text-center md:text-left">
+                  <li>
+                    <a
+                      href="mailto:discotive@gmail.com"
+                      className="text-sm font-medium text-[#888] hover:text-white transition-colors flex items-center gap-2"
+                    >
+                      <Mail className="w-4 h-4 text-[#555] hidden md:block" />
+                      discotive@gmail.com
                     </a>
                   </li>
                 </ul>
               </div>
             </div>
 
-            <div
-              className="flex flex-col lg:flex-row items-center justify-between pt-8 border-t border-white/10 gap-8"
-              onMouseEnter={() => setIsHoveringCard(true)}
-              onMouseLeave={() => setIsHoveringCard(false)}
-            >
-              <div className="text-center md:text-left text-xs text-slate-600 font-medium">
-                © 2026 Discotive Hubs. Built in Jaipur, Rajasthan.
-              </div>
-              <div className="flex items-center gap-6 text-slate-400">
+            {/* Bottom Bar (Copyright & Socials) */}
+            <div className="flex flex-col-reverse md:flex-row items-center justify-between pt-8 border-t border-white/5 gap-6">
+              <p className="text-xs text-[#555] font-medium tracking-wide">
+                © 2026 Discotive. India.
+              </p>
+              <div className="flex items-center gap-6">
                 <a
                   href="https://www.instagram.com/discotive/"
-                  className="hover:text-white transition-colors cursor-none"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-[#666] hover:text-white transition-colors hover:scale-110 transform duration-200"
                 >
                   <Instagram className="w-5 h-5" />
                 </a>
                 <a
                   href="https://www.youtube.com/@discotive"
-                  className="hover:text-white transition-colors cursor-none"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-[#666] hover:text-white transition-colors hover:scale-110 transform duration-200"
                 >
                   <Youtube className="w-5 h-5" />
                 </a>
                 <a
                   href="https://www.linkedin.com/company/discotive"
-                  className="hover:text-white transition-colors cursor-none"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-[#666] hover:text-white transition-colors hover:scale-110 transform duration-200"
                 >
                   <Linkedin className="w-5 h-5" />
                 </a>
