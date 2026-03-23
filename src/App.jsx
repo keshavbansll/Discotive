@@ -25,6 +25,7 @@ import VerifyAsset from "./pages/VerifyAsset";
 import PageTracker from "./components/PageTracker";
 import EditProfile from "./pages/EditProfile";
 
+import GlobalLoader from "./components/GlobalLoader";
 import React, { Suspense, lazy } from "react";
 
 const ProtectedRoute = ({ children }) => {
