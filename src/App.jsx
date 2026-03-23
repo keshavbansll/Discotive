@@ -22,6 +22,7 @@ import PublicProfile from "./pages/PublicProfile";
 import Premium from "./pages/Premium";
 import Checkout from "./pages/Checkout";
 import VerifyAsset from "./pages/VerifyAsset";
+import PageTracker from "./components/PageTracker";
 import EditProfile from "./pages/EditProfile";
 
 const ProtectedRoute = ({ children }) => {
@@ -53,6 +54,7 @@ function App() {
   return (
     <AuthProvider>
       <Router>
+        <PageTracker />
         <Routes>
           <Route
             path="/"
@@ -62,14 +64,7 @@ function App() {
               </PublicRoute>
             }
           />
-          <Route
-            path="/auth"
-            element={
-              <PublicRoute>
-                <Auth />
-              </PublicRoute>
-            }
-          />
+          <Route path="/auth" element={<Auth />} />
           <Route path="/about" element={<About />} />
           <Route path="/premium" element={<Premium />} />
           <Route path="/checkout" element={<Checkout />} />

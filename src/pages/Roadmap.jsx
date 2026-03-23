@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
+import { logEvent } from "firebase/analytics";
+import { analytics } from "../firebase";
 import {
   doc,
   updateDoc,
@@ -1089,6 +1091,15 @@ const Roadmap = () => {
       setAiPhase("idle");
       addToast("Neural Map successfully deployed.", "green");
       addLedgerEntry("Generated new AI Execution Map");
+
+      // --- FIREBASE ANALYTICS: TRACK ROADMAP GENERATION ---
+      if (analytics) {
+        logEvent(analytics, "generated_roadmap", {
+          user_niche: userData?.vision?.niche || "Unknown",
+          user_domain: userData?.vision?.passion || "Unknown",
+          tier: subscriptionTier || "free",
+        });
+      }
     } catch (err) {
       console.error(err);
       addToast("Synthesis failed. Neural link severed.", "red");

@@ -6,12 +6,15 @@ import AuthLoader from "../components/AuthLoader";
 import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
+  signInWithPopup,
+  GoogleAuthProvider,
 } from "firebase/auth";
 import {
   collection,
   query,
   where,
   getDocs,
+  getDoc,
   doc,
   setDoc,
 } from "firebase/firestore";
@@ -813,56 +816,6 @@ const END_YEARS = Array.from({ length: 16 }, (_, i) =>
   (currentYear + i).toString(),
 );
 
-// --- VALIDATION REGEX FOR STEP 6 ---
-const FOOTPRINT_VALIDATORS = {
-  instagram: {
-    regex: /^https:\/\/(www\.)?instagram\.com\/[A-Za-z0-9_.]+\/?$/,
-    prefix: "https://instagram.com/",
-  },
-  linkedin: {
-    regex: /^https:\/\/(www\.)?linkedin\.com\/in\/[A-Za-z0-9-]+\/?$/,
-    prefix: "https://linkedin.com/in/",
-  },
-  github: {
-    regex: /^https:\/\/(www\.)?github\.com\/[A-Za-z0-9-]+\/?$/,
-    prefix: "https://github.com/",
-  },
-  twitter: {
-    regex: /^https:\/\/(www\.)?(twitter\.com|x\.com)\/[A-Za-z0-9_]+\/?$/,
-    prefix: "https://x.com/",
-  },
-  youtube: {
-    regex:
-      /^https:\/\/(www\.)?youtube\.com\/(c\/|channel\/|@)?[A-Za-z0-9_-]+\/?$/,
-    prefix: "https://youtube.com/",
-  },
-  facebook: {
-    regex: /^https:\/\/(www\.)?facebook\.com\/[A-Za-z0-9.]+\/?$/,
-    prefix: "https://facebook.com/",
-  },
-  reddit: {
-    regex: /^https:\/\/(www\.)?reddit\.com\/user\/[A-Za-z0-9_-]+\/?$/,
-    prefix: "https://reddit.com/user/",
-  },
-  pinterest: {
-    regex: /^https:\/\/(www\.)?pinterest\.com\/[A-Za-z0-9_]+\/?$/,
-    prefix: "https://pinterest.com/",
-  },
-  linktree: {
-    regex: /^https:\/\/(www\.)?linktr\.ee\/[A-Za-z0-9_.-]+\/?$/,
-    prefix: "https://linktr.ee/",
-  },
-  figma: {
-    regex: /^https:\/\/(www\.)?figma\.com\/@?[A-Za-z0-9_-]+$/,
-    prefix: "https://figma.com/",
-  },
-  linkedinCompany: {
-    regex: /^https:\/\/(www\.)?linkedin\.com\/company\/[A-Za-z0-9-]+\/?$/,
-    prefix: "https://linkedin.com/company/",
-  },
-  website: { regex: /^https?:\/\/.*/, prefix: "https://" },
-};
-
 // ============================================================================
 // CUSTOM UI COMPONENTS
 // ============================================================================
@@ -876,7 +829,14 @@ const CustomSearchSelect = ({
   required,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
-  const [query, setQuery] = useState(value);
+  // FIX: Default to "" to prevent the uncontrolled input error
+  const [query, setQuery] = useState(value || "");
+
+  // FIX: Sync query state if the parent value prop changes
+  useEffect(() => {
+    setQuery(value || "");
+  }, [value]);
+
   const wrapperRef = useRef(null);
 
   useEffect(() => {
@@ -897,7 +857,7 @@ const CustomSearchSelect = ({
       <div className="flex items-center w-full bg-[#121212] border border-white/10 rounded-xl px-4 py-3 focus-within:border-white/40 transition-all">
         <input
           type="text"
-          value={query}
+          value={query || ""} // FIX: Enforce string type
           required={required && !value}
           onChange={(e) => {
             setQuery(e.target.value);
@@ -1051,6 +1011,40 @@ const CustomMultiSelect = ({
   );
 };
 
+// --- REUSABLE GOOGLE AUTH BUTTON ---
+const GoogleAuthButton = ({ onClick, disabled }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    disabled={disabled}
+    className="w-full flex items-center justify-center gap-3 py-3.5 bg-[#121212] border border-white/10 text-white font-bold rounded-xl hover:bg-[#222] hover:border-white/20 transition-all shadow-sm disabled:opacity-50"
+  >
+    {disabled ? (
+      <Loader2 className="w-5 h-5 animate-spin text-[#888]" />
+    ) : (
+      <svg className="w-5 h-5" viewBox="0 0 24 24">
+        <path
+          d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+          fill="#4285F4"
+        />
+        <path
+          d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+          fill="#34A853"
+        />
+        <path
+          d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
+          fill="#FBBC05"
+        />
+        <path
+          d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
+          fill="#EA4335"
+        />
+      </svg>
+    )}
+    {disabled ? "Authenticating..." : "Continue with Google"}
+  </button>
+);
+
 // ============================================================================
 // MAIN AUTH COMPONENT
 // ============================================================================
@@ -1084,6 +1078,41 @@ const Auth = () => {
     },
   ];
   const [currentSlide, setCurrentSlide] = useState(0);
+
+  // --- SECURE RETURNING USER REDIRECT & AUTO-RESUME ---
+  useEffect(() => {
+    const unsubscribe = auth.onAuthStateChanged(async (user) => {
+      if (user) {
+        // 1. Check if they have a completed database profile
+        const docRef = doc(db, "users", user.uid);
+        const snap = await getDoc(docRef);
+
+        if (snap.exists()) {
+          // Profile exists -> Send to OS
+          navigate("/app");
+        } else {
+          // GHOST USER DETECTED: They authenticated but abandoned the form.
+          // 2. Re-verify their whitelist status
+          const wlSnap = await getDocs(
+            query(
+              collection(db, "whitelisted_emails"),
+              where("email", "==", user.email),
+            ),
+          );
+
+          setIsLogin(false); // Force out of login screen
+
+          if (wlSnap.empty) {
+            setStep("locked"); // Boot them if they aren't whitelisted
+          } else {
+            setStep(2); // Trap them on Step 2 to finish Coordinates
+          }
+        }
+      }
+    });
+    return unsubscribe;
+  }, [navigate]);
+
   useEffect(() => {
     const t = setInterval(
       () => setCurrentSlide((p) => (p + 1) % slides.length),
@@ -1180,24 +1209,66 @@ const Auth = () => {
     return () => clearTimeout(t);
   }, [username]);
 
+  const handleGoogleAuth = async () => {
+    try {
+      setLoading(true); // <--- Use setLoading instead of setIsBooting
+      const provider = new GoogleAuthProvider();
+      const result = await signInWithPopup(auth, provider);
+      const user = result.user;
+
+      const nameParts = user.displayName
+        ? user.displayName.split(" ")
+        : ["Operator", ""];
+      setFirstName(nameParts[0]);
+      setLastName(nameParts.slice(1).join(" "));
+      setEmail(user.email);
+      setUsername(user.email.split("@")[0].toLowerCase());
+
+      // 1. Check if user already exists in DB
+      const userSnap = await getDocs(
+        query(
+          collection(db, "users"),
+          where("identity.email", "==", user.email),
+        ),
+      );
+      if (!userSnap.empty) {
+        setLoading(false);
+        navigate("/app");
+        return;
+      }
+
+      // 2. Check Whitelist for new Google Users
+      const wlSnap = await getDocs(
+        query(
+          collection(db, "whitelisted_emails"),
+          where("email", "==", user.email),
+        ),
+      );
+
+      setLoading(false);
+      setIsLogin(false);
+
+      if (wlSnap.empty) {
+        setStep("locked");
+      } else {
+        setStep(2); // Bypass Step 1, go straight to Location/Handle
+      }
+    } catch (error) {
+      console.error("Google Auth Error:", error);
+      setError(error.message.replace("Firebase: ", ""));
+      setLoading(false);
+    }
+  };
+
   // --- HANDLERS ---
   const handleSignUpStep1 = async (e) => {
     e.preventDefault();
-    if (
-      !email ||
-      !password ||
-      !firstName ||
-      !lastName ||
-      !username ||
-      !userState ||
-      !country
-    ) {
-      return setError("All identity and location fields are required.");
+    // FIX: Only validate Step 1 fields
+    if (!email || !password || !firstName || !lastName) {
+      return setError("All identity and security fields are required.");
     }
     if (pwScore < 2)
       return setError("Password too weak. Add numbers or symbols.");
-    if (usernameAvailable === false)
-      return setError("Username is already taken.");
 
     setLoading(true);
     setError("");
@@ -1227,25 +1298,41 @@ const Auth = () => {
 
   const handleStep2Submit = (e) => {
     e.preventDefault();
+    // FIX: Validate Step 2 fields here
+    if (!username || !userState || !country || !gender)
+      return setError(
+        "All handle, identity, and location fields are required.",
+      );
+    if (usernameAvailable === false)
+      return setError("Username is already taken.");
+
     setError("");
-    if (startMonth && !startYear)
-      return setError("If Start Month is selected, Start Year is required.");
-    if (endMonth && !endYear)
-      return setError("If End Month is selected, End Year is required.");
     setStep(3);
   };
 
   const handleStep3Submit = (e) => {
     e.preventDefault();
     setError("");
+    // FIX: Validate baseline dates here
+    if (startMonth && !startYear)
+      return setError("If Start Month is selected, Start Year is required.");
+    if (endMonth && !endYear)
+      return setError("If End Month is selected, End Year is required.");
+    setStep(4);
+  };
+
+  const handleStep4Submit = (e) => {
+    e.preventDefault();
+    setError("");
+    // FIX: Validate vision goals here
     if (passion === parallelPath && passion !== "")
       return setError(
         "Primary Macro Domain and Parallel Goal cannot be identical.",
       );
-    setStep(4);
+    setStep(5);
   };
 
-  const handleStep6Submit = (e) => {
+  const handleStep7Submit = (e) => {
     e.preventDefault();
     setError("");
     let allLinks = [];
@@ -1273,7 +1360,7 @@ const Auth = () => {
         "Duplicate links detected. You cannot use the same URL across different fields.",
       );
 
-    setStep(7);
+    setStep(8);
   };
 
   const handleFinalSubmit = async (e) => {
@@ -1283,12 +1370,20 @@ const Auth = () => {
     setAuthTaskComplete(false);
 
     try {
-      const userCredential = await createUserWithEmailAndPassword(
-        auth,
-        email,
-        password,
-      );
-      await setDoc(doc(db, "users", userCredential.user.uid), {
+      let uid;
+      // If auth.currentUser exists, they used Google. If not, they used Email/Password.
+      if (auth.currentUser) {
+        uid = auth.currentUser.uid;
+      } else {
+        const userCredential = await createUserWithEmailAndPassword(
+          auth,
+          email,
+          password,
+        );
+        uid = userCredential.user.uid;
+      }
+
+      await setDoc(doc(db, "users", uid), {
         identity: {
           firstName,
           lastName,
@@ -1329,11 +1424,10 @@ const Auth = () => {
           current: 70,
           last24h: 0,
           lastLoginDate: new Date().toISOString().split("T")[0],
-        }, // Set Initial Gamification State!
+        },
         createdAt: new Date().toISOString(),
       });
 
-      // TRIGGER THE NEW SETUP SEQUENCE INSTEAD OF THE OLD LOADER!
       setIsBooting(false);
       setShowSetupSequence(true);
     } catch (err) {
@@ -1484,12 +1578,27 @@ const Auth = () => {
                     <AlertCircle className="w-4 h-4 shrink-0" /> {error}
                   </div>
                 )}
+
+                {/* --- GOOGLE LOGIN --- */}
+                <GoogleAuthButton
+                  onClick={handleGoogleAuth}
+                  disabled={loading}
+                />
+
+                <div className="flex items-center gap-4 my-6">
+                  <div className="h-px bg-[#222] flex-1"></div>
+                  <span className="text-xs text-[#555] font-bold uppercase tracking-widest">
+                    OR
+                  </span>
+                  <div className="h-px bg-[#222] flex-1"></div>
+                </div>
+
                 <form onSubmit={handleLogin} className="space-y-4">
                   <div>
                     <label className={labelClass}>Email</label>
                     <input
                       type="email"
-                      value={email}
+                      value={email || ""}
                       onChange={(e) => setEmail(e.target.value)}
                       className={inputClass}
                       required
@@ -1499,7 +1608,7 @@ const Auth = () => {
                     <label className={labelClass}>Password</label>
                     <input
                       type="password"
-                      value={password}
+                      value={password || ""}
                       onChange={(e) => setPassword(e.target.value)}
                       className={inputClass}
                       required
@@ -1533,7 +1642,7 @@ const Auth = () => {
               </motion.div>
             )}
 
-            {/* STEP 1: IDENTITY */}
+            {/* STEP 1: IDENTITY & SECURITY */}
             {!isLogin && step === 1 && (
               <motion.div
                 key="step1"
@@ -1543,7 +1652,7 @@ const Auth = () => {
               >
                 <div className="text-[10px] font-bold text-[#888] uppercase tracking-[0.3em] mb-6">
                   <span className="text-white">Step 1</span>{" "}
-                  <span className="opacity-30">/ 7</span>
+                  <span className="opacity-30">/ 8</span>
                 </div>
                 <h2 className="text-4xl md:text-5xl font-extrabold tracking-tighter mb-2">
                   Initialize Profile.
@@ -1557,7 +1666,22 @@ const Auth = () => {
                   </div>
                 )}
 
+                {/* --- GOOGLE SIGNUP --- */}
+                <GoogleAuthButton
+                  onClick={handleGoogleAuth}
+                  disabled={loading}
+                />
+
+                <div className="flex items-center gap-4 my-6"></div>
+
                 <form onSubmit={handleSignUpStep1} className="space-y-5">
+                  <div className="flex items-center gap-4 mb-6">
+                    <div className="h-px bg-[#222] flex-1"></div>
+                    <span className="text-xs text-[#555] font-bold uppercase tracking-widest">
+                      OR
+                    </span>
+                    <div className="h-px bg-[#222] flex-1"></div>
+                  </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className={labelClass}>First Name</label>
@@ -1581,33 +1705,6 @@ const Auth = () => {
                     </div>
                   </div>
                   <div>
-                    <label className={labelClass}>Operator Handle</label>
-                    <div className="relative">
-                      <span className="absolute left-4 top-1/2 -translate-y-1/2 text-[#555] font-bold">
-                        @
-                      </span>
-                      <input
-                        type="text"
-                        value={username}
-                        onChange={(e) => setUsername(e.target.value)}
-                        className={`${inputClass} pl-10`}
-                        required
-                        placeholder="johndoe"
-                      />
-                      <div className="absolute right-4 top-1/2 -translate-y-1/2">
-                        {usernameAvailable === true && (
-                          <CheckCircle2 className="w-4 h-4 text-green-500" />
-                        )}
-                        {usernameAvailable === false && (
-                          <X className="w-4 h-4 text-red-500" />
-                        )}
-                        {usernameAvailable === null && username.length > 2 && (
-                          <Loader2 className="w-4 h-4 text-[#666] animate-spin" />
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                  <div>
                     <label className={labelClass}>Email Address</label>
                     <input
                       type="email"
@@ -1617,50 +1714,6 @@ const Auth = () => {
                       required
                     />
                   </div>
-                  <div>
-                    <label className={labelClass}>
-                      Avatar Identity (For Leaderboard)
-                    </label>
-                    <select
-                      value={gender}
-                      onChange={(e) => setGender(e.target.value)}
-                      className={inputClass}
-                      required
-                    >
-                      <option value="" disabled>
-                        Select identity...
-                      </option>
-                      <option value="Male">Male</option>
-                      <option value="Female">Female</option>
-                      <option value="Other">Other / Stealth</option>
-                    </select>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className={labelClass}>State / Province</label>
-                      <CustomSearchSelect
-                        options={INDIAN_STATES_UTS}
-                        value={userState}
-                        onChange={setUserState}
-                        placeholder="e.g. Rajasthan"
-                        allowCustom={true}
-                        required={true}
-                      />
-                    </div>
-                    <div>
-                      <label className={labelClass}>Country</label>
-                      <CustomSearchSelect
-                        options={COUNTRIES}
-                        value={country}
-                        onChange={setCountry}
-                        placeholder="e.g. India"
-                        allowCustom={false}
-                        required={true}
-                      />
-                    </div>
-                  </div>
-
                   <div>
                     <label className={labelClass}>Secure Password</label>
                     <input
@@ -1709,6 +1762,124 @@ const Auth = () => {
                     Log in here
                   </button>
                 </p>
+              </motion.div>
+            )}
+
+            {/* STEP 2: HANDLE & LOCATION */}
+            {!isLogin && step === 2 && (
+              <motion.div
+                key="step2"
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -20 }}
+              >
+                <div className="text-[10px] font-bold text-[#888] uppercase tracking-[0.3em] mb-6">
+                  <span className="text-white">Step 2</span>{" "}
+                  <span className="opacity-30">/ 8</span>
+                </div>
+                <h2 className="text-4xl md:text-5xl font-extrabold tracking-tighter mb-2">
+                  System Coordinates.
+                </h2>
+                <p className="text-[#888] font-medium mb-8">
+                  Where do you operate from?
+                </p>
+                {error && (
+                  <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-sm font-bold mb-6">
+                    {error}
+                  </div>
+                )}
+
+                <form onSubmit={handleStep2Submit} className="space-y-5">
+                  <div>
+                    <label className={labelClass}>Operator Handle</label>
+                    <div className="relative">
+                      <span className="absolute left-4 top-1/2 -translate-y-1/2 text-[#555] font-bold">
+                        @
+                      </span>
+                      <input
+                        type="text"
+                        value={username}
+                        onChange={(e) => setUsername(e.target.value)}
+                        className={`${inputClass} pl-10`}
+                        required
+                        placeholder="johndoe"
+                      />
+                      <div className="absolute right-4 top-1/2 -translate-y-1/2">
+                        {usernameAvailable === true && (
+                          <CheckCircle2 className="w-4 h-4 text-green-500" />
+                        )}
+                        {usernameAvailable === false && (
+                          <X className="w-4 h-4 text-red-500" />
+                        )}
+                        {usernameAvailable === null && username.length > 2 && (
+                          <Loader2 className="w-4 h-4 text-[#666] animate-spin" />
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  <div>
+                    <label className={labelClass}>
+                      Avatar Identity (For Leaderboard)
+                    </label>
+                    <select
+                      value={gender}
+                      onChange={(e) => setGender(e.target.value)}
+                      className={inputClass}
+                      required
+                    >
+                      <option value="" disabled>
+                        Select identity...
+                      </option>
+                      <option value="Male">Male</option>
+                      <option value="Female">Female</option>
+                      <option value="Other">Other / Stealth</option>
+                    </select>
+                  </div>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className={labelClass}>State / Province</label>
+                      <CustomSearchSelect
+                        options={INDIAN_STATES_UTS}
+                        value={userState}
+                        onChange={setUserState}
+                        placeholder="e.g. Rajasthan"
+                        allowCustom={true}
+                        required={true}
+                      />
+                    </div>
+                    <div>
+                      <label className={labelClass}>Country</label>
+                      <CustomSearchSelect
+                        options={COUNTRIES}
+                        value={country}
+                        onChange={setCountry}
+                        placeholder="e.g. India"
+                        allowCustom={false}
+                        required={true}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="flex gap-4 mt-8">
+                    {/* Only show back button if they didn't use Google (Google users lack a password so they can't go back to step 1 safely) */}
+                    {!auth.currentUser && (
+                      <button
+                        type="button"
+                        onClick={() => setStep(1)}
+                        className="px-6 py-4 bg-[#111] border border-[#222] text-white font-bold rounded-xl hover:bg-[#222] transition-colors"
+                      >
+                        Back
+                      </button>
+                    )}
+                    <button
+                      type="submit"
+                      className="flex-1 px-6 py-4 bg-white text-black font-bold rounded-xl hover:bg-[#ccc] transition-colors flex items-center justify-between group"
+                    >
+                      <span>Continue</span>
+                      <ChevronRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+                    </button>
+                  </div>
+                </form>
               </motion.div>
             )}
 
@@ -1823,17 +1994,17 @@ const Auth = () => {
               </motion.div>
             )}
 
-            {/* STEP 2: BASELINE */}
-            {!isLogin && step === 2 && (
+            {/* STEP 3: BASELINE */}
+            {!isLogin && step === 3 && (
               <motion.div
-                key="step2"
+                key="step3"
                 initial={{ opacity: 0, x: 20 }}
                 animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0, x: -20 }}
               >
                 <div className="text-[10px] font-bold text-[#888] uppercase tracking-[0.3em] mb-6">
-                  <span className="text-white">Step 2</span>{" "}
-                  <span className="opacity-30">/ 7</span>
+                  <span className="text-white">Step 3</span>{" "}
+                  <span className="opacity-30">/ 8</span>
                 </div>
                 <h2 className="text-4xl md:text-5xl font-extrabold tracking-tighter mb-2">
                   The Baseline.
@@ -1847,7 +2018,7 @@ const Auth = () => {
                   </div>
                 )}
 
-                <form onSubmit={handleStep2Submit} className="space-y-5">
+                <form onSubmit={handleStep3Submit} className="space-y-5">
                   <div>
                     <label className={labelClass}>Current Status</label>
                     <CustomSearchSelect
@@ -1958,7 +2129,7 @@ const Auth = () => {
                   <div className="flex gap-4 mt-8">
                     <button
                       type="button"
-                      onClick={() => setStep(1)}
+                      onClick={() => setStep(2)}
                       className="px-6 py-4 bg-[#111] border border-[#222] text-white font-bold rounded-xl hover:bg-[#222] transition-colors"
                     >
                       Back
@@ -1975,8 +2146,8 @@ const Auth = () => {
               </motion.div>
             )}
 
-            {/* STEP 3: VISION */}
-            {!isLogin && step === 3 && (
+            {/* STEP 4: VISION */}
+            {!isLogin && step === 4 && (
               <motion.div
                 key="step3"
                 initial={{ opacity: 0, x: 20 }}
@@ -1984,8 +2155,8 @@ const Auth = () => {
                 exit={{ opacity: 0, x: -20 }}
               >
                 <div className="text-[10px] font-bold text-[#888] uppercase tracking-[0.3em] mb-6">
-                  <span className="text-white">Step 3</span>{" "}
-                  <span className="opacity-30">/ 7</span>
+                  <span className="text-white">Step 4</span>{" "}
+                  <span className="opacity-30">/ 8</span>
                 </div>
                 <h2 className="text-4xl md:text-5xl font-extrabold tracking-tighter mb-2">
                   The Vision.
@@ -1999,7 +2170,7 @@ const Auth = () => {
                   </div>
                 )}
 
-                <form onSubmit={handleStep3Submit} className="space-y-5">
+                <form onSubmit={handleStep4Submit} className="space-y-5">
                   <div>
                     <label className={labelClass}>
                       Macro Domain (Primary Identity)
@@ -2066,7 +2237,7 @@ const Auth = () => {
                   <div className="flex gap-4 mt-8">
                     <button
                       type="button"
-                      onClick={() => setStep(2)}
+                      onClick={() => setStep(3)}
                       className="px-6 py-4 bg-[#111] border border-[#222] text-white font-bold rounded-xl hover:bg-[#222] transition-colors"
                     >
                       Back
@@ -2084,16 +2255,16 @@ const Auth = () => {
             )}
 
             {/* STEP 4: ARSENAL (SKILLS) */}
-            {!isLogin && step === 4 && (
+            {!isLogin && step === 5 && (
               <motion.div
-                key="step4"
+                key="step5"
                 initial={{ opacity: 0, x: 20 }}
                 animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0, x: -20 }}
               >
                 <div className="text-[10px] font-bold text-[#888] uppercase tracking-[0.3em] mb-6">
-                  <span className="text-white">Step 4</span>{" "}
-                  <span className="opacity-30">/ 7</span>
+                  <span className="text-white">Step 5</span>{" "}
+                  <span className="opacity-30">/ 8</span>
                 </div>
                 <h2 className="text-4xl md:text-5xl font-extrabold tracking-tighter mb-2">
                   The Arsenal.
@@ -2113,7 +2284,7 @@ const Auth = () => {
                     if (languages.length === 0)
                       return setError("Select at least one language.");
                     setError("");
-                    setStep(5);
+                    setStep(6);
                   }}
                   className="space-y-5"
                 >
@@ -2161,7 +2332,7 @@ const Auth = () => {
                   <div className="flex gap-4 mt-8">
                     <button
                       type="button"
-                      onClick={() => setStep(3)}
+                      onClick={() => setStep(4)}
                       className="px-6 py-4 bg-[#111] border border-[#222] text-white font-bold rounded-xl hover:bg-[#222] transition-colors"
                     >
                       Back
@@ -2178,17 +2349,17 @@ const Auth = () => {
               </motion.div>
             )}
 
-            {/* STEP 5: RESOURCES */}
-            {!isLogin && step === 5 && (
+            {/* STEP 6: RESOURCES */}
+            {!isLogin && step === 6 && (
               <motion.div
-                key="step5"
+                key="step6"
                 initial={{ opacity: 0, x: 20 }}
                 animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0, x: -20 }}
               >
                 <div className="text-[10px] font-bold text-[#888] uppercase tracking-[0.3em] mb-6">
-                  <span className="text-white">Step 5</span>{" "}
-                  <span className="opacity-30">/ 7</span>
+                  <span className="text-white">Step 6</span>{" "}
+                  <span className="opacity-30">/ 8</span>
                 </div>
                 <h2 className="text-4xl md:text-5xl font-extrabold tracking-tighter mb-2">
                   Resource Map.
@@ -2200,7 +2371,7 @@ const Auth = () => {
                   onSubmit={(e) => {
                     e.preventDefault();
                     setError("");
-                    setStep(6);
+                    setStep(7);
                   }}
                   className="space-y-5"
                 >
@@ -2274,7 +2445,7 @@ const Auth = () => {
                   <div className="flex gap-4 mt-8">
                     <button
                       type="button"
-                      onClick={() => setStep(4)}
+                      onClick={() => setStep(5)}
                       className="px-6 py-4 bg-[#111] border border-[#222] text-white font-bold rounded-xl hover:bg-[#222] transition-colors"
                     >
                       Back
@@ -2291,8 +2462,8 @@ const Auth = () => {
               </motion.div>
             )}
 
-            {/* STEP 6: FOOTPRINT */}
-            {!isLogin && step === 6 && (
+            {/* STEP 7: FOOTPRINT */}
+            {!isLogin && step === 7 && (
               <motion.div
                 key="step6"
                 initial={{ opacity: 0, x: 20 }}
@@ -2300,8 +2471,8 @@ const Auth = () => {
                 exit={{ opacity: 0, x: -20 }}
               >
                 <div className="text-[10px] font-bold text-[#888] uppercase tracking-[0.3em] mb-6">
-                  <span className="text-white">Step 6</span>{" "}
-                  <span className="opacity-30">/ 7</span>
+                  <span className="text-white">Step 7</span>{" "}
+                  <span className="opacity-30">/ 8</span>
                 </div>
                 <h2 className="text-4xl md:text-5xl font-extrabold tracking-tighter mb-2">
                   Digital Footprint.
@@ -2315,7 +2486,7 @@ const Auth = () => {
                   </div>
                 )}
 
-                <form onSubmit={handleStep6Submit} className="space-y-8">
+                <form onSubmit={handleStep7Submit} className="space-y-8">
                   <div>
                     <h3 className="text-xs font-bold text-[#ccc] border-b border-[#222] pb-2 uppercase tracking-widest mb-4">
                       Personal Footprint
@@ -2345,7 +2516,7 @@ const Auth = () => {
                   <div className="flex gap-4 mt-8 pt-4">
                     <button
                       type="button"
-                      onClick={() => setStep(5)}
+                      onClick={() => setStep(6)}
                       className="px-6 py-4 bg-[#111] border border-[#222] text-white font-bold rounded-xl hover:bg-[#222] transition-colors"
                     >
                       Back
@@ -2362,8 +2533,8 @@ const Auth = () => {
               </motion.div>
             )}
 
-            {/* STEP 7: CANVAS & BOOT */}
-            {!isLogin && step === 7 && (
+            {/* STEP 8: CANVAS & BOOT */}
+            {!isLogin && step === 8 && (
               <motion.div
                 key="step7"
                 initial={{ opacity: 0, x: 20 }}
@@ -2372,7 +2543,7 @@ const Auth = () => {
               >
                 <div className="text-[10px] font-bold text-[#888] uppercase tracking-[0.3em] mb-6">
                   <span className="text-white">Final Step</span>{" "}
-                  <span className="opacity-30">/ 7</span>
+                  <span className="opacity-30">/ 8</span>
                 </div>
                 <h2 className="text-4xl md:text-5xl font-extrabold tracking-tighter mb-2">
                   The Open Canvas.
@@ -2413,7 +2584,7 @@ const Auth = () => {
                   <div className="flex gap-4 mt-8">
                     <button
                       type="button"
-                      onClick={() => setStep(6)}
+                      onClick={() => setStep(7)}
                       className="px-6 py-4 bg-[#111] border border-[#222] text-white font-bold rounded-xl hover:bg-[#222] transition-colors"
                     >
                       Back

@@ -82,6 +82,13 @@ const MainLayout = () => {
   const navigate = useNavigate();
   const { userData, loading } = useUserData();
 
+  // --- THE GHOST USER BOUNCER ---
+  useEffect(() => {
+    if (!loading && !userData) {
+      navigate("/");
+    }
+  }, [loading, userData, navigate]);
+
   // --- TRIGGER DAILY SCORE ENGINE ---
   useEffect(() => {
     if (userData?.id && !loading) {
