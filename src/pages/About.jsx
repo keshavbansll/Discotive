@@ -1,32 +1,69 @@
 import { useState, useEffect } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   ChevronRight,
-  Layout,
-  Activity,
   MapPin,
-  Target,
-  Code,
-  Video,
-  Briefcase,
-  Paintbrush,
+  Globe,
   Instagram,
   Linkedin,
   Youtube,
   Zap,
   Terminal,
   Crosshair,
-  Globe,
+  ShieldAlert,
+  Fingerprint,
+  Cpu,
+  Mail,
+  ArrowRight,
+  Eye,
 } from "lucide-react";
 import GlobalLoader from "../components/GlobalLoader";
-import AnimatedButton from "../components/AnimatedButton";
+import { cn } from "../components/ui/BentoCard";
 
-// --- BACKGROUND ANIMATION ---
+// ============================================================================
+// 1. DATA & CONFIG
+// ============================================================================
+const BOARD_MEMBERS = [
+  {
+    id: "kb",
+    name: "Keshav Bansal",
+    title: "Founder & Chief Architect",
+    image: "/Keshav-Bansal.jpeg",
+    bio: "The visionary behind the Discotive protocol. Engineering the algorithmic death of the traditional resume.",
+    socials: {
+      linkedin: "https://www.linkedin.com/in/keshav-bansal/", // Update with your actual link
+      instagram: "https://instagram.com/keshav", // Update with your actual link
+    },
+    color: "text-[#D4AF37]",
+    border: "border-[#D4AF37]/30",
+    bg: "bg-[#D4AF37]/5",
+  },
+  {
+    id: "rk",
+    name: "Reshmi Kumari",
+    title: "Co-Founder & CMO",
+    image: "/Reshmi-Kumari.jpg",
+    bio: "Architecting the narrative and expanding the syndicate. Forging global alliances to scale the Discotive ecosystem.",
+    socials: {
+      linkedin: "https://www.linkedin.com/in/reshmikumari/", // Update with her actual link
+    },
+    color: "text-[#C0C0C0]",
+    border: "border-[#C0C0C0]/30",
+    bg: "bg-[#C0C0C0]/5",
+  },
+];
+
+// ============================================================================
+// 2. BACKGROUND & NAVBAR
+// ============================================================================
 const ParticleBackground = () => {
-  const particles = Array.from({ length: 30 });
+  const [particles, setParticles] = useState([]);
+  useEffect(() => {
+    setParticles(Array.from({ length: 30 }));
+  }, []);
   return (
-    <div className="absolute inset-0 overflow-hidden pointer-events-none z-0 opacity-30">
+    <div className="absolute inset-0 overflow-hidden pointer-events-none z-0 opacity-20 mask-image:linear-gradient(to_bottom,black,transparent)">
       {particles.map((_, i) => (
         <motion.div
           key={i}
@@ -35,21 +72,21 @@ const ParticleBackground = () => {
             x:
               Math.random() *
               (typeof window !== "undefined" ? window.innerWidth : 1000),
-            y: Math.random() * -1000,
-            opacity: Math.random() * 0.5 + 0.2,
+            y:
+              Math.random() *
+              (typeof window !== "undefined" ? window.innerHeight : 1000),
+            opacity: Math.random() * 0.3,
             scale: Math.random() * 2,
           }}
           animate={{
-            y: [
-              null,
-              typeof window !== "undefined" ? window.innerHeight + 100 : 1000,
-            ],
+            y: [null, Math.random() * -200 - 50],
+            opacity: [0, Math.random() * 0.5 + 0.1, 0],
           }}
           transition={{
-            duration: Math.random() * 10 + 15,
+            duration: Math.random() * 8 + 7,
             repeat: Infinity,
             ease: "linear",
-            delay: Math.random() * 20,
+            delay: Math.random() * 5,
           }}
         />
       ))}
@@ -57,685 +94,451 @@ const ParticleBackground = () => {
   );
 };
 
-const About = () => {
-  const [isLoaded, setIsLoaded] = useState(() => {
-    return sessionStorage.getItem("discotive_booted") === "true";
-  });
+const AboutNavbar = ({ setIsHoveringCard }) => {
+  const navigate = useNavigate();
+  return (
+    <motion.nav
+      initial={{ y: -100 }}
+      animate={{ y: 0 }}
+      transition={{ type: "spring", stiffness: 100, damping: 20 }}
+      className="fixed top-0 w-full z-50 bg-[#030303]/80 backdrop-blur-2xl border-b border-white/5"
+    >
+      <div className="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
+        <Link
+          to="/"
+          className="flex items-center gap-3 group"
+          onMouseEnter={() => setIsHoveringCard(true)}
+          onMouseLeave={() => setIsHoveringCard(false)}
+        >
+          <img
+            src="/logox.png"
+            alt="Discotive Logo"
+            className="w-10 h-10 object-contain group-hover:scale-105 transition-transform duration-300 drop-shadow-[0_0_15px_rgba(255,255,255,0.2)]"
+          />
+          <span className="text-xl font-extrabold tracking-tight text-white hidden sm:block">
+            Discotive
+          </span>
+        </Link>
+        <div className="flex items-center gap-4">
+          <Link
+            to="/features"
+            className="hidden md:block text-[11px] font-extrabold text-[#888] hover:text-white transition-colors uppercase tracking-[0.2em] mr-4"
+          >
+            Platform
+          </Link>
+          <Link
+            to="/auth"
+            className="text-[11px] font-extrabold text-white hover:text-[#ccc] transition-colors uppercase tracking-[0.2em]"
+          >
+            Sign In
+          </Link>
+          <button
+            onClick={() => navigate("/auth")}
+            onMouseEnter={() => setIsHoveringCard(true)}
+            onMouseLeave={() => setIsHoveringCard(false)}
+            className="px-6 py-2.5 bg-white text-black font-extrabold text-xs uppercase tracking-widest rounded-full hover:bg-[#e5e5e5] transition-transform hover:scale-105"
+          >
+            Boot OS
+          </button>
+        </div>
+      </div>
+    </motion.nav>
+  );
+};
 
-  const handleLoadComplete = () => {
-    sessionStorage.setItem("discotive_booted", "true");
-    setIsLoaded(true);
-  };
-  const [activeMenu, setActiveMenu] = useState(null);
-  const [mousePosition, setMousePosition] = useState({ x: -100, y: -100 });
+// ============================================================================
+// 3. INTERACTIVE MODULES
+// ============================================================================
+const PhilosophyCard = ({
+  icon: Icon,
+  title,
+  desc,
+  delay,
+  setIsHoveringCard,
+}) => {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 30 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true, margin: "-50px" }}
+      transition={{ duration: 0.6, delay }}
+      onMouseEnter={() => setIsHoveringCard(true)}
+      onMouseLeave={() => setIsHoveringCard(false)}
+      className="group relative p-8 bg-[#0a0a0a] border border-[#222] rounded-[2rem] hover:border-amber-500/30 transition-colors overflow-hidden"
+    >
+      <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/10 blur-[50px] rounded-full group-hover:bg-amber-500/20 transition-colors pointer-events-none" />
+      <div className="w-12 h-12 rounded-xl bg-[#111] border border-[#333] flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
+        <Icon className="w-5 h-5 text-[#888] group-hover:text-amber-500 transition-colors" />
+      </div>
+      <h3 className="text-xl font-extrabold text-white mb-3 tracking-tight">
+        {title}
+      </h3>
+      <p className="text-sm text-[#666] leading-relaxed font-medium">{desc}</p>
+    </motion.div>
+  );
+};
+
+const BoardMemberCard = ({ member, setIsHoveringCard }) => {
+  return (
+    <motion.div
+      initial={{ opacity: 0, scale: 0.95 }}
+      whileInView={{ opacity: 1, scale: 1 }}
+      viewport={{ once: true, margin: "-50px" }}
+      onMouseEnter={() => setIsHoveringCard(true)}
+      onMouseLeave={() => setIsHoveringCard(false)}
+      className={cn(
+        "relative group p-6 rounded-[2rem] bg-[#0a0a0a] border overflow-hidden flex flex-col items-center text-center transition-all duration-500 hover:-translate-y-2",
+        member.border,
+      )}
+    >
+      <div
+        className={cn(
+          "absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none",
+          member.bg,
+        )}
+      />
+
+      {/* UPDATED: Renders actual image with a sleek grayscale filter that reveals color on hover */}
+      <div
+        className={cn(
+          "w-24 h-24 rounded-full border-2 overflow-hidden mb-6 shadow-2xl relative z-10 transition-transform duration-500 group-hover:scale-110",
+          member.border,
+          member.bg,
+        )}
+      >
+        <img
+          src={member.image}
+          alt={member.name}
+          className="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all duration-500"
+        />
+      </div>
+
+      <h3 className="text-xl font-extrabold text-white mb-1 relative z-10">
+        {member.name}
+      </h3>
+      <p
+        className={cn(
+          "text-[10px] font-mono uppercase tracking-widest mb-4 relative z-10",
+          member.color,
+        )}
+      >
+        {member.title}
+      </p>
+
+      <p className="text-xs text-[#888] leading-relaxed mb-6 relative z-10 px-4">
+        {member.bio}
+      </p>
+
+      {/* UPDATED: Dynamic Social Links based on the data provided */}
+      <div className="mt-auto flex items-center gap-4 relative z-10">
+        {member.socials.linkedin && (
+          <a
+            href={member.socials.linkedin}
+            target="_blank"
+            rel="noreferrer"
+            className="p-2 bg-[#111] border border-[#333] rounded-full text-[#888] hover:text-[#0077B5] hover:border-[#0077b5]/50 transition-all"
+            title="LinkedIn"
+          >
+            <Linkedin className="w-4 h-4" />
+          </a>
+        )}
+        {member.socials.instagram && (
+          <a
+            href={member.socials.instagram}
+            target="_blank"
+            rel="noreferrer"
+            className="p-2 bg-[#111] border border-[#333] rounded-full text-[#888] hover:text-[#E1306C] hover:border-[#E1306C]/50 transition-all"
+            title="Instagram"
+          >
+            <Instagram className="w-4 h-4" />
+          </a>
+        )}
+      </div>
+    </motion.div>
+  );
+};
+
+const PulseOrigin = () => (
+  <div className="relative w-4 h-4 flex items-center justify-center">
+    <div className="absolute inset-0 bg-amber-500 rounded-full animate-ping opacity-75" />
+    <div className="relative w-2 h-2 bg-amber-500 rounded-full" />
+  </div>
+);
+
+// ============================================================================
+// 4. MAIN ABOUT COMPONENT
+// ============================================================================
+const About = () => {
+  const [isLoading, setIsLoading] = useState(true);
+  const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
   const [isHoveringCard, setIsHoveringCard] = useState(false);
+  const navigate = useNavigate();
 
   useEffect(() => {
-    const updateMousePosition = (e) => {
+    const handleMouseMove = (e) =>
       setMousePosition({ x: e.clientX, y: e.clientY });
+    window.addEventListener("mousemove", handleMouseMove);
+    const timer = setTimeout(() => setIsLoading(false), 1500);
+    return () => {
+      window.removeEventListener("mousemove", handleMouseMove);
+      clearTimeout(timer);
     };
-    window.addEventListener("mousemove", updateMousePosition);
-    return () => window.removeEventListener("mousemove", updateMousePosition);
   }, []);
 
-  const fadeUp = {
-    hidden: { opacity: 0, y: 40 },
-    show: {
-      opacity: 1,
-      y: 0,
-      transition: { duration: 0.8, ease: [0.22, 1, 0.36, 1] },
-    },
-  };
-
-  const menuContent = {
-    features: [
-      {
-        icon: Layout,
-        title: "Career Engine",
-        desc: "Your deterministic execution roadmap.",
-      },
-      {
-        icon: Activity,
-        title: "Discotive Score",
-        desc: "The universal career credibility metric.",
-      },
-      {
-        icon: Target,
-        title: "AI Matchmaking",
-        desc: "Get paired with the right internships.",
-      },
-      {
-        icon: MapPin,
-        title: "Campus Hubs",
-        desc: "Offline co-working and mentorship.",
-      },
-    ],
-    careers: [
-      {
-        icon: Code,
-        title: "Engineering & Tech",
-        desc: "Full-stack, AI, DevOps, Data.",
-      },
-      {
-        icon: Video,
-        title: "Filmmaking & Media",
-        desc: "Directors, Editors, Producers.",
-      },
-      {
-        icon: Paintbrush,
-        title: "Design & Art",
-        desc: "UI/UX, 3D Artists, Illustrators.",
-      },
-      {
-        icon: Briefcase,
-        title: "Business & Strategy",
-        desc: "Founders, PMs, Sales, Ops.",
-      },
-    ],
-  };
+  if (isLoading) return <GlobalLoader onComplete={() => {}} />;
 
   return (
     <>
-      {!isLoaded && <GlobalLoader onComplete={handleLoadComplete} />}
+      {/* CUSTOM CURSOR */}
+      <motion.div
+        className="fixed top-0 left-0 w-8 h-8 rounded-full pointer-events-none z-[10000] mix-blend-difference hidden md:block border-2 border-white"
+        animate={{
+          x: mousePosition.x - 16,
+          y: mousePosition.y - 16,
+          scale: isHoveringCard ? 2.5 : 1,
+          backgroundColor: isHoveringCard ? "#ffffff" : "transparent",
+        }}
+        transition={{ type: "spring", stiffness: 150, damping: 15, mass: 0.1 }}
+      />
 
-      <div
-        className={`min-h-screen bg-[#0a0a0a] text-white selection:bg-white selection:text-black transition-opacity duration-1000 overflow-hidden relative ${isLoaded ? "opacity-100" : "opacity-0"}`}
-      >
+      <div className="min-h-screen bg-[#030303] text-white selection:bg-white selection:text-black font-sans overflow-x-hidden">
         <ParticleBackground />
+        <AboutNavbar setIsHoveringCard={setIsHoveringCard} />
 
-        {/* CUSTOM TRAILING CURSOR */}
-        <motion.div
-          className="fixed top-0 left-0 w-6 h-6 bg-white rounded-full pointer-events-none z-[10000] mix-blend-difference hidden md:block"
-          animate={{
-            x: mousePosition.x - 12,
-            y: mousePosition.y - 12,
-            scale: isHoveringCard ? 3 : 1,
-          }}
-          transition={{
-            type: "spring",
-            stiffness: 150,
-            damping: 15,
-            mass: 0.1,
-          }}
-        />
-
-        {/* ANIMATED NAVBAR */}
-        <nav
-          className="fixed top-0 left-0 right-0 z-50 bg-[#0a0a0a]/80 backdrop-blur-xl border-b border-white/10"
-          onMouseLeave={() => setActiveMenu(null)}
-        >
-          <div className="max-w-[1400px] mx-auto px-6 h-20 flex items-center justify-between">
-            <div className="flex items-center gap-0">
-              <Link to="/">
-                <img
-                  src="/logo-no-bg-white.png"
-                  alt="Discotive Logo"
-                  className="h-8 md:h-10 w-auto object-contain hover:scale-105 transition-transform duration-300"
-                />
-              </Link>
-              <Link
-                to="/"
-                className="text-2xl font-extrabold tracking-tighter mr-10 cursor-none"
-                onMouseEnter={() => setIsHoveringCard(true)}
-                onMouseLeave={() => setIsHoveringCard(false)}
-              ></Link>
-
-              <div className="hidden md:flex items-center gap-2">
-                <AnimatedButton
-                  variant="nav"
-                  className="bg-white/5 border border-white/10 hover:border-white/20 px-5 cursor-none"
-                  onMouseEnter={() => setActiveMenu("features")}
-                >
-                  Features
-                </AnimatedButton>
-                <AnimatedButton
-                  variant="nav"
-                  className="bg-white/5 border border-white/10 hover:border-white/20 px-5 cursor-none"
-                  onMouseEnter={() => setActiveMenu("careers")}
-                >
-                  Careers
-                </AnimatedButton>
-                <AnimatedButton
-                  variant="nav"
-                  className="bg-white/5 border border-white/10 hover:border-white/20 px-5 cursor-none"
-                  href="/#hubs"
-                  onMouseEnter={() => setActiveMenu(null)}
-                >
-                  Campus Hubs
-                </AnimatedButton>
-                <AnimatedButton
-                  variant="nav"
-                  className="bg-white/5 border border-white/10 hover:border-white/20 px-5 cursor-none"
-                  href="/#pricing"
-                  onMouseEnter={() => setActiveMenu(null)}
-                >
-                  Pricing
-                </AnimatedButton>
-              </div>
-            </div>
-
-            <div className="flex items-center gap-4">
-              <AnimatedButton
-                to="/auth"
-                variant="outline"
-                className="px-6 py-2.5 hidden md:flex cursor-none"
-                onMouseEnter={() => setIsHoveringCard(true)}
-                onMouseLeave={() => setIsHoveringCard(false)}
-              >
-                Log in
-              </AnimatedButton>
-              <AnimatedButton
-                to="/auth"
-                variant="solid"
-                className="px-6 py-2.5 cursor-none"
-                onMouseEnter={() => setIsHoveringCard(true)}
-                onMouseLeave={() => setIsHoveringCard(false)}
-              >
-                Get Started
-              </AnimatedButton>
-            </div>
-          </div>
-
-          {/* DROPDOWN MENU */}
-          <AnimatePresence>
-            {activeMenu && (
-              <motion.div
-                initial={{ opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: "auto" }}
-                exit={{ opacity: 0, height: 0 }}
-                transition={{ duration: 0.3, ease: [0.22, 1, 0.36, 1] }}
-                className="absolute top-20 left-0 w-full bg-[#0a0a0a] border-b border-white/10 shadow-2xl overflow-hidden"
-              >
-                <AnimatePresence mode="wait">
-                  <motion.div
-                    key={activeMenu}
-                    initial={{ opacity: 0, x: -20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: 20 }}
-                    transition={{ duration: 0.2 }}
-                    className="max-w-[1400px] mx-auto px-6 py-10 grid grid-cols-1 md:grid-cols-4 gap-8"
-                  >
-                    {menuContent[activeMenu].map((item, idx) => (
-                      <div
-                        key={idx}
-                        className="group flex items-start gap-4 p-4 rounded-2xl hover:bg-white/5 transition-colors cursor-none"
-                        onMouseEnter={() => setIsHoveringCard(true)}
-                        onMouseLeave={() => setIsHoveringCard(false)}
-                      >
-                        <div className="w-10 h-10 rounded-full bg-white/10 flex items-center justify-center text-white group-hover:bg-white group-hover:text-black transition-all duration-300 shrink-0">
-                          <item.icon className="w-5 h-5" />
-                        </div>
-                        <div>
-                          <h4 className="font-bold text-white mb-1 group-hover:text-transparent group-hover:bg-clip-text group-hover:bg-gradient-to-r group-hover:from-white group-hover:to-slate-400">
-                            {item.title}
-                          </h4>
-                          <p className="text-sm text-slate-400">{item.desc}</p>
-                        </div>
-                      </div>
-                    ))}
-                  </motion.div>
-                </AnimatePresence>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </nav>
-
-        {/* --- HERO: THE MANIFESTO --- */}
-        <main className="pt-40 pb-20 px-6 max-w-[1400px] mx-auto relative z-10">
+        {/* --- THE MANIFESTO (HERO) --- */}
+        <div className="relative pt-32 pb-20 md:pt-48 md:pb-32 px-6 flex flex-col items-center justify-center text-center">
           <motion.div
-            initial="hidden"
-            animate={isLoaded ? "show" : "hidden"}
-            transition={{ staggerChildren: 0.1 }}
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.8, ease: "easeOut" }}
+            className="relative z-10 max-w-5xl mx-auto w-full"
           >
-            {/* TOP TITLE ROW */}
-            <div className="mb-20">
-              <motion.div
-                variants={fadeUp}
-                className="flex items-center gap-3 text-xs font-bold text-slate-500 uppercase tracking-[0.3em] mb-8"
-              >
-                <Terminal className="w-4 h-4" /> System Origin
-              </motion.div>
-              <motion.h1
-                variants={fadeUp}
-                className="text-6xl md:text-8xl lg:text-[110px] font-extrabold tracking-tighter leading-[0.9]"
-              >
-                The <span className="text-slate-500">execution</span> <br />{" "}
-                layer.
-              </motion.h1>
+            <div className="inline-flex items-center gap-3 px-4 py-2 rounded-full border border-white/10 bg-white/5 backdrop-blur-md mb-8 shadow-2xl">
+              <Fingerprint className="w-4 h-4 text-amber-500" />
+              <span className="text-xs font-bold tracking-[0.2em] text-[#ccc] uppercase">
+                Our Identity
+              </span>
             </div>
 
-            {/* SPLIT CONTENT ROW */}
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 lg:gap-16 items-start">
-              <motion.div variants={fadeUp} className="lg:col-span-5">
-                <h2 className="text-4xl md:text-6xl font-extrabold tracking-tighter leading-tight text-white">
-                  The world has enough ideas.
-                </h2>
-              </motion.div>
+            <h1 className="text-5xl md:text-7xl lg:text-[100px] font-extrabold tracking-tight leading-[0.9] mb-8">
+              Death to the <br className="hidden md:block" />
+              <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#666] to-[#333] line-through decoration-amber-500 decoration-8">
+                resume.
+              </span>
+            </h1>
 
-              <motion.div
-                variants={fadeUp}
-                className="lg:col-span-7 text-lg text-slate-400 font-medium leading-relaxed pt-2 space-y-6"
-              >
-                <p>
-                  Discotive is a deterministic execution environment built for
-                  the top 1% of developers, founders, and creative strategists.
-                  We are replacing the static, outdated model of professional
-                  networking with a quantifiable, execution-based operating
-                  system.
-                </p>
-                <p>
-                  This platform provides the digital and physical infrastructure
-                  required to transition raw ambition into verified
-                  proof-of-work.
-                </p>
-                <p>
-                  The legacy system relies on subjective resumes and passive
-                  applications. We replace that with a live, 256-bit encrypted
-                  ledger of continuous execution, automatically routing top-tier
-                  talent to high-leverage opportunities. This is not a social
-                  network; it is the command center for your professional
-                  trajectory.
-                </p>
-              </motion.div>
-            </div>
+            <p className="text-lg md:text-2xl text-[#888] font-medium max-w-3xl mx-auto mb-12 leading-relaxed tracking-wide">
+              We are a collective of engineers and operators building the
+              infrastructure for a meritocratic future. We believe that what you
+              build matters infinitely more than what you say.
+            </p>
           </motion.div>
-        </main>
+        </div>
 
-        {/* --- THE ARCHITECTS (MEET THE BOARD) --- */}
-        <section className="py-32 px-6 relative z-10 border-t border-white/5 overflow-hidden bg-[#050505] mt-10">
-          {/* Ambient Background Glow */}
-          <div className="absolute top-1/2 left-1/2 w-[700px] h-[500px] bg-red-600/10 blur-[150px] rounded-full -translate-y-1/2 -translate-x-1/2 pointer-events-none" />
-
-          <div className="text-center mb-16 relative z-10 max-w-2xl mx-auto">
-            <h2 className="text-5xl md:text-6xl font-extrabold tracking-tighter mb-4 text-white">
-              The Architects.
+        {/* --- THE PHILOSOPHY (CORE TENETS) --- */}
+        <section className="py-24 px-6 max-w-7xl mx-auto border-t border-white/5 relative">
+          <div className="text-center mb-16">
+            <h2 className="text-[10px] font-extrabold tracking-[0.3em] text-amber-500 uppercase mb-4">
+              The Discotive Philosophy
             </h2>
-            <p className="text-xl text-slate-400 font-medium">
-              Built by outliers, for outliers.
+            <p className="text-3xl md:text-4xl font-extrabold tracking-tight text-white">
+              Built on three core directives.
             </p>
           </div>
 
-          {/* Two-Card Grid */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-12 max-w-7xl mx-auto relative z-20">
-            {/* Card 1: Keshav Bansal */}
-            <div
-              className="bg-[#f4f4f5] text-black rounded-[2.5rem] p-8 lg:p-10 shadow-[0_30px_80px_rgba(0,0,0,0.8)] flex flex-col sm:flex-row items-center sm:items-start gap-8 group transition-transform duration-500 hover:-translate-y-2 cursor-none"
-              onMouseEnter={() => setIsHoveringCard(true)}
-              onMouseLeave={() => setIsHoveringCard(false)}
-            >
-              <div className="w-32 h-32 sm:w-40 sm:h-40 shrink-0 rounded-[1.5rem] overflow-hidden bg-zinc-300 border-4 border-white shadow-xl relative">
-                <img
-                  src="/stock/Keshav-Bansal.jpeg"
-                  alt="Keshav Bansal"
-                  className="w-full h-full object-cover grayscale hover:grayscale-0 transition-all duration-500"
-                />
-              </div>
-              <div className="flex-1 text-center sm:text-left flex flex-col justify-center h-full pt-2">
-                <h3 className="text-3xl sm:text-4xl font-extrabold tracking-tighter mb-1 text-black">
-                  Keshav Bansal
-                </h3>
-                <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-6">
-                  Founder & CEO
-                </p>
-
-                <div className="flex flex-col gap-5 mt-auto">
-                  <div>
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">
-                      Social Profiles
-                    </p>
-                    <div className="flex items-center justify-center sm:justify-start gap-3">
-                      <a
-                        href="https://www.instagram.com/keshavbansll/"
-                        target="_blank"
-                        rel="noreferrer"
-                        className="w-10 h-10 rounded-full bg-black/5 flex items-center justify-center hover:bg-black hover:text-white transition-colors text-black"
-                      >
-                        <Instagram className="w-4 h-4" />
-                      </a>
-                      <a
-                        href="https://www.linkedin.com/in/keshavbansll/"
-                        target="_blank"
-                        rel="noreferrer"
-                        className="w-10 h-10 rounded-full bg-black/5 flex items-center justify-center hover:bg-black hover:text-white transition-colors text-black"
-                      >
-                        <Linkedin className="w-4 h-4" />
-                      </a>
-                    </div>
-                  </div>
-                  <div>
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">
-                      Direct Contact
-                    </p>
-                    <a
-                      href="mailto:officialkeshavbansal@gmail.com"
-                      className="text-sm font-bold text-black hover:underline decoration-2 underline-offset-4 break-all"
-                    >
-                      officialkeshavbansal@gmail.com
-                    </a>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            {/* Card 2: Reshmi Kumari */}
-            <div
-              className="bg-[#f4f4f5] text-black rounded-[2.5rem] p-8 lg:p-10 shadow-[0_30px_80px_rgba(0,0,0,0.8)] flex flex-col sm:flex-row items-center sm:items-start gap-8 group transition-transform duration-500 hover:-translate-y-2 cursor-none"
-              onMouseEnter={() => setIsHoveringCard(true)}
-              onMouseLeave={() => setIsHoveringCard(false)}
-            >
-              <div className="w-32 h-32 sm:w-40 sm:h-40 shrink-0 rounded-[1.5rem] overflow-hidden bg-zinc-300 border-4 border-white shadow-xl relative">
-                <img
-                  src="/stock/Reshmi-Kumari.jpeg"
-                  alt="Reshmi Kumari"
-                  onError={(e) => {
-                    e.target.src = "/stock/Reshmi Kumari.jpg";
-                  }}
-                  className="w-full h-full object-cover grayscale hover:grayscale-0 transition-all duration-500"
-                />
-              </div>
-              <div className="flex-1 text-center sm:text-left flex flex-col justify-center h-full pt-2">
-                <h3 className="text-3xl sm:text-4xl font-extrabold tracking-tighter mb-1 text-black">
-                  Reshmi Kumari
-                </h3>
-                <p className="text-xs font-bold text-slate-500 uppercase tracking-widest mb-6">
-                  Co-Founder & Digital Marketing Head
-                </p>
-
-                <div className="flex flex-col gap-5 mt-auto">
-                  <div>
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2">
-                      Social Profiles
-                    </p>
-                    <div className="flex items-center justify-center sm:justify-start gap-3">
-                      <a
-                        href="https://www.linkedin.com/in/reshmi-kumari-330891384"
-                        target="_blank"
-                        rel="noreferrer"
-                        className="w-10 h-10 rounded-full bg-black/5 flex items-center justify-center hover:bg-black hover:text-white transition-colors text-black"
-                      >
-                        <Linkedin className="w-4 h-4" />
-                      </a>
-                    </div>
-                  </div>
-                  <div>
-                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-1">
-                      Direct Contact
-                    </p>
-                    <a
-                      href="mailto:reshmikri227@gmail.com"
-                      className="text-sm font-bold text-black hover:underline decoration-2 underline-offset-4 break-all"
-                    >
-                      reshmikri227@gmail.com
-                    </a>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        {/* --- GLOBAL SCALE (STATS) --- */}
-        <section className="py-20 px-6 max-w-[1400px] mx-auto border-t border-white/5 relative z-10">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              className="bg-[#1a1a1a] border border-white/10 rounded-3xl p-10 flex flex-col justify-center items-center text-center"
-            >
-              <Crosshair className="w-8 h-8 text-slate-500 mb-6" />
-              <h4 className="text-5xl font-extrabold tracking-tighter text-white mb-2">
-                1%
-              </h4>
-              <p className="text-sm font-bold text-slate-400 uppercase tracking-widest">
-                Our Target Demographic
-              </p>
-            </motion.div>
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              transition={{ delay: 0.1 }}
-              className="bg-[#1a1a1a] border border-white/10 rounded-3xl p-10 flex flex-col justify-center items-center text-center"
-            >
-              <MapPin className="w-8 h-8 text-slate-500 mb-6" />
-              <h4 className="text-4xl font-extrabold tracking-tighter text-white mb-2">
-                Jaipur, IN
-              </h4>
-              <p className="text-sm font-bold text-slate-400 uppercase tracking-widest">
-                Global HQ
-              </p>
-            </motion.div>
-            <motion.div
-              initial={{ opacity: 0, y: 20 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              transition={{ delay: 0.2 }}
-              className="bg-[#1a1a1a] border border-white/10 rounded-3xl p-10 flex flex-col justify-center items-center text-center"
-            >
-              <Globe className="w-8 h-8 text-slate-500 mb-6" />
-              <h4 className="text-4xl font-extrabold tracking-tighter text-white mb-2">
-                Infinite
-              </h4>
-              <p className="text-sm font-bold text-slate-400 uppercase tracking-widest">
-                Execution Potential
-              </p>
-            </motion.div>
+            <PhilosophyCard
+              setIsHoveringCard={setIsHoveringCard}
+              delay={0}
+              icon={Crosshair}
+              title="Ruthless Execution"
+              desc="Ideas are cheap multipliers. Execution is worth millions. We build systems that incentivize, track, and reward continuous deployment of effort."
+            />
+            <PhilosophyCard
+              setIsHoveringCard={setIsHoveringCard}
+              delay={0.2}
+              icon={ShieldAlert}
+              title="Cryptographic Truth"
+              desc="Trust is a vulnerability. The Discotive Career Index relies entirely on verifiable proof of work, eliminating bias and credential inflation."
+            />
+            <PhilosophyCard
+              setIsHoveringCard={setIsHoveringCard}
+              delay={0.4}
+              icon={Cpu}
+              title="Algorithmic Merit"
+              desc="The global leaderboard doesn't care about your background, zip code, or pedigree. It only respects the math of your momentum."
+            />
           </div>
         </section>
 
-        {/* --- THE FINAL CTA --- */}
-        <section className="py-32 px-6 max-w-[1400px] mx-auto flex flex-col items-center text-center relative z-10 border-t border-white/5">
-          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-white/5 border border-white/10 text-white text-sm font-bold tracking-widest uppercase mb-8">
-            <Zap className="w-4 h-4 text-white" /> The Movement
-          </div>
-          <h2 className="text-5xl md:text-7xl font-extrabold tracking-tighter leading-tight mb-8">
-            Stop hoping.
-            <br />
-            Start deploying.
-          </h2>
+        {/* --- MEET THE BOARD (THE SYNDICATE) --- */}
+        <section className="py-32 px-6 bg-[#050505] border-y border-white/5 relative">
+          <div className="absolute top-0 right-1/4 w-[500px] h-[500px] bg-amber-500/5 blur-[120px] rounded-full pointer-events-none" />
 
-          <div
-            onMouseEnter={() => setIsHoveringCard(true)}
-            onMouseLeave={() => setIsHoveringCard(false)}
+          <div className="max-w-7xl mx-auto relative z-10">
+            <div className="text-center mb-16">
+              <h2 className="text-[10px] font-extrabold tracking-[0.3em] text-[#666] uppercase mb-4">
+                The Syndicate
+              </h2>
+              <p className="text-4xl md:text-5xl font-extrabold tracking-tight text-white">
+                Meet The Board.
+              </p>
+              <p className="text-[#888] mt-4 max-w-xl mx-auto text-sm">
+                The architects designing the engine. We are operators building
+                for operators.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-3xl mx-auto">
+              {BOARD_MEMBERS.map((member) => (
+                <BoardMemberCard
+                  key={member.id}
+                  member={member}
+                  setIsHoveringCard={setIsHoveringCard}
+                />
+              ))}
+            </div>
+          </div>
+        </section>
+
+        {/* --- THE ORIGIN (FORGED IN JAIPUR) --- */}
+        <section className="py-32 px-6 max-w-4xl mx-auto text-center relative">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.9 }}
+            whileInView={{ opacity: 1, scale: 1 }}
+            viewport={{ once: true }}
+            className="flex flex-col items-center justify-center p-12 rounded-[3rem] bg-gradient-to-b from-[#111] to-[#030303] border border-[#222]"
           >
-            <AnimatedButton
-              to="/auth"
-              variant="solid"
-              className="px-12 py-5 text-lg shadow-[0_0_40px_rgba(255,255,255,0.2)] cursor-none"
-            >
-              Initialize Protocol
-            </AnimatedButton>
-          </div>
+            <div className="flex items-center gap-4 px-4 py-2 bg-[#000] border border-[#333] rounded-full mb-8">
+              <PulseOrigin />
+              <span className="text-xs font-mono font-bold text-[#ccc] uppercase tracking-widest">
+                Protocol Origin
+              </span>
+            </div>
+            <h2 className="text-3xl md:text-5xl font-extrabold text-white mb-6">
+              Forged in{" "}
+              <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-500 to-orange-600">
+                Jaipur.
+              </span>
+            </h2>
+            <p className="text-[#888] leading-relaxed max-w-lg mx-auto mb-8">
+              The Discotive protocol is being architected, engineered, and
+              scaled from Jaipur, Rajasthan. We are proving that elite global
+              infrastructure can be built from anywhere.
+            </p>
+            <MapPin className="w-10 h-10 text-[#444] opacity-50" />
+          </motion.div>
         </section>
 
-        {/* --- FOOTER (Same as Landing) --- */}
-        <footer className="border-t border-white/10 bg-[#0a0a0a] pt-20 pb-10 px-6 relative z-10">
-          <div className="max-w-[1400px] mx-auto">
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-10 mb-20">
-              <div>
-                <h4 className="font-bold text-white mb-6">Careers</h4>
-                <ul className="space-y-4 text-sm text-slate-400 font-medium">
+        {/* --- THE MONOPOLY FOOTER --- */}
+        <footer
+          className="border-t border-white/5 bg-[#030303] pt-24 pb-12 px-6 relative overflow-hidden"
+          onMouseEnter={() => setIsHoveringCard(true)}
+          onMouseLeave={() => setIsHoveringCard(false)}
+        >
+          <div className="max-w-7xl mx-auto relative z-10">
+            <div className="grid grid-cols-2 md:grid-cols-5 gap-x-8 gap-y-12 mb-20">
+              <div className="col-span-2 md:col-span-2 flex flex-col items-start text-left">
+                <Link to="/" className="flex items-center gap-3 mb-6">
+                  <img
+                    src="/logox.png"
+                    alt="Discotive Logo"
+                    className="w-10 h-10 object-contain drop-shadow-[0_0_15px_rgba(255,255,255,0.2)]"
+                  />
+                  <span className="text-xl font-extrabold tracking-tight text-white">
+                    Discotive
+                  </span>
+                </Link>
+                <p className="text-sm text-[#666] leading-relaxed max-w-[280px]">
+                  The execution protocol for elite operators. Replace your
+                  resume. Build your monopoly.
+                </p>
+              </div>
+
+              <div className="col-span-1 flex flex-col items-start text-left">
+                <h4 className="text-white font-extrabold text-[10px] sm:text-xs mb-6 uppercase tracking-widest">
+                  Platform
+                </h4>
+                <ul className="space-y-4">
                   <li>
                     <Link
-                      to="/"
-                      className="hover:text-white transition-colors cursor-none"
-                      onMouseEnter={() => setIsHoveringCard(true)}
-                      onMouseLeave={() => setIsHoveringCard(false)}
+                      to="/features"
+                      className="text-sm font-medium text-[#888] hover:text-white transition-colors"
                     >
-                      Software Engineers
+                      Features
                     </Link>
                   </li>
                   <li>
                     <Link
-                      to="/"
-                      className="hover:text-white transition-colors cursor-none"
-                      onMouseEnter={() => setIsHoveringCard(true)}
-                      onMouseLeave={() => setIsHoveringCard(false)}
+                      to="/session"
+                      className="text-sm font-medium text-[#888] hover:text-white transition-colors"
                     >
-                      Filmmakers & Directors
+                      Discotive Edge
                     </Link>
                   </li>
                   <li>
                     <Link
-                      to="/"
-                      className="hover:text-white transition-colors cursor-none"
-                      onMouseEnter={() => setIsHoveringCard(true)}
-                      onMouseLeave={() => setIsHoveringCard(false)}
+                      to="/premium"
+                      className="text-sm font-medium text-[#888] hover:text-white transition-colors"
                     >
-                      Founders & PMs
-                    </Link>
-                  </li>
-                  <li>
-                    <Link
-                      to="/"
-                      className="hover:text-white transition-colors cursor-none"
-                      onMouseEnter={() => setIsHoveringCard(true)}
-                      onMouseLeave={() => setIsHoveringCard(false)}
-                    >
-                      Content Creators
+                      Pricing
                     </Link>
                   </li>
                 </ul>
               </div>
-              <div>
-                <h4 className="font-bold text-white mb-6">Features</h4>
-                <ul className="space-y-4 text-sm text-slate-400 font-medium">
-                  <li>
-                    <Link
-                      to="/"
-                      className="hover:text-white transition-colors cursor-none"
-                      onMouseEnter={() => setIsHoveringCard(true)}
-                      onMouseLeave={() => setIsHoveringCard(false)}
-                    >
-                      The Career Engine
-                    </Link>
-                  </li>
-                  <li>
-                    <Link
-                      to="/"
-                      className="hover:text-white transition-colors cursor-none"
-                      onMouseEnter={() => setIsHoveringCard(true)}
-                      onMouseLeave={() => setIsHoveringCard(false)}
-                    >
-                      Discotive Score
-                    </Link>
-                  </li>
-                  <li>
-                    <Link
-                      to="/"
-                      className="hover:text-white transition-colors cursor-none"
-                      onMouseEnter={() => setIsHoveringCard(true)}
-                      onMouseLeave={() => setIsHoveringCard(false)}
-                    >
-                      Algorithmic Matchmaking
-                    </Link>
-                  </li>
-                </ul>
-              </div>
-              <div>
-                <h4 className="font-bold text-white mb-6">Pricing</h4>
-                <ul className="space-y-4 text-sm text-slate-400 font-medium">
-                  <li>
-                    <Link
-                      to="/"
-                      className="hover:text-white transition-colors cursor-none"
-                      onMouseEnter={() => setIsHoveringCard(true)}
-                      onMouseLeave={() => setIsHoveringCard(false)}
-                    >
-                      Basic OS is Free
-                    </Link>
-                  </li>
-                  <li>
-                    <Link
-                      to="/"
-                      className="hover:text-white transition-colors cursor-none"
-                      onMouseEnter={() => setIsHoveringCard(true)}
-                      onMouseLeave={() => setIsHoveringCard(false)}
-                    >
-                      Discotive Pro
-                    </Link>
-                  </li>
-                  <li>
-                    <Link
-                      to="/"
-                      className="hover:text-white transition-colors cursor-none"
-                      onMouseEnter={() => setIsHoveringCard(true)}
-                      onMouseLeave={() => setIsHoveringCard(false)}
-                    >
-                      Campus Hub Passes
-                    </Link>
-                  </li>
-                </ul>
-              </div>
-              <div>
-                <h4 className="font-bold text-white mb-6">Resources</h4>
-                <ul className="space-y-4 text-sm text-slate-400 font-medium">
-                  <li>
-                    <Link
-                      to="/"
-                      className="hover:text-white transition-colors cursor-none"
-                      onMouseEnter={() => setIsHoveringCard(true)}
-                      onMouseLeave={() => setIsHoveringCard(false)}
-                    >
-                      OS Documentation
-                    </Link>
-                  </li>
-                  <li>
-                    <Link
-                      to="/"
-                      className="hover:text-white transition-colors cursor-none"
-                      onMouseEnter={() => setIsHoveringCard(true)}
-                      onMouseLeave={() => setIsHoveringCard(false)}
-                    >
-                      Help Center & FAQ
-                    </Link>
-                  </li>
-                </ul>
-              </div>
-              <div>
-                <h4 className="font-bold text-white mb-6">Company</h4>
-                <ul className="space-y-4 text-sm text-slate-400 font-medium">
+
+              <div className="col-span-1 flex flex-col items-start text-left">
+                <h4 className="text-white font-extrabold text-[10px] sm:text-xs mb-6 uppercase tracking-widest">
+                  Resources
+                </h4>
+                <ul className="space-y-4">
                   <li>
                     <Link
                       to="/about"
-                      className="hover:text-white transition-colors cursor-none"
-                      onMouseEnter={() => setIsHoveringCard(true)}
-                      onMouseLeave={() => setIsHoveringCard(false)}
+                      className="text-sm font-medium text-white transition-colors"
                     >
                       About Us
                     </Link>
                   </li>
                   <li>
                     <Link
-                      to="/"
-                      className="hover:text-white transition-colors cursor-none"
-                      onMouseEnter={() => setIsHoveringCard(true)}
-                      onMouseLeave={() => setIsHoveringCard(false)}
+                      to="/privacy"
+                      className="text-sm font-medium text-[#888] hover:text-white transition-colors"
                     >
                       Privacy Policy
                     </Link>
                   </li>
                 </ul>
               </div>
+
+              <div className="col-span-2 md:col-span-1 flex flex-col items-start text-left mt-2 md:mt-0">
+                <h4 className="text-white font-extrabold text-[10px] sm:text-xs mb-6 uppercase tracking-widest">
+                  Contact
+                </h4>
+                <ul className="space-y-4">
+                  <li>
+                    <a
+                      href="mailto:discotive@gmail.com"
+                      className="text-sm font-medium text-[#888] hover:text-white transition-colors flex items-center gap-2"
+                    >
+                      <Mail className="w-4 h-4 text-[#555]" />{" "}
+                      discotive@gmail.com
+                    </a>
+                  </li>
+                </ul>
+              </div>
             </div>
 
-            <div
-              className="flex flex-col lg:flex-row items-center justify-between pt-8 border-t border-white/10 gap-8"
-              onMouseEnter={() => setIsHoveringCard(true)}
-              onMouseLeave={() => setIsHoveringCard(false)}
-            >
-              <div className="text-center md:text-left text-xs text-slate-600 font-medium">
-                © 2026 Discotive Hubs. Built in Jaipur, Rajasthan.
-              </div>
-
-              {/* UPDATED SOCIALS BLOCK */}
-              <div className="flex items-center gap-6 text-slate-400">
+            <div className="flex flex-col md:flex-row items-start md:items-center justify-between pt-8 border-t border-white/5 gap-6">
+              <p className="text-xs text-[#555] font-medium tracking-wide">
+                © 2026 Discotive. India.
+              </p>
+              <div className="flex items-center gap-6">
                 <a
                   href="https://www.instagram.com/discotive/"
                   target="_blank"
                   rel="noreferrer"
-                  className="hover:text-white transition-colors cursor-none"
+                  className="text-[#666] hover:text-white transition-colors"
                 >
                   <Instagram className="w-5 h-5" />
                 </a>
@@ -743,7 +546,7 @@ const About = () => {
                   href="https://www.youtube.com/@discotive"
                   target="_blank"
                   rel="noreferrer"
-                  className="hover:text-white transition-colors cursor-none"
+                  className="text-[#666] hover:text-white transition-colors"
                 >
                   <Youtube className="w-5 h-5" />
                 </a>
@@ -751,7 +554,7 @@ const About = () => {
                   href="https://www.linkedin.com/company/discotive"
                   target="_blank"
                   rel="noreferrer"
-                  className="hover:text-white transition-colors cursor-none"
+                  className="text-[#666] hover:text-white transition-colors"
                 >
                   <Linkedin className="w-5 h-5" />
                 </a>
