@@ -41,7 +41,7 @@ import {
   Moon,
 } from "lucide-react";
 import { cn } from "../components/ui/BentoCard";
-import { processDailyLogin } from "../lib/scoreEngine";
+import { processDailyConsistency } from "../lib/scoreEngine";
 
 // --- NAVIGATION GROUPS ---
 const topNavItems = [
@@ -119,10 +119,10 @@ const MainLayout = () => {
 
   // --- TRIGGER DAILY SCORE ENGINE ---
   useEffect(() => {
-    if (userData?.id && !loading) {
-      processDailyLogin(userData.id);
+    if (userData?.uid) {
+      processDailyConsistency(userData.uid);
     }
-  }, [userData?.id, loading]);
+  }, [userData?.uid]);
 
   // --- STRICT CLICK-OUTSIDE REFS ---
   const profileMenuRef = useRef(null);

@@ -1,4 +1,21 @@
-import { useState, useEffect, useRef } from "react";
+/**
+ * @fileoverview Primary Authentication and Identity Provisioning Module.
+ * @module Auth/Core
+ * @description
+ * Implements a highly optimized, state-machine driven authentication flow.
+ * Fully populated with comprehensive Indian Subcontinent & Global Taxonomies.
+ * Includes native password visibility toggling, password reset flows, and a
+ * crash-proof OS Boot Sequence.
+ */
+
+import React, {
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+  useReducer,
+  useMemo,
+} from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import AuthLoader from "../components/AuthLoader";
@@ -7,6 +24,7 @@ import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
   signInWithPopup,
+  sendPasswordResetEmail,
   GoogleAuthProvider,
   FacebookAuthProvider,
   OAuthProvider,
@@ -21,7 +39,6 @@ import {
   setDoc,
 } from "firebase/firestore";
 import { auth, db } from "../firebase";
-import emailjs from "@emailjs/browser";
 import {
   ChevronRight,
   Loader2,
@@ -36,102 +53,56 @@ import {
   ShieldAlert,
   CheckCircle2,
   Lock,
-  Search,
   X,
-  Check,
   Sparkles,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 
-import { cn } from "../components/ui/BentoCard";
-
-// --- EMAILJS CONFIG ---
-const EMAILJS_SERVICE_ID = "discotive";
-const EMAILJS_TEMPLATE_ID = "requestaccess";
-const EMAILJS_PUBLIC_KEY = "tNizhqFNon4v2m6OC";
-
 // ============================================================================
-// MASSIVE TAXONOMY & DATA DICTIONARIES (MAANG-GRADE SCALE)
+// MASSIVE TAXONOMY & DATA DICTIONARIES
 // ============================================================================
 
 const COUNTRIES = [
+  "India",
+  "United States of America",
+  "United Kingdom",
+  "Canada",
+  "Australia",
+  "Singapore",
+  "Germany",
+  "France",
+  "United Arab Emirates",
+  "Japan",
+  "South Korea",
   "Afghanistan",
   "Albania",
   "Algeria",
-  "Andorra",
-  "Angola",
-  "Antigua and Barbuda",
   "Argentina",
   "Armenia",
-  "Australia",
   "Austria",
-  "Azerbaijan",
   "Bahamas",
-  "Bahrain",
   "Bangladesh",
-  "Barbados",
-  "Belarus",
   "Belgium",
-  "Belize",
-  "Benin",
-  "Bhutan",
-  "Bolivia",
-  "Bosnia and Herzegovina",
-  "Botswana",
   "Brazil",
-  "Brunei",
   "Bulgaria",
-  "Burkina Faso",
-  "Burundi",
-  "Côte d'Ivoire",
-  "Cabo Verde",
-  "Cambodia",
-  "Cameroon",
-  "Canada",
-  "Central African Republic",
-  "Chad",
   "Chile",
   "China",
   "Colombia",
-  "Comoros",
-  "Congo",
-  "Costa Rica",
   "Croatia",
   "Cuba",
   "Cyprus",
   "Czechia",
-  "Democratic Republic of the Congo",
   "Denmark",
-  "Djibouti",
-  "Dominica",
-  "Dominican Republic",
-  "Ecuador",
   "Egypt",
-  "El Salvador",
-  "Equatorial Guinea",
-  "Eritrea",
   "Estonia",
-  "Eswatini",
-  "Ethiopia",
   "Fiji",
   "Finland",
-  "France",
-  "Gabon",
-  "Gambia",
   "Georgia",
-  "Germany",
   "Ghana",
   "Greece",
-  "Grenada",
-  "Guatemala",
-  "Guinea",
-  "Guinea-Bissau",
-  "Guyana",
-  "Haiti",
-  "Holy See",
-  "Honduras",
   "Hungary",
   "Iceland",
-  "India",
   "Indonesia",
   "Iran",
   "Iraq",
@@ -139,117 +110,45 @@ const COUNTRIES = [
   "Israel",
   "Italy",
   "Jamaica",
-  "Japan",
   "Jordan",
   "Kazakhstan",
   "Kenya",
-  "Kiribati",
   "Kuwait",
-  "Kyrgyzstan",
-  "Laos",
-  "Latvia",
   "Lebanon",
-  "Lesotho",
-  "Liberia",
-  "Libya",
-  "Liechtenstein",
-  "Lithuania",
-  "Luxembourg",
-  "Madagascar",
-  "Malawi",
   "Malaysia",
   "Maldives",
-  "Mali",
-  "Malta",
-  "Marshall Islands",
-  "Mauritania",
   "Mauritius",
   "Mexico",
-  "Micronesia",
-  "Moldova",
-  "Monaco",
-  "Mongolia",
-  "Montenegro",
   "Morocco",
-  "Mozambique",
   "Myanmar",
-  "Namibia",
-  "Nauru",
   "Nepal",
   "Netherlands",
   "New Zealand",
-  "Nicaragua",
-  "Niger",
   "Nigeria",
-  "North Korea",
-  "North Macedonia",
   "Norway",
   "Oman",
   "Pakistan",
-  "Palau",
-  "Palestine State",
-  "Panama",
-  "Papua New Guinea",
-  "Paraguay",
-  "Peru",
   "Philippines",
   "Poland",
   "Portugal",
   "Qatar",
   "Romania",
   "Russia",
-  "Rwanda",
-  "Saint Kitts and Nevis",
-  "Saint Lucia",
-  "Saint Vincent and the Grenadines",
-  "Samoa",
-  "San Marino",
-  "Sao Tome and Principe",
   "Saudi Arabia",
-  "Senegal",
-  "Serbia",
-  "Seychelles",
-  "Sierra Leone",
-  "Singapore",
-  "Slovakia",
-  "Slovenia",
-  "Solomon Islands",
-  "Somalia",
   "South Africa",
-  "South Korea",
-  "South Sudan",
   "Spain",
   "Sri Lanka",
-  "Sudan",
-  "Suriname",
   "Sweden",
   "Switzerland",
   "Syria",
-  "Tajikistan",
-  "Tanzania",
+  "Taiwan",
   "Thailand",
-  "Timor-Leste",
-  "Togo",
-  "Tonga",
-  "Trinidad and Tobago",
-  "Tunisia",
   "Turkey",
-  "Turkmenistan",
-  "Tuvalu",
-  "Uganda",
   "Ukraine",
-  "United Arab Emirates",
-  "United Kingdom",
-  "United States of America",
-  "Uruguay",
-  "Uzbekistan",
-  "Vanuatu",
-  "Venezuela",
   "Vietnam",
-  "Yemen",
   "Zambia",
   "Zimbabwe",
-];
+].sort();
 
 const INDIAN_STATES_UTS = [
   "Andaman and Nicobar Islands",
@@ -288,172 +187,6 @@ const INDIAN_STATES_UTS = [
   "Uttar Pradesh",
   "Uttarakhand",
   "West Bengal",
-];
-
-// Broad Macro Categories
-const MACRO_DOMAINS = [
-  "Engineer",
-  "Designer",
-  "Filmmaker",
-  "Artist",
-  "Business/Operations",
-  "Marketing",
-  "Sales",
-  "Writer / Author",
-  "Scientist",
-  "Medical Professional",
-  "Educator / Academic",
-  "Legal Professional",
-  "Finance / Accounting",
-  "Freelancer",
-  "Content Creator",
-  "Musician / Audio",
-  "Architect",
-  "Psychologist",
-  "Consultant",
-  "Data Professional",
-  "Product Manager",
-  "Venture Capitalist",
-  "Investor",
-  "Indie Hacker",
-  "Game Developer",
-  "Blockchain/Web3 Builder",
-  "Cybersecurity Analyst",
-  "Actor / Performer",
-  "Athlete",
-  "Journalist",
-  "Public Relations",
-  "Human Resources",
-  "Supply Chain/Logistics",
-  "Real Estate Professional",
-  "Chef / Culinary",
-  "Event Manager",
-  "Non-Profit/NGO",
-  "Government/Policy",
-  "Researcher",
-  "Translator",
-  "Hardware/Electronics",
-  "Robotics",
-  "Aviation/Aerospace",
-  "Urban Planner",
-  "Agriculture/Farming",
-  "Environmentalist",
-  "Fitness Trainer",
-  "Influencer",
-  "Podcaster",
-  "Photographer",
-].sort();
-
-// Specific Micro Categories
-const MICRO_NICHES = [
-  "Software Engineer",
-  "Frontend Developer",
-  "Backend Developer",
-  "Full-Stack Developer",
-  "AI/ML Engineer",
-  "Data Scientist",
-  "Data Analyst",
-  "Data Engineer",
-  "DevOps Engineer",
-  "Cloud Architect",
-  "Blockchain Developer",
-  "Smart Contract Engineer",
-  "Game Developer",
-  "Mobile App Developer",
-  "Embedded Systems Engineer",
-  "UI/UX Designer",
-  "Product Designer",
-  "Graphic Designer",
-  "3D Modeler",
-  "Motion Graphics Artist",
-  "Animator",
-  "Illustrator",
-  "VFX Artist",
-  "Cinematographer",
-  "Director",
-  "Video Editor",
-  "Cinematic Colorist",
-  "Screenwriter",
-  "Producer",
-  "Sound Designer",
-  "Music Producer",
-  "Founder / CEO",
-  "COO",
-  "CTO",
-  "Product Manager",
-  "Project Manager",
-  "Scrum Master",
-  "B2B Sales",
-  "B2C Sales",
-  "Account Executive",
-  "Growth Marketer",
-  "Digital Marketer",
-  "SEO/SEM Specialist",
-  "Social Media Manager",
-  "Copywriter",
-  "Technical Writer",
-  "Journalist",
-  "Investment Banker",
-  "Financial Analyst",
-  "Quant Trader",
-  "Venture Capitalist",
-  "Private Equity",
-  "Auditor",
-  "Corporate Lawyer",
-  "IP Lawyer",
-  "Physician",
-  "Surgeon",
-  "Nurse",
-  "Pharmacist",
-  "Clinical Researcher",
-  "Biotechnologist",
-  "Chemist",
-  "Physicist",
-  "Professor",
-  "Instructional Designer",
-  "Freelance Developer",
-  "Freelance Designer",
-  "YouTuber",
-  "Streamer",
-  "Podcaster",
-  "TikTok Creator",
-  "Instagram Influencer",
-  "Substack Writer",
-  "Indie Hacker",
-  "Robotics Engineer",
-  "Aerospace Engineer",
-  "Mechanical Engineer",
-  "Civil Engineer",
-  "Electrical Engineer",
-  "Architectural Designer",
-  "Interior Designer",
-  "Event Planner",
-  "Supply Chain Manager",
-  "Logistics Coordinator",
-  "HR Manager",
-  "Talent Acquisition",
-  "PR Manager",
-  "Ethical Hacker",
-  "Security Researcher",
-  "Penetration Tester",
-  "Data Privacy Officer",
-  "AR/VR Developer",
-  "Computer Vision Engineer",
-  "QA Tester",
-  "Automation Engineer",
-  "System Administrator",
-  "Database Administrator",
-].sort();
-
-const CURRENT_STATUSES = [
-  "School Student",
-  "Undergraduate",
-  "Postgraduate",
-  "Working Professional",
-  "Creator",
-  "Freelancer",
-  "Dropped Out",
-  "Building the Passion",
 ];
 
 const INSTITUTIONS = [
@@ -507,160 +240,199 @@ const INSTITUTIONS = [
   "NIT Delhi",
   "NIT Mizoram",
   "NIT Srinagar",
-  "NIT Manipur",
-  "NIT Sikkim",
-  "NIT Arunachal Pradesh",
-  "NIT Nagaland",
-  "NIT Andhra Pradesh",
-  "NIT Shibpur",
-  // Private / Specific
+  // Jaipur / Rajasthan Locals
+  "JECRC Foundation",
+  "JECRC University",
+  "MNIT Jaipur",
+  "LNMIIT Jaipur",
+  "Manipal University Jaipur (MUJ)",
+  "Swami Keshavanand Institute of Technology (SKIT)",
+  "Poornima College of Engineering",
+  "Poornima Institute of Engineering & Technology",
+  "Poornima University",
+  "Amity University Jaipur",
+  "Arya College of Engineering",
+  "Vivekananda Global University (VGU)",
+  "Rajasthan Technical University (RTU)",
+  // Major Privates & Others
   "BITS Pilani (Pilani Campus)",
   "BITS Pilani (Goa Campus)",
   "BITS Pilani (Hyderabad Campus)",
   "BITS Pilani (Dubai Campus)",
-  "JECRC Foundation",
-  "JECRC University",
-  "Poornima College of Engineering",
-  "Poornima Institute of Engineering & Technology",
-  "Poornima University",
-  "Swami Keshavanand Institute of Technology (SKIT)",
-  "Amity University (Noida)",
-  "Amity University (Mumbai)",
-  "Amity University (Jaipur)",
-  "Amity University (Gurugram)",
-  "Amity University (Lucknow)",
-  "Amity University (Gwalior)",
-  "Amity University (Raipur)",
-  "Amity University (Kolkata)",
-  "Amity University (Ranchi)",
-  "Amity University (Patna)",
-  "Amity University (Mohali)",
-  "MIT (Massachusetts)",
-  "MIT Manipal",
   "VIT Vellore",
-  "SRM University",
+  "VIT Chennai",
+  "SRM University (KTR)",
+  "SRM University (Ramapuram)",
+  "Manipal Academy of Higher Education (MAHE)",
+  "Thapar Institute of Engineering and Technology",
+  "Delhi Technological University (DTU)",
+  "NSUT Delhi",
+  "IIIT Hyderabad",
+  "IIIT Delhi",
+  "IIIT Bangalore",
+  "IIIT Allahabad",
   "Master's Union",
   "Scaler School of Technology",
   "Scaler School of Business",
-  "Delhi University (DU)",
-  "Delhi Technological University (DTU)",
-  "NSUT",
-  "IIIT Delhi",
-  "Sri Chaitanya Techno School",
-  "Allen Career Institute",
-  // MAANG & Corporate
-  "Google",
-  "Apple",
-  "Meta",
-  "Amazon",
-  "Netflix",
-  "Microsoft",
-  "Nvidia",
-  "McKinsey & Company",
-  "BCG",
-  "Bain & Company",
-  "Deloitte",
-  "PwC",
-  "EY",
-  "KPMG",
-  "TCS",
-  "Wipro",
-  "Infosys",
-  "Accenture",
-  "Cognizant",
-  "Capgemini",
-  "IBM",
-  "Tech Mahindra",
-  "HCL",
-  "Goldman Sachs",
-  "Morgan Stanley",
-  "JPMorgan Chase",
 ].sort();
 
 const COURSES = [
-  "High School (Science)",
-  "High School (Commerce)",
-  "High School (Arts/Humanities)",
+  // Bachelors
   "B.Tech",
   "B.E.",
-  "B.Sc",
-  "B.A.",
-  "B.Com",
-  "BBA",
   "BCA",
-  "B.Arch",
+  "B.Sc",
+  "B.Sc (Hons)",
+  "BBA",
+  "B.Com",
+  "B.Com (Hons)",
+  "B.A.",
+  "B.A. (Hons)",
   "B.Des",
+  "B.Arch",
   "B.Pharm",
   "MBBS",
   "BDS",
   "BPT",
   "LLB",
   "BA LLB",
-  "B.Ed",
+  "BBA LLB",
   "BHM",
+  "B.Ed",
+  // Masters
   "M.Tech",
   "M.E.",
-  "M.Sc",
-  "M.A.",
-  "M.Com",
-  "MBA",
   "MCA",
-  "M.Arch",
+  "M.Sc",
+  "MBA",
+  "PGDM",
+  "M.Com",
+  "M.A.",
   "M.Des",
-  "LLM",
+  "M.Arch",
+  "M.Pharm",
   "MD",
   "MS",
+  "LLM",
+  // Others
   "Ph.D",
   "Diploma",
+  "Advanced Diploma",
   "Certificate Course",
   "Bootcamp",
   "Self-Taught",
 ].sort();
 
 const SPECIALIZATIONS = [
-  "PCM (Physics, Chemistry, Math)",
-  "PCB (Physics, Chemistry, Biology)",
-  "PCMB",
-  "Commerce with Math",
-  "Commerce without Math",
-  "Humanities",
-  "Computer Science",
-  "Mechanical",
-  "Civil",
-  "Electrical",
-  "Electronics & Communication",
-  "Information Technology",
-  "AI/ML",
+  "Computer Science Engineering (CSE)",
+  "Information Technology (IT)",
+  "Artificial Intelligence & Machine Learning (AI/ML)",
   "Data Science",
-  "Cybersecurity",
-  "Aerospace",
-  "Chemical",
+  "Cyber Security",
+  "Cloud Computing",
+  "Software Engineering",
+  "Electronics & Communication Engineering (ECE)",
+  "Electrical Engineering (EE)",
+  "Mechanical Engineering (ME)",
+  "Civil Engineering (CE)",
+  "Aerospace Engineering",
+  "Chemical Engineering",
   "Biotechnology",
-  "Robotics",
-  "UI/UX Design",
-  "Graphic Design",
-  "Fashion Design",
-  "Industrial Design",
+  "Robotics & Automation",
   "Finance",
   "Marketing",
-  "Human Resources",
-  "Operations",
+  "Human Resources (HR)",
+  "Operations Management",
   "International Business",
-  "Economics",
-  "Psychology",
-  "Sociology",
-  "English Literature",
-  "Political Science",
-  "History",
+  "Business Analytics",
+  "Entrepreneurship",
+  "UI/UX Design",
+  "Graphic Design",
+  "Product Design",
+  "Fashion Design",
+  "Animation & VFX",
+  "Filmmaking",
+  "Journalism & Mass Communication",
   "Physics",
   "Chemistry",
   "Mathematics",
-  "Statistics",
-  "Law (Corporate)",
-  "Law (Criminal)",
-  "Medicine",
+  "Economics",
+  "Psychology",
+  "English Literature",
+  "Corporate Law",
+  "Criminal Law",
+  "General Medicine",
   "Surgery",
-  "Dentistry",
+].sort();
+
+const MACRO_DOMAINS = [
+  "Engineering",
+  "Design",
+  "Filmmaking",
+  "Business/Operations",
+  "Marketing",
+  "Sales",
+  "Science",
+  "Healthcare/Medical",
+  "Arts/Humanities",
+  "Legal",
+  "Finance/Accounting",
+  "Content Creation",
+  "Education/Academia",
+  "Architecture",
+  "Government/Policy",
+].sort();
+
+const MICRO_NICHES = [
+  "Software Engineer",
+  "Frontend Developer",
+  "Backend Developer",
+  "Full-Stack Developer",
+  "AI/ML Engineer",
+  "Data Scientist",
+  "Data Analyst",
+  "Data Engineer",
+  "DevOps Engineer",
+  "Cloud Architect",
+  "Blockchain Developer",
+  "Cybersecurity Analyst",
+  "Game Developer",
+  "UI/UX Designer",
+  "Product Designer",
+  "Graphic Designer",
+  "3D Modeler",
+  "Animator",
+  "Director",
+  "Producer",
+  "Cinematographer",
+  "Video Editor",
+  "Screenwriter",
+  "Actor",
+  "Founder / CEO",
+  "COO",
+  "CTO",
+  "Product Manager",
+  "Project Manager",
+  "Consultant",
+  "Venture Capitalist",
+  "Investment Banker",
+  "Financial Analyst",
+  "Accountant",
+  "Growth Marketer",
+  "Digital Marketer",
+  "SEO Specialist",
+  "Social Media Manager",
+  "B2B Sales",
+  "Account Executive",
+  "Copywriter",
+  "Journalist",
+  "Public Relations",
+  "Physician",
+  "Surgeon",
+  "Psychologist",
+  "Researcher",
+  "Professor",
+  "Corporate Lawyer",
 ].sort();
 
 const RAW_SKILLS = [
@@ -684,99 +456,59 @@ const RAW_SKILLS = [
   "Ruby",
   "Swift",
   "Kotlin",
-  "Dart",
-  "PHP",
-  "Laravel",
   "SQL",
   "PostgreSQL",
   "MySQL",
   "MongoDB",
   "Redis",
   "Firebase",
-  "Supabase",
   "AWS",
   "Google Cloud (GCP)",
   "Microsoft Azure",
   "Docker",
   "Kubernetes",
-  "CI/CD",
   "Git",
-  "GitHub",
-  "Linux",
-  "Bash/Shell",
   "Machine Learning",
   "Deep Learning",
   "TensorFlow",
   "PyTorch",
-  "NLP",
   "Computer Vision",
-  "Data Analysis",
+  "NLP",
   "Pandas",
-  "NumPy",
   "Tableau",
   "PowerBI",
-  "Excel",
   "Blockchain",
   "Solidity",
-  "Web3.js",
   "Figma",
   "Adobe XD",
-  "Sketch",
-  "Framer",
   "Adobe Photoshop",
   "Adobe Illustrator",
   "Adobe Premiere Pro",
   "Adobe After Effects",
   "DaVinci Resolve",
-  "Final Cut Pro",
   "Blender",
-  "Maya",
-  "Cinema 4D",
-  "ZBrush",
   "Unity",
   "Unreal Engine",
-  "Godot",
-  "AutoCAD",
-  "SolidWorks",
   "SEO",
   "SEM",
   "Google Analytics",
   "Facebook Ads",
   "Copywriting",
-  "Content Strategy",
-  "Email Marketing",
   "B2B Sales",
-  "B2C Sales",
   "Cold Calling",
-  "Lead Generation",
-  "Negotiation",
   "Public Speaking",
-  "Pitching",
   "Financial Modeling",
-  "Accounting",
-  "Financial Analysis",
   "Project Management",
-  "Agile/Scrum",
-  "Jira",
-  "Notion",
-  "Trello",
-  "Leadership",
-  "Team Building",
-  "Problem Solving",
-  "Critical Thinking",
-  "Time Management",
-  "Networking",
-  "Event Management",
-  "Research",
+  "Agile",
 ].sort();
 
 const LANGUAGES = [
   "English",
-  "Mandarin Chinese",
   "Hindi",
+  "Mandarin Chinese",
   "Spanish",
   "French",
-  "Modern Standard Arabic",
+  "Arabic",
   "Bengali",
   "Russian",
   "Portuguese",
@@ -788,12 +520,19 @@ const LANGUAGES = [
   "Telugu",
   "Turkish",
   "Tamil",
-  "Yue Chinese (Cantonese)",
-  "Vietnamese",
-  "Tagalog",
-  "Wu Chinese",
   "Korean",
   "Persian",
+];
+
+const CURRENT_STATUSES = [
+  "School Student",
+  "Undergraduate",
+  "Postgraduate",
+  "Working Professional",
+  "Creator",
+  "Freelancer",
+  "Dropped Out",
+  "Building the Passion",
 ];
 
 const MONTHS = [
@@ -810,6 +549,7 @@ const MONTHS = [
   "November",
   "December",
 ];
+
 const currentYear = new Date().getFullYear();
 const START_YEARS = Array.from({ length: 16 }, (_, i) =>
   (currentYear - 15 + i).toString(),
@@ -819,393 +559,317 @@ const END_YEARS = Array.from({ length: 16 }, (_, i) =>
 );
 
 // ============================================================================
-// CUSTOM UI COMPONENTS
+// UTILITY HOOKS
 // ============================================================================
 
-const CustomSearchSelect = ({
-  options,
-  value,
-  onChange,
-  placeholder,
-  allowCustom,
-  required,
-}) => {
-  const [isOpen, setIsOpen] = useState(false);
-  // FIX: Default to "" to prevent the uncontrolled input error
-  const [query, setQuery] = useState(value || "");
-
-  // FIX: Sync query state if the parent value prop changes
+function useDebounce(value, delay) {
+  const [debouncedValue, setDebouncedValue] = useState(value);
   useEffect(() => {
-    setQuery(value || "");
-  }, [value]);
-
-  const wrapperRef = useRef(null);
-
-  useEffect(() => {
-    const handleClickOutside = (e) => {
-      if (wrapperRef.current && !wrapperRef.current.contains(e.target))
-        setIsOpen(false);
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
-
-  const filtered = options.filter((o) =>
-    o.toLowerCase().includes(query.toLowerCase()),
-  );
-
-  return (
-    <div ref={wrapperRef} className="relative w-full">
-      <div className="flex items-center w-full bg-[#121212] border border-white/10 rounded-xl px-4 py-3 focus-within:border-white/40 transition-all">
-        <input
-          type="text"
-          value={query || ""} // FIX: Enforce string type
-          required={required && !value}
-          onChange={(e) => {
-            setQuery(e.target.value);
-            setIsOpen(true);
-            if (allowCustom) onChange(e.target.value);
-          }}
-          onFocus={() => setIsOpen(true)}
-          placeholder={placeholder}
-          className="w-full bg-transparent border-none outline-none text-white text-sm placeholder-[#555]"
-        />
-        <ChevronRight
-          className={`w-4 h-4 text-[#555] transition-transform ${isOpen ? "rotate-90" : ""}`}
-        />
-      </div>
-      <AnimatePresence>
-        {isOpen && (
-          <motion.div
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            className="absolute top-[calc(100%+8px)] left-0 w-full bg-[#1a1a1a] border border-[#333] rounded-xl shadow-2xl z-50 max-h-60 overflow-y-auto custom-scrollbar"
-          >
-            {filtered.length === 0 && !allowCustom && (
-              <div className="p-3 text-xs text-[#666]">No matches found.</div>
-            )}
-            {filtered.map((opt) => (
-              <div
-                key={opt}
-                onClick={() => {
-                  setQuery(opt);
-                  onChange(opt);
-                  setIsOpen(false);
-                }}
-                className="px-4 py-3 text-sm hover:bg-[#222] cursor-pointer transition-colors text-[#ccc] hover:text-white truncate"
-              >
-                {opt}
-              </div>
-            ))}
-            {filtered.length === 0 &&
-              allowCustom &&
-              query.trim().length > 0 && (
-                <div
-                  onClick={() => {
-                    onChange(query);
-                    setIsOpen(false);
-                  }}
-                  className="px-4 py-3 text-sm hover:bg-[#222] cursor-pointer text-white font-bold border-t border-[#333]"
-                >
-                  + Use "{query}"
-                </div>
-              )}
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  );
-};
-
-const CustomMultiSelect = ({
-  options,
-  selected,
-  onChange,
-  placeholder,
-  allowCustom,
-}) => {
-  const [isOpen, setIsOpen] = useState(false);
-  const [query, setQuery] = useState("");
-  const wrapperRef = useRef(null);
-
-  useEffect(() => {
-    const handleClickOutside = (e) => {
-      if (wrapperRef.current && !wrapperRef.current.contains(e.target))
-        setIsOpen(false);
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
-
-  const toggleOpt = (val) => {
-    if (selected.includes(val)) onChange(selected.filter((i) => i !== val));
-    else onChange([...selected, val]);
-    setQuery("");
-  };
-
-  const filtered = options.filter(
-    (o) =>
-      o.toLowerCase().includes(query.toLowerCase()) && !selected.includes(o),
-  );
-
-  return (
-    <div ref={wrapperRef} className="relative w-full">
-      <div
-        className="min-h-[50px] w-full bg-[#121212] border border-white/10 rounded-xl px-3 py-2 focus-within:border-white/40 transition-all flex flex-wrap gap-2 items-center cursor-text"
-        onClick={() => setIsOpen(true)}
-      >
-        {selected.map((item) => (
-          <span
-            key={item}
-            className="px-2.5 py-1.5 bg-[#222] border border-[#444] rounded-lg text-xs font-bold text-white flex items-center gap-2"
-          >
-            {item}{" "}
-            <X
-              className="w-3 h-3 cursor-pointer hover:text-red-400 transition-colors"
-              onClick={(e) => {
-                e.stopPropagation();
-                toggleOpt(item);
-              }}
-            />
-          </span>
-        ))}
-        <input
-          type="text"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          onFocus={() => setIsOpen(true)}
-          placeholder={selected.length === 0 ? placeholder : ""}
-          className="flex-1 min-w-[100px] bg-transparent border-none outline-none text-sm text-white placeholder-[#555]"
-        />
-      </div>
-      <AnimatePresence>
-        {isOpen && (
-          <motion.div
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            className="absolute top-[calc(100%+8px)] left-0 w-full bg-[#1a1a1a] border border-[#333] rounded-xl shadow-2xl z-50 max-h-60 overflow-y-auto custom-scrollbar"
-          >
-            {filtered.map((opt) => (
-              <div
-                key={opt}
-                onClick={() => toggleOpt(opt)}
-                className="flex items-center justify-between px-4 py-3 text-sm hover:bg-[#222] cursor-pointer transition-colors text-[#ccc] hover:text-white"
-              >
-                <span className="truncate">{opt}</span>
-              </div>
-            ))}
-            {filtered.length === 0 &&
-              allowCustom &&
-              query.trim().length > 0 && (
-                <div
-                  onClick={() => toggleOpt(query)}
-                  className="px-4 py-3 text-sm hover:bg-[#222] cursor-pointer text-white font-bold border-t border-[#333]"
-                >
-                  + Add "{query}"
-                </div>
-              )}
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  );
-};
-
-// --- REUSABLE GOOGLE AUTH BUTTON ---
-const GoogleAuthButton = ({ onClick, disabled }) => (
-  <button
-    type="button"
-    onClick={onClick}
-    disabled={disabled}
-    className="w-full flex items-center justify-center gap-3 py-3.5 bg-[#121212] border border-white/10 text-white font-bold rounded-xl hover:bg-[#222] hover:border-white/20 transition-all shadow-sm disabled:opacity-50"
-  >
-    {disabled ? (
-      <Loader2 className="w-5 h-5 animate-spin text-[#888]" />
-    ) : (
-      <svg className="w-5 h-5" viewBox="0 0 24 24">
-        <path
-          d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-          fill="#4285F4"
-        />
-        <path
-          d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-          fill="#34A853"
-        />
-        <path
-          d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
-          fill="#FBBC05"
-        />
-        <path
-          d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
-          fill="#EA4335"
-        />
-      </svg>
-    )}
-    {disabled ? "Authenticating..." : "Continue with Google"}
-  </button>
-);
-
-const FacebookAuthButton = ({ onClick, disabled }) => (
-  <button
-    type="button"
-    onClick={onClick}
-    disabled={disabled}
-    className="w-full flex items-center justify-center gap-2 py-3.5 bg-[#121212] border border-white/10 text-white font-bold rounded-xl hover:bg-[#222] hover:border-white/20 transition-all shadow-sm disabled:opacity-50"
-  >
-    {disabled ? (
-      <Loader2 className="w-5 h-5 animate-spin text-[#888]" />
-    ) : (
-      <svg
-        className="w-5 h-5 text-[#1877F2]"
-        fill="currentColor"
-        viewBox="0 0 24 24"
-      >
-        <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.469h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.469h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z" />
-      </svg>
-    )}
-    Facebook
-  </button>
-);
-
-const AppleAuthButton = ({ onClick, disabled }) => (
-  <button
-    type="button"
-    onClick={onClick}
-    disabled={disabled}
-    className="w-full flex items-center justify-center gap-2 py-3.5 bg-[#121212] border border-white/10 text-white font-bold rounded-xl hover:bg-[#222] hover:border-white/20 transition-all shadow-sm disabled:opacity-50"
-  >
-    {disabled ? (
-      <Loader2 className="w-5 h-5 animate-spin text-[#888]" />
-    ) : (
-      <svg
-        className="w-5 h-5 text-white"
-        fill="currentColor"
-        viewBox="0 0 24 24"
-      >
-        <path d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zM15.53 3.83c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.56-1.702z" />
-      </svg>
-    )}
-    Apple
-  </button>
-);
+    const handler = setTimeout(() => setDebouncedValue(value), delay);
+    return () => clearTimeout(handler);
+  }, [value, delay]);
+  return debouncedValue;
+}
 
 // ============================================================================
-// MAIN AUTH COMPONENT
+// HIGH-PERFORMANCE UI COMPONENTS
 // ============================================================================
-const Auth = () => {
-  const navigate = useNavigate();
-  const [isLogin, setIsLogin] = useState(true);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState("");
-  const [step, setStep] = useState(1);
-  const [isBooting, setIsBooting] = useState(false);
-  const [authTaskComplete, setAuthTaskComplete] = useState(false);
 
-  const [showSetupSequence, setShowSetupSequence] = useState(false);
+const CustomSearchSelect = React.memo(
+  ({ options, value, onChange, placeholder, allowCustom, required }) => {
+    const [isOpen, setIsOpen] = useState(false);
+    const [query, setQuery] = useState(value || "");
+    const wrapperRef = useRef(null);
 
-  const slides = [
-    {
-      image: "/stock/Wolf of Wall Street 1.jpg",
-      quote:
-        "The only thing standing between you and your goal is the bulls**t story...",
-      author: "Jordan Belfort",
-    },
-    {
-      image: "/stock/F1.jpg",
-      quote: "We can't win if we don't try.",
-      author: "Sonny Hayes",
-    },
-    {
-      image: "/stock/The Social Network.jpg",
-      quote: "They came to me with an idea, I had a better one.",
-      author: "Mark Zuckerberg",
-    },
-  ];
-  const [currentSlide, setCurrentSlide] = useState(0);
+    useEffect(() => setQuery(value || ""), [value]);
 
-  // --- SECURE RETURNING USER REDIRECT & AUTO-RESUME ---
-  useEffect(() => {
-    const unsubscribe = auth.onAuthStateChanged(async (user) => {
-      if (user) {
-        // 1. Check if they have a completed database profile
-        const docRef = doc(db, "users", user.uid);
-        const snap = await getDoc(docRef);
+    useEffect(() => {
+      const handleClickOutside = (e) => {
+        if (wrapperRef.current && !wrapperRef.current.contains(e.target))
+          setIsOpen(false);
+      };
+      document.addEventListener("mousedown", handleClickOutside);
+      return () =>
+        document.removeEventListener("mousedown", handleClickOutside);
+    }, []);
 
-        if (snap.exists()) {
-          // Profile exists -> Send to OS
-          navigate("/app");
-        } else {
-          // GHOST USER DETECTED: They authenticated but abandoned the form.
-          // 2. Re-verify their whitelist status
-          const wlSnap = await getDocs(
-            query(
-              collection(db, "whitelisted_emails"),
-              where("email", "==", user.email),
-            ),
-          );
-
-          setIsLogin(false); // Force out of login screen
-
-          if (wlSnap.empty) {
-            setStep("locked"); // Boot them if they aren't whitelisted
-          } else {
-            setStep(2); // Trap them on Step 2 to finish Coordinates
-          }
-        }
-      }
-    });
-    return unsubscribe;
-  }, [navigate]);
-
-  useEffect(() => {
-    const t = setInterval(
-      () => setCurrentSlide((p) => (p + 1) % slides.length),
-      6000,
+    const handleInputChange = useCallback(
+      (e) => {
+        setQuery(e.target.value);
+        setIsOpen(true);
+        if (allowCustom) onChange(e.target.value);
+      },
+      [allowCustom, onChange],
     );
-    return () => clearInterval(t);
-  }, [slides.length]);
 
-  // --- FORM STATES ---
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [firstName, setFirstName] = useState("");
-  const [lastName, setLastName] = useState("");
-  const [username, setUsername] = useState("");
-  const [usernameAvailable, setUsernameAvailable] = useState(null);
-  const [gender, setGender] = useState("");
+    const handleSelect = useCallback(
+      (opt) => {
+        setQuery(opt);
+        onChange(opt);
+        setIsOpen(false);
+      },
+      [onChange],
+    );
 
-  const [userState, setUserState] = useState("");
-  const [country, setCountry] = useState("");
-  const [contact, setContact] = useState("");
-  const [requestMessage, setRequestMessage] = useState("");
+    const filtered = useMemo(
+      () =>
+        options.filter((o) => o.toLowerCase().includes(query.toLowerCase())),
+      [options, query],
+    );
 
-  const [currentStatus, setCurrentStatus] = useState("");
-  const [institution, setInstitution] = useState("");
-  const [course, setCourse] = useState("");
-  const [specialization, setSpecialization] = useState("");
-  const [startMonth, setStartMonth] = useState("");
-  const [startYear, setStartYear] = useState("");
-  const [endMonth, setEndMonth] = useState("");
-  const [endYear, setEndYear] = useState("");
+    return (
+      <div ref={wrapperRef} className="relative w-full">
+        <div className="flex items-center w-full bg-[#121212] border border-white/10 rounded-xl px-4 py-3 focus-within:border-white/40 transition-all">
+          <input
+            type="text"
+            value={query || ""}
+            required={required && !value}
+            onChange={handleInputChange}
+            onFocus={() => setIsOpen(true)}
+            placeholder={placeholder}
+            className="w-full bg-transparent border-none outline-none text-white text-sm placeholder-[#555]"
+          />
+          <ChevronRight
+            className={`w-4 h-4 text-[#555] transition-transform ${isOpen ? "rotate-90" : ""}`}
+          />
+        </div>
+        <AnimatePresence>
+          {isOpen && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className="absolute top-[calc(100%+8px)] left-0 w-full bg-[#1a1a1a] border border-[#333] rounded-xl shadow-2xl z-50 max-h-60 overflow-y-auto custom-scrollbar"
+            >
+              {filtered.length === 0 && !allowCustom && (
+                <div className="p-3 text-xs text-[#666]">No matches found.</div>
+              )}
+              {filtered.map((opt) => (
+                <div
+                  key={opt}
+                  onClick={() => handleSelect(opt)}
+                  className="px-4 py-3 text-sm hover:bg-[#222] cursor-pointer transition-colors text-[#ccc] hover:text-white truncate"
+                >
+                  {opt}
+                </div>
+              ))}
+              {filtered.length === 0 &&
+                allowCustom &&
+                query.trim().length > 0 && (
+                  <div
+                    onClick={() => handleSelect(query)}
+                    className="px-4 py-3 text-sm hover:bg-[#222] cursor-pointer text-white font-bold border-t border-[#333]"
+                  >
+                    + Use "{query}"
+                  </div>
+                )}
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+    );
+  },
+);
+CustomSearchSelect.displayName = "CustomSearchSelect";
 
-  const [passion, setPassion] = useState("");
-  const [niche, setNiche] = useState("");
-  const [parallelPath, setParallelPath] = useState("");
-  const [goal3Months, setGoal3Months] = useState("");
-  const [longTermGoal, setLongTermGoal] = useState("");
+const CustomMultiSelect = React.memo(
+  ({ options, selected, onChange, placeholder, allowCustom }) => {
+    const [isOpen, setIsOpen] = useState(false);
+    const [query, setQuery] = useState("");
+    const wrapperRef = useRef(null);
 
-  const [rawSkills, setRawSkills] = useState([]);
-  const [alignedSkills, setAlignedSkills] = useState([]);
-  const [languages, setLanguages] = useState([]);
+    useEffect(() => {
+      const handleClickOutside = (e) => {
+        if (wrapperRef.current && !wrapperRef.current.contains(e.target))
+          setIsOpen(false);
+      };
+      document.addEventListener("mousedown", handleClickOutside);
+      return () =>
+        document.removeEventListener("mousedown", handleClickOutside);
+    }, []);
 
-  const [guardianProfession, setGuardianProfession] = useState("");
-  const [incomeBracket, setIncomeBracket] = useState("");
-  const [financialLaunchpad, setFinancialLaunchpad] = useState("");
-  const [investmentCapacity, setInvestmentCapacity] = useState("");
+    const toggleOpt = useCallback(
+      (val) => {
+        if (selected.includes(val)) onChange(selected.filter((i) => i !== val));
+        else onChange([...selected, val]);
+        setQuery("");
+      },
+      [selected, onChange],
+    );
 
-  const defaultFootprint = {
+    const filtered = useMemo(
+      () =>
+        options.filter(
+          (o) =>
+            o.toLowerCase().includes(query.toLowerCase()) &&
+            !selected.includes(o),
+        ),
+      [options, query, selected],
+    );
+
+    return (
+      <div ref={wrapperRef} className="relative w-full">
+        <div
+          className="min-h-[50px] w-full bg-[#121212] border border-white/10 rounded-xl px-3 py-2 focus-within:border-white/40 transition-all flex flex-wrap gap-2 items-center cursor-text"
+          onClick={() => setIsOpen(true)}
+        >
+          {selected.map((item) => (
+            <span
+              key={item}
+              className="px-2.5 py-1.5 bg-[#222] border border-[#444] rounded-lg text-xs font-bold text-white flex items-center gap-2"
+            >
+              {item}{" "}
+              <X
+                className="w-3 h-3 cursor-pointer hover:text-red-400 transition-colors"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  toggleOpt(item);
+                }}
+              />
+            </span>
+          ))}
+          <input
+            type="text"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onFocus={() => setIsOpen(true)}
+            placeholder={selected.length === 0 ? placeholder : ""}
+            className="flex-1 min-w-[100px] bg-transparent border-none outline-none text-sm text-white placeholder-[#555]"
+          />
+        </div>
+        <AnimatePresence>
+          {isOpen && (
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className="absolute top-[calc(100%+8px)] left-0 w-full bg-[#1a1a1a] border border-[#333] rounded-xl shadow-2xl z-50 max-h-60 overflow-y-auto custom-scrollbar"
+            >
+              {filtered.map((opt) => (
+                <div
+                  key={opt}
+                  onClick={() => toggleOpt(opt)}
+                  className="flex items-center justify-between px-4 py-3 text-sm hover:bg-[#222] cursor-pointer transition-colors text-[#ccc] hover:text-white"
+                >
+                  <span className="truncate">{opt}</span>
+                </div>
+              ))}
+              {filtered.length === 0 &&
+                allowCustom &&
+                query.trim().length > 0 && (
+                  <div
+                    onClick={() => toggleOpt(query)}
+                    className="px-4 py-3 text-sm hover:bg-[#222] cursor-pointer text-white font-bold border-t border-[#333]"
+                  >
+                    + Add "{query}"
+                  </div>
+                )}
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+    );
+  },
+);
+CustomMultiSelect.displayName = "CustomMultiSelect";
+
+// ============================================================================
+// OAUTH PROVIDER COMPONENTS & ICONS
+// ============================================================================
+
+const OAuthButton = React.memo(
+  ({ provider, icon, label, onClick, disabled }) => (
+    <button
+      type="button"
+      onClick={() => onClick(provider)}
+      disabled={disabled}
+      className="w-full flex items-center justify-center gap-3 py-3.5 bg-[#121212] border border-white/10 text-white font-bold rounded-xl hover:bg-[#222] hover:border-white/20 transition-all shadow-sm disabled:opacity-50"
+      aria-label={`Continue with ${label}`}
+    >
+      {disabled ? (
+        <Loader2 className="w-5 h-5 animate-spin text-[#888]" />
+      ) : (
+        icon
+      )}
+      {disabled ? "Authenticating..." : `Continue with ${label}`}
+    </button>
+  ),
+);
+OAuthButton.displayName = "OAuthButton";
+
+const GoogleIcon = (
+  <svg className="w-5 h-5" viewBox="0 0 24 24">
+    <path
+      d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+      fill="#4285F4"
+    />
+    <path
+      d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+      fill="#34A853"
+    />
+    <path
+      d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"
+      fill="#FBBC05"
+    />
+    <path
+      d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
+      fill="#EA4335"
+    />
+  </svg>
+);
+
+const FacebookIcon = (
+  <svg
+    className="w-5 h-5 text-[#1877F2]"
+    fill="currentColor"
+    viewBox="0 0 24 24"
+  >
+    <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.469h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.469h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z" />
+  </svg>
+);
+
+const AppleIcon = (
+  <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24">
+    <path d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.039 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zM15.53 3.83c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.56-1.702z" />
+  </svg>
+);
+
+// ============================================================================
+// STATE MACHINE (Reducer Architecture)
+// ============================================================================
+
+const initialProfileState = {
+  email: "",
+  password: "",
+  firstName: "",
+  lastName: "",
+  username: "",
+  gender: "",
+  userState: "",
+  country: "",
+  contact: "",
+  requestMessage: "",
+  currentStatus: "",
+  institution: "",
+  course: "",
+  specialization: "",
+  startMonth: "",
+  startYear: "",
+  endMonth: "",
+  endYear: "",
+  passion: "",
+  niche: "",
+  parallelPath: "",
+  goal3Months: "",
+  longTermGoal: "",
+  rawSkills: [],
+  alignedSkills: [],
+  languages: [],
+  guardianProfession: "",
+  incomeBracket: "",
+  financialLaunchpad: "",
+  investmentCapacity: "",
+  personalFootprint: {
     linkedin: "",
     github: "",
     instagram: "",
@@ -1216,326 +880,638 @@ const Auth = () => {
     figma: "",
     linktree: "",
     website: "",
-  };
-  const [personalFootprint, setPersonalFootprint] = useState(defaultFootprint);
-  const [commercialFootprint, setCommercialFootprint] = useState({
-    ...defaultFootprint,
+  },
+  commercialFootprint: {
     linkedinCompany: "",
+    github: "",
+    instagram: "",
+    twitter: "",
+    youtube: "",
+    reddit: "",
+    pinterest: "",
+    figma: "",
+    linktree: "",
+    website: "",
+  },
+  wildcardInfo: "",
+  coreMotivation: "",
+};
+
+function profileReducer(state, action) {
+  switch (action.type) {
+    case "SET_FIELD":
+      return { ...state, [action.field]: action.value };
+    case "SET_NESTED_FIELD":
+      return {
+        ...state,
+        [action.parent]: {
+          ...state[action.parent],
+          [action.field]: action.value,
+        },
+      };
+    case "HYDRATE_OAUTH":
+      return { ...state, ...action.payload };
+    case "RESET":
+      return initialProfileState;
+    default:
+      return state;
+  }
+}
+
+// ============================================================================
+// MAIN AUTH SYSTEM CONTROLLER
+// ============================================================================
+
+const Auth = () => {
+  const navigate = useNavigate();
+
+  // --- SYSTEM STATES ---
+  const [isLogin, setIsLogin] = useState(true);
+  const [step, setStep] = useState(1);
+  const [systemStatus, setSystemStatus] = useState({
+    loading: false,
+    error: "",
+    success: "",
+    isBooting: false,
+    authTaskComplete: false,
+    showSetupSequence: false,
   });
+  const [showPassword, setShowPassword] = useState(false); // New: Password Toggle
 
-  const [wildcardInfo, setWildcardInfo] = useState("");
-  const [coreMotivation, setCoreMotivation] = useState("");
+  // --- FORM DATA ENGINE ---
+  const [profileData, dispatch] = useReducer(
+    profileReducer,
+    initialProfileState,
+  );
+  const [usernameAvailable, setUsernameAvailable] = useState(null);
 
-  // Password Strength Logic
-  const getPasswordStrength = () => {
-    let s = 0;
-    if (password.length > 7) s += 1;
-    if (/[a-z]/.test(password) && /[A-Z]/.test(password)) s += 1;
-    if (/\d/.test(password)) s += 1;
-    if (/[^a-zA-Z0-9]/.test(password)) s += 1;
-    return s;
-  };
-  const pwScore = getPasswordStrength();
+  const debouncedUsername = useDebounce(profileData.username, 600);
 
-  // Username Debounce
+  // --- VISUAL ASSET ENGINE ---
+  const slides = useMemo(
+    () => [
+      {
+        image: "/stock/Wolf of Wall Street 1.jpg",
+        quote:
+          "The only thing standing between you and your goal is the bulls**t story...",
+        author: "Jordan Belfort",
+      },
+      {
+        image: "/stock/F1.jpg",
+        quote: "We can't win if we don't try.",
+        author: "Sonny Hayes",
+      },
+      {
+        image: "/stock/The Social Network.jpg",
+        quote: "They came to me with an idea, I had a better one.",
+        author: "Mark Zuckerberg",
+      },
+    ],
+    [],
+  );
+
+  const [currentSlide, setCurrentSlide] = useState(0);
+
   useEffect(() => {
-    if (username.length < 3) {
+    const timer = setInterval(
+      () => setCurrentSlide((p) => (p + 1) % slides.length),
+      6000,
+    );
+    return () => clearInterval(timer);
+  }, [slides.length]);
+
+  // --- CORE SECURITY & SESSION ROUTING ---
+  useEffect(() => {
+    const unsubscribe = auth.onAuthStateChanged(async (user) => {
+      if (!user || systemStatus.isBooting || systemStatus.showSetupSequence)
+        return; // Prevent redirect mid-boot
+
+      try {
+        const docRef = doc(db, "users", user.uid);
+        const snap = await getDoc(docRef);
+
+        if (snap.exists()) {
+          navigate("/app", { replace: true });
+        } else {
+          // Ghost User Detection Protocol
+          const wlSnap = await getDocs(
+            query(
+              collection(db, "whitelisted_emails"),
+              where("email", "==", user.email),
+            ),
+          );
+
+          setIsLogin(false);
+          if (wlSnap.empty) {
+            setStep("locked");
+          } else {
+            setStep(2);
+          }
+        }
+      } catch (err) {
+        console.error("[AUTH_ROUTING_ERROR]", err);
+      }
+    });
+    return unsubscribe;
+  }, [navigate, systemStatus.isBooting, systemStatus.showSetupSequence]);
+
+  // --- USERNAME VALIDATION ENGINE ---
+  useEffect(() => {
+    if (debouncedUsername.length < 3) {
       setUsernameAvailable(null);
       return;
     }
-    const checkUsername = async () => {
-      const q = query(
-        collection(db, "users"),
-        where("identity.username", "==", username.toLowerCase()),
-      );
-      const snap = await getDocs(q);
-      setUsernameAvailable(snap.empty);
-    };
-    const t = setTimeout(checkUsername, 500);
-    return () => clearTimeout(t);
-  }, [username]);
-
-  // --- UNIFIED SOCIAL AUTH ENGINE (Google, Facebook, Apple) ---
-  const handleSocialAuth = async (providerType) => {
-    try {
-      setLoading(true);
-      let provider;
-
-      if (providerType === "google") provider = new GoogleAuthProvider();
-      else if (providerType === "facebook")
-        provider = new FacebookAuthProvider();
-      else if (providerType === "apple")
-        provider = new OAuthProvider("apple.com");
-
-      const result = await signInWithPopup(auth, provider);
-      const user = result.user;
-
-      const nameParts = user.displayName
-        ? user.displayName.split(" ")
-        : ["Operator", ""];
-      setFirstName(nameParts[0]);
-      setLastName(nameParts.slice(1).join(" "));
-
-      // Apple allows users to hide their email. If hidden, Firebase generates a proxy email.
-      const safeEmail = user.email || `${user.uid}@privaterelay.appleid.com`;
-      setEmail(safeEmail);
-      setUsername(safeEmail.split("@")[0].toLowerCase());
-
-      // 1. Check if user already exists in DB
-      const userSnap = await getDocs(
-        query(
+    let isMounted = true;
+    const verifyIdentity = async () => {
+      try {
+        const q = query(
           collection(db, "users"),
-          where("identity.email", "==", safeEmail),
-        ),
-      );
-
-      if (!userSnap.empty) {
-        setLoading(false);
-        navigate("/app");
-        return;
-      }
-
-      // 2. Check Whitelist for new OAuth Users
-      const wlSnap = await getDocs(
-        query(
-          collection(db, "whitelisted_emails"),
-          where("email", "==", safeEmail),
-        ),
-      );
-
-      setLoading(false);
-      setIsLogin(false);
-
-      if (wlSnap.empty) {
-        setStep("locked");
-      } else {
-        setStep(2); // Bypass Step 1, go straight to Location/Handle
-      }
-    } catch (error) {
-      console.error(`${providerType} Auth Error:`, error);
-
-      // Handle the "Account exists with different credential" error elegantly
-      if (error.code === "auth/account-exists-with-different-credential") {
-        setError(
-          "An account already exists with the same email address but different sign-in credentials. Sign in using a provider associated with this email address.",
+          where("identity.username", "==", debouncedUsername.toLowerCase()),
         );
-      } else {
-        setError(error.message.replace("Firebase: ", ""));
-      }
-      setLoading(false);
-    }
-  };
-
-  // --- HANDLERS ---
-  const handleSignUpStep1 = async (e) => {
-    e.preventDefault();
-    // FIX: Only validate Step 1 fields
-    if (!email || !password || !firstName || !lastName) {
-      return setError("All identity and security fields are required.");
-    }
-    if (pwScore < 2)
-      return setError("Password too weak. Add numbers or symbols.");
-
-    setLoading(true);
-    setError("");
-    try {
-      const userSnap = await getDocs(
-        query(collection(db, "users"), where("identity.email", "==", email)),
-      );
-      if (!userSnap.empty) {
-        setError("Identity already exists. Proceed to Login.");
-        setLoading(false);
-        return;
-      }
-
-      const wlSnap = await getDocs(
-        query(
-          collection(db, "whitelisted_emails"),
-          where("email", "==", email),
-        ),
-      );
-      if (wlSnap.empty) setStep("locked");
-      else setStep(2);
-    } catch (err) {
-      setError("System verification failed.");
-    }
-    setLoading(false);
-  };
-
-  const handleStep2Submit = (e) => {
-    e.preventDefault();
-    // FIX: Validate Step 2 fields here
-    if (!username || !userState || !country || !gender)
-      return setError(
-        "All handle, identity, and location fields are required.",
-      );
-    if (usernameAvailable === false)
-      return setError("Username is already taken.");
-
-    setError("");
-    setStep(3);
-  };
-
-  const handleStep3Submit = (e) => {
-    e.preventDefault();
-    setError("");
-    // FIX: Validate baseline dates here
-    if (startMonth && !startYear)
-      return setError("If Start Month is selected, Start Year is required.");
-    if (endMonth && !endYear)
-      return setError("If End Month is selected, End Year is required.");
-    setStep(4);
-  };
-
-  const handleStep4Submit = (e) => {
-    e.preventDefault();
-    setError("");
-    // FIX: Validate vision goals here
-    if (passion === parallelPath && passion !== "")
-      return setError(
-        "Primary Macro Domain and Parallel Goal cannot be identical.",
-      );
-    setStep(5);
-  };
-
-  const handleStep7Submit = (e) => {
-    e.preventDefault();
-    setError("");
-    let allLinks = [];
-
-    const validate = (obj) => {
-      for (const [key, val] of Object.entries(obj)) {
-        if (val.trim() !== "") {
-          const rule =
-            FOOTPRINT_VALIDATORS[key] || FOOTPRINT_VALIDATORS["website"];
-          if (!rule.regex.test(val)) {
-            setError(
-              `Invalid URL format for ${key}. Must start with ${rule.prefix}`,
-            );
-            return false;
-          }
-          allLinks.push(val.trim().toLowerCase());
-        }
-      }
-      return true;
+        const snap = await getDocs(q);
+        if (isMounted) setUsernameAvailable(snap.empty);
+      } catch (err) {}
     };
+    verifyIdentity();
+    return () => {
+      isMounted = false;
+    };
+  }, [debouncedUsername]);
 
-    if (!validate(personalFootprint) || !validate(commercialFootprint)) return;
-    if (new Set(allLinks).size !== allLinks.length)
-      return setError(
-        "Duplicate links detected. You cannot use the same URL across different fields.",
-      );
+  // --- OAUTH DELEGATION CONTROLLER ---
+  const handleSocialAuth = useCallback(
+    async (providerType) => {
+      setSystemStatus((prev) => ({
+        ...prev,
+        loading: true,
+        error: "",
+        success: "",
+      }));
+      try {
+        const providers = {
+          google: new GoogleAuthProvider(),
+          facebook: new FacebookAuthProvider(),
+          apple: new OAuthProvider("apple.com"),
+        };
 
-    setStep(8);
+        const result = await signInWithPopup(auth, providers[providerType]);
+        const user = result.user;
+
+        const nameParts = user.displayName
+          ? user.displayName.split(" ")
+          : ["Operator", ""];
+        const safeEmail = user.email || `${user.uid}@privaterelay.appleid.com`;
+        const generatedUsername = safeEmail
+          .split("@")[0]
+          .toLowerCase()
+          .replace(/[^a-z0-9]/g, "");
+
+        dispatch({
+          type: "HYDRATE_OAUTH",
+          payload: {
+            firstName: nameParts[0],
+            lastName: nameParts.slice(1).join(" "),
+            email: safeEmail,
+            username: generatedUsername,
+          },
+        });
+
+        const userSnap = await getDocs(
+          query(
+            collection(db, "users"),
+            where("identity.email", "==", safeEmail),
+          ),
+        );
+
+        if (!userSnap.empty) {
+          setSystemStatus((prev) => ({ ...prev, loading: false }));
+          navigate("/app", { replace: true });
+          return;
+        }
+
+        const wlSnap = await getDocs(
+          query(
+            collection(db, "whitelisted_emails"),
+            where("email", "==", safeEmail),
+          ),
+        );
+
+        setIsLogin(false);
+        setSystemStatus((prev) => ({ ...prev, loading: false }));
+
+        if (wlSnap.empty) setStep("locked");
+        else setStep(2);
+      } catch (error) {
+        console.error(`[OAUTH_PROVIDER_ERROR]`, error);
+        let errorMessage = error.message.replace("Firebase: ", "");
+        if (error.code === "auth/account-exists-with-different-credential") {
+          errorMessage =
+            "Identity conflict detected. Provider credential mismatch.";
+        }
+        setSystemStatus((prev) => ({
+          ...prev,
+          loading: false,
+          error: errorMessage,
+        }));
+      }
+    },
+    [navigate],
+  );
+
+  // --- PASSWORD RECOVERY ENGINE ---
+  const handleForgotPassword = async () => {
+    if (!profileData.email) {
+      return setSystemStatus((prev) => ({
+        ...prev,
+        error: "Please enter your email address above to reset your password.",
+        success: "",
+      }));
+    }
+    setSystemStatus((prev) => ({
+      ...prev,
+      loading: true,
+      error: "",
+      success: "",
+    }));
+    try {
+      await sendPasswordResetEmail(auth, profileData.email);
+      setSystemStatus((prev) => ({
+        ...prev,
+        loading: false,
+        success: "Password reset sequence initiated. Check your inbox.",
+      }));
+    } catch (err) {
+      setSystemStatus((prev) => ({
+        ...prev,
+        loading: false,
+        error: err.message.replace("Firebase: ", ""),
+      }));
+    }
   };
 
-  const handleFinalSubmit = async (e) => {
-    e.preventDefault();
-    setIsBooting(true);
-    setError("");
-    setAuthTaskComplete(false);
+  const getPasswordStrength = useCallback(() => {
+    const p = profileData.password;
+    let s = 0;
+    if (p.length > 7) s += 1;
+    if (/[a-z]/.test(p) && /[A-Z]/.test(p)) s += 1;
+    if (/\d/.test(p)) s += 1;
+    if (/[^a-zA-Z0-9]/.test(p)) s += 1;
+    return s;
+  }, [profileData.password]);
 
-    try {
-      let uid;
-      // If auth.currentUser exists, they used Google. If not, they used Email/Password.
-      if (auth.currentUser) {
-        uid = auth.currentUser.uid;
-      } else {
-        const userCredential = await createUserWithEmailAndPassword(
-          auth,
-          email,
-          password,
-        );
-        uid = userCredential.user.uid;
+  const pwScore = getPasswordStrength();
+
+  const setField = useCallback((field, value) => {
+    dispatch({ type: "SET_FIELD", field, value });
+  }, []);
+  const setNestedField = useCallback((parent, field, value) => {
+    dispatch({ type: "SET_NESTED_FIELD", parent, field, value });
+  }, []);
+
+  // ============================================================================
+  // STRICT VALIDATION & TRANSITION ENGINES
+  // ============================================================================
+
+  const handleSignUpStep1 = useCallback(
+    async (e) => {
+      e.preventDefault();
+      const { email, password, firstName, lastName } = profileData;
+
+      if (!email || !password || !firstName || !lastName) {
+        return setSystemStatus((prev) => ({
+          ...prev,
+          error: "Identity and security fields are mandatory.",
+          success: "",
+        }));
+      }
+      if (pwScore < 2) {
+        return setSystemStatus((prev) => ({
+          ...prev,
+          error: "Security insufficient. Enhance password entropy.",
+          success: "",
+        }));
       }
 
-      await setDoc(doc(db, "users", uid), {
-        identity: {
-          firstName,
-          lastName,
-          email,
-          username: username.toLowerCase(),
-          gender,
-        },
-        location: {
-          state: userState,
-          country,
-          displayLocation: `${userState}, ${country}`,
-        },
-        baseline: {
-          currentStatus,
-          institution,
-          course,
-          specialization,
-          startMonth,
-          startYear,
-          endMonth,
-          endYear,
-        },
-        vision: { passion, niche, parallelPath, goal3Months, longTermGoal },
-        skills: { rawSkills, alignedSkills, languages },
-        resources: {
-          guardianProfession,
-          incomeBracket,
-          financialLaunchpad,
-          investmentCapacity,
-        },
-        footprint: {
-          personal: personalFootprint,
-          commercial: commercialFootprint,
-          location: `${userState}, ${country}`,
-        },
-        wildcard: { wildcardInfo, coreMotivation },
-        discotiveScore: {
-          current: 70,
-          last24h: 0,
-          lastLoginDate: new Date().toISOString().split("T")[0],
-        },
-        createdAt: new Date().toISOString(),
-      });
+      setSystemStatus((prev) => ({
+        ...prev,
+        loading: true,
+        error: "",
+        success: "",
+      }));
+      try {
+        const userSnap = await getDocs(
+          query(collection(db, "users"), where("identity.email", "==", email)),
+        );
+        if (!userSnap.empty) {
+          setSystemStatus((prev) => ({
+            ...prev,
+            loading: false,
+            error:
+              "Identity conflict: Email already provisioned. Proceed to Login.",
+          }));
+          return;
+        }
 
-      setIsBooting(false);
-      setShowSetupSequence(true);
-    } catch (err) {
-      setIsBooting(false);
-      setError(err.message.replace("Firebase: ", ""));
-    }
-  };
+        const wlSnap = await getDocs(
+          query(
+            collection(db, "whitelisted_emails"),
+            where("email", "==", email),
+          ),
+        );
+        if (wlSnap.empty) {
+          setStep("locked");
+        } else {
+          setStep(2);
+        }
+      } catch (err) {
+        console.error("[STEP_1_VERIFICATION_FAILED]", err);
+        setSystemStatus((prev) => ({
+          ...prev,
+          error: "System verification protocol failed.",
+        }));
+      } finally {
+        setSystemStatus((prev) => ({ ...prev, loading: false }));
+      }
+    },
+    [profileData, pwScore],
+  );
 
-  const handleLogin = async (e) => {
-    e.preventDefault();
-    if (!email || !password) return setError("Enter credentials.");
-    setLoading(true);
-    setError("");
-    try {
-      await signInWithEmailAndPassword(auth, email, password);
-      navigate("/app");
-    } catch (err) {
-      setError("Invalid credentials or protocol locked.");
-    } finally {
-      setLoading(false);
-    }
-  };
+  const handleStep2Submit = useCallback(
+    (e) => {
+      e.preventDefault();
+      const { username, userState, country, gender } = profileData;
 
-  if (isBooting) return <AuthLoader taskComplete={authTaskComplete} />;
+      if (!username || !userState || !country || !gender) {
+        return setSystemStatus((prev) => ({
+          ...prev,
+          error: "System coordinates and handle are mandatory.",
+          success: "",
+        }));
+      }
+      if (usernameAvailable === false) {
+        return setSystemStatus((prev) => ({
+          ...prev,
+          error: "Handle is already claimed on the network.",
+          success: "",
+        }));
+      }
+
+      setSystemStatus((prev) => ({ ...prev, error: "", success: "" }));
+      setStep(3);
+    },
+    [profileData, usernameAvailable],
+  );
+
+  const handleStep3Submit = useCallback(
+    (e) => {
+      e.preventDefault();
+      const { startMonth, startYear, endMonth, endYear } = profileData;
+
+      if (startMonth && !startYear)
+        return setSystemStatus((prev) => ({
+          ...prev,
+          error:
+            "Timeline constraint: Start Year required if Month is provided.",
+          success: "",
+        }));
+      if (endMonth && !endYear)
+        return setSystemStatus((prev) => ({
+          ...prev,
+          error: "Timeline constraint: End Year required if Month is provided.",
+          success: "",
+        }));
+
+      setSystemStatus((prev) => ({ ...prev, error: "", success: "" }));
+      setStep(4);
+    },
+    [profileData],
+  );
+
+  const handleStep4Submit = useCallback(
+    (e) => {
+      e.preventDefault();
+      const { passion, parallelPath } = profileData;
+
+      if (passion === parallelPath && passion !== "") {
+        return setSystemStatus((prev) => ({
+          ...prev,
+          error:
+            "Logical error: Primary macro domain and parallel goal cannot be identical.",
+          success: "",
+        }));
+      }
+
+      setSystemStatus((prev) => ({ ...prev, error: "", success: "" }));
+      setStep(5);
+    },
+    [profileData],
+  );
+
+  const handleStep7Submit = useCallback(
+    (e) => {
+      e.preventDefault();
+      setSystemStatus((prev) => ({ ...prev, error: "", success: "" }));
+
+      let allLinks = [];
+      const urlRegex =
+        /^(https?:\/\/)?([\da-z\.-]+)\.([a-z\.]{2,6})([\/\w \.-]*)*\/?$/;
+
+      const validateLinks = (obj) => {
+        for (const [key, val] of Object.entries(obj)) {
+          if (val.trim() !== "") {
+            if (!urlRegex.test(val)) {
+              setSystemStatus((prev) => ({
+                ...prev,
+                error: `Malformed URL detected in ${key} footprint.`,
+              }));
+              return false;
+            }
+            allLinks.push(val.trim().toLowerCase());
+          }
+        }
+        return true;
+      };
+
+      if (
+        !validateLinks(profileData.personalFootprint) ||
+        !validateLinks(profileData.commercialFootprint)
+      )
+        return;
+
+      if (new Set(allLinks).size !== allLinks.length) {
+        return setSystemStatus((prev) => ({
+          ...prev,
+          error:
+            "Duplicate asset constraint: Cannot map the same URL to multiple footprint nodes.",
+        }));
+      }
+
+      setStep(8);
+    },
+    [profileData.personalFootprint, profileData.commercialFootprint],
+  );
+
+  // ============================================================================
+  // DATABASE TRANSACTION & OS BOOT ENGINE
+  // ============================================================================
+
+  const handleFinalSubmit = useCallback(
+    async (e) => {
+      e.preventDefault();
+      setSystemStatus((prev) => ({
+        ...prev,
+        isBooting: true,
+        error: "",
+        success: "",
+        authTaskComplete: false,
+      }));
+
+      try {
+        let uid;
+
+        if (auth.currentUser) {
+          uid = auth.currentUser.uid;
+        } else {
+          const userCredential = await createUserWithEmailAndPassword(
+            auth,
+            profileData.email,
+            profileData.password,
+          );
+          uid = userCredential.user.uid;
+        }
+
+        const systemPayload = {
+          identity: {
+            firstName: profileData.firstName,
+            lastName: profileData.lastName,
+            email: profileData.email,
+            username: profileData.username.toLowerCase(),
+            gender: profileData.gender,
+          },
+          location: {
+            state: profileData.userState,
+            country: profileData.country,
+            displayLocation: `${profileData.userState}, ${profileData.country}`,
+          },
+          baseline: {
+            currentStatus: profileData.currentStatus,
+            institution: profileData.institution,
+            course: profileData.course,
+            specialization: profileData.specialization,
+            startMonth: profileData.startMonth,
+            startYear: profileData.startYear,
+            endMonth: profileData.endMonth,
+            endYear: profileData.endYear,
+          },
+          vision: {
+            passion: profileData.passion,
+            niche: profileData.niche,
+            parallelPath: profileData.parallelPath,
+            goal3Months: profileData.goal3Months,
+            longTermGoal: profileData.longTermGoal,
+          },
+          skills: {
+            rawSkills: profileData.rawSkills,
+            alignedSkills: profileData.alignedSkills,
+            languages: profileData.languages,
+          },
+          resources: {
+            guardianProfession: profileData.guardianProfession,
+            incomeBracket: profileData.incomeBracket,
+            financialLaunchpad: profileData.financialLaunchpad,
+            investmentCapacity: profileData.investmentCapacity,
+          },
+          footprint: {
+            personal: profileData.personalFootprint,
+            commercial: profileData.commercialFootprint,
+            location: `${profileData.userState}, ${profileData.country}`,
+          },
+          wildcard: {
+            wildcardInfo: profileData.wildcardInfo,
+            coreMotivation: profileData.coreMotivation,
+          },
+          discotiveScore: {
+            current: 70, // Bootup baseline
+            last24h: 0,
+            lastLoginDate: new Date().toISOString().split("T")[0],
+          },
+          createdAt: new Date().toISOString(),
+        };
+
+        await setDoc(doc(db, "users", uid), systemPayload);
+        setSystemStatus((prev) => ({
+          ...prev,
+          isBooting: false,
+          showSetupSequence: true,
+        }));
+      } catch (err) {
+        console.error("[BOOT_SEQUENCE_FAILED]", err);
+        setSystemStatus((prev) => ({
+          ...prev,
+          isBooting: false,
+          error: err.message.replace("Firebase: ", ""),
+        }));
+      }
+    },
+    [profileData],
+  );
+
+  const handleLogin = useCallback(
+    async (e) => {
+      e.preventDefault();
+      if (!profileData.email || !profileData.password)
+        return setSystemStatus((prev) => ({
+          ...prev,
+          error: "Credentials missing.",
+          success: "",
+        }));
+
+      setSystemStatus((prev) => ({
+        ...prev,
+        loading: true,
+        error: "",
+        success: "",
+      }));
+      try {
+        await signInWithEmailAndPassword(
+          auth,
+          profileData.email,
+          profileData.password,
+        );
+        navigate("/app", { replace: true });
+      } catch (err) {
+        setSystemStatus((prev) => ({
+          ...prev,
+          loading: false,
+          error:
+            "Authentication failed. Invalid credentials or protocol locked.",
+        }));
+      }
+    },
+    [profileData.email, profileData.password, navigate],
+  );
+
+  // ============================================================================
+  // RENDER HELPERS
+  // ============================================================================
+
+  if (systemStatus.isBooting)
+    return <AuthLoader taskComplete={systemStatus.authTaskComplete} />;
 
   const inputClass =
     "w-full bg-[#121212] border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-white/40 transition-all placeholder-[#555]";
   const labelClass =
     "block text-[10px] font-bold text-[#888] uppercase tracking-[0.2em] mb-2 px-1";
 
-  // Footprint Render Helper
-  const renderFootprintFields = (
-    stateObj,
-    setStateFunc,
-    isCommercial = false,
-  ) => {
-    const fields = [
+  const footprintFields = useMemo(
+    () => [
       { key: "website", icon: Globe, label: "Website" },
       {
-        key: isCommercial ? "linkedinCompany" : "linkedin",
+        key: "linkedin",
         icon: Linkedin,
-        label: isCommercial ? "LinkedIn (Company)" : "LinkedIn",
+        label: "LinkedIn",
+        isCommLabel: "LinkedIn (Company)",
+        commKey: "linkedinCompany",
       },
       { key: "github", icon: Github, label: "GitHub" },
       { key: "twitter", icon: Twitter, label: "X / Twitter" },
@@ -1545,27 +1521,48 @@ const Auth = () => {
       { key: "reddit", icon: Globe, label: "Reddit" },
       { key: "pinterest", icon: Globe, label: "Pinterest" },
       { key: "linktree", icon: LinkIcon, label: "Linktree" },
-    ];
+    ],
+    [],
+  );
 
-    return fields.map(({ key, icon: Icon, label }) => (
-      <div key={key} className="relative">
-        <Icon className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-[#555]" />
-        <input
-          type="url"
-          value={stateObj[key] || ""}
-          onChange={(e) =>
-            setStateFunc((p) => ({ ...p, [key]: e.target.value }))
-          }
-          className={`${inputClass} pl-11 text-xs`}
-          placeholder={label}
-        />
-      </div>
-    ));
-  };
+  const renderFootprintNode = useCallback(
+    (fieldDef, isCommercial) => {
+      const activeKey =
+        isCommercial && fieldDef.commKey ? fieldDef.commKey : fieldDef.key;
+      const activeLabel =
+        isCommercial && fieldDef.isCommLabel
+          ? fieldDef.isCommLabel
+          : fieldDef.label;
+      const Icon = fieldDef.icon;
+      const parentNode = isCommercial
+        ? "commercialFootprint"
+        : "personalFootprint";
+
+      return (
+        <div key={activeKey} className="relative">
+          <Icon className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-[#555]" />
+          <input
+            type="url"
+            value={profileData[parentNode][activeKey] || ""}
+            onChange={(e) =>
+              setNestedField(parentNode, activeKey, e.target.value)
+            }
+            className={`${inputClass} pl-11 text-xs`}
+            placeholder={activeLabel}
+          />
+        </div>
+      );
+    },
+    [profileData, setNestedField, inputClass],
+  );
+
+  // ============================================================================
+  // OS INTERFACE RENDER (Hemispheric Layout)
+  // ============================================================================
 
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-white flex flex-col md:flex-row font-sans selection:bg-white selection:text-black">
-      {/* LEFT SIDE */}
+      {/* --- LEFT HEMISPHERE: BRAND & MOTIVATION --- */}
       <div className="hidden md:flex md:w-5/12 p-12 flex-col justify-between relative overflow-hidden bg-black border-r border-white/5">
         <AnimatePresence mode="wait">
           <motion.img
@@ -1575,18 +1572,20 @@ const Auth = () => {
             animate={{ opacity: 0.4, scale: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 1.5 }}
-            className="absolute inset-0 w-full h-full object-cover z-0"
+            className="absolute inset-0 w-full h-full object-cover z-0 pointer-events-none"
+            alt="Atmospheric Background"
           />
         </AnimatePresence>
-        <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a0a] via-[#0a0a0a]/80 to-transparent z-0" />
+        <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a0a] via-[#0a0a0a]/80 to-transparent z-0 pointer-events-none" />
+
         <div className="relative z-10">
           <Link
             to="/"
-            className="flex items-center gap-3 mb-16 hover:opacity-80 transition-opacity w-fit"
+            className="flex items-center gap-3 mb-16 hover:opacity-80 transition-opacity w-fit focus-visible:outline-none focus-visible:ring-2 ring-white/50 rounded-lg"
           >
             <img
               src="/logox.png"
-              alt="Discotive"
+              alt="Discotive Logo"
               className="h-10 w-auto object-contain"
             />
             <span className="text-2xl font-extrabold tracking-tighter drop-shadow-lg">
@@ -1601,6 +1600,7 @@ const Auth = () => {
             founders, engineers, and creators.
           </p>
         </div>
+
         <div className="relative z-10 my-auto pt-20">
           <AnimatePresence mode="wait">
             <motion.div
@@ -1621,11 +1621,11 @@ const Auth = () => {
         </div>
       </div>
 
-      {/* RIGHT SIDE */}
+      {/* --- RIGHT HEMISPHERE: STATE MACHINE ENGINE --- */}
       <div className="w-full md:w-7/12 flex items-center justify-center p-6 md:p-12 relative overflow-y-auto custom-scrollbar bg-[#0a0a0a]">
         <div className="w-full max-w-lg py-10">
           <AnimatePresence mode="wait">
-            {/* LOGIN */}
+            {/* ==================== LOGIN PROTOCOL ==================== */}
             {isLogin && (
               <motion.div
                 key="login"
@@ -1639,31 +1639,53 @@ const Auth = () => {
                 <p className="text-[#888] font-medium mb-8">
                   Access your Command Center.
                 </p>
-                {error && (
-                  <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-xl flex items-center gap-3 text-red-400 text-sm font-bold mb-6">
-                    <AlertCircle className="w-4 h-4 shrink-0" /> {error}
+
+                {systemStatus.error && (
+                  <div
+                    className="p-4 bg-red-500/10 border border-red-500/20 rounded-xl flex items-center gap-3 text-red-400 text-sm font-bold mb-6"
+                    role="alert"
+                  >
+                    <AlertCircle className="w-4 h-4 shrink-0" />{" "}
+                    {systemStatus.error}
+                  </div>
+                )}
+                {systemStatus.success && (
+                  <div
+                    className="p-4 bg-green-500/10 border border-green-500/20 rounded-xl flex items-center gap-3 text-green-400 text-sm font-bold mb-6"
+                    role="alert"
+                  >
+                    <CheckCircle2 className="w-4 h-4 shrink-0" />{" "}
+                    {systemStatus.success}
                   </div>
                 )}
 
-                {/* --- OAUTH PROVIDERS --- */}
                 <div className="space-y-3">
-                  <GoogleAuthButton
-                    onClick={() => handleSocialAuth("google")}
-                    disabled={loading}
+                  <OAuthButton
+                    provider="google"
+                    icon={GoogleIcon}
+                    label="Google"
+                    onClick={handleSocialAuth}
+                    disabled={systemStatus.loading}
                   />
                   <div className="flex gap-3">
-                    <FacebookAuthButton
-                      onClick={() => handleSocialAuth("facebook")}
-                      disabled={loading}
+                    <OAuthButton
+                      provider="facebook"
+                      icon={FacebookIcon}
+                      label="Facebook"
+                      onClick={handleSocialAuth}
+                      disabled={systemStatus.loading}
                     />
-                    <AppleAuthButton
-                      onClick={() => handleSocialAuth("apple")}
-                      disabled={loading}
+                    <OAuthButton
+                      provider="apple"
+                      icon={AppleIcon}
+                      label="Apple"
+                      onClick={handleSocialAuth}
+                      disabled={systemStatus.loading}
                     />
                   </div>
                 </div>
 
-                <div className="flex items-center gap-4 my-6">
+                <div className="flex items-center gap-4 my-6 opacity-60">
                   <div className="h-px bg-[#222] flex-1"></div>
                   <span className="text-xs text-[#555] font-bold uppercase tracking-widest">
                     OR
@@ -1671,48 +1693,87 @@ const Auth = () => {
                   <div className="h-px bg-[#222] flex-1"></div>
                 </div>
 
-                <form onSubmit={handleLogin} className="space-y-4">
+                <form onSubmit={handleLogin} className="space-y-4" noValidate>
                   <div>
-                    <label className={labelClass}>Email</label>
+                    <label className={labelClass} htmlFor="login-email">
+                      Email Address
+                    </label>
                     <input
+                      id="login-email"
                       type="email"
-                      value={email || ""}
-                      onChange={(e) => setEmail(e.target.value)}
+                      value={profileData.email}
+                      onChange={(e) => setField("email", e.target.value)}
                       className={inputClass}
+                      autoComplete="username"
                       required
                     />
                   </div>
                   <div>
-                    <label className={labelClass}>Password</label>
-                    <input
-                      type="password"
-                      value={password || ""}
-                      onChange={(e) => setPassword(e.target.value)}
-                      className={inputClass}
-                      required
-                    />
+                    <div className="flex items-center justify-between mb-2 px-1">
+                      <label
+                        className="text-[10px] font-bold text-[#888] uppercase tracking-[0.2em]"
+                        htmlFor="login-password"
+                      >
+                        Password
+                      </label>
+                      <button
+                        type="button"
+                        onClick={handleForgotPassword}
+                        className="text-[10px] font-bold text-[#888] hover:text-white transition-colors focus:outline-none"
+                      >
+                        Forgot Password?
+                      </button>
+                    </div>
+                    <div className="relative">
+                      <input
+                        id="login-password"
+                        type={showPassword ? "text" : "password"}
+                        value={profileData.password}
+                        onChange={(e) => setField("password", e.target.value)}
+                        className={inputClass}
+                        autoComplete="current-password"
+                        required
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="absolute right-4 top-1/2 -translate-y-1/2 text-[#555] hover:text-white transition-colors focus:outline-none"
+                        aria-label="Toggle password visibility"
+                      >
+                        {showPassword ? (
+                          <EyeOff className="w-4 h-4" />
+                        ) : (
+                          <Eye className="w-4 h-4" />
+                        )}
+                      </button>
+                    </div>
                   </div>
                   <button
                     type="submit"
-                    disabled={loading}
+                    disabled={systemStatus.loading}
                     className="w-full mt-6 px-6 py-4 bg-white text-black font-bold rounded-xl hover:bg-[#ccc] transition-colors flex items-center justify-center gap-2"
                   >
-                    {loading ? (
+                    {systemStatus.loading ? (
                       <Loader2 className="w-5 h-5 animate-spin" />
                     ) : (
                       "Boot OS"
                     )}
                   </button>
                 </form>
+
                 <p className="mt-8 text-center text-sm font-medium text-[#888]">
                   New here?{" "}
                   <button
                     onClick={() => {
                       setIsLogin(false);
                       setStep(1);
-                      setError("");
+                      setSystemStatus((prev) => ({
+                        ...prev,
+                        error: "",
+                        success: "",
+                      }));
                     }}
-                    className="text-white hover:underline transition-all font-bold"
+                    className="text-white hover:underline transition-all font-bold focus:outline-none"
                   >
                     Create your universe
                   </button>
@@ -1720,7 +1781,7 @@ const Auth = () => {
               </motion.div>
             )}
 
-            {/* STEP 1: IDENTITY & SECURITY */}
+            {/* ==================== STEP 1: IDENTITY ==================== */}
             {!isLogin && step === 1 && (
               <motion.div
                 key="step1"
@@ -1738,47 +1799,63 @@ const Auth = () => {
                 <p className="text-[#888] font-medium mb-8">
                   Your baseline identity.
                 </p>
-                {error && (
-                  <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-xl flex items-center gap-3 text-red-400 text-sm font-bold mb-6">
-                    <AlertCircle className="w-4 h-4 shrink-0" /> {error}
+
+                {systemStatus.error && (
+                  <div
+                    className="p-4 bg-red-500/10 border border-red-500/20 rounded-xl flex items-center gap-3 text-red-400 text-sm font-bold mb-6"
+                    role="alert"
+                  >
+                    <AlertCircle className="w-4 h-4 shrink-0" />{" "}
+                    {systemStatus.error}
                   </div>
                 )}
 
-                {/* --- OAUTH PROVIDERS --- */}
                 <div className="space-y-3">
-                  <GoogleAuthButton
-                    onClick={() => handleSocialAuth("google")}
-                    disabled={loading}
+                  <OAuthButton
+                    provider="google"
+                    icon={GoogleIcon}
+                    label="Google"
+                    onClick={handleSocialAuth}
+                    disabled={systemStatus.loading}
                   />
                   <div className="flex gap-3">
-                    <FacebookAuthButton
-                      onClick={() => handleSocialAuth("facebook")}
-                      disabled={loading}
+                    <OAuthButton
+                      provider="facebook"
+                      icon={FacebookIcon}
+                      label="Facebook"
+                      onClick={handleSocialAuth}
+                      disabled={systemStatus.loading}
                     />
-                    <AppleAuthButton
-                      onClick={() => handleSocialAuth("apple")}
-                      disabled={loading}
+                    <OAuthButton
+                      provider="apple"
+                      icon={AppleIcon}
+                      label="Apple"
+                      onClick={handleSocialAuth}
+                      disabled={systemStatus.loading}
                     />
                   </div>
                 </div>
 
-                <div className="flex items-center gap-4 my-6"></div>
+                <div className="flex items-center gap-4 my-6 opacity-60">
+                  <div className="h-px bg-[#222] flex-1"></div>
+                  <span className="text-xs text-[#555] font-bold uppercase tracking-widest">
+                    OR
+                  </span>
+                  <div className="h-px bg-[#222] flex-1"></div>
+                </div>
 
-                <form onSubmit={handleSignUpStep1} className="space-y-5">
-                  <div className="flex items-center gap-4 mb-6">
-                    <div className="h-px bg-[#222] flex-1"></div>
-                    <span className="text-xs text-[#555] font-bold uppercase tracking-widest">
-                      OR
-                    </span>
-                    <div className="h-px bg-[#222] flex-1"></div>
-                  </div>
+                <form
+                  onSubmit={handleSignUpStep1}
+                  className="space-y-5"
+                  noValidate
+                >
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className={labelClass}>First Name</label>
                       <input
                         type="text"
-                        value={firstName}
-                        onChange={(e) => setFirstName(e.target.value)}
+                        value={profileData.firstName}
+                        onChange={(e) => setField("firstName", e.target.value)}
                         className={inputClass}
                         required
                       />
@@ -1787,8 +1864,8 @@ const Auth = () => {
                       <label className={labelClass}>Last Name</label>
                       <input
                         type="text"
-                        value={lastName}
-                        onChange={(e) => setLastName(e.target.value)}
+                        value={profileData.lastName}
+                        onChange={(e) => setField("lastName", e.target.value)}
                         className={inputClass}
                         required
                       />
@@ -1798,24 +1875,41 @@ const Auth = () => {
                     <label className={labelClass}>Email Address</label>
                     <input
                       type="email"
-                      value={email}
-                      onChange={(e) => setEmail(e.target.value)}
+                      value={profileData.email}
+                      onChange={(e) => setField("email", e.target.value)}
                       className={inputClass}
                       required
                     />
                   </div>
                   <div>
                     <label className={labelClass}>Secure Password</label>
-                    <input
-                      type="password"
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      className={inputClass}
-                      required
-                      minLength="8"
-                      placeholder="Min 8 characters"
-                    />
-                    <div className="flex items-center gap-1 mt-3 px-1">
+                    <div className="relative">
+                      <input
+                        type={showPassword ? "text" : "password"}
+                        value={profileData.password}
+                        onChange={(e) => setField("password", e.target.value)}
+                        className={inputClass}
+                        required
+                        minLength="8"
+                        placeholder="Min 8 characters"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="absolute right-4 top-1/2 -translate-y-1/2 text-[#555] hover:text-white transition-colors focus:outline-none"
+                        aria-label="Toggle password visibility"
+                      >
+                        {showPassword ? (
+                          <EyeOff className="w-4 h-4" />
+                        ) : (
+                          <Eye className="w-4 h-4" />
+                        )}
+                      </button>
+                    </div>
+                    <div
+                      className="flex items-center gap-1 mt-3 px-1"
+                      aria-hidden="true"
+                    >
                       {[1, 2, 3, 4].map((level) => (
                         <div
                           key={level}
@@ -1827,11 +1921,11 @@ const Auth = () => {
 
                   <button
                     type="submit"
-                    disabled={loading}
+                    disabled={systemStatus.loading}
                     className="w-full mt-8 px-6 py-4 bg-white text-black font-bold rounded-xl hover:bg-[#ccc] transition-colors flex items-center justify-between group disabled:opacity-50"
                   >
-                    {loading ? (
-                      <Loader2 className="w-5 h-5 animate-spin text-black" />
+                    {systemStatus.loading ? (
+                      <Loader2 className="w-5 h-5 animate-spin text-black mx-auto" />
                     ) : (
                       <>
                         <span>Verify Credentials</span>
@@ -1840,14 +1934,19 @@ const Auth = () => {
                     )}
                   </button>
                 </form>
+
                 <p className="mt-8 text-center text-sm font-medium text-[#888]">
                   Already verified?{" "}
                   <button
                     onClick={() => {
                       setIsLogin(true);
-                      setError("");
+                      setSystemStatus((prev) => ({
+                        ...prev,
+                        error: "",
+                        success: "",
+                      }));
                     }}
-                    className="text-white hover:underline transition-all font-bold"
+                    className="text-white hover:underline transition-all font-bold focus:outline-none"
                   >
                     Log in here
                   </button>
@@ -1855,7 +1954,7 @@ const Auth = () => {
               </motion.div>
             )}
 
-            {/* STEP 2: HANDLE & LOCATION */}
+            {/* ==================== STEP 2: COORDINATES ==================== */}
             {!isLogin && step === 2 && (
               <motion.div
                 key="step2"
@@ -1873,12 +1972,11 @@ const Auth = () => {
                 <p className="text-[#888] font-medium mb-8">
                   Where do you operate from?
                 </p>
-                {error && (
+                {systemStatus.error && (
                   <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-sm font-bold mb-6">
-                    {error}
+                    {systemStatus.error}
                   </div>
                 )}
-
                 <form onSubmit={handleStep2Submit} className="space-y-5">
                   <div>
                     <label className={labelClass}>Operator Handle</label>
@@ -1888,8 +1986,15 @@ const Auth = () => {
                       </span>
                       <input
                         type="text"
-                        value={username}
-                        onChange={(e) => setUsername(e.target.value)}
+                        value={profileData.username}
+                        onChange={(e) =>
+                          setField(
+                            "username",
+                            e.target.value
+                              .replace(/[^a-zA-Z0-9_]/g, "")
+                              .toLowerCase(),
+                          )
+                        }
                         className={`${inputClass} pl-10`}
                         required
                         placeholder="johndoe"
@@ -1901,9 +2006,10 @@ const Auth = () => {
                         {usernameAvailable === false && (
                           <X className="w-4 h-4 text-red-500" />
                         )}
-                        {usernameAvailable === null && username.length > 2 && (
-                          <Loader2 className="w-4 h-4 text-[#666] animate-spin" />
-                        )}
+                        {usernameAvailable === null &&
+                          debouncedUsername.length > 2 && (
+                            <Loader2 className="w-4 h-4 text-[#666] animate-spin" />
+                          )}
                       </div>
                     </div>
                   </div>
@@ -1912,8 +2018,8 @@ const Auth = () => {
                       Avatar Identity (For Leaderboard)
                     </label>
                     <select
-                      value={gender}
-                      onChange={(e) => setGender(e.target.value)}
+                      value={profileData.gender}
+                      onChange={(e) => setField("gender", e.target.value)}
                       className={inputClass}
                       required
                     >
@@ -1930,8 +2036,8 @@ const Auth = () => {
                       <label className={labelClass}>State / Province</label>
                       <CustomSearchSelect
                         options={INDIAN_STATES_UTS}
-                        value={userState}
-                        onChange={setUserState}
+                        value={profileData.userState}
+                        onChange={(v) => setField("userState", v)}
                         placeholder="e.g. Rajasthan"
                         allowCustom={true}
                         required={true}
@@ -1941,22 +2047,20 @@ const Auth = () => {
                       <label className={labelClass}>Country</label>
                       <CustomSearchSelect
                         options={COUNTRIES}
-                        value={country}
-                        onChange={setCountry}
+                        value={profileData.country}
+                        onChange={(v) => setField("country", v)}
                         placeholder="e.g. India"
                         allowCustom={false}
                         required={true}
                       />
                     </div>
                   </div>
-
                   <div className="flex gap-4 mt-8">
-                    {/* Only show back button if they didn't use Google (Google users lack a password so they can't go back to step 1 safely) */}
                     {!auth.currentUser && (
                       <button
                         type="button"
                         onClick={() => setStep(1)}
-                        className="px-6 py-4 bg-[#111] border border-[#222] text-white font-bold rounded-xl hover:bg-[#222] transition-colors"
+                        className="px-6 py-4 bg-[#111] border border-[#222] text-white font-bold rounded-xl hover:bg-[#222] transition-colors focus:outline-none"
                       >
                         Back
                       </button>
@@ -1973,7 +2077,7 @@ const Auth = () => {
               </motion.div>
             )}
 
-            {/* LOCKED PROTOCOL / REQUEST ACCESS */}
+            {/* ==================== LOCKED PROTOCOL / WAITLIST ==================== */}
             {!isLogin && step === "locked" && (
               <motion.div
                 key="locked"
@@ -1997,18 +2101,13 @@ const Auth = () => {
                 <p className="text-sm text-[#ccc] leading-relaxed mb-6">
                   Discotive is currently invite-only for the top 1% of builders.
                   Your coordinate{" "}
-                  <strong className="text-white">({email})</strong> is not
-                  verified on the chain.
+                  <strong className="text-white">({profileData.email})</strong>{" "}
+                  is not verified on the chain.
                 </p>
-                {error && (
-                  <div className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-xs font-bold mb-4">
-                    {error}
-                  </div>
-                )}
                 <form
                   onSubmit={(e) => {
                     e.preventDefault();
-                    /* EmailJS logic if needed */ setStep("requested");
+                    setStep("requested");
                   }}
                   className="space-y-4 pt-4 border-t border-[#222]"
                 >
@@ -2017,8 +2116,8 @@ const Auth = () => {
                     <input
                       type="text"
                       required
-                      value={contact}
-                      onChange={(e) => setContact(e.target.value)}
+                      value={profileData.contact}
+                      onChange={(e) => setField("contact", e.target.value)}
                       className={inputClass}
                       placeholder="+91 98765 43210"
                     />
@@ -2028,8 +2127,10 @@ const Auth = () => {
                       Transmission (Optional)
                     </label>
                     <textarea
-                      value={requestMessage}
-                      onChange={(e) => setRequestMessage(e.target.value)}
+                      value={profileData.requestMessage}
+                      onChange={(e) =>
+                        setField("requestMessage", e.target.value)
+                      }
                       rows="3"
                       className={`${inputClass} resize-y max-h-40 custom-scrollbar`}
                       placeholder="Why should you be granted access?"
@@ -2054,7 +2155,7 @@ const Auth = () => {
               </motion.div>
             )}
 
-            {/* REQUESTED */}
+            {/* ==================== REQUEST LOGGED ==================== */}
             {!isLogin && step === "requested" && (
               <motion.div
                 key="requested"
@@ -2076,7 +2177,7 @@ const Auth = () => {
                 <div className="pt-8">
                   <Link
                     to="/"
-                    className="text-sm font-bold text-white hover:text-[#888] uppercase tracking-widest transition-colors border-b border-white pb-1"
+                    className="text-sm font-bold text-white hover:text-[#888] uppercase tracking-widest transition-colors border-b border-white pb-1 focus:outline-none"
                   >
                     Return to Surface
                   </Link>
@@ -2084,7 +2185,7 @@ const Auth = () => {
               </motion.div>
             )}
 
-            {/* STEP 3: BASELINE */}
+            {/* ==================== STEP 3: BASELINE ==================== */}
             {!isLogin && step === 3 && (
               <motion.div
                 key="step3"
@@ -2102,19 +2203,18 @@ const Auth = () => {
                 <p className="text-[#888] font-medium mb-8">
                   Where are you starting from?
                 </p>
-                {error && (
+                {systemStatus.error && (
                   <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-sm font-bold mb-6">
-                    {error}
+                    {systemStatus.error}
                   </div>
                 )}
-
                 <form onSubmit={handleStep3Submit} className="space-y-5">
                   <div>
                     <label className={labelClass}>Current Status</label>
                     <CustomSearchSelect
                       options={CURRENT_STATUSES}
-                      value={currentStatus}
-                      onChange={setCurrentStatus}
+                      value={profileData.currentStatus}
+                      onChange={(v) => setField("currentStatus", v)}
                       placeholder="Select execution state..."
                       allowCustom={false}
                       required={true}
@@ -2126,8 +2226,8 @@ const Auth = () => {
                     </label>
                     <CustomSearchSelect
                       options={INSTITUTIONS}
-                      value={institution}
-                      onChange={setInstitution}
+                      value={profileData.institution}
+                      onChange={(v) => setField("institution", v)}
                       placeholder="Search campus or entity..."
                       allowCustom={true}
                     />
@@ -2139,8 +2239,8 @@ const Auth = () => {
                       </label>
                       <CustomSearchSelect
                         options={COURSES}
-                        value={course}
-                        onChange={setCourse}
+                        value={profileData.course}
+                        onChange={(v) => setField("course", v)}
                         placeholder="Search degree..."
                         allowCustom={true}
                       />
@@ -2151,38 +2251,36 @@ const Auth = () => {
                       </label>
                       <CustomSearchSelect
                         options={SPECIALIZATIONS}
-                        value={specialization}
-                        onChange={setSpecialization}
+                        value={profileData.specialization}
+                        onChange={(v) => setField("specialization", v)}
                         placeholder="Core focus..."
                         allowCustom={true}
                       />
                     </div>
                   </div>
-
-                  {/* TIMELINE FIELDS */}
                   <div className="pt-4 border-t border-[#222]">
                     <label className={labelClass}>Timeline / Cohort</label>
                     <div className="grid grid-cols-2 gap-4 mb-4">
                       <div>
-                        <p className="text-[9px] text-[#666] mb-1 pl-1">
+                        <p className="text-[9px] text-[#666] mb-1 pl-1 font-bold uppercase">
                           Start Month
                         </p>
                         <CustomSearchSelect
                           options={MONTHS}
-                          value={startMonth}
-                          onChange={setStartMonth}
+                          value={profileData.startMonth}
+                          onChange={(v) => setField("startMonth", v)}
                           placeholder="Month"
                           allowCustom={false}
                         />
                       </div>
                       <div>
-                        <p className="text-[9px] text-[#666] mb-1 pl-1">
+                        <p className="text-[9px] text-[#666] mb-1 pl-1 font-bold uppercase">
                           Start Year
                         </p>
                         <CustomSearchSelect
                           options={START_YEARS}
-                          value={startYear}
-                          onChange={setStartYear}
+                          value={profileData.startYear}
+                          onChange={(v) => setField("startYear", v)}
                           placeholder="Year"
                           allowCustom={false}
                         />
@@ -2190,37 +2288,36 @@ const Auth = () => {
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                       <div>
-                        <p className="text-[9px] text-[#666] mb-1 pl-1">
+                        <p className="text-[9px] text-[#666] mb-1 pl-1 font-bold uppercase">
                           End / Grad Month
                         </p>
                         <CustomSearchSelect
                           options={MONTHS}
-                          value={endMonth}
-                          onChange={setEndMonth}
+                          value={profileData.endMonth}
+                          onChange={(v) => setField("endMonth", v)}
                           placeholder="Month"
                           allowCustom={false}
                         />
                       </div>
                       <div>
-                        <p className="text-[9px] text-[#666] mb-1 pl-1">
+                        <p className="text-[9px] text-[#666] mb-1 pl-1 font-bold uppercase">
                           End / Grad Year
                         </p>
                         <CustomSearchSelect
                           options={END_YEARS}
-                          value={endYear}
-                          onChange={setEndYear}
+                          value={profileData.endYear}
+                          onChange={(v) => setField("endYear", v)}
                           placeholder="Year"
                           allowCustom={false}
                         />
                       </div>
                     </div>
                   </div>
-
                   <div className="flex gap-4 mt-8">
                     <button
                       type="button"
                       onClick={() => setStep(2)}
-                      className="px-6 py-4 bg-[#111] border border-[#222] text-white font-bold rounded-xl hover:bg-[#222] transition-colors"
+                      className="px-6 py-4 bg-[#111] border border-[#222] text-white font-bold rounded-xl hover:bg-[#222] transition-colors focus:outline-none"
                     >
                       Back
                     </button>
@@ -2236,10 +2333,10 @@ const Auth = () => {
               </motion.div>
             )}
 
-            {/* STEP 4: VISION */}
+            {/* ==================== STEP 4: VISION ==================== */}
             {!isLogin && step === 4 && (
               <motion.div
-                key="step3"
+                key="step4"
                 initial={{ opacity: 0, x: 20 }}
                 animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0, x: -20 }}
@@ -2254,12 +2351,11 @@ const Auth = () => {
                 <p className="text-[#888] font-medium mb-8">
                   What is your ultimate coordinate?
                 </p>
-                {error && (
+                {systemStatus.error && (
                   <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-sm font-bold mb-6">
-                    {error}
+                    {systemStatus.error}
                   </div>
                 )}
-
                 <form onSubmit={handleStep4Submit} className="space-y-5">
                   <div>
                     <label className={labelClass}>
@@ -2267,9 +2363,9 @@ const Auth = () => {
                     </label>
                     <CustomSearchSelect
                       options={MACRO_DOMAINS}
-                      value={passion}
-                      onChange={setPassion}
-                      placeholder="Search roles..."
+                      value={profileData.passion}
+                      onChange={(v) => setField("passion", v)}
+                      placeholder="Search domains..."
                       allowCustom={true}
                       required={true}
                     />
@@ -2278,9 +2374,9 @@ const Auth = () => {
                     <label className={labelClass}>Micro Niche (Optional)</label>
                     <CustomSearchSelect
                       options={MICRO_NICHES}
-                      value={niche}
-                      onChange={setNiche}
-                      placeholder="e.g. AI Engineer, UI Designer..."
+                      value={profileData.niche}
+                      onChange={(v) => setField("niche", v)}
+                      placeholder="e.g. AI Engineer, Director, CEO..."
                       allowCustom={true}
                     />
                   </div>
@@ -2290,21 +2386,22 @@ const Auth = () => {
                     </label>
                     <CustomSearchSelect
                       options={MACRO_DOMAINS}
-                      value={parallelPath}
-                      onChange={setParallelPath}
+                      value={profileData.parallelPath}
+                      onChange={(v) => setField("parallelPath", v)}
                       placeholder="e.g. Building a Startup alongside degree"
                       allowCustom={true}
                     />
                   </div>
-
                   <div className="pt-4 border-t border-[#222] space-y-5">
                     <div>
                       <label className={labelClass}>
                         3-Month Execution Target
                       </label>
                       <textarea
-                        value={goal3Months}
-                        onChange={(e) => setGoal3Months(e.target.value)}
+                        value={profileData.goal3Months}
+                        onChange={(e) =>
+                          setField("goal3Months", e.target.value)
+                        }
                         className={`${inputClass} resize-y max-h-48 min-h-[80px] custom-scrollbar`}
                         placeholder="What is the immediate milestone?"
                         required
@@ -2315,20 +2412,21 @@ const Auth = () => {
                         Macro Endgame (Long-Term)
                       </label>
                       <textarea
-                        value={longTermGoal}
-                        onChange={(e) => setLongTermGoal(e.target.value)}
+                        value={profileData.longTermGoal}
+                        onChange={(e) =>
+                          setField("longTermGoal", e.target.value)
+                        }
                         className={`${inputClass} resize-y max-h-48 min-h-[80px] custom-scrollbar`}
                         placeholder="What does the monopoly look like?"
                         required
                       />
                     </div>
                   </div>
-
                   <div className="flex gap-4 mt-8">
                     <button
                       type="button"
                       onClick={() => setStep(3)}
-                      className="px-6 py-4 bg-[#111] border border-[#222] text-white font-bold rounded-xl hover:bg-[#222] transition-colors"
+                      className="px-6 py-4 bg-[#111] border border-[#222] text-white font-bold rounded-xl hover:bg-[#222] transition-colors focus:outline-none"
                     >
                       Back
                     </button>
@@ -2344,7 +2442,7 @@ const Auth = () => {
               </motion.div>
             )}
 
-            {/* STEP 4: ARSENAL (SKILLS) */}
+            {/* ==================== STEP 5: ARSENAL ==================== */}
             {!isLogin && step === 5 && (
               <motion.div
                 key="step5"
@@ -2362,18 +2460,21 @@ const Auth = () => {
                 <p className="text-[#888] font-medium mb-8">
                   What utilities and protocols do you possess?
                 </p>
-                {error && (
+                {systemStatus.error && (
                   <div className="p-3 bg-red-500/10 border border-red-500/20 text-red-400 text-xs font-bold rounded-xl mb-6">
-                    {error}
+                    {systemStatus.error}
                   </div>
                 )}
-
                 <form
                   onSubmit={(e) => {
                     e.preventDefault();
-                    if (languages.length === 0)
-                      return setError("Select at least one language.");
-                    setError("");
+                    if (profileData.languages.length === 0)
+                      return setSystemStatus((prev) => ({
+                        ...prev,
+                        error:
+                          "Protocol constraint: Select at least one base language.",
+                      }));
+                    setSystemStatus((prev) => ({ ...prev, error: "" }));
                     setStep(6);
                   }}
                   className="space-y-5"
@@ -2384,8 +2485,8 @@ const Auth = () => {
                     </label>
                     <CustomMultiSelect
                       options={RAW_SKILLS}
-                      selected={rawSkills}
-                      onChange={setRawSkills}
+                      selected={profileData.rawSkills}
+                      onChange={(v) => setField("rawSkills", v)}
                       placeholder="Search and add skills..."
                       allowCustom={true}
                     />
@@ -2395,11 +2496,11 @@ const Auth = () => {
                       Alignment Filter (Core Focus)
                     </label>
                     <CustomMultiSelect
-                      options={rawSkills}
-                      selected={alignedSkills}
-                      onChange={setAlignedSkills}
+                      options={profileData.rawSkills}
+                      selected={profileData.alignedSkills}
+                      onChange={(v) => setField("alignedSkills", v)}
                       placeholder={
-                        rawSkills.length === 0
+                        profileData.rawSkills.length === 0
                           ? "Select raw skills first"
                           : "Which matter most?"
                       }
@@ -2412,18 +2513,17 @@ const Auth = () => {
                     </label>
                     <CustomMultiSelect
                       options={LANGUAGES}
-                      selected={languages}
-                      onChange={setLanguages}
+                      selected={profileData.languages}
+                      onChange={(v) => setField("languages", v)}
                       placeholder="Select languages..."
                       allowCustom={true}
                     />
                   </div>
-
                   <div className="flex gap-4 mt-8">
                     <button
                       type="button"
                       onClick={() => setStep(4)}
-                      className="px-6 py-4 bg-[#111] border border-[#222] text-white font-bold rounded-xl hover:bg-[#222] transition-colors"
+                      className="px-6 py-4 bg-[#111] border border-[#222] text-white font-bold rounded-xl hover:bg-[#222] transition-colors focus:outline-none"
                     >
                       Back
                     </button>
@@ -2439,7 +2539,7 @@ const Auth = () => {
               </motion.div>
             )}
 
-            {/* STEP 6: RESOURCES */}
+            {/* ==================== STEP 6: RESOURCES ==================== */}
             {!isLogin && step === 6 && (
               <motion.div
                 key="step6"
@@ -2460,7 +2560,7 @@ const Auth = () => {
                 <form
                   onSubmit={(e) => {
                     e.preventDefault();
-                    setError("");
+                    setSystemStatus((prev) => ({ ...prev, error: "" }));
                     setStep(7);
                   }}
                   className="space-y-5"
@@ -2471,8 +2571,8 @@ const Auth = () => {
                     </label>
                     <CustomSearchSelect
                       options={MACRO_DOMAINS}
-                      value={guardianProfession}
-                      onChange={setGuardianProfession}
+                      value={profileData.guardianProfession}
+                      onChange={(v) => setField("guardianProfession", v)}
                       placeholder="Search profession..."
                       allowCustom={true}
                     />
@@ -2482,8 +2582,10 @@ const Auth = () => {
                       Household Income Bracket (Optional)
                     </label>
                     <select
-                      value={incomeBracket}
-                      onChange={(e) => setIncomeBracket(e.target.value)}
+                      value={profileData.incomeBracket}
+                      onChange={(e) =>
+                        setField("incomeBracket", e.target.value)
+                      }
                       className={inputClass}
                     >
                       <option value="">Select bracket...</option>
@@ -2497,8 +2599,10 @@ const Auth = () => {
                       Financial Launchpad (Required)
                     </label>
                     <select
-                      value={financialLaunchpad}
-                      onChange={(e) => setFinancialLaunchpad(e.target.value)}
+                      value={profileData.financialLaunchpad}
+                      onChange={(e) =>
+                        setField("financialLaunchpad", e.target.value)
+                      }
                       className={inputClass}
                       required
                     >
@@ -2517,8 +2621,10 @@ const Auth = () => {
                       Career Investment Capacity (Required)
                     </label>
                     <select
-                      value={investmentCapacity}
-                      onChange={(e) => setInvestmentCapacity(e.target.value)}
+                      value={profileData.investmentCapacity}
+                      onChange={(e) =>
+                        setField("investmentCapacity", e.target.value)
+                      }
                       className={inputClass}
                       required
                     >
@@ -2536,7 +2642,7 @@ const Auth = () => {
                     <button
                       type="button"
                       onClick={() => setStep(5)}
-                      className="px-6 py-4 bg-[#111] border border-[#222] text-white font-bold rounded-xl hover:bg-[#222] transition-colors"
+                      className="px-6 py-4 bg-[#111] border border-[#222] text-white font-bold rounded-xl hover:bg-[#222] transition-colors focus:outline-none"
                     >
                       Back
                     </button>
@@ -2552,10 +2658,10 @@ const Auth = () => {
               </motion.div>
             )}
 
-            {/* STEP 7: FOOTPRINT */}
+            {/* ==================== STEP 7: FOOTPRINT ==================== */}
             {!isLogin && step === 7 && (
               <motion.div
-                key="step6"
+                key="step7"
                 initial={{ opacity: 0, x: 20 }}
                 animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0, x: -20 }}
@@ -2570,44 +2676,37 @@ const Auth = () => {
                 <p className="text-[#888] font-medium mb-8">
                   Connect your external ledger. (All optional)
                 </p>
-                {error && (
+                {systemStatus.error && (
                   <div className="p-3 bg-red-500/10 border border-red-500/20 text-red-400 text-xs font-bold rounded-xl mb-6">
-                    {error}
+                    {systemStatus.error}
                   </div>
                 )}
-
                 <form onSubmit={handleStep7Submit} className="space-y-8">
                   <div>
                     <h3 className="text-xs font-bold text-[#ccc] border-b border-[#222] pb-2 uppercase tracking-widest mb-4">
                       Personal Footprint
                     </h3>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      {renderFootprintFields(
-                        personalFootprint,
-                        setPersonalFootprint,
-                        false,
+                      {footprintFields.map((field) =>
+                        renderFootprintNode(field, false),
                       )}
                     </div>
                   </div>
-
                   <div className="pt-4">
                     <h3 className="text-xs font-bold text-[#ccc] border-b border-[#222] pb-2 uppercase tracking-widest mb-4">
                       Professional / Commercial
                     </h3>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                      {renderFootprintFields(
-                        commercialFootprint,
-                        setCommercialFootprint,
-                        true,
+                      {footprintFields.map((field) =>
+                        renderFootprintNode(field, true),
                       )}
                     </div>
                   </div>
-
                   <div className="flex gap-4 mt-8 pt-4">
                     <button
                       type="button"
                       onClick={() => setStep(6)}
-                      className="px-6 py-4 bg-[#111] border border-[#222] text-white font-bold rounded-xl hover:bg-[#222] transition-colors"
+                      className="px-6 py-4 bg-[#111] border border-[#222] text-white font-bold rounded-xl hover:bg-[#222] transition-colors focus:outline-none"
                     >
                       Back
                     </button>
@@ -2623,10 +2722,10 @@ const Auth = () => {
               </motion.div>
             )}
 
-            {/* STEP 8: CANVAS & BOOT */}
+            {/* ==================== STEP 8: FINAL CANVAS ==================== */}
             {!isLogin && step === 8 && (
               <motion.div
-                key="step7"
+                key="step8"
                 initial={{ opacity: 0, x: 20 }}
                 animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0, x: -20 }}
@@ -2641,20 +2740,22 @@ const Auth = () => {
                 <p className="text-[#888] font-medium mb-8">
                   Give the engine its final context.
                 </p>
-                {error && (
+                {systemStatus.error && (
                   <div className="p-4 bg-red-500/10 border border-red-500/20 rounded-xl flex items-center gap-3 text-red-400 text-sm font-bold mb-6">
-                    <AlertCircle className="w-4 h-4 shrink-0" /> {error}
+                    <AlertCircle className="w-4 h-4 shrink-0" />{" "}
+                    {systemStatus.error}
                   </div>
                 )}
-
                 <form onSubmit={handleFinalSubmit} className="space-y-5">
                   <div>
                     <label className={labelClass}>
                       Core Motivation (Required)
                     </label>
                     <textarea
-                      value={coreMotivation}
-                      onChange={(e) => setCoreMotivation(e.target.value)}
+                      value={profileData.coreMotivation}
+                      onChange={(e) =>
+                        setField("coreMotivation", e.target.value)
+                      }
                       className={`${inputClass} resize-y max-h-48 min-h-[100px] custom-scrollbar`}
                       placeholder="Why are you building this? What drives you?"
                       required
@@ -2665,8 +2766,8 @@ const Auth = () => {
                       Wildcard Variables (Optional)
                     </label>
                     <textarea
-                      value={wildcardInfo}
-                      onChange={(e) => setWildcardInfo(e.target.value)}
+                      value={profileData.wildcardInfo}
+                      onChange={(e) => setField("wildcardInfo", e.target.value)}
                       className={`${inputClass} resize-y max-h-48 min-h-[100px] custom-scrollbar`}
                       placeholder="Unique constraints, mentors admired, or facts we should know."
                     />
@@ -2675,16 +2776,16 @@ const Auth = () => {
                     <button
                       type="button"
                       onClick={() => setStep(7)}
-                      className="px-6 py-4 bg-[#111] border border-[#222] text-white font-bold rounded-xl hover:bg-[#222] transition-colors"
+                      className="px-6 py-4 bg-[#111] border border-[#222] text-white font-bold rounded-xl hover:bg-[#222] transition-colors focus:outline-none"
                     >
                       Back
                     </button>
                     <button
                       type="submit"
-                      disabled={loading || isBooting}
+                      disabled={systemStatus.isBooting}
                       className="flex-1 px-6 py-4 bg-white text-black font-extrabold rounded-xl hover:bg-[#ccc] transition-colors flex items-center justify-center gap-2 shadow-[0_0_30px_rgba(255,255,255,0.2)] disabled:opacity-50"
                     >
-                      {isBooting ? (
+                      {systemStatus.isBooting ? (
                         <Loader2 className="w-5 h-5 animate-spin text-black" />
                       ) : (
                         "Boot Discotive OS"
@@ -2697,35 +2798,49 @@ const Auth = () => {
           </AnimatePresence>
         </div>
       </div>
+
+      {/* --- POST-AUTH BOOT SEQUENCE MOUNT --- */}
+      {systemStatus.showSetupSequence && (
+        <SetupSequence onComplete={() => navigate("/app", { replace: true })} />
+      )}
     </div>
   );
 };
 
 // ============================================================================
-// OS INITIALIZATION SEQUENCE (Post-Signup Animation)
+// OS INITIALIZATION SEQUENCE (Post-Signup Animation) - BUG FIXED
 // ============================================================================
-const SetupSequence = ({ onComplete }) => {
+
+/**
+ * @component SetupSequence
+ * @description Fixed CSS-driven boot animation sequence. Removed unstable `cn` dependencies
+ * and replaced them with robust template literals to prevent blank-screen crashes.
+ */
+const SetupSequence = React.memo(({ onComplete }) => {
   const [taskIndex, setTaskIndex] = useState(0);
   const [score, setScore] = useState(0);
   const [phase, setPhase] = useState("tasks"); // 'tasks', 'bonus', 'done'
 
-  const tasks = [
-    "Initializing command center",
-    "Deploying execution timeline",
-    "Calibrating leaderboard",
-    "Securing asset vault",
-    "Establishing network hub",
-    "Building operator profile",
-  ];
+  const tasks = useMemo(
+    () => [
+      "Initializing command center",
+      "Deploying execution timeline",
+      "Calibrating leaderboard",
+      "Securing asset vault",
+      "Establishing network hub",
+      "Building operator profile",
+    ],
+    [],
+  );
 
-  const animateScore = (start, end, durationStr = 30) => {
+  const animateScore = useCallback((start, end, durationStr = 30) => {
     let current = start;
     const interval = setInterval(() => {
       current += 1;
       setScore(current);
       if (current >= end) clearInterval(interval);
     }, durationStr);
-  };
+  }, []);
 
   useEffect(() => {
     if (phase !== "tasks") return;
@@ -2743,7 +2858,7 @@ const SetupSequence = ({ onComplete }) => {
       const timer = setTimeout(() => setPhase("bonus"), 500);
       return () => clearTimeout(timer);
     }
-  }, [taskIndex, phase]);
+  }, [taskIndex, phase, tasks.length, animateScore]);
 
   useEffect(() => {
     if (phase === "bonus") {
@@ -2756,7 +2871,7 @@ const SetupSequence = ({ onComplete }) => {
       }, 1500);
       return () => clearTimeout(timer1);
     }
-  }, [phase]);
+  }, [phase, animateScore]);
 
   useEffect(() => {
     if (phase === "done") onComplete();
@@ -2796,10 +2911,7 @@ const SetupSequence = ({ onComplete }) => {
                 key={task}
                 initial={{ opacity: 0, x: -20 }}
                 animate={{ opacity: 1, x: 0 }}
-                className={cn(
-                  "flex items-center gap-4 text-sm md:text-base font-bold tracking-wide",
-                  isDone ? "text-[#888]" : "text-white",
-                )}
+                className={`flex items-center gap-4 text-sm md:text-base font-bold tracking-wide ${isDone ? "text-[#888]" : "text-white"}`}
               >
                 <div className="w-6 h-6 shrink-0 flex items-center justify-center">
                   {isActive ? (
@@ -2818,19 +2930,12 @@ const SetupSequence = ({ onComplete }) => {
           <p className="text-[10px] md:text-xs font-bold text-[#666] uppercase tracking-[0.3em] mb-4">
             Baseline Score
           </p>
-
           <div className="relative flex items-center justify-center">
             <motion.span
-              className={cn(
-                "text-8xl md:text-9xl font-black font-mono tracking-tighter transition-colors duration-500",
-                phase === "bonus"
-                  ? "text-amber-500 drop-shadow-[0_0_40px_rgba(245,158,11,0.5)]"
-                  : "text-white",
-              )}
+              className={`text-8xl md:text-9xl font-black font-mono tracking-tighter transition-colors duration-500 ${phase === "bonus" ? "text-amber-500 drop-shadow-[0_0_40px_rgba(245,158,11,0.5)]" : "text-white"}`}
             >
               {score}
             </motion.span>
-
             <AnimatePresence>
               {phase === "bonus" && score === 20 && (
                 <motion.div
@@ -2844,7 +2949,6 @@ const SetupSequence = ({ onComplete }) => {
               )}
             </AnimatePresence>
           </div>
-
           <AnimatePresence>
             {phase === "bonus" && (
               <motion.div
@@ -2863,6 +2967,7 @@ const SetupSequence = ({ onComplete }) => {
       </div>
     </motion.div>
   );
-};
+});
+SetupSequence.displayName = "SetupSequence";
 
 export default Auth;

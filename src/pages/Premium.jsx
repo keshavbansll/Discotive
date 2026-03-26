@@ -1,255 +1,416 @@
-import { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { motion } from "framer-motion";
-import { Check, X, Zap, ShieldCheck, Lock, Activity } from "lucide-react";
+/**
+ * @fileoverview Discotive OS - Premium Upgrade Gateway & Pricing Matrix
+ * @module Billing/Premium
+ * @description
+ * MAANG-Grade psychological pricing terminal.
+ * * CORE SYSTEMS:
+ * 1. IP-Based Dynamic Localization (INR vs USD).
+ * 2. Subscription State Routing (Auto-detects active tiers).
+ * 3. FOMO UI Architecture (Strikethrough denial states for free tiers).
+ */
+import { initiateProUpgrade } from "../lib/razorpay";
+import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
+import { motion, AnimatePresence } from "framer-motion";
+import {
+  Crown,
+  Activity,
+  Network,
+  Database,
+  Eye,
+  TerminalSquare,
+  Lock,
+  Target,
+  Calendar,
+} from "lucide-react";
 import { useUserData } from "../hooks/useUserData";
 import { cn } from "../components/ui/BentoCard";
 
 const Premium = () => {
   const { userData, loading } = useUserData();
   const navigate = useNavigate();
+  const [isCheckingOut, setIsCheckingOut] = useState(false);
+  const [billingCycle, setBillingCycle] = useState("monthly"); // 'monthly' | 'yearly'
+  const [currency, setCurrency] = useState("USD"); // Default to USD
+  const [isLocating, setIsLocating] = useState(true);
 
-  // Handle Pro Checkout Routing
-  const handleProClick = () => {
-    if (userData) {
-      navigate("/checkout");
-    } else {
-      // You can implement a redirect parameter here in the future if needed
-      navigate("/auth");
+  // --- GEOLOCATION ENGINE ---
+  useEffect(() => {
+    const detectLocation = async () => {
+      try {
+        const response = await fetch("https://ipapi.co/json/");
+        const data = await response.json();
+        if (data.country_code === "IN") {
+          setCurrency("INR");
+        }
+      } catch (error) {
+        console.warn("Geolocation failed. Defaulting to USD.", error);
+      } finally {
+        setIsLocating(false);
+      }
+    };
+    detectLocation();
+  }, []);
+
+  // --- PRICING DATA MATRIX ---
+  const PRICING = {
+    INR: {
+      monthly: { current: "99", crossed: "139", symbol: "₹" },
+      yearly: { current: "999", crossed: "1,499", symbol: "₹" },
+    },
+    USD: {
+      monthly: { current: "1.99", crossed: "2.99", symbol: "$" },
+      yearly: { current: "19.99", crossed: "29.99", symbol: "$" },
+    },
+  };
+
+  const currentPricing = PRICING[currency][billingCycle];
+
+  // --- CHECKOUT ROUTING ---
+  const handleProAction = async () => {
+    if (!userData) return navigate("/auth");
+    if (userData.tier === "PRO") return navigate("/dashboard");
+
+    setIsCheckingOut(true);
+    try {
+      // This triggers the Razorpay modal overlay
+      await initiateProUpgrade(userData);
+    } catch (error) {
+      console.error("Checkout failed to initialize:", error);
+      alert("Failed to connect to the payment gateway. Please try again.");
+    } finally {
+      setIsCheckingOut(false);
     }
   };
 
-  if (loading) {
+  const handleEssentialAction = () => {
+    if (!userData) return navigate("/auth");
+    navigate("/dashboard");
+  };
+
+  if (loading || isLocating) {
     return (
       <div className="min-h-screen bg-[#030303] flex items-center justify-center">
-        <Activity className="w-6 h-6 text-[#666] animate-spin" />
+        <Activity className="w-6 h-6 text-amber-500 animate-spin" />
       </div>
     );
   }
 
+  const isPro = userData?.tier === "PRO";
+
   return (
-    <div className="bg-[#030303] min-h-screen text-white selection:bg-white selection:text-black pb-32 font-sans relative">
+    <div className="bg-[#030303] min-h-screen text-white selection:bg-amber-500 selection:text-black pb-32 font-sans relative overflow-hidden">
+      {/* OS Background Noise */}
       <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-[0.03] pointer-events-none z-0" />
 
-      {/* HEADER */}
-      <div className="max-w-[1400px] mx-auto px-6 md:px-12 pt-32 pb-16 text-center relative z-10">
+      {/* Ambient Glows */}
+      <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-indigo-500/10 blur-[120px] rounded-full mix-blend-screen pointer-events-none" />
+      <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-amber-500/10 blur-[120px] rounded-full mix-blend-screen pointer-events-none" />
+
+      {/* HEADER SECTION */}
+      <div className="max-w-[1200px] mx-auto px-6 md:px-12 pt-24 md:pt-32 pb-16 text-center relative z-10">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5 }}
         >
-          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full border border-[#333] bg-[#111] mb-8">
-            <Zap className="w-4 h-4 text-amber-500" />
-            <span className="text-[10px] font-extrabold text-[#888] uppercase tracking-widest">
-              Discotive OS Upgrades
+          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-[#333] bg-[#111] mb-6 shadow-2xl">
+            <Crown className="w-4 h-4 text-amber-500" />
+            <span className="text-[10px] font-extrabold text-[#ccc] uppercase tracking-[0.2em]">
+              Clearance Level Upgrade
             </span>
           </div>
-          <h1 className="text-5xl md:text-7xl font-extrabold tracking-tighter text-white mb-6 leading-tight">
-            Scale your monopoly.
+          <h1 className="text-5xl md:text-7xl font-black tracking-tighter text-white mb-6 leading-tight">
+            Unlock God-Mode.
           </h1>
-          <p className="text-lg md:text-xl text-[#888] font-medium tracking-tight max-w-2xl mx-auto">
-            The basic OS gets you started. Discotive Pro unlocks infinite
-            execution parameters and complete historical ledger access.
+          <p className="text-sm md:text-base text-[#888] font-medium tracking-wide max-w-2xl mx-auto leading-relaxed">
+            The Essential tier proves you exist. Discotive Pro gives you the
+            algorithmic intelligence, competitive X-Ray vision, and unlimited
+            execution bandwidth to dominate the global leaderboard.
           </p>
+        </motion.div>
+
+        {/* BILLING TOGGLE */}
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.2 }}
+          className="mt-12 flex items-center justify-center gap-4"
+        >
+          <span
+            className={cn(
+              "text-xs font-bold uppercase tracking-widest transition-colors",
+              billingCycle === "monthly" ? "text-white" : "text-[#666]",
+            )}
+          >
+            Monthly
+          </span>
+          <button
+            onClick={() =>
+              setBillingCycle((b) => (b === "monthly" ? "yearly" : "monthly"))
+            }
+            className="w-14 h-7 bg-[#111] border border-[#333] rounded-full p-1 relative transition-colors focus:outline-none"
+          >
+            <motion.div
+              className="w-5 h-5 bg-amber-500 rounded-full shadow-[0_0_10px_rgba(245,158,11,0.5)]"
+              animate={{ x: billingCycle === "yearly" ? 26 : 0 }}
+              transition={{ type: "spring", stiffness: 500, damping: 30 }}
+            />
+          </button>
+          <div className="flex items-center gap-2">
+            <span
+              className={cn(
+                "text-xs font-bold uppercase tracking-widest transition-colors",
+                billingCycle === "yearly" ? "text-white" : "text-[#666]",
+              )}
+            >
+              Annually
+            </span>
+            <span className="px-2 py-0.5 bg-green-500/10 border border-green-500/30 text-green-400 text-[8px] font-black uppercase tracking-widest rounded">
+              Save 16%
+            </span>
+          </div>
         </motion.div>
       </div>
 
-      {/* PRICING GRID */}
-      <div className="max-w-[1400px] mx-auto px-6 md:px-12 relative z-10">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-8 items-stretch">
-          {/* TIER 1: FREE (Basic OS) */}
+      {/* PRICING MATRIX */}
+      <div className="max-w-[1200px] mx-auto px-6 md:px-12 relative z-10">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-center">
+          {/* TIER 1: ESSENTIAL (FREE) */}
           <motion.div
-            initial={{ opacity: 0, y: 30 }}
-            animate={{ opacity: 1, y: 0 }}
+            initial={{ opacity: 0, x: -20 }}
+            animate={{ opacity: 1, x: 0 }}
             transition={{ duration: 0.5, delay: 0.1 }}
-            className="bg-[#0a0a0a] border border-[#222] rounded-[2.5rem] p-8 md:p-10 flex flex-col hover:border-[#444] transition-colors h-full"
+            className="bg-[#050505] border border-[#222] rounded-[2rem] p-8 flex flex-col h-[700px] opacity-80 hover:opacity-100 transition-opacity"
           >
-            <div className="mb-8">
-              <h2 className="text-2xl font-extrabold tracking-tight text-white mb-2">
-                Basic OS
+            <div className="mb-8 border-b border-[#222] pb-8">
+              <h2 className="text-xl font-black tracking-tighter text-white mb-2 uppercase">
+                Essential
               </h2>
-              <p className="text-sm text-[#666] font-medium h-10">
-                Standard deployment for early-stage builders.
+              <p className="text-xs text-[#666] font-medium h-8 leading-relaxed">
+                Baseline deployment for early-stage operators.
               </p>
-              <div className="mt-6 flex items-baseline gap-2">
-                <span className="text-5xl font-extrabold tracking-tighter text-white">
-                  ₹0
+              <div className="mt-4 flex items-baseline gap-2">
+                <span className="text-4xl font-black tracking-tighter text-white">
+                  {PRICING[currency].monthly.symbol}0
                 </span>
               </div>
             </div>
 
-            <div className="flex-1 space-y-6 mb-12">
-              <div className="flex items-start gap-4">
-                <div className="w-6 h-6 rounded-full bg-green-500/10 border border-green-500/30 flex items-center justify-center shrink-0">
-                  <Check className="w-3.5 h-3.5 text-green-500" />
-                </div>
-                <p className="text-sm font-bold text-[#ccc] pt-0.5">
-                  Execution Plan{" "}
-                  <span className="text-[#666] font-mono text-[10px] ml-1 uppercase tracking-widest">
-                    (Max 10 Nodes)
-                  </span>
-                </p>
-              </div>
-              <div className="flex items-start gap-4 opacity-50">
-                <div className="w-6 h-6 rounded-full bg-red-500/10 border border-red-500/30 flex items-center justify-center shrink-0">
-                  <X className="w-3.5 h-3.5 text-red-500" />
-                </div>
-                <p className="text-sm font-bold text-[#666] pt-0.5 line-through decoration-[#444]">
-                  Execution Journal
-                </p>
-              </div>
-              <div className="flex items-start gap-4">
-                <div className="w-6 h-6 rounded-full bg-green-500/10 border border-green-500/30 flex items-center justify-center shrink-0">
-                  <Check className="w-3.5 h-3.5 text-green-500" />
-                </div>
-                <p className="text-sm font-bold text-[#ccc] pt-0.5">
-                  Milestone Tracker
-                </p>
-              </div>
-            </div>
-
-            <Link
-              to="/auth"
-              className="w-full py-4 px-6 rounded-full border border-[#444] text-white font-extrabold text-sm uppercase tracking-widest hover:bg-white hover:text-black hover:border-white transition-all text-center mt-auto"
-            >
-              Sign Up
-            </Link>
-          </motion.div>
-
-          {/* TIER 2: PRO (Highlighted) */}
-          <motion.div
-            initial={{ opacity: 0, y: 30 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, delay: 0.2 }}
-            className="bg-[#111] border border-[#444] rounded-[2.5rem] p-8 md:p-10 flex flex-col shadow-[0_0_50px_rgba(255,255,255,0.05)] relative overflow-hidden h-full transform md:-translate-y-4"
-          >
-            <div className="absolute top-0 inset-x-0 h-1 bg-white" />
-
-            <div className="mb-8">
-              <div className="flex justify-between items-start mb-2">
-                <h2 className="text-2xl font-extrabold tracking-tight text-white">
-                  Discotive Pro
-                </h2>
-                <span className="px-3 py-1 bg-white text-black text-[9px] font-extrabold uppercase tracking-widest rounded-full">
-                  Recommended
-                </span>
-              </div>
-              <p className="text-sm text-[#888] font-medium h-10">
-                Unrestricted execution and complete historical archiving.
-              </p>
-              <div className="mt-6 flex items-baseline gap-2">
-                <span className="text-5xl font-extrabold tracking-tighter text-white">
-                  ₹99
-                </span>
-                <span className="text-[#666] font-bold text-sm">/ month</span>
-              </div>
-            </div>
-
-            <div className="flex-1 space-y-6 mb-12">
-              <div className="flex items-start gap-4">
-                <div className="w-6 h-6 rounded-full bg-green-500/20 border border-green-500/50 flex items-center justify-center shrink-0">
-                  <Check className="w-3.5 h-3.5 text-green-400" />
-                </div>
-                <p className="text-sm font-bold text-white pt-0.5">
-                  Execution Plan{" "}
-                  <span className="text-amber-500 font-mono text-[10px] ml-1 uppercase tracking-widest">
-                    (Unlimited Nodes)
-                  </span>
-                </p>
-              </div>
-              <div className="flex items-start gap-4">
-                <div className="w-6 h-6 rounded-full bg-green-500/20 border border-green-500/50 flex items-center justify-center shrink-0">
-                  <Check className="w-3.5 h-3.5 text-green-400" />
-                </div>
-                <p className="text-sm font-bold text-white pt-0.5">
-                  Execution Journal{" "}
-                  <span className="text-amber-500 font-mono text-[10px] ml-1 uppercase tracking-widest">
-                    (Full Ledger)
-                  </span>
-                </p>
-              </div>
-              <div className="flex items-start gap-4">
-                <div className="w-6 h-6 rounded-full bg-green-500/20 border border-green-500/50 flex items-center justify-center shrink-0">
-                  <Check className="w-3.5 h-3.5 text-green-400" />
-                </div>
-                <p className="text-sm font-bold text-white pt-0.5">
-                  Milestone Tracker
-                </p>
-              </div>
+            <div className="flex-1 space-y-5">
+              <FeatureItem icon={Target} title="Career Command Engine" />
+              <FeatureItem
+                icon={Network}
+                title="Execution Plan"
+                value="Max 15 Nodes"
+              />
+              <FeatureItem
+                icon={TerminalSquare}
+                title="Daily Journal"
+                isStrikethrough
+              />
+              <FeatureItem
+                icon={Activity}
+                title="Competitor Dashboard"
+                isStrikethrough
+              />
+              <FeatureItem
+                icon={Eye}
+                title="Leaderboard Comparison"
+                isStrikethrough
+              />
+              <FeatureItem
+                icon={Database}
+                title="Asset Vault"
+                value="5 Assets / 15MB"
+              />
+              <FeatureItem
+                icon={Calendar}
+                title="Calendar Roadmap"
+                isStrikethrough
+              />
             </div>
 
             <button
-              onClick={handleProClick}
-              className="w-full py-4 px-6 rounded-full bg-white text-black font-extrabold text-sm uppercase tracking-widest hover:bg-[#ccc] transition-all text-center mt-auto shadow-[0_0_30px_rgba(255,255,255,0.2)]"
+              onClick={handleEssentialAction}
+              disabled={isPro}
+              className={cn(
+                "w-full py-4 mt-8 rounded-xl font-extrabold text-xs uppercase tracking-widest text-center transition-colors",
+                isPro
+                  ? "border border-[#333] bg-[#111] text-[#666] cursor-not-allowed"
+                  : "bg-white text-black hover:bg-[#ccc]",
+              )}
             >
-              ₹99 / Month
+              {isPro ? "Already on Pro" : "Dashboard"}
             </button>
           </motion.div>
 
-          {/* TIER 3: ENTERPRISE (Faded + Slow Flicker) */}
+          {/* TIER 2: DISCOTIVE PRO (THE APEX) */}
           <motion.div
-            initial={{ opacity: 0, y: 30 }}
+            initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.5, delay: 0.3 }}
-            className="relative h-full"
+            transition={{ duration: 0.5, delay: 0.2 }}
+            className="bg-gradient-to-b from-[#0a0a0a] to-[#050505] border border-amber-500/50 rounded-[2.5rem] p-10 flex flex-col h-[750px] shadow-[0_0_50px_rgba(245,158,11,0.1)] relative z-20 scale-105"
           >
-            {/* The Flicker Animation Container */}
-            <motion.div
-              animate={{ opacity: [0.3, 0.6, 0.3] }}
-              transition={{ duration: 5, repeat: Infinity, ease: "easeInOut" }}
-              className="bg-[#050505] border border-[#1a1a1a] rounded-[2.5rem] p-8 md:p-10 flex flex-col h-full pointer-events-none"
-            >
-              <div className="mb-8">
-                <h2 className="text-2xl font-extrabold tracking-tight text-[#666] mb-2 flex items-center gap-3">
-                  Enterprise <Lock className="w-4 h-4 text-[#444]" />
+            <div className="absolute top-0 inset-x-8 h-px bg-gradient-to-r from-transparent via-amber-500 to-transparent" />
+
+            <div className="mb-8 border-b border-[#222] pb-8">
+              <div className="flex justify-between items-start mb-2">
+                <h2 className="text-3xl font-black tracking-tighter text-white uppercase text-transparent bg-clip-text bg-gradient-to-r from-amber-400 to-amber-600">
+                  Discotive Pro
                 </h2>
-                <p className="text-sm text-[#444] font-medium h-10">
-                  Bespoke OS deployment for accelerators, colleges, and VC
-                  cohorts.
-                </p>
-                <div className="mt-6 flex items-baseline gap-2">
-                  <span className="text-4xl font-extrabold tracking-tighter text-[#444]">
-                    Custom
+                {isPro && (
+                  <span className="px-2.5 py-1 bg-amber-500/10 border border-amber-500/30 text-amber-500 text-[8px] font-black uppercase tracking-widest rounded">
+                    Active
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-[#888] font-medium h-8 leading-relaxed">
+                Unrestricted bandwidth, competitive intel, and God-Mode metrics.
+              </p>
+
+              <div className="mt-4 flex items-end gap-3">
+                <div className="flex items-baseline gap-1">
+                  <span className="text-5xl font-black tracking-tighter text-white">
+                    {currentPricing.symbol}
+                    {currentPricing.current}
+                  </span>
+                  <span className="text-[#666] font-bold text-xs uppercase tracking-widest">
+                    / {billingCycle === "monthly" ? "mo" : "yr"}
                   </span>
                 </div>
+                <span className="text-lg font-bold text-[#444] line-through mb-1">
+                  {currentPricing.symbol}
+                  {currentPricing.crossed}
+                </span>
               </div>
+            </div>
 
-              <div className="flex-1 space-y-6 mb-12">
-                <div className="flex items-start gap-4 opacity-40">
-                  <div className="w-6 h-6 rounded-full bg-[#111] border border-[#333] flex items-center justify-center shrink-0">
-                    <ShieldCheck className="w-3.5 h-3.5 text-[#666]" />
-                  </div>
-                  <p className="text-sm font-bold text-[#555] pt-0.5">
-                    Dedicated Campus Hub UI
-                  </p>
-                </div>
-                <div className="flex items-start gap-4 opacity-40">
-                  <div className="w-6 h-6 rounded-full bg-[#111] border border-[#333] flex items-center justify-center shrink-0">
-                    <ShieldCheck className="w-3.5 h-3.5 text-[#666]" />
-                  </div>
-                  <p className="text-sm font-bold text-[#555] pt-0.5">
-                    Admin Telemetry Dashboard
-                  </p>
-                </div>
-                <div className="flex items-start gap-4 opacity-40">
-                  <div className="w-6 h-6 rounded-full bg-[#111] border border-[#333] flex items-center justify-center shrink-0">
-                    <ShieldCheck className="w-3.5 h-3.5 text-[#666]" />
-                  </div>
-                  <p className="text-sm font-bold text-[#555] pt-0.5">
-                    Bulk Node Injection
-                  </p>
-                </div>
-              </div>
+            <div className="flex-1 space-y-5">
+              <FeatureItem icon={Target} title="Advanced Command Engine" pro />
+              <FeatureItem
+                icon={Network}
+                title="Execution Plan"
+                value="Unlimited Nodes"
+                pro
+              />
+              <FeatureItem icon={TerminalSquare} title="Daily Journal" pro />
+              <FeatureItem icon={Activity} title="Competitor Dashboard" pro />
+              <FeatureItem icon={Eye} title="Leaderboard Comparison" pro />
+              <FeatureItem
+                icon={Database}
+                title="Asset Vault"
+                value="Unlimited Assets"
+                pro
+              />
+              <FeatureItem icon={Calendar} title="Calendar Roadmap" pro />
+            </div>
 
-              <div className="w-full py-4 px-6 rounded-full border border-[#222] bg-[#0a0a0a] text-[#444] font-extrabold text-sm uppercase tracking-widest text-center mt-auto flex justify-center items-center gap-2">
-                Coming Soon
+            <button
+              onClick={handleProAction}
+              disabled={isPro || isCheckingOut}
+              className={cn(
+                "w-full py-4 mt-8 rounded-xl font-extrabold text-xs uppercase tracking-[0.2em] transition-all flex items-center justify-center gap-2 shadow-2xl",
+                isPro
+                  ? "bg-white text-black hover:bg-[#ccc]"
+                  : "bg-amber-500 text-black hover:bg-amber-400 hover:shadow-[0_0_30px_rgba(245,158,11,0.4)] active:scale-[0.98] disabled:opacity-50",
+              )}
+            >
+              {isPro ? (
+                "Dashboard"
+              ) : isCheckingOut ? (
+                <Activity className="w-4 h-4 animate-spin" />
+              ) : (
+                "Initialize Upgrade"
+              )}
+            </button>
+          </motion.div>
+
+          {/* TIER 3: ENTERPRISE (THE VOID) */}
+          <motion.div
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.5, delay: 0.3 }}
+            className="bg-[#050505] border border-[#1a1a1a] rounded-[2rem] p-8 flex flex-col h-[700px] relative overflow-hidden items-center justify-center"
+          >
+            {/* Cinematic Scanning Effect */}
+            <motion.div
+              animate={{ top: ["-10%", "110%"] }}
+              transition={{ duration: 3, repeat: Infinity, ease: "linear" }}
+              className="absolute left-0 right-0 h-16 bg-gradient-to-b from-transparent via-white/5 to-transparent pointer-events-none z-0"
+            />
+
+            <div className="relative z-10 flex flex-col items-center text-center opacity-40">
+              <Lock className="w-12 h-12 text-[#333] mb-6" />
+              <h2 className="text-2xl font-black tracking-widest text-[#555] mb-2 uppercase">
+                Enterprise
+              </h2>
+              <div className="px-3 py-1 bg-[#111] border border-[#222] text-[#444] text-[10px] font-mono tracking-[0.3em] uppercase rounded-md mb-8">
+                Deployment Pending
               </div>
-            </motion.div>
+              <Activity className="w-6 h-6 text-[#222] animate-pulse" />
+            </div>
           </motion.div>
         </div>
       </div>
     </div>
   );
 };
+
+// --- HELPER COMPONENT FOR FEATURE ROWS ---
+const FeatureItem = ({ icon: Icon, title, value, pro, isStrikethrough }) => (
+  <div
+    className={cn(
+      "flex items-center gap-4",
+      isStrikethrough ? "opacity-30" : "opacity-100",
+    )}
+  >
+    <div
+      className={cn(
+        "w-8 h-8 rounded-xl flex items-center justify-center shrink-0 border transition-colors",
+        pro
+          ? "bg-amber-500/10 border-amber-500/30"
+          : isStrikethrough
+            ? "bg-red-500/5 border-red-500/10"
+            : "bg-[#111] border-[#333]",
+      )}
+    >
+      <Icon
+        className={cn(
+          "w-4 h-4",
+          pro
+            ? "text-amber-500"
+            : isStrikethrough
+              ? "text-red-500/50"
+              : "text-[#888]",
+        )}
+      />
+    </div>
+    <div className="flex flex-col">
+      <span
+        className={cn(
+          "text-xs font-bold tracking-wide",
+          pro
+            ? "text-white"
+            : isStrikethrough
+              ? "text-[#666] line-through decoration-red-500/50"
+              : "text-[#ccc]",
+        )}
+      >
+        {title}
+      </span>
+      {value && (
+        <span
+          className={cn(
+            "text-[9px] font-mono uppercase tracking-widest",
+            pro ? "text-amber-500/80" : "text-[#666]",
+          )}
+        >
+          {value}
+        </span>
+      )}
+    </div>
+  </div>
+);
 
 export default Premium;

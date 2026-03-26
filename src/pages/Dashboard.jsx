@@ -1,436 +1,841 @@
-import { useState, useEffect, useMemo } from "react";
-import { Link } from "react-router-dom";
+/**
+ * @fileoverview Discotive OS - Command Center (Dashboard)
+ * @module Execution/CommandCenter
+ * @description
+ * High-density, calculative operator hub.
+ * Features dynamic leaderboard cycling, real-time percentile rankings, and strict empty-states.
+ */
+
+import React, { useState, useEffect, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { useNavigate } from "react-router-dom";
 import {
   collection,
-  getDocs,
+  query,
+  where,
+  getCountFromServer,
   doc,
   updateDoc,
-  query,
-  orderBy,
-  limit,
+  arrayUnion,
 } from "firebase/firestore";
-import { db, auth } from "../firebase";
+import { db } from "../firebase";
 import { useUserData } from "../hooks/useUserData";
+import { processDailyConsistency } from "../lib/scoreEngine";
+import TierGate from "../components/TierGate";
+
 import {
-  Flame,
-  TrendingUp,
-  Target,
-  Users,
-  FolderLock,
   Activity,
-  ArrowRight,
-  CheckCircle2,
+  Database,
+  Network,
+  Zap,
+  Target,
+  TerminalSquare,
   Clock,
   ShieldCheck,
-  Zap,
+  ArrowUpRight,
+  TrendingUp,
+  TrendingDown,
+  Crown,
+  Loader2,
+  User,
+  Eye,
+  Lock,
+  Flame,
+  AlertTriangle,
+  ChevronLeft,
   ChevronRight,
-  Calendar,
+  RefreshCw,
+  Info,
 } from "lucide-react";
-import { Skeleton } from "../components/ui/Skeleton";
+import {
+  AreaChart,
+  Area,
+  ResponsiveContainer,
+  Tooltip as RechartsTooltip,
+} from "recharts";
 import { cn } from "../components/ui/BentoCard";
+
+// --- CHARACTER ASSETS FOR WIDGET ---
+const CHARACTERS = {
+  rank1: {
+    Male: "/Characters/Boy-1.gif",
+    Female: "/Characters/Girl-1.gif",
+    Other: "/Characters/Others-1.gif",
+  },
+  rank2: {
+    Male: "/Characters/Boy-2.gif",
+    Female: "/Characters/Girl-2.gif",
+    Other: "/Characters/Others-1.gif",
+  },
+  rank3: {
+    Male: "/Characters/Boy-3.gif",
+    Female: "/Characters/Boy-1.gif",
+    Other: "/Characters/Boy-1.gif",
+  },
+  observer: {
+    Male: "/Characters/Observer.gif",
+    Female: "/Characters/Observer.gif",
+    Other: "/Characters/Observer.gif",
+  },
+};
+const getAvatar = (rankKey, gender) =>
+  CHARACTERS[rankKey][gender] || CHARACTERS[rankKey]["Other"];
 
 // ============================================================================
 // MAIN COMMAND CENTER
 // ============================================================================
+
 const Dashboard = () => {
   const { userData, loading: userLoading } = useUserData();
+  const navigate = useNavigate();
 
-  // --- Real Data States ---
-  const [globalMetrics, setGlobalMetrics] = useState({
-    totalUsers: 0,
-    rank: 0,
-    percentile: 100,
+  // --- UI STATE ---
+  const [journalEntry, setJournalEntry] = useState("");
+  const [isCommitting, setIsCommitting] = useState(false);
+
+  // --- TELEMETRY STATE ---
+  const [percentiles, setPercentiles] = useState({
+    global: 100,
+    domain: 100,
+    niche: 100,
+    parallel: 100,
   });
-  const [recentAssets, setRecentAssets] = useState([]);
-  const [isEngineLoading, setIsEngineLoading] = useState(true);
+  const [isCalculating, setIsCalculating] = useState(true);
 
-  // --- 1. THE DAILY STREAK ENGINE ---
+  // --- DYNAMIC LEADERBOARD WIDGET STATE ---
+  const LB_FILTERS = [
+    { label: "GLOBAL MATRIX", key: "global", dbField: null },
+    { label: "MACRO DOMAIN", key: "domain", dbField: "identity.domain" },
+    { label: "SPECIFIC NICHE", key: "niche", dbField: "identity.niche" },
+    {
+      label: "PARALLEL GOAL",
+      key: "parallelGoal",
+      dbField: "identity.parallelGoal",
+    },
+    { label: "NATION", key: "country", dbField: "identity.country" },
+  ];
+  const [lbFilterIndex, setLbFilterIndex] = useState(0);
+  const [lbRank, setLbRank] = useState("?");
+  const [isLbRefreshing, setIsLbRefreshing] = useState(false);
+
+  // --- CORE METRICS ---
+  const currentScore = userData?.discotiveScore?.current || 0;
+  const last24hScore = userData?.discotiveScore?.last24h || currentScore;
+  const delta = currentScore - last24hScore;
+  const lastReason = userData?.discotiveScore?.lastReason || "OS Initialized";
+  const lastAmount = userData?.discotiveScore?.lastAmount || 0;
+  const streak =
+    userData?.discotiveScore?.streak === 0 &&
+    userData?.discotiveScore?.lastLoginDate ===
+      new Date().toISOString().split("T")[0]
+      ? 1
+      : userData?.discotiveScore?.streak || 0;
+
+  const vaultCount = userData?.vault?.length || 0;
+  const nodesCount = userData?.execution_map?.nodes?.length || 0;
+  const profileViews = userData?.profileViews || 0;
+  const operatorName =
+    userData?.identity?.firstName ||
+    userData?.firstName ||
+    userData?.identity?.fullName?.split(" ")[0] ||
+    userData?.username ||
+    "Operator";
+
+  // Boot Sequence: Force Consistency Check in case Auth missed it
   useEffect(() => {
-    const updateStreak = async () => {
-      if (!userData?.id) return;
+    if (userData?.uid) processDailyConsistency(userData.uid);
+  }, [userData?.uid]);
 
-      const today = new Date().toISOString().split("T")[0];
-      const lastLogin = userData?.telemetry?.lastLoginDate || "";
-      let currentStreak = userData?.telemetry?.loginStreak || 0;
+  // ============================================================================
+  // TELEMETRY & RANK ENGINES
+  // ============================================================================
 
-      // If already logged in today, do nothing.
-      if (lastLogin === today) return;
-
-      // Check if logged in yesterday
-      const yesterday = new Date();
-      yesterday.setDate(yesterday.getDate() - 1);
-      const yesterdayStr = yesterday.toISOString().split("T")[0];
-
-      if (lastLogin === yesterdayStr) {
-        currentStreak += 1; // Continued streak
-      } else {
-        currentStreak = 1; // Broken streak, reset
-      }
-
-      try {
-        await updateDoc(doc(db, "users", userData.id), {
-          "telemetry.lastLoginDate": today,
-          "telemetry.loginStreak": currentStreak,
-        });
-      } catch (error) {
-        console.error("Failed to sync streak telemetry:", error);
-      }
-    };
-
-    if (userData && !userLoading) {
-      updateStreak();
-    }
-  }, [userData, userLoading]);
-
-  // --- 2. THE GLOBAL DATA ENGINE (Rank, Percentile, Assets) ---
+  // Engine 1: Global Percentiles
   useEffect(() => {
-    const fetchDashboardData = async () => {
-      if (!userData?.id) return;
-
+    const calculateStandings = async () => {
+      if (!userData?.discotiveScore) return;
+      setIsCalculating(true);
       try {
-        // A. Calculate Rank & Percentile
-        const usersSnap = await getDocs(collection(db, "users"));
-        let allScores = [];
-        usersSnap.forEach((doc) => {
-          allScores.push(doc.data().discotiveScore || 0);
-        });
+        const usersRef = collection(db, "users");
+        const domain = userData?.identity?.domain || userData?.domain;
+        const niche = userData?.identity?.niche || userData?.niche;
+        const parallelGoal =
+          userData?.identity?.parallelGoal || userData?.parallelGoal;
 
-        // Sort descending
-        allScores.sort((a, b) => b - a);
-        const myScore = userData?.discotiveScore?.current || 0;
-        const myRank = allScores.findIndex((score) => score <= myScore) + 1;
-        const totalUsers = allScores.length || 1;
-
-        // Calculate Top % (Ceil to avoid "Top 0%")
-        const myPercentile = Math.max(
-          1,
-          Math.ceil((myRank / totalUsers) * 100),
+        const qGlobalTotal = query(usersRef);
+        const qGlobalRank = query(
+          usersRef,
+          where("discotiveScore.current", ">", currentScore),
         );
+        const promises = [
+          getCountFromServer(qGlobalTotal),
+          getCountFromServer(qGlobalRank),
+        ];
 
-        setGlobalMetrics({
-          totalUsers,
-          rank: myRank,
-          percentile: myPercentile,
+        if (domain) {
+          promises.push(
+            getCountFromServer(
+              query(usersRef, where("identity.domain", "==", domain)),
+            ),
+          );
+          promises.push(
+            getCountFromServer(
+              query(
+                usersRef,
+                where("identity.domain", "==", domain),
+                where("discotiveScore.current", ">", currentScore),
+              ),
+            ),
+          );
+        }
+        if (niche) {
+          promises.push(
+            getCountFromServer(
+              query(usersRef, where("identity.niche", "==", niche)),
+            ),
+          );
+          promises.push(
+            getCountFromServer(
+              query(
+                usersRef,
+                where("identity.niche", "==", niche),
+                where("discotiveScore.current", ">", currentScore),
+              ),
+            ),
+          );
+        }
+        if (parallelGoal) {
+          promises.push(
+            getCountFromServer(
+              query(
+                usersRef,
+                where("identity.parallelGoal", "==", parallelGoal),
+              ),
+            ),
+          );
+          promises.push(
+            getCountFromServer(
+              query(
+                usersRef,
+                where("identity.parallelGoal", "==", parallelGoal),
+                where("discotiveScore.current", ">", currentScore),
+              ),
+            ),
+          );
+        }
+
+        const results = await Promise.all(promises);
+        const calcPercentile = (totalSnap, rankSnap) => {
+          const total = totalSnap.data().count;
+          if (total === 0) return 1;
+          const rank = rankSnap.data().count + 1;
+          return Math.max(1, Math.ceil((rank / total) * 100));
+        };
+
+        setPercentiles({
+          global: calcPercentile(results[0], results[1]),
+          domain:
+            domain && results[2] ? calcPercentile(results[2], results[3]) : 100,
+          niche:
+            niche && results[4] ? calcPercentile(results[4], results[5]) : 100,
+          parallel:
+            parallelGoal && results[6]
+              ? calcPercentile(results[6], results[7])
+              : 100,
         });
-
-        // B. Fetch Recent Vault Assets (Limit 3)
-        const vaultRef = collection(db, "users", userData.id, "vault");
-        const q = query(vaultRef, orderBy("createdAt", "desc"), limit(3));
-        const vaultSnap = await getDocs(q);
-
-        const assets = [];
-        vaultSnap.forEach((doc) => {
-          assets.push({ id: doc.id, ...doc.data() });
-        });
-        setRecentAssets(assets);
       } catch (error) {
-        console.error("Dashboard Data Engine Failed:", error);
+        console.error(error);
       } finally {
-        setIsEngineLoading(false);
+        setIsCalculating(false);
       }
     };
+    if (!userLoading) calculateStandings();
+  }, [userLoading, currentScore, userData?.identity]);
 
-    if (userData && !userLoading) {
-      fetchDashboardData();
+  // Engine 2: Dynamic Leaderboard Widget
+  const fetchWidgetRank = async () => {
+    if (!userData?.discotiveScore) return;
+    setIsLbRefreshing(true);
+    try {
+      const filter = LB_FILTERS[lbFilterIndex];
+      let constraints = [where("discotiveScore.current", ">", currentScore)];
+
+      if (filter.dbField) {
+        // Look for the data in either the identity object OR the root object
+        const userValue =
+          userData?.identity?.[filter.key] || userData?.[filter.key];
+
+        if (userValue) {
+          // Tell Firebase to query the exact path where the data was found
+          const actualDbPath = userData?.identity?.[filter.key]
+            ? `identity.${filter.key}`
+            : filter.key;
+          constraints.push(where(actualDbPath, "==", userValue));
+        } else {
+          setLbRank("N/A"); // Triggers if you legitimately haven't set a domain/niche
+          setIsLbRefreshing(false);
+          return;
+        }
+      }
+
+      const q = query(collection(db, "users"), ...constraints);
+      const snap = await getCountFromServer(q);
+      setLbRank(snap.data().count + 1);
+    } catch (error) {
+      console.error("Widget Rank Engine Failed:", error);
+      setLbRank("ERR");
+    } finally {
+      setIsLbRefreshing(false);
     }
-  }, [userData, userLoading]);
-
-  // --- FORMATTING HELPERS ---
-  const currentStreak = userData?.telemetry?.loginStreak || 1;
-  const myScore = userData?.discotiveScore; // Can be undefined/0 initially
-
-  // Date Formatting for Header
-  const dateOptions = {
-    weekday: "long",
-    year: "numeric",
-    month: "long",
-    day: "numeric",
   };
-  const todayFormatted = new Date().toLocaleDateString("en-US", dateOptions);
 
+  useEffect(() => {
+    fetchWidgetRank();
+  }, [lbFilterIndex, currentScore]);
+
+  // ============================================================================
+  // DATA PARSERS
+  // ============================================================================
+  const sparklineData = useMemo(() => {
+    const history = userData?.score_history || [];
+    return history
+      .slice(-7)
+      .map((entry) => ({ day: entry.date, score: entry.score }));
+  }, [userData]);
+
+  const heatmapData = useMemo(() => {
+    const ledger = userData?.journal_ledger || [];
+    const activeDates = new Set(
+      ledger.map((entry) => entry.date?.split("T")[0]),
+    );
+    return Array.from({ length: 28 }, (_, i) => {
+      const d = new Date();
+      d.setDate(d.getDate() - (27 - i));
+      const dateStr = d.toISOString().split("T")[0];
+      return { date: dateStr, active: activeDates.has(dateStr) };
+    });
+  }, [userData]);
+
+  // ============================================================================
+  // ACTIONS
+  // ============================================================================
+  const handleCommitJournal = async () => {
+    if (!journalEntry.trim() || !userData?.uid) return;
+    setIsCommitting(true);
+    try {
+      const todayIso = new Date().toISOString();
+      await updateDoc(doc(db, "users", userData.uid), {
+        journal_ledger: arrayUnion({
+          date: todayIso,
+          content: journalEntry.trim(),
+        }),
+      });
+      setJournalEntry("");
+    } catch (error) {
+      console.error("Journal Commit Failed:", error);
+    } finally {
+      setIsCommitting(false);
+    }
+  };
+
+  // ============================================================================
+  // RENDER PIPELINE
+  // ============================================================================
   if (userLoading) {
     return (
-      <div className="min-h-screen bg-[#030303] flex items-center justify-center">
-        <Activity className="w-6 h-6 text-[#444] animate-spin" />
+      <div className="min-h-screen bg-[#000000] flex items-center justify-center">
+        <Activity className="w-8 h-8 text-amber-500 animate-spin" />
       </div>
     );
   }
 
+  // Determine widget avatar
+  const rankKey =
+    lbRank === 1
+      ? "rank1"
+      : lbRank === 2
+        ? "rank2"
+        : lbRank === 3
+          ? "rank3"
+          : "observer";
+  const avatarGif = getAvatar(rankKey, userData?.identity?.gender);
+
   return (
-    <div className="bg-[#030303] min-h-screen w-full overflow-x-hidden text-white selection:bg-white selection:text-black pb-24 md:pb-12">
-      <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-[0.03] pointer-events-none z-0" />
+    <div className="min-h-screen bg-[#000000] text-[#f5f5f7] font-sans selection:bg-amber-500/30 overflow-x-hidden pb-24">
+      <div className="fixed inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-[0.03] pointer-events-none z-0" />
 
-      <div className="max-w-[1400px] mx-auto px-4 md:px-10 pt-8 md:pt-12 relative z-10 space-y-8 md:space-y-10">
-        {/* ========================================================= */}
-        {/* HEADER SECTION (Minimal & Professional)                     */}
-        {/* ========================================================= */}
-        <header className="flex flex-col md:flex-row md:items-end justify-between gap-6 pb-6 border-b border-[#222]">
-          <div>
-            <div className="flex items-center gap-2 text-[#888] mb-2 md:mb-3">
-              <Calendar className="w-3.5 h-3.5 md:w-4 md:h-4" />
-              <span className="text-xs md:text-sm font-medium">
-                {todayFormatted}
-              </span>
+      <div className="max-w-[1400px] mx-auto p-4 md:p-8 relative z-10">
+        {/* ==================== HEADER ==================== */}
+        <header className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-8">
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+          >
+            <div className="flex items-center gap-3 mb-3">
+              <div className="px-3 py-1.5 rounded-full bg-[#111] border border-[#333] text-[9px] font-bold text-emerald-400 uppercase tracking-widest flex items-center gap-1.5 shadow-[0_0_10px_rgba(16,185,129,0.1)]">
+                <Clock className="w-3 h-3" /> System Synchronized
+              </div>
+              {userData?.tier === "PRO" && (
+                <div className="px-3 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-[9px] font-bold text-amber-500 uppercase tracking-widest flex items-center gap-1.5 shadow-[0_0_15px_rgba(245,158,11,0.2)]">
+                  <Crown className="w-3 h-3" /> God Mode
+                </div>
+              )}
             </div>
-            <h1 className="text-3xl md:text-5xl font-extrabold tracking-tight text-white leading-tight">
-              Welcome back, {userData?.identity?.firstName || "Operator"}.
+            <h1 className="text-3xl md:text-5xl font-bold tracking-tight text-white">
+              Welcome, <span className="text-white/50">{operatorName}</span>.
             </h1>
-            <p className="text-[#666] text-sm md:text-base mt-1 md:mt-2 font-medium">
-              Your command center is synced and ready for execution.
-            </p>
-          </div>
-
-          <div className="flex items-center gap-4 shrink-0">
-            {/* The Streak Badge */}
-            <div className="flex items-center gap-3 bg-[#0a0a0a] border border-[#222] px-4 md:px-5 py-2.5 md:py-3 rounded-2xl shadow-sm">
-              <div
-                className={cn(
-                  "p-2 rounded-xl",
-                  currentStreak > 3
-                    ? "bg-orange-500/10 text-orange-500"
-                    : "bg-[#111] text-[#888]",
-                )}
-              >
-                <Flame className="w-4 h-4 md:w-5 md:h-5" />
-              </div>
-              <div>
-                <p className="text-[10px] md:text-xs font-bold text-[#666] uppercase tracking-widest">
-                  Active Streak
-                </p>
-                <p className="text-sm md:text-base font-extrabold">
-                  {currentStreak} {currentStreak === 1 ? "Day" : "Days"}
-                </p>
-              </div>
-            </div>
-          </div>
+          </motion.div>
         </header>
 
-        {/* ========================================================= */}
-        {/* KEY METRICS GRID (Data Dense, No Gimmicks)                  */}
-        {/* ========================================================= */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6">
-          {/* 1. DISCOTIVE SCORE & RANK */}
-          <div className="bg-[#0a0a0a] border border-[#222] rounded-2xl md:rounded-[2rem] p-6 hover:border-[#444] hover:-translate-y-1 transition-all duration-300 flex flex-col justify-between">
-            <div className="flex justify-between items-start mb-6">
-              <div className="p-3 bg-white/5 rounded-xl border border-white/10">
-                <Target className="w-5 h-5 md:w-6 md:h-6 text-white" />
-              </div>
-              <div className="text-right">
-                <span className="text-[10px] font-bold text-[#666] uppercase tracking-widest block mb-1">
-                  Discotive Score
-                </span>
-                <div className="flex items-center justify-end gap-2">
-                  <span className="text-2xl md:text-3xl font-extrabold text-white">
-                    {userData?.discotiveScore?.current || 0}
+        {/* ==================== BENTO GRID MATRIX ==================== */}
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-4 md:gap-6">
+          {/* 1. MASTER SCORE & REAL-TIME LOG (Span 8) */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.1 }}
+            className="col-span-1 md:col-span-8 bg-[#0a0a0c] border border-white/[0.05] rounded-[2rem] p-6 md:p-8 relative overflow-hidden shadow-2xl flex flex-col justify-between min-h-[250px]"
+          >
+            <div className="flex justify-between items-start relative z-10 w-full">
+              <div>
+                <h2 className="text-[10px] font-bold text-white/40 uppercase tracking-widest flex items-center gap-2 mb-2">
+                  <Activity className="w-4 h-4 text-amber-500" /> Real-Time
+                  Telemetry
+                </h2>
+                <div className="flex items-end gap-4 mb-4">
+                  <span className="text-6xl md:text-8xl font-black text-white font-mono tracking-tighter leading-none">
+                    {currentScore}
                   </span>
+                </div>
 
-                  {/* --- 24 HOUR DELTA ENGINE UI --- */}
-                  {(() => {
-                    const current = userData?.discotiveScore?.current || 0;
-                    const last24h = userData?.discotiveScore?.last24h || 0;
-                    const delta = current - last24h;
-
-                    if (delta === 0) return null;
-
-                    return (
-                      <div
+                {/* Real-time Reason Log */}
+                <div className="inline-flex items-center gap-3 bg-white/[0.02] border border-white/[0.05] rounded-xl p-2.5 backdrop-blur-md">
+                  <div
+                    className={cn(
+                      "flex items-center justify-center w-6 h-6 rounded-md",
+                      lastAmount >= 0
+                        ? "bg-green-500/10 text-green-400"
+                        : "bg-red-500/10 text-red-400",
+                    )}
+                  >
+                    {lastAmount >= 0 ? (
+                      <TrendingUp className="w-3 h-3" />
+                    ) : (
+                      <TrendingDown className="w-3 h-3" />
+                    )}
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-[9px] font-bold text-white/40 uppercase tracking-widest">
+                      Last Shift
+                    </span>
+                    <span className="text-xs font-semibold text-white/80">
+                      {lastReason}{" "}
+                      <span
                         className={cn(
-                          "flex items-center text-xs font-extrabold px-2 py-1 rounded-md",
-                          delta > 0
-                            ? "bg-green-500/10 text-green-500"
-                            : "bg-red-500/10 text-red-500",
+                          "font-mono font-bold",
+                          lastAmount >= 0 ? "text-green-400" : "text-red-400",
                         )}
                       >
-                        {delta > 0 ? (
-                          <TrendingUp className="w-3 h-3 mr-1" />
-                        ) : (
-                          <TrendingDown className="w-3 h-3 mr-1" />
-                        )}
-                        {delta > 0 ? "+" : ""}
-                        {delta}
-                      </div>
-                    );
-                  })()}
+                        ({lastAmount > 0 ? `+${lastAmount}` : lastAmount})
+                      </span>
+                    </span>
+                  </div>
                 </div>
               </div>
             </div>
-            <div>
-              {isEngineLoading ? (
-                <Skeleton className="h-4 w-3/4 bg-[#222]" />
-              ) : (userData?.discotiveScore?.current || 0) > 0 ? (
-                <p className="text-sm text-[#888] font-medium leading-relaxed">
-                  You are currently in the{" "}
-                  <strong className="text-white">
-                    Top {globalMetrics.percentile}%
-                  </strong>{" "}
-                  of the global arena (Rank #{globalMetrics.rank}).
-                </p>
+
+            {/* Real Data Sparkline with MAANG Empty State */}
+            <div className="absolute bottom-0 left-0 right-0 h-40 opacity-80 pointer-events-none">
+              {sparklineData.length > 1 ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart
+                    data={sparklineData}
+                    margin={{ top: 0, right: 0, left: 0, bottom: 0 }}
+                  >
+                    <defs>
+                      <linearGradient
+                        id="scoreGradient"
+                        x1="0"
+                        y1="0"
+                        x2="0"
+                        y2="1"
+                      >
+                        <stop
+                          offset="0%"
+                          stopColor="#f59e0b"
+                          stopOpacity={0.4}
+                        />
+                        <stop
+                          offset="100%"
+                          stopColor="#f59e0b"
+                          stopOpacity={0}
+                        />
+                      </linearGradient>
+                    </defs>
+                    <Area
+                      type="monotone"
+                      dataKey="score"
+                      stroke="#f59e0b"
+                      strokeWidth={3}
+                      fill="url(#scoreGradient)"
+                      isAnimationActive={false}
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
               ) : (
-                <p className="text-sm text-[#888] font-medium leading-relaxed">
-                  Start verifying assets or logging executions to establish your
-                  baseline score.
-                </p>
+                <div className="absolute inset-0 flex items-end justify-center pb-6 bg-gradient-to-t from-[#0a0a0c] via-[#0a0a0c]/80 to-transparent">
+                  <span className="text-[10px] font-bold text-amber-500/50 uppercase tracking-widest flex items-center gap-2">
+                    <Activity className="w-3 h-3 animate-pulse" /> Establishing
+                    Baseline Telemetry
+                  </span>
+                </div>
               )}
             </div>
-          </div>
+          </motion.div>
 
-          {/* 2. NETWORK ALLIANCE */}
-          <Link
-            to="/app/network"
-            className="bg-[#0a0a0a] border border-[#222] rounded-2xl md:rounded-[2rem] p-6 hover:border-[#444] hover:-translate-y-1 transition-all duration-300 flex flex-col justify-between group"
+          {/* 2. DYNAMIC LEADERBOARD WIDGET (Span 4, Vertical) */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.15 }}
+            className="col-span-1 md:col-span-4 bg-[#0a0a0c] border border-white/[0.05] rounded-[2rem] p-5 shadow-2xl flex flex-col relative overflow-hidden"
           >
-            <div className="flex justify-between items-start mb-6">
-              <div className="p-3 bg-blue-500/5 rounded-xl border border-blue-500/10">
-                <Users className="w-5 h-5 md:w-6 md:h-6 text-blue-400" />
-              </div>
-              <div className="text-right">
-                <span className="text-[10px] font-bold text-[#666] uppercase tracking-widest block mb-1">
-                  Active Allies
+            {/* Widget Header Controls */}
+            <div className="flex justify-between items-center mb-6 relative z-10">
+              <div className="flex items-center gap-2 bg-[#111] border border-[#222] rounded-lg p-1">
+                <button
+                  onClick={() =>
+                    setLbFilterIndex((i) =>
+                      i === 0 ? LB_FILTERS.length - 1 : i - 1,
+                    )
+                  }
+                  className="p-1 hover:bg-[#222] rounded text-white/50 hover:text-white transition-colors"
+                >
+                  <ChevronLeft className="w-3 h-3" />
+                </button>
+                <span className="text-[9px] font-black text-amber-500 uppercase tracking-widest w-24 text-center">
+                  {LB_FILTERS[lbFilterIndex].label}
                 </span>
-                <span className="text-2xl md:text-3xl font-extrabold text-white">
-                  {userData?.allies?.length || 0}
-                </span>
+                <button
+                  onClick={() =>
+                    setLbFilterIndex((i) =>
+                      i === LB_FILTERS.length - 1 ? 0 : i + 1,
+                    )
+                  }
+                  className="p-1 hover:bg-[#222] rounded text-white/50 hover:text-white transition-colors"
+                >
+                  <ChevronRight className="w-3 h-3" />
+                </button>
               </div>
-            </div>
-            <div className="flex items-center justify-between mt-auto">
-              <p className="text-sm text-[#888] font-medium">
-                {userData?.inboundRequests?.length > 0 ? (
-                  <span className="text-white font-bold">
-                    {userData.inboundRequests.length} Pending Requests
-                  </span>
-                ) : (
-                  "Expand your professional network."
+              <button
+                onClick={fetchWidgetRank}
+                className={cn(
+                  "p-1.5 rounded-md border border-[#333] bg-[#111] text-white/50 hover:text-white transition-all",
+                  isLbRefreshing && "animate-spin text-amber-500",
                 )}
-              </p>
-              <ArrowRight className="w-4 h-4 text-[#444] group-hover:text-white transition-colors" />
+              >
+                <RefreshCw className="w-3 h-3" />
+              </button>
             </div>
-          </Link>
 
-          {/* 3. ASSET VAULT */}
-          <Link
-            to="/app/vault"
-            className="bg-[#0a0a0a] border border-[#222] rounded-2xl md:rounded-[2rem] p-6 hover:border-[#444] hover:-translate-y-1 transition-all duration-300 flex flex-col justify-between group"
+            {/* Avatar & Rank Display */}
+            <div className="flex-1 flex flex-col items-center justify-center relative z-10 pb-4">
+              <div className="w-24 h-24 mb-4 relative flex items-end justify-center drop-shadow-[0_0_15px_rgba(255,255,255,0.1)]">
+                {lbRank === 1 && (
+                  <Crown className="absolute -top-4 text-amber-500 w-6 h-6 animate-bounce drop-shadow-[0_0_10px_rgba(245,158,11,0.8)] z-20" />
+                )}
+                <img
+                  src={avatarGif}
+                  alt="Rank Avatar"
+                  className={cn(
+                    "w-full h-full object-contain pointer-events-none",
+                    rankKey === "observer" &&
+                      "grayscale brightness-75 opacity-70",
+                  )}
+                />
+              </div>
+
+              <div className="flex items-center gap-3">
+                <span
+                  className={cn(
+                    "text-5xl font-black font-mono tracking-tighter",
+                    rankKey === "rank1"
+                      ? "text-amber-500 drop-shadow-[0_0_15px_rgba(245,158,11,0.4)]"
+                      : "text-white",
+                  )}
+                >
+                  {isLbRefreshing ? "--" : `#${lbRank}`}
+                </span>
+                {delta !== 0 && lbRank !== "?" && lbRank !== "ERR" && (
+                  <div
+                    className={cn(
+                      "flex items-center justify-center w-6 h-6 rounded-full border",
+                      delta > 0
+                        ? "bg-green-500/10 border-green-500/30 text-green-400"
+                        : "bg-red-500/10 border-red-500/30 text-red-400",
+                    )}
+                  >
+                    {delta > 0 ? (
+                      <TrendingUp className="w-3 h-3" />
+                    ) : (
+                      <TrendingDown className="w-3 h-3" />
+                    )}
+                  </div>
+                )}
+              </div>
+              <p className="text-[10px] text-white/40 font-bold uppercase tracking-widest mt-2 flex items-center gap-1.5">
+                <Target className="w-3 h-3" /> Live Standing
+              </p>
+            </div>
+
+            {/* Glowing Base */}
+            <div className="absolute bottom-0 inset-x-0 h-24 bg-gradient-to-t from-white/5 to-transparent pointer-events-none" />
+          </motion.div>
+
+          {/* 3. GLOBAL MATRIX PERCENTILES (Span 4) */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.2 }}
+            className="col-span-1 md:col-span-4 bg-[#0a0a0c] border border-white/[0.05] rounded-[2rem] p-6 shadow-2xl flex flex-col justify-between"
+          >
+            <h2 className="text-[10px] font-bold text-white/40 uppercase tracking-widest flex items-center gap-2 mb-6">
+              <Network className="w-4 h-4 text-blue-400" /> Position Matrix
+            </h2>
+
+            {isCalculating ? (
+              <div className="flex-1 flex items-center justify-center">
+                <Loader2 className="w-6 h-6 text-white/20 animate-spin" />
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {[
+                  {
+                    label: "Global Pool",
+                    val: percentiles.global,
+                    color: "text-slate-400",
+                    bg: "bg-slate-400",
+                    shadow: "",
+                  },
+                  {
+                    label: userData?.identity?.domain || "Domain",
+                    val: percentiles.domain,
+                    color: "text-amber-500",
+                    bg: "bg-amber-500",
+                    shadow: "shadow-[0_0_10px_rgba(245,158,11,0.5)]",
+                  },
+                  {
+                    label: userData?.identity?.niche || "Niche",
+                    val: percentiles.niche,
+                    color: "text-emerald-500",
+                    bg: "bg-emerald-500",
+                    shadow: "shadow-[0_0_10px_rgba(16,185,129,0.5)]",
+                  },
+                  {
+                    label: userData?.identity?.parallelGoal || "Parallel Goal",
+                    val: percentiles.parallel,
+                    color: "text-indigo-400",
+                    bg: "bg-indigo-500",
+                    shadow: "shadow-[0_0_10px_rgba(99,102,241,0.5)]",
+                  },
+                ].map((stat, i) => (
+                  <div key={i}>
+                    <div className="flex justify-between text-xs font-bold mb-1.5">
+                      <span className="text-white/60 truncate mr-2">
+                        {stat.label}
+                      </span>
+                      <span className={cn("font-mono shrink-0", stat.color)}>
+                        Top {stat.val}%
+                      </span>
+                    </div>
+                    <div className="w-full h-1 bg-[#111] rounded-full overflow-hidden">
+                      <div
+                        className={cn("h-full", stat.bg, stat.shadow)}
+                        style={{ width: `${100 - stat.val}%` }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </motion.div>
+
+          {/* 4. EXECUTION HEATMAP & STREAK (Span 8) */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.25 }}
+            className="col-span-1 md:col-span-8 bg-[#0a0a0c] border border-white/[0.05] rounded-[2rem] p-6 md:p-8 shadow-2xl flex flex-col justify-between"
           >
             <div className="flex justify-between items-start mb-6">
-              <div className="p-3 bg-green-500/5 rounded-xl border border-green-500/10">
-                <FolderLock className="w-5 h-5 md:w-6 md:h-6 text-green-400" />
-              </div>
+              <h2 className="text-[10px] font-bold text-white/40 uppercase tracking-widest flex items-center gap-2">
+                <Flame className="w-4 h-4 text-orange-500" /> Consistency Engine
+              </h2>
               <div className="text-right">
-                <span className="text-[10px] font-bold text-[#666] uppercase tracking-widest block mb-1">
-                  Verified Assets
-                </span>
-                <span className="text-2xl md:text-3xl font-extrabold text-white">
-                  {isEngineLoading
-                    ? "--"
-                    : recentAssets.filter((a) => a.status === "Verified")
-                        .length}
-                </span>
-              </div>
-            </div>
-            <div className="flex items-center justify-between mt-auto">
-              <p className="text-sm text-[#888] font-medium">
-                Cryptographic proof of your execution.
-              </p>
-              <ArrowRight className="w-4 h-4 text-[#444] group-hover:text-white transition-colors" />
-            </div>
-          </Link>
-        </div>
-
-        {/* ========================================================= */}
-        {/* SECONDARY GRID: ROADMAP & LEDGER                          */}
-        {/* ========================================================= */}
-        <div className="grid grid-cols-1 xl:grid-cols-3 gap-4 md:gap-6">
-          {/* --- ACTIVE ROADMAP SNAPSHOT --- */}
-          <div className="xl:col-span-2 bg-[#0a0a0a] border border-[#222] rounded-2xl md:rounded-[2rem] p-6 md:p-8 flex flex-col justify-between group hover:border-[#444] transition-all duration-300">
-            <div>
-              <div className="flex items-center justify-between mb-6">
-                <p className="text-[10px] md:text-xs font-bold text-[#666] uppercase tracking-[0.2em] flex items-center gap-2">
-                  <TrendingUp className="w-4 h-4 text-[#888]" /> Active
-                  Trajectory
+                <p className="text-3xl font-black text-white font-mono leading-none">
+                  {streak}{" "}
+                  <span className="text-sm text-white/40 font-sans">Days</span>
                 </p>
               </div>
-              <h3 className="text-xl md:text-3xl font-extrabold text-white mb-3 md:mb-4 tracking-tight">
-                {userData?.vision?.goal3Months ||
-                  "Establish your baseline protocol."}
-              </h3>
-              <p className="text-[#888] text-sm md:text-base leading-relaxed max-w-2xl font-medium">
-                {userData?.vision?.goal3Months
-                  ? "Execute your daily tasks in the Roadmap to inch closer to this milestone. Every verified action permanently increases your Discotive Score."
-                  : "Head to your Roadmap to define your 90-day goal, map your capabilities, and start logging daily executions."}
+            </div>
+
+            {/* 28-Day Grid (GitHub Style) */}
+            <div className="flex gap-1.5 flex-wrap mb-6">
+              {heatmapData.map((day, i) => (
+                <div
+                  key={i}
+                  title={day.date}
+                  className={cn(
+                    "w-[calc(14.28%-6px)] md:w-[calc(7.14%-6px)] aspect-square rounded-[4px] border",
+                    day.active
+                      ? "bg-amber-500 border-amber-400 shadow-[0_0_10px_rgba(245,158,11,0.3)]"
+                      : "bg-[#111] border-[#222]",
+                  )}
+                />
+              ))}
+            </div>
+
+            {/* Streak Milestones */}
+            <div className="flex gap-3">
+              {[7, 14, 30].map((target) => (
+                <div
+                  key={target}
+                  className={cn(
+                    "flex-1 p-2 md:p-3 rounded-xl border flex items-center justify-center gap-2",
+                    streak >= target
+                      ? "bg-amber-500/10 border-amber-500/30 text-amber-500"
+                      : "bg-[#111] border-[#222] text-[#444]",
+                  )}
+                >
+                  <ShieldCheck className="w-4 h-4 hidden md:block" />
+                  <div className="text-sm font-black font-mono">
+                    {target}D{" "}
+                    <span className="text-[9px] uppercase tracking-widest font-bold ml-1">
+                      Lock
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </motion.div>
+
+          {/* 5. COMPACT VAULT & VIEWS (Span 4) */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.3 }}
+            className="col-span-1 md:col-span-4 flex flex-col md:flex-row gap-4 md:gap-6"
+          >
+            <div
+              onClick={() => navigate("/vault")}
+              className="flex-1 bg-[#0a0a0c] border border-white/[0.05] rounded-[2rem] p-5 cursor-pointer hover:border-white/10 transition-colors shadow-2xl flex flex-col justify-center items-center text-center"
+            >
+              <Database className="w-6 h-6 text-emerald-500 mb-2" />
+              <div className="text-3xl font-black text-white font-mono mb-1">
+                {vaultCount}
+              </div>
+              <p className="text-[9px] text-white/40 font-bold uppercase tracking-widest">
+                Vault Assets
               </p>
             </div>
-
-            <div className="mt-8 pt-6 md:pt-8 border-t border-[#222]">
-              <Link
-                to="/app/roadmap"
-                className="inline-flex items-center gap-2 px-6 md:px-8 py-3 md:py-4 bg-white text-black text-xs md:text-sm font-extrabold rounded-full hover:bg-[#ccc] transition-colors"
-              >
-                Access Roadmap <ArrowRight className="w-4 h-4" />
-              </Link>
-            </div>
-          </div>
-
-          {/* --- RECENT VAULT ACTIVITY --- */}
-          <div className="bg-[#0a0a0a] border border-[#222] rounded-2xl md:rounded-[2rem] p-6 md:p-8 flex flex-col group hover:border-[#444] transition-all duration-300">
-            <div className="flex items-center justify-between mb-6">
-              <p className="text-[10px] md:text-xs font-bold text-[#666] uppercase tracking-[0.2em] flex items-center gap-2">
-                <Activity className="w-4 h-4 text-[#888]" /> Recent Syncs
+            <div
+              onClick={() => navigate("/network")}
+              className="flex-1 bg-[#0a0a0c] border border-white/[0.05] rounded-[2rem] p-5 cursor-pointer hover:border-white/10 transition-colors shadow-2xl flex flex-col justify-center items-center text-center"
+            >
+              <Eye className="w-6 h-6 text-blue-500 mb-2" />
+              <div className="text-3xl font-black text-white font-mono mb-1">
+                {profileViews}
+              </div>
+              <p className="text-[9px] text-white/40 font-bold uppercase tracking-widest">
+                Profile Views
               </p>
             </div>
+          </motion.div>
 
-            <div className="flex-1 flex flex-col justify-center gap-2">
-              {isEngineLoading ? (
-                Array.from({ length: 3 }).map((_, i) => (
-                  <div
-                    key={i}
-                    className="w-full h-14 bg-[#111] rounded-xl animate-pulse"
-                  />
-                ))
-              ) : recentAssets.length === 0 ? (
-                <div className="flex-1 flex flex-col items-center justify-center text-center py-6">
-                  <FolderLock className="w-8 h-8 text-[#333] mb-3" />
-                  <p className="text-xs text-[#666] font-medium">
-                    No assets synced yet.
+          {/* 6. MINIMAL ROADMAP & DAILY LEDGER (Span 8) */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.35 }}
+            className="col-span-1 md:col-span-8 grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6"
+          >
+            {/* Minimal Execution Plan (Sleek Horizontal UI) */}
+            <div
+              onClick={() => navigate("/roadmap")}
+              className="bg-[#0a0a0c] border border-white/[0.05] rounded-[2rem] p-6 cursor-pointer shadow-2xl relative overflow-hidden group flex flex-col justify-center"
+            >
+              <h2 className="text-[10px] font-bold text-white/40 uppercase tracking-widest flex items-center gap-2 mb-6">
+                <Target className="w-4 h-4 text-indigo-400" /> Active Protocol
+              </h2>
+
+              {nodesCount === 0 ? (
+                <div className="flex flex-col items-center justify-center text-center p-4 bg-[#111] border border-[#222] rounded-2xl relative z-10">
+                  <Lock className="w-5 h-5 text-white/20 mb-2" />
+                  <p className="text-[10px] text-white/40 font-bold uppercase tracking-widest">
+                    Awaiting Generation
                   </p>
                 </div>
               ) : (
-                recentAssets.map((asset) => (
-                  <Link
-                    to="/app/vault"
-                    key={asset.id}
-                    className="flex items-center justify-between group/item p-3 -mx-3 rounded-xl hover:bg-[#111] transition-colors"
-                  >
-                    <div className="flex items-center gap-3 md:gap-4 overflow-hidden">
-                      <div
-                        className={cn(
-                          "p-2 rounded-xl shrink-0 transition-colors",
-                          asset.status === "Verified"
-                            ? "bg-green-500/10 text-green-500 border border-green-500/20"
-                            : "bg-amber-500/10 text-amber-500 border border-amber-500/20",
-                        )}
-                      >
-                        {asset.status === "Verified" ? (
-                          <ShieldCheck className="w-4 h-4" />
-                        ) : (
-                          <Clock className="w-4 h-4" />
-                        )}
-                      </div>
-                      <div className="truncate">
-                        <p className="text-xs md:text-sm font-bold text-[#ccc] group-hover/item:text-white truncate transition-colors">
-                          {asset.title}
-                        </p>
-                        <p className="text-[9px] md:text-[10px] text-[#666] font-mono mt-0.5 uppercase tracking-wider">
-                          {asset.category}
-                        </p>
-                      </div>
+                <div>
+                  <div className="flex items-center gap-1 w-full max-w-[80%] mx-auto mb-6">
+                    <div className="w-4 h-4 rounded-full bg-amber-500 shadow-[0_0_10px_rgba(245,158,11,0.5)] shrink-0" />
+                    <div className="h-0.5 flex-1 bg-amber-500/50" />
+                    <div className="w-4 h-4 rounded-full border-2 border-amber-500 shrink-0" />
+                    <div className="h-0.5 flex-1 bg-[#333]" />
+                    <div className="w-4 h-4 rounded-full bg-[#222] border border-[#444] shrink-0" />
+                  </div>
+                  <div className="text-center">
+                    <div className="text-3xl font-black text-white font-mono">
+                      {nodesCount}
                     </div>
-                    <ChevronRight className="w-4 h-4 text-[#444] group-hover/item:text-white shrink-0 transition-colors ml-2" />
-                  </Link>
-                ))
+                    <p className="text-[9px] text-white/40 font-bold uppercase tracking-widest">
+                      Active Nodes
+                    </p>
+                  </div>
+                </div>
               )}
             </div>
-          </div>
+
+            {/* Daily Ledger (Tier Gated) */}
+            <div className="bg-[#0a0a0c] border border-white/[0.05] rounded-[2rem] relative overflow-hidden shadow-2xl flex flex-col h-[220px]">
+              <TierGate
+                featureKey="canUseJournal"
+                fallbackType="modal"
+                upsellMessage="The Daily Execution Ledger requires Pro clearance. Secure your consistency streak."
+              >
+                <div className="p-5 flex flex-col h-full">
+                  <div className="flex justify-between items-center mb-4">
+                    <h2 className="text-[10px] font-bold text-white/40 uppercase tracking-widest flex items-center gap-2">
+                      <TerminalSquare className="w-3 h-3 text-white" /> Daily
+                      Ledger
+                    </h2>
+                  </div>
+                  <textarea
+                    value={journalEntry}
+                    onChange={(e) => setJournalEntry(e.target.value)}
+                    placeholder="Document today's reality. Execute."
+                    className="flex-1 w-full bg-transparent text-sm font-medium text-white/90 placeholder-white/20 focus:outline-none resize-none custom-scrollbar"
+                  />
+                  <div className="flex items-center justify-between pt-3 border-t border-white/5 mt-auto">
+                    <p className="text-[9px] font-mono font-bold text-white/30">
+                      {journalEntry.length} / 250
+                    </p>
+                    <button
+                      onClick={handleCommitJournal}
+                      disabled={isCommitting || journalEntry.length === 0}
+                      className="px-4 py-1.5 bg-white text-black hover:bg-[#ccc] rounded-lg text-[10px] font-extrabold uppercase tracking-widest disabled:opacity-50 flex items-center gap-1.5 shadow-lg"
+                    >
+                      {isCommitting ? (
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                      ) : (
+                        "Commit"
+                      )}
+                    </button>
+                  </div>
+                </div>
+              </TierGate>
+            </div>
+          </motion.div>
         </div>
       </div>
     </div>

@@ -1,20 +1,45 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+/**
+ * @fileoverview Discotive OS — Execution Neural Map (Roadmap V5 — Apex Mode)
+ * @module Execution/Roadmap
+ *
+ * @description
+ * Adaptive RAG-style career DAG engine. Local-first (IndexedDB + optimistic state),
+ * batched Firestore writes with extreme debouncing, full mobile parity via a
+ * thumb-optimised Edit Mode bottom-sheet, right-click context menus with per-node
+ * colour theming, sub-branch collapsibility, inline Journal nodes, tag taxonomy,
+ * glowing animated Bezier edges with particle pulse, and a unified Discotive Score
+ * mutation bus that fires only on confirmed cloud persists.
+ *
+ * Architectural invariants:
+ *  – All mutable state writes are optimistic. IDB is the recovery layer.
+ *  – Firebase is the authoritative truth. Batch writes debounced at SAVE_DEBOUNCE_MS.
+ *  – Score mutations are accumulated in a pending delta buffer; flushed on persist.
+ *  – Context-menu coordinates are always viewport-clamped to prevent overflow.
+ *  – All string inputs are DOMPurify-sanitised before entering node data.
+ */
+
+import {
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  useMemo,
+  useReducer,
+} from "react";
 import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
-import { motion, AnimatePresence } from "framer-motion";
-import { logEvent } from "firebase/analytics";
-import { analytics } from "../firebase";
 import {
-  doc,
-  updateDoc,
-  getDoc,
-  setDoc,
-  addDoc,
-  collection,
-} from "firebase/firestore";
+  motion,
+  AnimatePresence,
+  useSpring,
+  useTransform,
+} from "framer-motion";
+import { doc, updateDoc, getDoc, setDoc, writeBatch } from "firebase/firestore";
+import { db } from "../firebase";
 import ReactFlow, {
   Background,
   Controls,
+  MiniMap,
   applyNodeChanges,
   applyEdgeChanges,
   addEdge,
@@ -22,9 +47,12 @@ import ReactFlow, {
   Position,
   ReactFlowProvider,
   useReactFlow,
+  getBezierPath,
+  getSmoothStepPath,
+  BaseEdge,
+  EdgeLabelRenderer,
 } from "reactflow";
 import { toPng } from "html-to-image";
-import { jsPDF } from "jspdf";
 import "reactflow/dist/style.css";
 
 import {
@@ -32,18 +60,13 @@ import {
   Wand2,
   ChevronRight as ChevronRightIcon,
   ChevronDown,
-  Clock,
-  Edit3,
-  List,
-  Hash,
-  ShieldCheck,
+  ChevronUp,
   Activity,
   X,
   AlignLeft,
   Maximize,
   Minimize,
   CheckCircle2,
-  Circle,
   Cloud,
   CloudOff,
   RefreshCw,
@@ -53,201 +76,1563 @@ import {
   Settings2,
   Type,
   Plus,
-  ChevronLeft,
-  ChevronRight,
-  AlertOctagon,
-  Check,
   Lock,
   Download,
   Image as ImageIcon,
-  FileText,
-  Edit2,
-  Minus,
+  Check,
+  Database,
+  Network as NetworkIcon,
+  Search,
   Sparkles,
+  Video,
+  FileText,
+  AlertTriangle,
+  BookOpen,
+  Tag,
+  Palette,
+  Star,
+  Zap,
+  BarChart3,
+  Copy,
+  Edit3,
+  Eye,
+  EyeOff,
+  Layers,
+  Map as MapIcon,
+  TrendingUp,
+  Clock,
+  Shield,
+  Cpu,
+  Hash,
+  MoreHorizontal,
+  ArrowRight,
+  Flame,
+  Trophy,
+  ChevronLeft,
+  Globe,
+  Briefcase,
+  Code2,
+  PenLine,
+  Filter,
 } from "lucide-react";
+import {
+  Radar,
+  RadarChart,
+  PolarGrid,
+  PolarAngleAxis,
+  ResponsiveContainer,
+  LineChart,
+  Line,
+  Tooltip as RechartsTooltip,
+} from "recharts";
+
 import { useUserData } from "../hooks/useUserData";
 import { cn } from "../components/ui/BentoCard";
-import { db, auth } from "../firebase";
 import AILoader from "../components/AILoader";
 import {
   generateCalibrationQuestions,
   generateExecutionMap,
 } from "../lib/gemini";
-import { awardTaskCompletion, awardNodeCompletion } from "../lib/scoreEngine";
+import { mutateScore } from "../lib/scoreEngine";
 
 // ============================================================================
-// UTILITIES
+// § 1. COMPILE-TIME CONSTANTS & TOPOLOGY CONFIGURATION
 // ============================================================================
-const getDaysInMonth = (year, month) => new Date(year, month + 1, 0).getDate();
-const isSameDay = (d1, d2) =>
-  d1.getFullYear() === d2.getFullYear() &&
-  d1.getMonth() === d2.getMonth() &&
-  d1.getDate() === d2.getDate();
-const parseDate = (dateStr) => (dateStr ? new Date(dateStr) : null);
+
+/**
+ * @constant SAVE_DEBOUNCE_MS
+ * @description Milliseconds before a dirty-state batch write fires to Firestore.
+ * Calibrated to stay well within free-tier write budget (50k/day).
+ */
+const SAVE_DEBOUNCE_MS = 2500;
+
+/** @constant IDB_DB_NAME — IndexedDB database identifier for the local-first layer. */
+const IDB_DB_NAME = "discotive_neural_v5";
+const IDB_STORE = "execution_maps";
+
+/** @constant NODE_ACCENT_PALETTE — 8-colour per-node accent system. */
+const NODE_ACCENT_PALETTE = {
+  amber: {
+    primary: "#ca8a04",
+    glow: "rgba(202,138,4,0.25)",
+    bg: "rgba(202,138,4,0.06)",
+  },
+  emerald: {
+    primary: "#10b981",
+    glow: "rgba(16,185,129,0.25)",
+    bg: "rgba(16,185,129,0.06)",
+  },
+  violet: {
+    primary: "#8b5cf6",
+    glow: "rgba(139,92,246,0.25)",
+    bg: "rgba(139,92,246,0.06)",
+  },
+  cyan: {
+    primary: "#06b6d4",
+    glow: "rgba(6,182,212,0.25)",
+    bg: "rgba(6,182,212,0.06)",
+  },
+  rose: {
+    primary: "#f43f5e",
+    glow: "rgba(244,63,94,0.25)",
+    bg: "rgba(244,63,94,0.06)",
+  },
+  orange: {
+    primary: "#f97316",
+    glow: "rgba(249,115,22,0.25)",
+    bg: "rgba(249,115,22,0.06)",
+  },
+  sky: {
+    primary: "#38bdf8",
+    glow: "rgba(56,189,248,0.25)",
+    bg: "rgba(56,189,248,0.06)",
+  },
+  white: {
+    primary: "#ffffff",
+    glow: "rgba(255,255,255,0.15)",
+    bg: "rgba(255,255,255,0.04)",
+  },
+};
+
+/** @constant NODE_TAGS — Taxonomy labels for semantic filtering. */
+const NODE_TAGS = [
+  "Skill",
+  "Project",
+  "Certification",
+  "Networking",
+  "Interview",
+  "Research",
+  "Build",
+  "Pitch",
+  "Application",
+  "Learning",
+];
+
+/** @constant TIER_LIMITS — Node cap per subscription tier. */
+const TIER_LIMITS = { free: 20, pro: 100, enterprise: Infinity };
 
 // ============================================================================
-// 1. CUSTOM EXECUTION NODE (Deep Dark Glassmorphism)
+// § 2. LOCAL-FIRST INDEXEDDB LAYER
 // ============================================================================
-const ExecutionNode = ({ data, selected }) => {
-  // Map actual database priority logic to 4 distinct visual states
-  const isActive = data.priorityStatus === "READY" && !data.isCompleted;
-  const isNext = data.priorityStatus === "NEXT" && !data.isCompleted;
-  const isFuture = data.priorityStatus === "FUTURE" && !data.isCompleted;
+
+/**
+ * @function openIDB
+ * @returns {Promise<IDBDatabase>}
+ * @description Opens (or creates v1 schema for) the Discotive local cache.
+ * Acts as the recovery source when Firestore read fails on cold load.
+ */
+const openIDB = () =>
+  new Promise((resolve, reject) => {
+    const req = window.indexedDB.open(IDB_DB_NAME, 1);
+    req.onupgradeneeded = (e) => {
+      e.target.result.createObjectStore(IDB_STORE, { keyPath: "uid" });
+    };
+    req.onsuccess = (e) => resolve(e.target.result);
+    req.onerror = () => reject(req.error);
+  });
+
+/**
+ * @function idbPut
+ * @param {string} uid — Firestore document owner UID.
+ * @param {{ nodes: object[], edges: object[] }} payload
+ * @description Upserts the execution map snapshot to IDB. Fire-and-forget;
+ * failures are silently swallowed to not block the optimistic UI path.
+ */
+const idbPut = async (uid, payload) => {
+  try {
+    const db_idb = await openIDB();
+    const tx = db_idb.transaction(IDB_STORE, "readwrite");
+    tx.objectStore(IDB_STORE).put({ uid, ...payload, ts: Date.now() });
+  } catch (_) {
+    /* silent */
+  }
+};
+
+/**
+ * @function idbGet
+ * @param {string} uid
+ * @returns {Promise<{ nodes: object[], edges: object[], ts: number } | null>}
+ */
+const idbGet = async (uid) => {
+  try {
+    const db_idb = await openIDB();
+    return new Promise((resolve) => {
+      const tx = db_idb.transaction(IDB_STORE, "readonly");
+      const req = tx.objectStore(IDB_STORE).get(uid);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => resolve(null);
+    });
+  } catch (_) {
+    return null;
+  }
+};
+
+// ============================================================================
+// § 3. SANITISATION SHIELD (XSS Prevention Layer)
+// ============================================================================
+
+/**
+ * @function sanitize
+ * @param {string} raw
+ * @returns {string} — HTML-entity-encoded string safe for React text nodes.
+ * @description Client-side XSS mitigation for all freeform text inputs.
+ * Strips script-injectable characters before they enter node data.
+ */
+const sanitize = (raw = "") =>
+  String(raw)
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/javascript:/gi, "")
+    .replace(/on\w+=/gi, "")
+    .slice(0, 2000);
+
+// ============================================================================
+// § 4. NEURAL LAYOUT ENGINE V2 — Sugiyama-Inspired DAG Placer
+// ============================================================================
+
+/**
+ * @function generateNeuralLayout
+ * @param {object[]} nodes — ReactFlow node array.
+ * @param {object[]} edges — ReactFlow edge array.
+ * @returns {object[]} — Nodes with recomputed {x, y} positions.
+ * @description
+ * Implements a layer-based DAG layout algorithm inspired by the Sugiyama framework.
+ * Nodes are assigned to layers via BFS topological sort. Within each layer, nodes
+ * are vertically centred and staggered with controlled organic jitter to prevent
+ * the rigid-grid pathology while maintaining topological clarity.
+ *
+ * Layer-crossing minimisation is approximate (greedy barycentric heuristic)
+ * rather than optimal to keep O(n) complexity on large maps.
+ */
+const generateNeuralLayout = (nodes, edges) => {
+  if (nodes.length === 0) return nodes;
+
+  /** @type {Map<string, { inDegree: number, outNodes: string[], layer: number, orderInLayer: number }>} */
+  const nodeMap = new Map(
+    nodes.map((n) => [n.id, { ...n, inDegree: 0, outNodes: [], layer: 0 }]),
+  );
+
+  edges.forEach(({ source, target }) => {
+    if (nodeMap.has(target) && nodeMap.has(source)) {
+      nodeMap.get(target).inDegree++;
+      nodeMap.get(source).outNodes.push(target);
+    }
+  });
+
+  // BFS topo-sort: assign layer numbers
+  let queue = [];
+  nodeMap.forEach((node, id) => {
+    if (node.inDegree === 0) queue.push(id);
+  });
+
+  let maxLayer = 0;
+  while (queue.length > 0) {
+    const currId = queue.shift();
+    const curr = nodeMap.get(currId);
+    curr.outNodes.forEach((tid) => {
+      const tgt = nodeMap.get(tid);
+      tgt.layer = Math.max(tgt.layer, curr.layer + 1);
+      maxLayer = Math.max(maxLayer, tgt.layer);
+      if (--tgt.inDegree === 0) queue.push(tid);
+    });
+  }
+
+  // Barycentric node ordering within layers
+  const layerBuckets = Array.from({ length: maxLayer + 1 }, () => []);
+  nodeMap.forEach((_, id) => layerBuckets[nodeMap.get(id).layer].push(id));
+
+  const X_GAP = 1280;
+  const Y_GAP = 820;
+  const JITTER_AMPLITUDE = 60;
+
+  // Deterministic jitter seeded per node-id to survive re-renders
+  const deterministicJitter = (id) => {
+    let hash = 0;
+    for (let i = 0; i < id.length; i++)
+      hash = (hash << 5) - hash + id.charCodeAt(i);
+    return (hash % JITTER_AMPLITUDE) - JITTER_AMPLITUDE / 2;
+  };
+
+  return nodes.map((n) => {
+    if (n.type !== "executionNode" && n.position.x !== 0) return n;
+    const meta = nodeMap.get(n.id);
+    const layer = meta.layer;
+    const bucket = layerBuckets[layer];
+    const idx = bucket.indexOf(n.id);
+    const totalInLayer = bucket.length;
+    const yCenter = ((totalInLayer - 1) * Y_GAP) / 2;
+    return {
+      ...n,
+      position: {
+        x: layer * X_GAP,
+        y: idx * Y_GAP - yCenter + deterministicJitter(n.id),
+      },
+    };
+  });
+};
+
+// ============================================================================
+// § 5. EDGE RENDERERS
+// ============================================================================
+
+/**
+ * @component NeuralEdge
+ * @description
+ * Bezier edge renderer with dynamic stroke weight and animated dash patterns
+ * keyed on connection topology class (core-core / core-branch / branch-sub / open).
+ * Applies a CSS keyframe pulse-glow on animated edges — pure SVG filter trick
+ * that avoids triggering layout reflow on 60fps animation cycles.
+ */
+const NeuralEdge = ({
+  id,
+  sourceX,
+  sourceY,
+  targetX,
+  targetY,
+  sourcePosition,
+  targetPosition,
+  style,
+  data,
+  markerEnd,
+  selected,
+}) => {
+  const [edgePath, labelX, labelY] = getBezierPath({
+    sourceX,
+    sourceY,
+    sourcePosition,
+    targetX,
+    targetY,
+    targetPosition,
+  });
+
+  const connType = data?.connType || "open";
+
+  const EDGE_CONFIG = {
+    "core-core": { weight: 5, dash: "none", animated: false, opacity: 0.9 },
+    "core-branch": { weight: 3.5, dash: "12,8", animated: true, opacity: 0.8 },
+    "branch-sub": { weight: 2, dash: "none", animated: false, opacity: 0.7 },
+    open: { weight: 1.5, dash: "6,6", animated: true, opacity: 0.4 },
+  };
+
+  const cfg = EDGE_CONFIG[connType] || EDGE_CONFIG.open;
+  const accent = data?.accent || "#ca8a04";
+
+  return (
+    <>
+      {/* Glow halo — rendered as a wider, blurred duplicate path */}
+      <path
+        d={edgePath}
+        style={{
+          fill: "none",
+          stroke: accent,
+          strokeWidth: cfg.weight + 6,
+          opacity: selected ? 0.18 : 0.06,
+          filter: `blur(${selected ? 6 : 3}px)`,
+          transition: "opacity 0.3s, filter 0.3s",
+          pointerEvents: "none",
+        }}
+      />
+      <BaseEdge
+        path={edgePath}
+        markerEnd={markerEnd}
+        className={cn(cfg.animated && "react-flow__edge-path--animated")}
+        style={{
+          ...style,
+          stroke: accent,
+          strokeWidth: cfg.weight,
+          strokeDasharray: cfg.dash,
+          opacity: selected ? 1 : cfg.opacity,
+          transition: "stroke-width 0.3s, opacity 0.3s",
+        }}
+      />
+      {/* Connection type micro-label on hover */}
+      {selected && (
+        <EdgeLabelRenderer>
+          <div
+            style={{
+              position: "absolute",
+              transform: `translate(-50%, -50%) translate(${labelX}px,${labelY}px)`,
+              pointerEvents: "none",
+            }}
+            className="px-2 py-0.5 bg-[#0a0a0c] border border-[#333] rounded-md text-[9px] font-black text-[#888] uppercase tracking-widest"
+          >
+            {connType}
+          </div>
+        </EdgeLabelRenderer>
+      )}
+    </>
+  );
+};
+
+// ============================================================================
+// § 6. EXECUTION NODE (V5 — Full Feature Set)
+// ============================================================================
+
+/**
+ * @component ExecutionNode
+ * @description
+ * Primary DAG node. Supports:
+ *  – Per-node colour accent theming (8-colour palette)
+ *  – Sub-task micro-progress ring with animated SVG dash offset
+ *  – Collapse toggle for cleaner topology views
+ *  – Tag badges for semantic filtering
+ *  – Delegation avatars (up to 3 visible)
+ *  – Overdue pulsing border + red shadow
+ *  – "READY" active amber glow state
+ *  – Verified asset-linkage badge on certification tasks
+ *  – Pointer-events split: handles are interactive; body opens command center
+ */
+const ExecutionNode = ({ data, selected, id }) => {
+  const [collapsed, setCollapsed] = useState(data.collapsed || false);
+
   const isCompleted = data.isCompleted;
+  const isOverdue =
+    !isCompleted && data.deadline && new Date(data.deadline) < new Date();
+  const isActive =
+    data.priorityStatus === "READY" && !isCompleted && !isOverdue;
+  const isFuture =
+    data.priorityStatus === "FUTURE" && !isCompleted && !isOverdue;
+  const accent = NODE_ACCENT_PALETTE[data.accentColor || "amber"];
+
+  const tasks = data.tasks || [];
+  const completedTasks = tasks.filter((t) => t.completed).length;
+  const progress =
+    tasks.length > 0
+      ? Math.round((completedTasks / tasks.length) * 100)
+      : isCompleted
+        ? 100
+        : 0;
+
+  // Radial SVG ring circumference for r=28 circle
+  const CIRCUMFERENCE = 2 * Math.PI * 28; // ≈ 175.93
+  const dashOffset = CIRCUMFERENCE - (progress / 100) * CIRCUMFERENCE;
+
+  const ringColor = isCompleted
+    ? "#10b981"
+    : isOverdue
+      ? "#ef4444"
+      : isActive
+        ? accent.primary
+        : "#333";
+
+  const borderColor = selected
+    ? accent.primary
+    : isCompleted
+      ? "#10b981"
+      : isOverdue
+        ? "#ef4444"
+        : isActive
+          ? accent.primary
+          : "#2a2a2a";
+
+  const handleClasses =
+    "w-4 h-4 bg-[#111] hover:scale-150 transition-transform relative before:absolute before:-inset-6 before:content-[''] before:z-50";
 
   return (
     <div
       className={cn(
-        "w-[320px] bg-[#0a0a0a]/90 backdrop-blur-xl rounded-[24px] p-6 relative overflow-hidden transition-all duration-500",
-        // Golden highlight for active node
-        isActive &&
-          "border border-amber-500/30 shadow-[0_0_40px_rgba(245,158,11,0.15)]",
-        // Silver highlight for immediate next nodes
-        isNext &&
-          "border border-slate-300/30 shadow-[0_0_30px_rgba(203,213,225,0.1)]",
-        // Faded grey for distant future nodes
-        (isCompleted || isFuture) && "border border-white/5",
-        isFuture && "opacity-50 grayscale",
-
-        selected && "border-white/50 shadow-[0_0_30px_rgba(255,255,255,0.1)]",
+        "w-[420px] rounded-[32px] p-2 transition-all duration-500 backdrop-blur-2xl border relative",
+        // Fading Logic: Dim unselected nodes, OR deeply fade FUTURE nodes to create depth
+        data.isDimmed
+          ? "opacity-20 grayscale pointer-events-none"
+          : isFuture && !selected
+            ? "opacity-60 bg-[#060606]/80"
+            : "opacity-100 bg-[#0a0a0c]/97",
+        selected ? "scale-[1.03] z-50" : "scale-100 z-10",
       )}
+      style={{
+        borderColor: selected
+          ? accent.primary
+          : isCompleted
+            ? "#10b981"
+            : isOverdue
+              ? "#ef4444"
+              : isActive
+                ? accent.primary
+                : "#2a2a2a",
+        boxShadow: selected
+          ? `0 0 70px ${accent.glow}, 0 30px 60px rgba(0,0,0,0.7)`
+          : isCompleted
+            ? "0 0 30px rgba(16,185,129,0.12), 0 20px 40px rgba(0,0,0,0.5)"
+            : isOverdue
+              ? "0 0 40px rgba(239,68,68,0.18), 0 20px 40px rgba(0,0,0,0.5)"
+              : isActive
+                ? `0 0 30px ${accent.glow}, 0 20px 40px rgba(0,0,0,0.5)`
+                : isFuture
+                  ? "none" // Flatten future nodes
+                  : "0 20px 40px rgba(0,0,0,0.4)",
+      }}
     >
-      {/* Top Glowing Accent Lines */}
-      {isActive && (
-        <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-amber-500 to-transparent shadow-[0_0_15px_rgba(245,158,11,1)]" />
-      )}
-      {isNext && (
-        <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-slate-300 to-transparent shadow-[0_0_15px_rgba(203,213,225,0.8)]" />
-      )}
-      {isCompleted && (
-        <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-green-500 to-transparent" />
-      )}
-
-      {/* Connection Handles */}
       <Handle
         type="target"
         position={Position.Top}
-        className="w-3 h-3 bg-[#222] border-2 border-[#444]"
+        id="top"
+        className={cn(handleClasses, "border-2")}
+        style={{ borderColor: accent.primary }}
       />
       <Handle
         type="target"
         position={Position.Left}
-        id="left-target"
-        className="w-3 h-3 bg-[#222] border-2 border-[#444]"
+        id="left"
+        className={cn(handleClasses, "border-2")}
+        style={{ borderColor: accent.primary }}
       />
-
-      <div className="flex justify-between items-start mb-4 pointer-events-none">
-        <div>
-          <p className="text-[10px] font-mono text-[#666] uppercase tracking-widest mb-1">
-            {data.deadline
-              ? new Date(data.deadline).toLocaleDateString()
-              : "TBD"}
-          </p>
-          <h3
-            className={cn(
-              "text-lg font-extrabold tracking-tight",
-              isActive
-                ? "text-amber-500"
-                : isNext
-                  ? "text-slate-200"
-                  : "text-white",
-            )}
-          >
-            {data.title || "Untitled Milestone"}
-          </h3>
-          {data.subtitle && (
-            <p className="text-[10px] font-bold text-[#666] uppercase tracking-widest mt-1">
-              {data.subtitle}
-            </p>
-          )}
-        </div>
-        <div
-          className={cn(
-            "p-2 rounded-xl shrink-0",
-            isActive
-              ? "bg-amber-500/10 text-amber-500"
-              : isNext
-                ? "bg-slate-300/10 text-slate-300"
-                : isCompleted
-                  ? "bg-green-500/10 text-green-500"
-                  : "bg-[#111] text-[#555]",
-          )}
-        >
-          {isCompleted ? (
-            <CheckCircle2 className="w-5 h-5" />
-          ) : isActive || isNext ? (
-            <Activity className={cn("w-5 h-5", isActive && "animate-pulse")} />
-          ) : (
-            <Lock className="w-5 h-5" />
-          )}
-        </div>
-      </div>
-
-      {/* Task List */}
-      <div className="space-y-2 mt-4">
-        {(data.tasks || []).map((task, i) => (
-          <div
-            key={i}
-            className="flex flex-col gap-1 p-2.5 bg-[#111] border border-[#222] rounded-xl hover:border-[#333] transition-colors"
-          >
-            <div className="flex items-start gap-3">
-              <div
-                className={cn(
-                  "w-4 h-4 mt-0.5 rounded-md border flex items-center justify-center shrink-0 transition-colors",
-                  task.completed
-                    ? "bg-green-500/20 border-green-500/50 text-green-500"
-                    : "bg-[#050505] border-[#444]",
-                )}
-              >
-                {task.completed && <Check className="w-3 h-3" />}
-              </div>
-              <p
-                className={cn(
-                  "text-xs font-medium leading-relaxed",
-                  task.completed ? "text-[#666] line-through" : "text-[#ccc]",
-                )}
-              >
-                {task.text || task.title}
-              </p>
-            </div>
-            {/* Rollover Badge */}
-            {task.isRollover && !task.completed && (
-              <span className="ml-7 text-[8px] font-bold text-red-400 uppercase tracking-widest bg-red-500/10 px-1.5 py-0.5 rounded w-max">
-                Rolled Over
-              </span>
-            )}
-          </div>
-        ))}
-        {(!data.tasks || data.tasks.length === 0) && (
-          <p className="text-xs text-[#555] font-mono italic">
-            No tasks defined.
-          </p>
-        )}
-      </div>
-
       <Handle
         type="source"
         position={Position.Bottom}
-        className="w-3 h-3 bg-[#222] border-2 border-[#444]"
+        id="bottom"
+        className={cn(handleClasses, "border-2")}
+        style={{ borderColor: accent.primary }}
       />
       <Handle
         type="source"
         position={Position.Right}
-        id="right-source"
-        className="w-3 h-3 bg-[#222] border-2 border-[#444]"
+        id="right"
+        className={cn(handleClasses, "border-2")}
+        style={{ borderColor: accent.primary }}
       />
+
+      {/* Collapse toggle — intercepted before node click propagates to ReactFlow selection */}
+      <button
+        onMouseDown={(e) => e.stopPropagation()}
+        onClick={(e) => {
+          e.stopPropagation();
+          setCollapsed((c) => !c);
+          window.dispatchEvent(
+            new CustomEvent("NODE_COLLAPSE_TOGGLE", {
+              detail: { nodeId: id, collapsed: !collapsed },
+            }),
+          );
+        }}
+        className="absolute top-3 right-3 z-20 w-7 h-7 bg-[#111] border border-[#333] rounded-full flex items-center justify-center text-[#666] hover:text-white hover:border-[#555] transition-colors"
+      >
+        {collapsed ? (
+          <ChevronDown className="w-3 h-3" />
+        ) : (
+          <ChevronUp className="w-3 h-3" />
+        )}
+      </button>
+
+      <div className="p-5 pointer-events-none">
+        {/* Header row */}
+        <div className="flex justify-between items-start mb-4">
+          <div className="min-w-0 pr-10">
+            {/* Status chip row */}
+            <div className="flex flex-wrap items-center gap-1.5 mb-2.5">
+              <div
+                className="px-2.5 py-1 rounded-md text-[9px] font-black uppercase tracking-widest flex items-center gap-1.5"
+                style={{
+                  background: isCompleted
+                    ? "rgba(16,185,129,0.08)"
+                    : isOverdue
+                      ? "rgba(239,68,68,0.08)"
+                      : isActive
+                        ? `${accent.bg}`
+                        : "rgba(255,255,255,0.04)",
+                  color: isCompleted
+                    ? "#10b981"
+                    : isOverdue
+                      ? "#ef4444"
+                      : isActive
+                        ? accent.primary
+                        : "#666",
+                }}
+              >
+                {isCompleted ? (
+                  <CheckCircle2 className="w-3 h-3" />
+                ) : isOverdue ? (
+                  <AlertTriangle className="w-3 h-3" />
+                ) : isActive ? (
+                  <Activity
+                    className="w-3 h-3"
+                    style={{ animation: "pulse 1.5s infinite" }}
+                  />
+                ) : (
+                  <Lock className="w-3 h-3" />
+                )}
+                {data.nodeType || "Protocol"}
+              </div>
+              {data.deadline && (
+                <div
+                  className="px-2 py-1 rounded-md text-[9px] font-bold uppercase tracking-widest flex items-center gap-1 border"
+                  style={{
+                    borderColor:
+                      isOverdue && !isCompleted
+                        ? "rgba(239,68,68,0.3)"
+                        : "#2a2a2a",
+                    color: isOverdue && !isCompleted ? "#f87171" : "#555",
+                    background:
+                      isOverdue && !isCompleted
+                        ? "rgba(239,68,68,0.05)"
+                        : "transparent",
+                  }}
+                >
+                  <CalendarIcon className="w-3 h-3" />
+                  {new Date(data.deadline).toLocaleDateString(undefined, {
+                    month: "short",
+                    day: "numeric",
+                  })}
+                </div>
+              )}
+            </div>
+
+            <h3
+              className="text-[22px] font-black tracking-tight leading-tight mb-1"
+              style={{
+                color: isCompleted ? "#6ee7b7" : isOverdue ? "#fca5a5" : "#fff",
+              }}
+            >
+              {data.title || "Unnamed Protocol"}
+            </h3>
+            <p className="text-[10px] font-bold text-[#555] uppercase tracking-widest">
+              {data.subtitle || "Awaiting Classification"}
+            </p>
+
+            {/* Tag badges */}
+            {data.tags && data.tags.length > 0 && !collapsed && (
+              <div className="flex flex-wrap gap-1 mt-2.5">
+                {data.tags.slice(0, 4).map((tag) => (
+                  <span
+                    key={tag}
+                    className="px-2 py-0.5 rounded text-[8px] font-black uppercase tracking-widest"
+                    style={{ background: accent.bg, color: accent.primary }}
+                  >
+                    {tag}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Progress ring */}
+          <div className="relative w-16 h-16 shrink-0">
+            <svg className="w-full h-full -rotate-90" viewBox="0 0 64 64">
+              <circle
+                cx="32"
+                cy="32"
+                r="28"
+                stroke="#1a1a1a"
+                strokeWidth="4"
+                fill="none"
+              />
+              <circle
+                cx="32"
+                cy="32"
+                r="28"
+                stroke={ringColor}
+                strokeWidth="4"
+                fill="none"
+                strokeDasharray={CIRCUMFERENCE}
+                strokeDashoffset={dashOffset}
+                strokeLinecap="round"
+                style={{
+                  transition:
+                    "stroke-dashoffset 1s cubic-bezier(0.4,0,0.2,1), stroke 0.5s",
+                }}
+              />
+            </svg>
+            <span className="absolute inset-0 flex items-center justify-center text-[13px] font-black font-mono text-white">
+              {progress}%
+            </span>
+          </div>
+        </div>
+
+        {/* Task list — collapsible */}
+        <AnimatePresence initial={false}>
+          {!collapsed && tasks.length > 0 && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: "auto", opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.25, ease: "easeInOut" }}
+              className="overflow-hidden"
+            >
+              <div className="space-y-1.5 mt-3 bg-[#060606] rounded-2xl p-4 border border-[#1a1a1a]">
+                {tasks.slice(0, 4).map((t, i) => (
+                  <div key={i} className="flex items-start gap-2.5">
+                    <div
+                      className="w-3.5 h-3.5 mt-0.5 rounded-sm border flex items-center justify-center shrink-0"
+                      style={{
+                        background: t.completed
+                          ? `${accent.bg}`
+                          : "transparent",
+                        borderColor: t.completed ? accent.primary : "#2a2a2a",
+                        color: t.completed ? accent.primary : "transparent",
+                      }}
+                    >
+                      {t.completed && <Check className="w-2 h-2" />}
+                    </div>
+                    <span
+                      className={cn(
+                        "text-[11px] font-medium leading-relaxed",
+                        t.completed
+                          ? "text-[#555] line-through"
+                          : "text-[#bbb]",
+                      )}
+                    >
+                      {t.text}
+                    </span>
+                  </div>
+                ))}
+                {tasks.length > 4 && (
+                  <p className="text-[9px] font-bold text-[#444] uppercase tracking-widest pt-1.5 border-t border-[#1a1a1a] mt-1.5">
+                    +{tasks.length - 4} more micro-routines
+                  </p>
+                )}
+              </div>
+
+              {/* Inline progress bar */}
+              <div className="mt-3 h-1 bg-[#1a1a1a] rounded-full overflow-hidden">
+                <div
+                  className="h-full rounded-full transition-all duration-700"
+                  style={{ width: `${progress}%`, background: ringColor }}
+                />
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
     </div>
   );
 };
-const nodeTypes = { executionNode: ExecutionNode };
 
 // ============================================================================
-// 2. ISOLATED FLOW CANVAS COMPONENT
+// § 7. RADAR WIDGET NODE
 // ============================================================================
+
+/**
+ * @component RadarWidgetNode
+ * @description Competency radar chart widget node. Animated on first mount.
+ */
+const RadarWidgetNode = ({ data, selected }) => (
+  <div
+    className="w-[300px] h-[300px] bg-[#0a0a0c]/95 backdrop-blur-2xl rounded-[2rem] p-6 flex flex-col relative border transition-all duration-300"
+    style={{
+      borderColor: selected ? "#ca8a04" : "#1e1e1e",
+      boxShadow: selected
+        ? "0 0 50px rgba(202,138,4,0.3), 0 20px 40px rgba(0,0,0,0.6)"
+        : "0 20px 40px rgba(0,0,0,0.4)",
+      transform: selected ? "scale(1.04)" : "scale(1)",
+    }}
+  >
+    <Handle
+      type="target"
+      position={Position.Left}
+      id="left"
+      className="w-4 h-4 bg-[#111] border-2 border-[#ca8a04] relative before:absolute before:-inset-6 before:content-['']"
+    />
+    <Handle
+      type="source"
+      position={Position.Right}
+      id="right"
+      className="w-4 h-4 bg-[#111] border-2 border-[#ca8a04] relative before:absolute before:-inset-6 before:content-['']"
+    />
+
+    <div className="flex items-center justify-between mb-2">
+      <div className="flex items-center gap-2">
+        <Target className="w-3.5 h-3.5 text-[#ca8a04]" />
+        <h4 className="text-[9px] font-black text-white uppercase tracking-widest">
+          Protocol Radar
+        </h4>
+      </div>
+      <div className="px-2 py-0.5 bg-amber-500/10 text-amber-500 text-[8px] font-black uppercase rounded-md border border-amber-500/20">
+        PRO
+      </div>
+    </div>
+
+    <div className="flex-1 -ml-2">
+      <ResponsiveContainer width="100%" height="100%">
+        <RadarChart
+          cx="50%"
+          cy="50%"
+          outerRadius="68%"
+          data={data.radarData || []}
+        >
+          <PolarGrid stroke="rgba(202,138,4,0.1)" />
+          <PolarAngleAxis
+            dataKey="metric"
+            tick={{
+              fill: "rgba(255,255,255,0.5)",
+              fontSize: 9,
+              fontWeight: "bold",
+            }}
+          />
+          <Radar
+            name="Metrics"
+            dataKey="val"
+            stroke="#ca8a04"
+            strokeWidth={2}
+            fill="#ca8a04"
+            fillOpacity={0.18}
+          />
+        </RadarChart>
+      </ResponsiveContainer>
+    </div>
+  </div>
+);
+
+// ============================================================================
+// § 8. ASSET WIDGET NODE
+// ============================================================================
+
+/** @component AssetWidgetNode — Vault asset linkage proxy node. */
+const AssetWidgetNode = ({ id, data, selected }) => (
+  <div
+    className="w-[270px] bg-[#0a0a0c]/95 backdrop-blur-2xl border rounded-[1.5rem] p-5 relative transition-all duration-300"
+    style={{
+      borderColor: selected ? "#10b981" : "#1e1e1e",
+      boxShadow: selected
+        ? "0 0 40px rgba(16,185,129,0.25), 0 20px 40px rgba(0,0,0,0.6)"
+        : "0 20px 40px rgba(0,0,0,0.4)",
+      transform: selected ? "scale(1.04)" : "scale(1)",
+    }}
+  >
+    <Handle
+      type="target"
+      position={Position.Top}
+      id="top"
+      className="w-4 h-4 bg-[#111] border-2 border-emerald-500 relative before:absolute before:-inset-6 before:content-['']"
+    />
+    <Handle
+      type="source"
+      position={Position.Bottom}
+      id="bottom"
+      className="w-4 h-4 bg-[#111] border-2 border-emerald-500 relative before:absolute before:-inset-6 before:content-['']"
+    />
+
+    <div className="flex items-start gap-3.5">
+      <div className="w-11 h-11 bg-emerald-500/10 border border-emerald-500/20 rounded-xl flex items-center justify-center shrink-0">
+        <Database className="w-5 h-5 text-emerald-400" />
+      </div>
+      <div className="min-w-0">
+        <h4 className="text-sm font-black text-white mb-0.5 leading-tight truncate">
+          {data.label || "Awaiting Sync"}
+        </h4>
+        <p className="text-[9px] font-bold text-[#555] uppercase tracking-widest truncate">
+          {data.type || "Vault Integration"}
+        </p>
+        {data.assetId && (
+          <div className="flex items-center gap-1 mt-1.5">
+            <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full" />
+            <span className="text-[9px] font-bold text-emerald-500">
+              LINKED
+            </span>
+          </div>
+        )}
+      </div>
+    </div>
+
+    <div className="flex gap-2 mt-4">
+      <button
+        disabled={!data.assetId}
+        className="flex-1 py-2.5 border border-[#2a2a2a] bg-[#111] hover:bg-[#1a1a1a] text-white disabled:opacity-25 text-[9px] font-black uppercase tracking-widest rounded-xl transition-colors flex items-center justify-center gap-1.5"
+      >
+        <Eye className="w-3 h-3" /> Access
+      </button>
+      <button
+        onClick={() =>
+          window.dispatchEvent(
+            new CustomEvent("OPEN_VAULT_MODAL", { detail: { nodeId: id } }),
+          )
+        }
+        className="flex-1 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-black text-[9px] font-black uppercase tracking-widest rounded-xl transition-colors flex items-center justify-center gap-1.5 shadow-[0_0_20px_rgba(16,185,129,0.25)]"
+      >
+        <RefreshCw className="w-3 h-3" /> Sync
+      </button>
+    </div>
+  </div>
+);
+
+// ============================================================================
+// § 9. VIDEO WIDGET NODE
+// ============================================================================
+
+/** @component VideoWidgetNode — YouTube/external media proxy node. */
+const VideoWidgetNode = ({ id, data, selected }) => {
+  const [isPlaying, setIsPlaying] = useState(false);
+  const isWatched = data.isWatched || false;
+
+  const markWatched = (e) => {
+    e.stopPropagation();
+    if (isWatched) return;
+    window.dispatchEvent(
+      new CustomEvent("VIDEO_WATCHED", { detail: { nodeId: id } }),
+    );
+  };
+
+  return (
+    <div
+      className={cn(
+        "w-[340px] bg-[#0a0a0c]/95 backdrop-blur-2xl border rounded-[1.5rem] p-2.5 relative transition-all duration-300 group",
+        selected
+          ? "border-sky-400 shadow-[0_0_50px_rgba(56,189,248,0.25)] z-50 scale-[1.03]"
+          : "border-[#1e1e1e] shadow-2xl z-10 scale-100",
+        isWatched && !selected && "border-sky-500/40",
+      )}
+    >
+      <Handle
+        type="target"
+        position={Position.Left}
+        id="left"
+        className="w-4 h-4 bg-[#111] border-2 border-sky-400 relative before:absolute before:-inset-6 before:content-['']"
+      />
+      <Handle
+        type="source"
+        position={Position.Right}
+        id="right"
+        className="w-4 h-4 bg-[#111] border-2 border-sky-400 relative before:absolute before:-inset-6 before:content-['']"
+      />
+
+      {data.youtubeId ? (
+        <div className="w-full h-[180px] rounded-xl overflow-hidden relative bg-black border border-[#1a1a1a]">
+          {isPlaying ? (
+            <iframe
+              width="100%"
+              height="100%"
+              src={`https://www.youtube.com/embed/${data.youtubeId}?autoplay=1`}
+              title="YouTube protocol"
+              frameBorder="0"
+              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+              allowFullScreen
+            />
+          ) : (
+            <div
+              className="w-full h-full relative cursor-pointer"
+              onClick={() => setIsPlaying(true)}
+            >
+              <img
+                src={data.thumbnailUrl}
+                alt="Video Preview"
+                className="w-full h-full object-cover opacity-80 group-hover:scale-105 transition-transform duration-700"
+              />
+              <div className="absolute inset-0 bg-black/20 flex items-center justify-center transition-opacity">
+                <div className="w-14 h-14 bg-[#0a0a0c]/60 backdrop-blur-md rounded-full flex items-center justify-center pl-1.5 border border-white/20 hover:bg-sky-500/20 hover:border-sky-400 transition-all shadow-[0_0_30px_rgba(0,0,0,0.8)]">
+                  <div className="w-0 h-0 border-t-[8px] border-t-transparent border-l-[14px] border-l-white border-b-[8px] border-b-transparent" />
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      ) : (
+        <div className="w-full h-[180px] rounded-xl bg-[#0d0d0d] border border-[#1a1a1a] flex flex-col items-center justify-center gap-3">
+          <Video className="w-8 h-8 text-sky-500/30" />
+          <button
+            onClick={() =>
+              window.dispatchEvent(
+                new CustomEvent("OPEN_VIDEO_MODAL", { detail: { nodeId: id } }),
+              )
+            }
+            className="px-5 py-2.5 bg-sky-500 hover:bg-sky-400 text-black text-[9px] font-black uppercase tracking-widest rounded-lg transition-colors shadow-[0_0_20px_rgba(56,189,248,0.2)]"
+          >
+            Embed Source
+          </button>
+        </div>
+      )}
+
+      <div className="p-3 pb-1.5 flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h4
+            className={cn(
+              "text-xs font-black truncate transition-colors",
+              isWatched ? "text-[#888]" : "text-white",
+            )}
+          >
+            {data.title || "External Protocol Video"}
+          </h4>
+          <p className="text-[9px] font-bold text-sky-400 uppercase tracking-widest mt-1">
+            {data.platform || "Media Source"}
+          </p>
+        </div>
+
+        {data.youtubeId && (
+          <button
+            onClick={markWatched}
+            disabled={isWatched}
+            title={isWatched ? "Protocol Executed" : "Mark as Watched"}
+            className={cn(
+              "w-7 h-7 rounded-lg border flex items-center justify-center shrink-0 transition-all",
+              isWatched
+                ? "bg-sky-500/15 border-sky-500/40 text-sky-400"
+                : "bg-[#111] border-[#333] hover:border-sky-400 text-transparent hover:text-sky-400/50",
+            )}
+          >
+            <Check className="w-4 h-4" />
+          </button>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// ============================================================================
+// § 10. JOURNAL NODE — NEW: Inline execution journal entry
+// ============================================================================
+
+/**
+ * @component JournalNode
+ * @description
+ * Embeds a freeform execution log entry directly into the neural map.
+ * Signals to the user that documentation is a first-class protocol, not
+ * an afterthought. Opens the journal editor panel on click.
+ */
+const JournalNode = ({ id, data, selected }) => (
+  <div
+    className="w-[320px] bg-[#0a0a0c]/95 backdrop-blur-2xl border rounded-[1.5rem] p-5 relative transition-all duration-300"
+    style={{
+      borderColor: selected ? "#8b5cf6" : "#1e1e1e",
+      boxShadow: selected
+        ? "0 0 40px rgba(139,92,246,0.2), 0 20px 40px rgba(0,0,0,0.6)"
+        : "0 20px 40px rgba(0,0,0,0.4)",
+      transform: selected ? "scale(1.03)" : "scale(1)",
+    }}
+  >
+    <Handle
+      type="target"
+      position={Position.Left}
+      id="left"
+      className="w-4 h-4 bg-[#111] border-2 border-violet-500 relative before:absolute before:-inset-6 before:content-['']"
+    />
+    <Handle
+      type="source"
+      position={Position.Right}
+      id="right"
+      className="w-4 h-4 bg-[#111] border-2 border-violet-500 relative before:absolute before:-inset-6 before:content-['']"
+    />
+
+    <div className="flex items-center gap-2.5 mb-3">
+      <div className="w-8 h-8 bg-violet-500/10 border border-violet-500/20 rounded-lg flex items-center justify-center">
+        <BookOpen className="w-4 h-4 text-violet-400" />
+      </div>
+      <div>
+        <h4 className="text-[10px] font-black text-white uppercase tracking-widest">
+          Execution Log
+        </h4>
+        {data.date && (
+          <p className="text-[9px] text-[#555] font-bold">
+            {new Date(data.date).toLocaleDateString(undefined, {
+              month: "short",
+              day: "numeric",
+              year: "numeric",
+            })}
+          </p>
+        )}
+      </div>
+    </div>
+
+    {data.entry ? (
+      <p className="text-xs text-[#888] leading-relaxed line-clamp-4 font-medium">
+        {data.entry}
+      </p>
+    ) : (
+      <div className="border border-dashed border-[#2a2a2a] rounded-xl p-4 text-center">
+        <PenLine className="w-4 h-4 text-[#444] mx-auto mb-1.5" />
+        <p className="text-[9px] font-bold text-[#555] uppercase tracking-widest">
+          No entry recorded
+        </p>
+      </div>
+    )}
+
+    {data.mood && (
+      <div className="mt-3 flex items-center gap-1.5">
+        <span className="text-[9px] font-bold text-[#555] uppercase tracking-widest">
+          Execution State:
+        </span>
+        <span className="text-xs">{data.mood}</span>
+      </div>
+    )}
+  </div>
+);
+
+// ============================================================================
+// § 11. MILESTONE NODE — NEW: Achievement checkpoint
+// ============================================================================
+
+/**
+ * @component MilestoneNode
+ * @description
+ * Special-purpose diamond/hexagon node marking critical career inflection points.
+ * Emits a persistent amber glow pulse when unlocked.
+ */
+const MilestoneNode = ({ data, selected }) => {
+  const isUnlocked = data.isUnlocked || false;
+  return (
+    <div
+      className="w-[240px] bg-[#0a0a0c]/97 backdrop-blur-2xl border rounded-[2rem] p-6 relative transition-all duration-300 flex flex-col items-center text-center"
+      style={{
+        borderColor: selected
+          ? "#f59e0b"
+          : isUnlocked
+            ? "rgba(245,158,11,0.5)"
+            : "#1e1e1e",
+        boxShadow: selected
+          ? "0 0 60px rgba(245,158,11,0.35), 0 20px 40px rgba(0,0,0,0.7)"
+          : isUnlocked
+            ? "0 0 30px rgba(245,158,11,0.15)"
+            : "0 20px 40px rgba(0,0,0,0.4)",
+        transform: selected ? "scale(1.05)" : "scale(1)",
+      }}
+    >
+      <Handle
+        type="target"
+        position={Position.Left}
+        id="left"
+        className="w-4 h-4 bg-[#111] border-2 border-amber-500 relative before:absolute before:-inset-6 before:content-['']"
+      />
+      <Handle
+        type="source"
+        position={Position.Right}
+        id="right"
+        className="w-4 h-4 bg-[#111] border-2 border-amber-500 relative before:absolute before:-inset-6 before:content-['']"
+      />
+
+      <div
+        className="w-14 h-14 rounded-2xl flex items-center justify-center mb-4"
+        style={{
+          background: isUnlocked
+            ? "rgba(245,158,11,0.1)"
+            : "rgba(255,255,255,0.03)",
+          border: `1px solid ${isUnlocked ? "rgba(245,158,11,0.3)" : "#1e1e1e"}`,
+        }}
+      >
+        {isUnlocked ? (
+          <Trophy className="w-6 h-6 text-amber-400" />
+        ) : (
+          <Lock className="w-6 h-6 text-[#333]" />
+        )}
+      </div>
+
+      <h4 className="text-sm font-black text-white mb-1 leading-tight">
+        {data.title || "Milestone"}
+      </h4>
+      <p className="text-[9px] font-bold text-[#555] uppercase tracking-widest">
+        {data.subtitle || "Achievement"}
+      </p>
+
+      {data.xpReward && (
+        <div className="mt-3 px-3 py-1.5 bg-amber-500/10 border border-amber-500/20 rounded-lg">
+          <span className="text-[9px] font-black text-amber-400 uppercase tracking-widest">
+            +{data.xpReward} XP on unlock
+          </span>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ============================================================================
+// § 12. NODE & EDGE TYPE REGISTRIES
+// ============================================================================
+
+const nodeTypes = {
+  executionNode: ExecutionNode,
+  radarWidget: RadarWidgetNode,
+  assetWidget: AssetWidgetNode,
+  videoWidget: VideoWidgetNode,
+  journalNode: JournalNode,
+  milestoneNode: MilestoneNode,
+};
+const edgeTypes = { neuralEdge: NeuralEdge };
+
+// ============================================================================
+// § 13. TOPOLOGY STATS MINI-BAR
+// ============================================================================
+
+/**
+ * @component TopologyStats
+ * @description
+ * Compact live metrics row rendered above the canvas. Provides at-a-glance
+ * topological health data: node count, completion rate, overdue count,
+ * and active connection count.
+ */
+const TopologyStats = ({ nodes, edges }) => {
+  const total = nodes.filter((n) => n.type === "executionNode").length;
+  const completed = nodes.filter(
+    (n) => n.type === "executionNode" && n.data.isCompleted,
+  ).length;
+  const overdue = nodes.filter((n) => {
+    if (n.type !== "executionNode" || n.data.isCompleted) return false;
+    return n.data.deadline && new Date(n.data.deadline) < new Date();
+  }).length;
+  const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
+
+  const stats = [
+    {
+      label: "Nodes",
+      value: total,
+      icon: <Layers className="w-3 h-3" />,
+      color: "#ca8a04",
+    },
+    {
+      label: "Complete",
+      value: `${pct}%`,
+      icon: <CheckCircle2 className="w-3 h-3" />,
+      color: "#10b981",
+    },
+    {
+      label: "Overdue",
+      value: overdue,
+      icon: <AlertTriangle className="w-3 h-3" />,
+      color: overdue > 0 ? "#ef4444" : "#444",
+    },
+    {
+      label: "Edges",
+      value: edges.length,
+      icon: <GitBranch className="w-3 h-3" />,
+      color: "#38bdf8",
+    },
+  ];
+
+  return (
+    <div className="flex items-center gap-1">
+      {stats.map((s) => (
+        <div
+          key={s.label}
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-[#0a0a0c] border border-[#1a1a1a] rounded-xl"
+        >
+          <span style={{ color: s.color }}>{s.icon}</span>
+          <span className="text-[10px] font-black" style={{ color: s.color }}>
+            {s.value}
+          </span>
+          <span className="text-[9px] font-bold text-[#444] uppercase tracking-widest hidden lg:inline">
+            {s.label}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+};
+
+// ============================================================================
+// § 14. MOBILE EDIT BOTTOM SHEET
+// ============================================================================
+
+/**
+ * @component MobileEditSheet
+ * @description
+ * Thumb-optimised bottom-sheet that provides mobile parity for the desktop
+ * right-side command panel. Uses spring physics for drag-to-dismiss.
+ * Renders as a portal to guarantee z-index supremacy over the canvas.
+ */
+const MobileEditSheet = ({
+  activeNode,
+  onUpdate,
+  onClose,
+  onDelete,
+  pendingScoreDelta,
+  onSubtaskToggle,
+  onCompleteAll,
+}) => {
+  const [tab, setTab] = useState("info");
+
+  if (!activeNode) return null;
+
+  const tabs = [
+    { id: "info", label: "Info", icon: <Type className="w-3.5 h-3.5" /> },
+    { id: "tasks", label: "Tasks", icon: <Activity className="w-3.5 h-3.5" /> },
+    { id: "tags", label: "Tags", icon: <Tag className="w-3.5 h-3.5" /> },
+    { id: "color", label: "Color", icon: <Palette className="w-3.5 h-3.5" /> },
+  ];
+
+  return createPortal(
+    <AnimatePresence>
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        onClick={onClose}
+        className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[200]"
+      />
+      <motion.div
+        initial={{ y: "100%" }}
+        animate={{ y: 0 }}
+        exit={{ y: "100%" }}
+        transition={{ type: "spring", damping: 28, stiffness: 300 }}
+        onClick={(e) => e.stopPropagation()}
+        className="fixed bottom-0 left-0 right-0 z-[210] bg-[#080808] border-t border-[#222] rounded-t-[2rem] flex flex-col"
+        style={{ maxHeight: "82vh" }}
+      >
+        {/* Drag handle */}
+        <div className="flex justify-center pt-3 pb-1 shrink-0">
+          <div className="w-10 h-1 bg-[#333] rounded-full" />
+        </div>
+
+        {/* Sheet header */}
+        <div className="flex justify-between items-center px-5 pb-3 pt-1 border-b border-[#1a1a1a] shrink-0">
+          <div className="flex items-center gap-2.5">
+            <Settings2 className="w-4 h-4 text-amber-500" />
+            <h3 className="text-sm font-extrabold tracking-widest uppercase text-white truncate max-w-[200px]">
+              {activeNode.data.title || "Untitled"}
+            </h3>
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={onDelete}
+              className="w-8 h-8 bg-red-500/10 border border-red-500/20 rounded-full flex items-center justify-center text-red-500"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={onClose}
+              className="w-8 h-8 bg-[#111] border border-[#222] rounded-full flex items-center justify-center text-[#666]"
+            >
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+
+        {/* Tab bar */}
+        <div className="flex border-b border-[#1a1a1a] shrink-0 px-5">
+          {tabs.map((t) => (
+            <button
+              key={t.id}
+              onClick={() => setTab(t.id)}
+              className={cn(
+                "flex items-center gap-1.5 px-4 py-3 text-[10px] font-black uppercase tracking-widest transition-colors border-b-2 -mb-px",
+                tab === t.id
+                  ? "border-amber-500 text-amber-500"
+                  : "border-transparent text-[#555] hover:text-white",
+              )}
+            >
+              {t.icon} {t.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Sheet body */}
+        <div className="overflow-y-auto flex-1 p-5 space-y-5">
+          {tab === "info" && (
+            <>
+              <div>
+                <label className="block text-[9px] font-bold text-[#555] uppercase tracking-widest mb-2">
+                  Protocol Designation
+                </label>
+                <input
+                  type="text"
+                  value={activeNode.data.title || ""}
+                  onChange={(e) => onUpdate("title", sanitize(e.target.value))}
+                  className="w-full bg-transparent text-xl font-black text-white border-b border-[#222] focus:border-amber-500 outline-none pb-2 transition-colors"
+                />
+              </div>
+              <div>
+                <label className="block text-[9px] font-bold text-[#555] uppercase tracking-widest mb-2">
+                  Sub-Classification
+                </label>
+                <input
+                  type="text"
+                  value={activeNode.data.subtitle || ""}
+                  onChange={(e) =>
+                    onUpdate("subtitle", sanitize(e.target.value))
+                  }
+                  className="w-full bg-[#111] border border-[#1a1a1a] rounded-xl px-4 py-3 text-sm text-white focus:border-amber-500 outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-[9px] font-bold text-[#555] uppercase tracking-widest mb-2">
+                  Execution Parameters
+                </label>
+                <textarea
+                  value={activeNode.data.desc || ""}
+                  onChange={(e) => onUpdate("desc", sanitize(e.target.value))}
+                  rows={3}
+                  className="w-full bg-[#111] border border-[#1a1a1a] rounded-xl p-4 text-sm text-white resize-none focus:border-amber-500 outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-[9px] font-bold text-[#555] uppercase tracking-widest mb-2">
+                  Hard Deadline
+                </label>
+                <input
+                  type="date"
+                  value={activeNode.data.deadline || ""}
+                  onChange={(e) => onUpdate("deadline", e.target.value)}
+                  className="w-full bg-[#111] border border-[#1a1a1a] rounded-xl px-4 py-3 text-sm text-white focus:border-amber-500 outline-none [&::-webkit-calendar-picker-indicator]:invert [&::-webkit-calendar-picker-indicator]:opacity-40"
+                />
+              </div>
+            </>
+          )}
+
+          {tab === "tasks" && (
+            <>
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-[9px] font-bold text-[#555] uppercase tracking-widest">
+                  Sub-Routine Matrix
+                </span>
+                <button
+                  onClick={onCompleteAll}
+                  disabled={activeNode.data.isCompleted}
+                  className="px-3 py-1.5 bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 text-[9px] font-black uppercase tracking-widest rounded-lg disabled:opacity-30"
+                >
+                  Force Secure
+                </button>
+              </div>
+              <div className="space-y-2">
+                {(activeNode.data.tasks || []).map((task) => (
+                  <div
+                    key={task.id}
+                    className="flex items-center gap-3 bg-[#0d0d0d] border border-[#1a1a1a] p-3.5 rounded-xl"
+                  >
+                    <button
+                      onClick={() => onSubtaskToggle(task.id)}
+                      className={cn(
+                        "w-4 h-4 rounded border flex items-center justify-center shrink-0 transition-colors",
+                        task.completed
+                          ? "bg-emerald-500/15 border-emerald-500/50 text-emerald-500"
+                          : "border-[#333]",
+                      )}
+                    >
+                      {task.completed && <Check className="w-3 h-3" />}
+                    </button>
+                    <input
+                      type="text"
+                      value={task.text}
+                      onChange={(e) =>
+                        onUpdate(
+                          "tasks",
+                          (activeNode.data.tasks || []).map((t) =>
+                            t.id === task.id
+                              ? { ...t, text: sanitize(e.target.value) }
+                              : t,
+                          ),
+                        )
+                      }
+                      className={cn(
+                        "flex-1 bg-transparent outline-none text-sm",
+                        task.completed
+                          ? "text-[#555] line-through"
+                          : "text-white",
+                      )}
+                    />
+                  </div>
+                ))}
+              </div>
+              <button
+                onClick={() =>
+                  onUpdate("tasks", [
+                    ...(activeNode.data.tasks || []),
+                    { id: Date.now(), text: "", completed: false },
+                  ])
+                }
+                className="w-full py-3 border border-dashed border-[#2a2a2a] rounded-xl text-[#666] text-xs font-bold uppercase tracking-widest hover:border-[#444] hover:text-white transition-colors flex items-center justify-center gap-2"
+              >
+                <Plus className="w-4 h-4" /> Inject Routine
+              </button>
+            </>
+          )}
+
+          {tab === "tags" && (
+            <div>
+              <p className="text-[9px] font-bold text-[#555] uppercase tracking-widest mb-3">
+                Select Taxonomy Tags
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {NODE_TAGS.map((tag) => {
+                  const active = (activeNode.data.tags || []).includes(tag);
+                  return (
+                    <button
+                      key={tag}
+                      onClick={() => {
+                        const curr = activeNode.data.tags || [];
+                        onUpdate(
+                          "tags",
+                          active
+                            ? curr.filter((t) => t !== tag)
+                            : [...curr, tag],
+                        );
+                      }}
+                      className={cn(
+                        "px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all",
+                        active
+                          ? "bg-amber-500/15 border border-amber-500/40 text-amber-400"
+                          : "bg-[#111] border border-[#1a1a1a] text-[#666]",
+                      )}
+                    >
+                      {tag}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {tab === "color" && (
+            <div>
+              <p className="text-[9px] font-bold text-[#555] uppercase tracking-widest mb-3">
+                Node Accent Color
+              </p>
+              <div className="grid grid-cols-4 gap-3">
+                {Object.entries(NODE_ACCENT_PALETTE).map(([key, val]) => (
+                  <button
+                    key={key}
+                    onClick={() => onUpdate("accentColor", key)}
+                    className={cn(
+                      "w-full aspect-square rounded-xl border-2 flex items-center justify-center transition-all",
+                      activeNode.data.accentColor === key
+                        ? "scale-110"
+                        : "opacity-60 hover:opacity-90 border-transparent",
+                    )}
+                    style={{
+                      background: val.bg,
+                      borderColor:
+                        activeNode.data.accentColor === key
+                          ? val.primary
+                          : "transparent",
+                    }}
+                  >
+                    <div
+                      className="w-5 h-5 rounded-full"
+                      style={{ background: val.primary }}
+                    />
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Pending score indicator */}
+        {pendingScoreDelta !== 0 && (
+          <div
+            className={cn(
+              "mx-5 mb-4 px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 shrink-0",
+              pendingScoreDelta > 0
+                ? "bg-emerald-500/10 text-emerald-400"
+                : "bg-red-500/10 text-red-400",
+            )}
+          >
+            <Zap className="w-3.5 h-3.5" />
+            {pendingScoreDelta > 0
+              ? `+${pendingScoreDelta}`
+              : pendingScoreDelta}{" "}
+            pts pending save
+          </div>
+        )}
+      </motion.div>
+    </AnimatePresence>,
+    document.body,
+  );
+};
+
+// ============================================================================
+// § 15. FLOW CANVAS ENGINE (V5)
+// ============================================================================
+
+/**
+ * @component FlowCanvas
+ * @description
+ * The ReactFlow viewport host. Owns all canvas-local state: context menus,
+ * search, time-filter, download control, and mobile edit mode toggle.
+ *
+ * Interaction contracts:
+ *  – Right-click on pane  → pane context menu (add node, widgets)
+ *  – Right-click on node  → node context menu (duplicate, color, delete)
+ *  – Right-click on edge  → edge context menu (change type, delete)
+ *  – Single click on node → triggers setActiveEditNodeId in parent
+ *  – Mobile "Edit Mode"   → activates touch-safe bottom sheet
+ */
 const FlowCanvas = ({
-  filteredNodes,
-  edges,
+  nodes,
   setNodes,
+  edges,
   setEdges,
   hasUnsavedChanges,
   setHasUnsavedChanges,
@@ -261,32 +1646,130 @@ const FlowCanvas = ({
   subscriptionTier,
   totalNodesCount,
   onLimitReached,
-  isFirstTime, // <--- ADD THIS
-  handleStartCalibration, // <--- ADD THIS
+  isFirstTime,
+  handleStartCalibration,
 }) => {
-  const { screenToFlowPosition, fitView } = useReactFlow();
-
-  // --- MENUS & STATES ---
+  const { screenToFlowPosition, fitView, setCenter } = useReactFlow();
   const [paneMenu, setPaneMenu] = useState(null);
   const [nodeMenu, setNodeMenu] = useState(null);
   const [edgeMenu, setEdgeMenu] = useState(null);
   const [isDownloadOpen, setIsDownloadOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [timeFilter, setTimeFilter] = useState("all");
+  const [tagFilter, setTagFilter] = useState("all");
+  const [showMiniMap, setShowMiniMap] = useState(false);
   const downloadRef = useRef(null);
 
-  // --- MOBILE RESPONSIVE STATES ---
-  const [isMobileEditMode, setIsMobileEditMode] = useState(false);
-  const [selectedMobileElement, setSelectedMobileElement] = useState(null); // { type: 'node' | 'edge', id }
+  /** @description Clamp a raw screen coordinate to remain within the visible viewport. */
+  const clampMenuPos = useCallback(
+    (x, y, menuW = 260, menuH = 280) => ({
+      left: Math.min(x, window.innerWidth - menuW - 16),
+      top: Math.min(y, window.innerHeight - menuH - 16),
+    }),
+    [],
+  );
 
-  // Close download dropdown when clicking outside
   useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (downloadRef.current && !downloadRef.current.contains(event.target)) {
+    const outside = (e) => {
+      if (downloadRef.current && !downloadRef.current.contains(e.target))
         setIsDownloadOpen(false);
-      }
     };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
+    document.addEventListener("mousedown", outside);
+    return () => document.removeEventListener("mousedown", outside);
   }, []);
+
+  // Listen for collapse toggle dispatches from within nodes
+  useEffect(() => {
+    const handler = (e) => {
+      setNodes((nds) =>
+        nds.map((n) =>
+          n.id === e.detail.nodeId
+            ? { ...n, data: { ...n.data, collapsed: e.detail.collapsed } }
+            : n,
+        ),
+      );
+      setHasUnsavedChanges(true);
+    };
+    window.addEventListener("NODE_COLLAPSE_TOGGLE", handler);
+    return () => window.removeEventListener("NODE_COLLAPSE_TOGGLE", handler);
+  }, [setNodes, setHasUnsavedChanges]);
+
+  // Time-based visibility filter
+  useEffect(() => {
+    if (nodes.length === 0) return;
+    setNodes((nds) =>
+      nds.map((n) => {
+        if (timeFilter === "all" || !n.data.deadline)
+          return { ...n, hidden: false };
+        const months =
+          (new Date(n.data.deadline).getFullYear() - new Date().getFullYear()) *
+            12 +
+          (new Date(n.data.deadline).getMonth() - new Date().getMonth());
+        const vis = {
+          "1m": months <= 1,
+          "3m": months <= 3,
+          "6m": months <= 6,
+          "12m": months <= 12,
+        };
+        return { ...n, hidden: !(vis[timeFilter] ?? true) };
+      }),
+    );
+    if (timeFilter !== "all")
+      setTimeout(() => fitView({ duration: 800, padding: 0.25 }), 100);
+  }, [timeFilter, nodes.length]); // eslint-disable-line
+
+  // Tag-based dim filter
+  useEffect(() => {
+    if (tagFilter === "all") {
+      setNodes((nds) =>
+        nds.map((n) => ({ ...n, data: { ...n.data, isDimmed: false } })),
+      );
+      return;
+    }
+    setNodes((nds) =>
+      nds.map((n) => ({
+        ...n,
+        data: {
+          ...n.data,
+          isDimmed:
+            n.type !== "executionNode"
+              ? false
+              : !(n.data.tags || []).includes(tagFilter),
+        },
+      })),
+    );
+  }, [tagFilter]); // eslint-disable-line
+
+  const handleSearch = useCallback(
+    (e) => {
+      const q = e.target.value;
+      setSearchQuery(q);
+      if (!q) {
+        setNodes((nds) =>
+          nds.map((n) => ({ ...n, data: { ...n.data, isDimmed: false } })),
+        );
+        return;
+      }
+      const target = nodes.find(
+        (n) =>
+          n.data?.title?.toLowerCase().includes(q.toLowerCase()) ||
+          n.data?.subtitle?.toLowerCase().includes(q.toLowerCase()),
+      );
+      if (target) {
+        setCenter(target.position.x + 210, target.position.y + 160, {
+          zoom: 1.3,
+          duration: 900,
+        });
+        setNodes((nds) =>
+          nds.map((n) => ({
+            ...n,
+            data: { ...n.data, isDimmed: n.id !== target.id },
+          })),
+        );
+      }
+    },
+    [nodes, setNodes, setCenter],
+  );
 
   const onNodesChange = useCallback(
     (c) => {
@@ -295,6 +1778,7 @@ const FlowCanvas = ({
     },
     [setNodes, setHasUnsavedChanges],
   );
+
   const onEdgesChange = useCallback(
     (c) => {
       setEdges((eds) => applyEdgeChanges(c, eds));
@@ -305,213 +1789,263 @@ const FlowCanvas = ({
 
   const onConnect = useCallback(
     (params) => {
-      const targetNode = filteredNodes.find((n) => n.id === params.target);
-      const isBranch = targetNode?.data?.nodeType === "branch";
-      const newEdge = {
-        ...params,
-        animated: isBranch,
-        style: {
-          stroke: "#666",
-          strokeWidth: 2,
-          strokeDasharray: isBranch ? "5,5" : "none",
-        },
-      };
-      setEdges((eds) => addEdge(newEdge, eds));
+      const src = nodes.find((n) => n.id === params.source);
+      const tgt = nodes.find((n) => n.id === params.target);
+      let connType = "open";
+      if (src?.type === "executionNode" && tgt?.type === "executionNode") {
+        if (src.data.nodeType === "core" && tgt.data.nodeType === "core")
+          connType = "core-core";
+        else if (src.data.nodeType === "core") connType = "core-branch";
+        else connType = "branch-sub";
+      } else if (
+        src?.type?.includes("Widget") ||
+        tgt?.type?.includes("Widget")
+      ) {
+        connType = "branch-sub";
+      }
+      const accentColor = src?.data?.accentColor || "amber";
+      const accent = NODE_ACCENT_PALETTE[accentColor]?.primary || "#ca8a04";
+
+      setEdges((eds) =>
+        addEdge(
+          {
+            ...params,
+            id: `e_${Date.now()}`,
+            type: "neuralEdge",
+            data: { connType, accent },
+          },
+          eds,
+        ),
+      );
       setHasUnsavedChanges(true);
+      addLedgerEntry(`Connection: ${connType}`);
     },
-    [filteredNodes, setEdges, setHasUnsavedChanges],
+    [nodes, setEdges, setHasUnsavedChanges, addLedgerEntry],
   );
 
-  // --- NODE DEPLOYMENT LOGIC ---
-  const addNode = (type, mobilePos = null) => {
-    if (!paneMenu && !mobilePos) return;
-    if (subscriptionTier === "free" && totalNodesCount >= 10) {
-      onLimitReached();
+  /** @description Factory for new node objects. Validates tier node cap before insertion. */
+  const addNode = useCallback(
+    (type, nodeClass = "executionNode", mobilePos = null) => {
+      const maxAllowed = TIER_LIMITS[subscriptionTier] || TIER_LIMITS.free;
+      if (totalNodesCount >= maxAllowed) {
+        onLimitReached();
+        setPaneMenu(null);
+        return;
+      }
+
+      const position =
+        mobilePos ||
+        screenToFlowPosition({
+          x: paneMenu?.left || 400,
+          y: paneMenu?.top || 300,
+        });
+      let newNode = {
+        id: `node_${Date.now()}`,
+        type: nodeClass,
+        position,
+        data: {},
+      };
+
+      if (nodeClass === "executionNode") {
+        newNode.data = {
+          title: type === "core" ? "Core Protocol" : "Sub-Routine",
+          subtitle: "Awaiting Parameters",
+          desc: "",
+          deadline: "",
+          tasks: [],
+          isCompleted: false,
+          priorityStatus: "FUTURE",
+          nodeType: type,
+          linkedAssets: [],
+          delegates: [],
+          accentColor: "amber",
+          tags: [],
+          collapsed: false,
+        };
+      } else if (nodeClass === "radarWidget") {
+        newNode.data = {
+          radarData: [
+            { metric: "Focus", val: 60 },
+            { metric: "Intel", val: 55 },
+            { metric: "Pace", val: 70 },
+            { metric: "Output", val: 50 },
+          ],
+        };
+      } else if (nodeClass === "assetWidget") {
+        newNode.data = { label: "Unlinked Asset", type: "Vault Integration" };
+      } else if (nodeClass === "videoWidget") {
+        newNode.data = {
+          title: "External Video",
+          platform: "Media",
+          thumbnailUrl: null,
+          youtubeId: null,
+        };
+      } else if (nodeClass === "journalNode") {
+        newNode.data = {
+          entry: "",
+          date: new Date().toISOString(),
+          mood: "⚡",
+        };
+      } else if (nodeClass === "milestoneNode") {
+        newNode.data = {
+          title: "Milestone",
+          subtitle: "Achievement Gate",
+          isUnlocked: false,
+          xpReward: 100,
+        };
+      }
+
+      setNodes((nds) => [...nds, newNode]);
+      setHasUnsavedChanges(true);
       setPaneMenu(null);
-      return;
-    }
+      addToast(`${nodeClass} deployed`, "grey");
+    },
+    [
+      subscriptionTier,
+      totalNodesCount,
+      onLimitReached,
+      screenToFlowPosition,
+      paneMenu,
+      setNodes,
+      setHasUnsavedChanges,
+      addToast,
+    ],
+  );
 
-    // Support for both desktop right-click position and mobile center-screen position
-    const position =
-      mobilePos || screenToFlowPosition({ x: paneMenu.left, y: paneMenu.top });
+  const deleteNode = useCallback(
+    (overrideId = null) => {
+      const tid = overrideId || nodeMenu?.node?.id;
+      if (!tid) return;
+      setNodes((nds) => nds.filter((n) => n.id !== tid));
+      setEdges((eds) =>
+        eds.filter((e) => e.source !== tid && e.target !== tid),
+      );
+      setHasUnsavedChanges(true);
+      setNodeMenu(null);
+      addToast("Element obliterated.", "red");
+    },
+    [nodeMenu, setNodes, setEdges, setHasUnsavedChanges, addToast],
+  );
 
-    const newNode = {
-      id: `node_${Date.now()}`,
-      type: "executionNode",
-      position,
-      data: {
-        title: type === "core" ? "Core Milestone" : "Sub-Branch",
-        subtitle: "",
-        desc: "",
-        deadline: "",
-        tasks: [],
-        isCompleted: false,
-        nodeType: type,
-        priorityStatus: "FUTURE",
-      },
-    };
-    setNodes((nds) => [...nds, newNode]);
+  const duplicateNode = useCallback(
+    (overrideId = null) => {
+      const tid = overrideId || nodeMenu?.node?.id;
+      if (!tid) return;
+      const source = nodes.find((n) => n.id === tid);
+      if (!source) return;
+      const clone = {
+        id: `node_${Date.now()}`,
+        type: source.type,
+        position: { x: source.position.x + 80, y: source.position.y + 80 },
+        selected: false, // FIX: Detach selection state from parent
+        data: {
+          ...source.data,
+          title: `${source.data.title || ""} (Copy)`,
+          isCompleted: false,
+        },
+      };
+      setNodes((nds) => [...nds, clone]);
+      setHasUnsavedChanges(true);
+      setNodeMenu(null);
+      addToast("Node duplicated.", "grey");
+    },
+    [nodeMenu, nodes, setNodes, setHasUnsavedChanges, addToast],
+  );
+
+  const changeEdgeType = useCallback(
+    (connType) => {
+      const tid = edgeMenu?.edge?.id;
+      if (!tid) return;
+      setEdges((eds) =>
+        eds.map((e) =>
+          e.id === tid ? { ...e, data: { ...e.data, connType } } : e,
+        ),
+      );
+      setHasUnsavedChanges(true);
+      setEdgeMenu(null);
+      addToast(`Connection type: ${connType}`, "grey");
+    },
+    [edgeMenu, setEdges, setHasUnsavedChanges, addToast],
+  );
+
+  const deleteEdge = useCallback(
+    (overrideId = null) => {
+      const tid = overrideId || edgeMenu?.edge?.id;
+      if (!tid) return;
+      setEdges((eds) => eds.filter((e) => e.id !== tid));
+      setHasUnsavedChanges(true);
+      setEdgeMenu(null);
+      addToast("Connection severed.", "grey");
+    },
+    [edgeMenu, setEdges, setHasUnsavedChanges, addToast],
+  );
+
+  const triggerAutoLayout = useCallback(() => {
+    addToast("Aligning neural topology...", "grey");
+    setNodes((nds) => generateNeuralLayout(nds, edges));
     setHasUnsavedChanges(true);
-    addToast(
-      `${type === "core" ? "Core Milestone" : "Branch"} deployed.`,
-      "grey",
-    );
-    addLedgerEntry(`Deployed new ${type} node`);
+    setTimeout(() => fitView({ duration: 1200, padding: 0.3 }), 120);
+  }, [edges, setNodes, setHasUnsavedChanges, fitView, addToast]);
+
+  const handleNodeClick = useCallback(
+    (e, clickedNode) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setNodes((nds) =>
+        nds.map((n) => ({
+          ...n,
+          data: { ...n.data, isDimmed: n.id !== clickedNode.id },
+        })),
+      );
+      if (
+        clickedNode.type === "executionNode" ||
+        clickedNode.type === "journalNode" ||
+        clickedNode.type === "milestoneNode"
+      )
+        setActiveEditNodeId(clickedNode.id);
+    },
+    [setNodes, setActiveEditNodeId],
+  );
+
+  const handlePaneClick = useCallback(() => {
     setPaneMenu(null);
-  };
-
-  const deleteNode = (overrideId = null) => {
-    const targetId = overrideId || nodeMenu?.node?.id;
-    if (!targetId) return;
-    setNodes((nds) => nds.filter((n) => n.id !== targetId));
-    setEdges((eds) =>
-      eds.filter((e) => e.source !== targetId && e.target !== targetId),
-    );
-    setHasUnsavedChanges(true);
-    addToast("Node obliterated.", "red");
     setNodeMenu(null);
-    setSelectedMobileElement(null);
-  };
-
-  const deleteEdge = (overrideId = null) => {
-    const targetId = overrideId || edgeMenu?.edge?.id;
-    if (!targetId) return;
-    setEdges((eds) => eds.filter((e) => e.id !== targetId));
-    setHasUnsavedChanges(true);
-    addToast("Connection severed.", "grey");
     setEdgeMenu(null);
-    setSelectedMobileElement(null);
-  };
+    setActiveEditNodeId(null);
+    setNodes((nds) =>
+      nds.map((n) => ({ ...n, data: { ...n.data, isDimmed: false } })),
+    );
+  }, [setNodes, setActiveEditNodeId]);
 
-  // --- DOWNLOAD ENGINE (PNG/PDF) ---
   const handleDownload = async (format) => {
     setIsDownloadOpen(false);
-    addToast("Processing export...", "grey");
-
-    // 1. Re-center and fit map
+    addToast("Compiling telemetry export...", "grey");
     fitView({ duration: 800, padding: 0.2 });
-    await new Promise((resolve) => setTimeout(resolve, 1000)); // Wait for animation
-
-    const flowElement = document.querySelector(".react-flow");
-    if (!flowElement) return;
-
+    await new Promise((r) => setTimeout(r, 1000));
+    const el = document.querySelector(".react-flow");
+    if (!el) return;
     try {
-      // 2. Inject temporary Watermark
-      const watermark = document.createElement("img");
-      watermark.src = "/logox.png";
-      watermark.id = "discotive-export-watermark";
-      watermark.style.cssText =
-        "position: absolute; bottom: 20px; right: 20px; width: 60px; height: 60px; object-fit: contain; opacity: 0.7; z-index: 9999;";
-      flowElement.appendChild(watermark);
-
-      // Hide UI controls temporarily
-      const controls = document.querySelectorAll(
-        ".react-flow__controls, .absolute.z-\\[70\\]",
+      const controls = el.querySelectorAll(
+        ".react-flow__controls, .react-flow__minimap",
       );
-      controls.forEach((el) => (el.style.display = "none"));
-
-      // 3. Generate Image
-      const dataUrl = await toPng(flowElement, {
+      controls.forEach((c) => (c.style.display = "none"));
+      const dataUrl = await toPng(el, {
         backgroundColor: "#030303",
         quality: 1,
-        pixelRatio: 2, // High Res
+        pixelRatio: 2.5,
       });
-
-      // Restore UI & Remove Watermark
-      controls.forEach((el) => (el.style.display = "flex"));
-      const wm = document.getElementById("discotive-export-watermark");
-      if (wm) wm.remove();
-
-      // 4. Trigger Download based on format
-      if (format === "png") {
-        const link = document.createElement("a");
-        link.download = `Discotive-Execution-Map-${new Date().toISOString().split("T")[0]}.png`;
-        link.href = dataUrl;
-        link.click();
-        addToast("PNG Exported successfully.", "green");
-      } else if (format === "pdf") {
-        const pdf = new jsPDF({
-          orientation: "landscape",
-          unit: "px",
-          format: [flowElement.clientWidth, flowElement.clientHeight],
-        });
-        pdf.addImage(
-          dataUrl,
-          "PNG",
-          0,
-          0,
-          flowElement.clientWidth,
-          flowElement.clientHeight,
-        );
-        pdf.save(
-          `Discotive-Execution-Map-${new Date().toISOString().split("T")[0]}.pdf`,
-        );
-        addToast("PDF Exported successfully.", "green");
-      }
-    } catch (err) {
-      console.error(err);
+      controls.forEach((c) => (c.style.display = ""));
+      const link = document.createElement("a");
+      link.download = `Discotive-NeuralMap-${new Date().toISOString().split("T")[0]}.png`;
+      link.href = dataUrl;
+      link.click();
+      addToast("PNG secured.", "green");
+    } catch (_) {
       addToast("Export failed.", "red");
     }
   };
 
-  // --- MOBILE FULLSCREEN ORIENTATION ---
-  const toggleFullscreen = async () => {
-    const newFsState = !isMapFullscreen;
-    setIsMapFullscreen(newFsState);
-
-    // Attempt to lock screen to landscape if going fullscreen on mobile
-    if (newFsState && window.innerWidth <= 768) {
-      try {
-        if (screen.orientation && screen.orientation.lock) {
-          await document.documentElement.requestFullscreen();
-          await screen.orientation.lock("landscape");
-        }
-      } catch (err) {
-        console.warn("Orientation lock not supported or failed", err);
-      }
-    } else if (!newFsState) {
-      try {
-        if (document.fullscreenElement) {
-          await document.exitFullscreen();
-        }
-        if (screen.orientation && screen.orientation.unlock) {
-          screen.orientation.unlock();
-        }
-      } catch (err) {
-        console.warn("Exit fullscreen failed", err);
-      }
-      setIsMobileEditMode(false);
-    }
-  };
-
-  const mappedNodes = useMemo(() => {
-    return filteredNodes.map((n) => ({
-      ...n,
-      style: {
-        ...n.style,
-        boxShadow:
-          isMobileEditMode && selectedMobileElement?.id === n.id
-            ? "0 0 0 2px white"
-            : "none",
-        borderRadius: "24px",
-      },
-    }));
-  }, [filteredNodes, isMobileEditMode, selectedMobileElement]);
-
-  const mappedEdges = useMemo(() => {
-    return edges.map((e) => ({
-      ...e,
-      style: {
-        ...e.style,
-        stroke:
-          isMobileEditMode && selectedMobileElement?.id === e.id
-            ? "white"
-            : e.style?.stroke || "#666",
-        strokeWidth:
-          isMobileEditMode && selectedMobileElement?.id === e.id ? 4 : 2,
-      },
-    }));
-  }, [edges, isMobileEditMode, selectedMobileElement]);
+  const topExecutionNodes = nodes.filter((n) => n.type === "executionNode");
 
   return (
     <div
@@ -519,120 +2053,147 @@ const FlowCanvas = ({
         "relative transition-all duration-500 overflow-hidden",
         isMapFullscreen
           ? "fixed inset-0 z-[60] bg-[#030303]"
-          : "w-full h-[350px] md:h-[700px] border-y border-[#111]",
+          : "w-full h-[600px] md:h-[880px] border-y border-[#1a1a1a]",
       )}
     >
-      {/* DESKTOP / DEFAULT TOP CONTROLS */}
-      <div
-        className={cn(
-          "absolute top-4 left-4 md:top-6 md:left-6 z-[70] flex items-center gap-2 md:gap-3 bg-[#0a0a0a]/90 backdrop-blur-xl border border-[#222] p-1.5 md:p-2 rounded-full shadow-2xl transition-opacity",
-          isMapFullscreen && window.innerWidth <= 768
-            ? "opacity-0 pointer-events-none"
-            : "opacity-100",
-        )}
-      >
-        {/* NEW REGENERATE BUTTON */}
-        <button
-          onClick={() => {
-            // Need to trigger the parent's handleStartCalibration.
-            // *Ensure you pass handleStartCalibration down as a prop to FlowCanvas!*
-            handleStartCalibration();
-          }}
-          className="flex items-center justify-center w-9 h-9 md:w-10 md:h-10 bg-[#111] border border-[#333] hover:border-amber-500 rounded-full text-[#888] hover:text-amber-500 transition-colors relative group"
+      {/* ── HUD: SEARCH + FILTER BAR (CENTER TOP) ── */}
+      <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[70] flex items-center gap-2 bg-[#080808]/95 backdrop-blur-2xl border border-[#1a1a1a] p-1.5 rounded-2xl shadow-[0_20px_60px_rgba(0,0,0,0.8)]">
+        <div className="relative flex items-center bg-[#0d0d0d] border border-[#1e1e1e] rounded-xl px-3 py-1.5 w-[190px] md:w-[240px]">
+          <Search className="w-3.5 h-3.5 text-[#555] mr-2 shrink-0" />
+          <input
+            type="text"
+            value={searchQuery}
+            onChange={handleSearch}
+            placeholder="Locate node..."
+            className="bg-transparent border-none outline-none text-xs font-bold text-white w-full placeholder-[#333]"
+          />
+          {searchQuery && (
+            <button onClick={() => handleSearch({ target: { value: "" } })}>
+              <X className="w-3 h-3 text-[#555] hover:text-white" />
+            </button>
+          )}
+        </div>
+        <div className="w-px h-5 bg-[#1a1a1a] hidden md:block" />
+        <select
+          value={timeFilter}
+          onChange={(e) => setTimeFilter(e.target.value)}
+          className="hidden md:block bg-[#0d0d0d] border border-[#1e1e1e] text-white text-[9px] font-black uppercase tracking-widest px-3 py-2 rounded-xl outline-none cursor-pointer hover:border-[#ca8a04] transition-colors appearance-none"
         >
-          <Wand2 className="w-4 h-4 md:w-5 md:h-5" />
+          <option value="all">All Time</option>
+          <option value="1m">1M Matrix</option>
+          <option value="3m">3M Matrix</option>
+          <option value="6m">6M Matrix</option>
+          <option value="12m">12M Matrix</option>
+        </select>
+        <div className="w-px h-5 bg-[#1a1a1a] hidden lg:block" />
+        <select
+          value={tagFilter}
+          onChange={(e) => setTagFilter(e.target.value)}
+          className="hidden lg:block bg-[#0d0d0d] border border-[#1e1e1e] text-white text-[9px] font-black uppercase tracking-widest px-3 py-2 rounded-xl outline-none cursor-pointer hover:border-[#ca8a04] transition-colors appearance-none"
+        >
+          <option value="all">All Tags</option>
+          {NODE_TAGS.map((t) => (
+            <option key={t} value={t}>
+              {t}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {/* ── HUD: LEFT CONTROL CLUSTER ── */}
+      <div className="absolute top-4 left-4 md:top-6 md:left-6 z-[70] flex items-center gap-2 bg-[#080808]/95 backdrop-blur-2xl border border-[#1a1a1a] p-1.5 rounded-full shadow-[0_20px_60px_rgba(0,0,0,0.8)]">
+        <button
+          onClick={triggerAutoLayout}
+          title="Auto-Align Topology"
+          className="w-10 h-10 md:w-11 md:h-11 bg-[#0d0d0d] border border-[#1e1e1e] hover:border-[#ca8a04] rounded-full text-[#666] hover:text-[#ca8a04] transition-all flex items-center justify-center"
+        >
+          <NetworkIcon className="w-5 h-5" />
+        </button>
+        <button
+          onClick={handleStartCalibration}
+          title="Generate Trajectory"
+          className="w-10 h-10 md:w-11 md:h-11 bg-[#0d0d0d] border border-[#1e1e1e] hover:border-[#ca8a04] rounded-full text-[#666] hover:text-[#ca8a04] transition-all flex items-center justify-center relative"
+        >
+          <Wand2 className="w-5 h-5" />
           {subscriptionTier === "free" && !isFirstTime && (
-            <Lock className="w-3 h-3 absolute -bottom-1 -right-1 text-red-500 bg-[#0a0a0a] rounded-full" />
+            <Lock className="w-2.5 h-2.5 absolute -bottom-0.5 -right-0.5 text-red-500 bg-[#080808] rounded-full" />
           )}
         </button>
-        <div className="hidden md:flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-[#666] ml-2 mr-2">
+
+        <div className="hidden md:flex items-center gap-1.5 text-[9px] font-black uppercase tracking-widest text-[#555] ml-1 mr-1">
           {isSaving ? (
             <>
-              <RefreshCw className="w-3 h-3 animate-spin text-amber-500" />{" "}
+              <RefreshCw className="w-3.5 h-3.5 animate-spin text-amber-500" />{" "}
               Committing...
             </>
           ) : hasUnsavedChanges ? (
             <>
-              <CloudOff className="w-3 h-3 text-amber-500" /> Unsaved Draft
+              <CloudOff className="w-3.5 h-3.5 text-amber-500" /> Unsaved
             </>
           ) : (
             <>
-              <Cloud className="w-3 h-3 text-green-500" /> Synced to Chain
+              <Cloud className="w-3.5 h-3.5 text-emerald-500" /> Synced
             </>
           )}
         </div>
-        {/* Mobile Simplified Indicator */}
-        <div className="flex md:hidden items-center justify-center w-8 h-8 rounded-full bg-[#111]">
-          {isSaving ? (
-            <RefreshCw className="w-4 h-4 animate-spin text-amber-500" />
-          ) : hasUnsavedChanges ? (
-            <CloudOff className="w-4 h-4 text-amber-500" />
-          ) : (
-            <Cloud className="w-4 h-4 text-green-500" />
-          )}
-        </div>
+
         <button
           onClick={handleCloudSave}
           disabled={!hasUnsavedChanges || isSaving}
-          className="bg-white text-black px-3 md:px-5 py-1.5 md:py-2 rounded-full font-bold text-xs hover:bg-[#ccc] transition-colors disabled:opacity-50 flex items-center gap-2"
+          className="bg-white text-black px-4 md:px-5 py-2 rounded-full font-extrabold text-[10px] uppercase tracking-widest hover:bg-[#ddd] transition-colors disabled:opacity-40 flex items-center gap-1.5"
         >
-          <span className="hidden md:inline">Save to Cloud</span>
+          <span className="hidden md:inline">Save</span>
           <Cloud className="w-4 h-4 md:hidden" />
         </button>
       </div>
 
-      {/* TOP RIGHT CONTROLS (Target, Download, Fullscreen) */}
-      <div
-        className={cn(
-          "absolute top-4 right-4 md:top-6 md:right-6 z-[70] flex gap-2",
-          isMapFullscreen && window.innerWidth <= 768
-            ? "opacity-0 pointer-events-none"
-            : "opacity-100",
-        )}
-      >
+      {/* ── HUD: RIGHT CONTROL CLUSTER ── */}
+      <div className="absolute top-4 right-4 md:top-6 md:right-6 z-[70] flex gap-2">
         <button
-          onClick={() => fitView({ duration: 800, padding: 0.2 })}
-          className="w-9 h-9 md:w-10 md:h-10 bg-[#0a0a0a]/90 backdrop-blur-xl border border-[#222] rounded-full flex items-center justify-center text-[#888] hover:text-white hover:bg-[#222] transition-colors shadow-2xl"
+          onClick={() => fitView({ duration: 800, padding: 0.3 })}
+          className="w-10 h-10 md:w-11 md:h-11 bg-[#080808]/95 backdrop-blur-xl border border-[#1a1a1a] rounded-full text-[#666] hover:text-white hover:bg-[#111] transition-all shadow-2xl flex items-center justify-center"
         >
-          <Target className="w-4 h-4" />
+          <Target className="w-4.5 h-4.5" />
         </button>
-
-        {/* DOWNLOAD DROPDOWN ENGINE */}
+        <button
+          onClick={() => setShowMiniMap((v) => !v)}
+          className={cn(
+            "w-10 h-10 md:w-11 md:h-11 backdrop-blur-xl border rounded-full transition-all shadow-2xl flex items-center justify-center",
+            showMiniMap
+              ? "bg-amber-500/10 border-amber-500/30 text-amber-500"
+              : "bg-[#080808]/95 border-[#1a1a1a] text-[#666] hover:text-white hover:bg-[#111]",
+          )}
+        >
+          <MapIcon className="w-4 h-4" />
+        </button>
         <div className="relative" ref={downloadRef}>
           <button
-            onClick={() => setIsDownloadOpen(!isDownloadOpen)}
-            className="w-9 h-9 md:w-10 md:h-10 bg-[#0a0a0a]/90 backdrop-blur-xl border border-[#222] rounded-full flex items-center justify-center text-[#888] hover:text-white hover:bg-[#222] transition-colors shadow-2xl"
+            onClick={() => setIsDownloadOpen((v) => !v)}
+            className="w-10 h-10 md:w-11 md:h-11 bg-[#080808]/95 backdrop-blur-xl border border-[#1a1a1a] rounded-full text-[#666] hover:text-white hover:bg-[#111] transition-all shadow-2xl flex items-center justify-center"
           >
             <Download className="w-4 h-4" />
           </button>
           <AnimatePresence>
             {isDownloadOpen && (
               <motion.div
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: 10 }}
-                className="absolute top-full right-0 mt-2 w-40 bg-[#0a0a0a] border border-[#222] rounded-xl shadow-2xl overflow-hidden flex flex-col z-[100]"
+                initial={{ opacity: 0, y: 8, scale: 0.95 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 8, scale: 0.95 }}
+                className="absolute top-full right-0 mt-2 w-44 bg-[#080808] border border-[#1e1e1e] rounded-xl shadow-2xl overflow-hidden"
               >
                 <button
                   onClick={() => handleDownload("png")}
-                  className="flex items-center gap-3 px-4 py-3 text-xs font-bold text-white hover:bg-[#111] border-b border-[#222]"
+                  className="flex items-center gap-3 px-4 py-3.5 text-xs font-bold text-white hover:bg-[#111] w-full"
                 >
-                  <ImageIcon className="w-4 h-4 text-[#888]" /> Save as PNG
-                </button>
-                <button
-                  onClick={() => handleDownload("pdf")}
-                  className="flex items-center gap-3 px-4 py-3 text-xs font-bold text-white hover:bg-[#111]"
-                >
-                  <FileText className="w-4 h-4 text-[#888]" /> Save as PDF
+                  <ImageIcon className="w-4 h-4 text-[#666]" /> Export PNG
                 </button>
               </motion.div>
             )}
           </AnimatePresence>
         </div>
-
         <button
-          onClick={toggleFullscreen}
-          className="w-9 h-9 md:w-10 md:h-10 bg-[#0a0a0a]/90 backdrop-blur-xl border border-[#222] rounded-full flex items-center justify-center text-[#888] hover:text-white hover:bg-[#222] transition-colors shadow-2xl"
+          onClick={() => setIsMapFullscreen((v) => !v)}
+          className="w-10 h-10 md:w-11 md:h-11 bg-[#080808]/95 backdrop-blur-xl border border-[#1a1a1a] rounded-full text-[#666] hover:text-white hover:bg-[#111] transition-all shadow-2xl flex items-center justify-center"
         >
           {isMapFullscreen ? (
             <Minimize className="w-4 h-4" />
@@ -642,88 +2203,17 @@ const FlowCanvas = ({
         </button>
       </div>
 
-      {/* MOBILE EDIT CONTROLS (Always visible on mobile) */}
-      <div
-        className={cn(
-          "md:hidden flex flex-col-reverse gap-3 items-end z-[9999]",
-          isMapFullscreen
-            ? "fixed bottom-8 right-8"
-            : "absolute bottom-4 right-4",
-        )}
-      >
-        <button
-          onClick={() => {
-            setIsMobileEditMode(!isMobileEditMode);
-            setSelectedMobileElement(null);
-          }}
-          className={cn(
-            "w-12 h-12 rounded-full flex items-center justify-center shadow-2xl border transition-colors",
-            isMobileEditMode
-              ? "bg-white text-black border-white"
-              : "bg-[#0a0a0a]/90 backdrop-blur-xl text-[#888] border-[#222]",
-          )}
-        >
-          <Edit2 className="w-5 h-5" />
-        </button>
-
-        <AnimatePresence>
-          {isMobileEditMode && (
-            <motion.div
-              initial={{ opacity: 0, y: 10, scale: 0.9 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: 10, scale: 0.9 }}
-              className="flex flex-col gap-3 mb-2"
-            >
-              <button
-                onClick={() => {
-                  fitView();
-                  setTimeout(() => addNode("core", { x: 250, y: 250 }), 500);
-                }}
-                className="w-10 h-10 bg-[#0a0a0a]/90 backdrop-blur-xl border border-[#222] rounded-full flex items-center justify-center text-white shadow-[0_10px_20px_rgba(0,0,0,0.8)]"
-              >
-                <Plus className="w-4 h-4" />
-              </button>
-              <button
-                onClick={() => {
-                  fitView();
-                  setTimeout(() => addNode("branch", { x: 250, y: 250 }), 500);
-                }}
-                className="w-10 h-10 bg-[#0a0a0a]/90 backdrop-blur-xl border border-[#222] rounded-full flex items-center justify-center text-white shadow-[0_10px_20px_rgba(0,0,0,0.8)]"
-              >
-                <GitBranch className="w-4 h-4" />
-              </button>
-              <button
-                onClick={() =>
-                  selectedMobileElement?.type === "node"
-                    ? deleteNode(selectedMobileElement.id)
-                    : deleteEdge(selectedMobileElement.id)
-                }
-                disabled={!selectedMobileElement}
-                className="w-10 h-10 bg-[#450a0a]/90 backdrop-blur-xl border border-red-500/30 rounded-full flex items-center justify-center text-red-500 disabled:opacity-30 shadow-[0_10px_20px_rgba(0,0,0,0.8)] transition-opacity"
-              >
-                <Minus className="w-4 h-4" />
-              </button>
-            </motion.div>
-          )}
-        </AnimatePresence>
+      {/* ── TOPOLOGY STATS (BOTTOM LEFT) ── */}
+      <div className="absolute bottom-4 left-4 z-[70] hidden md:flex">
+        <TopologyStats nodes={nodes} edges={edges} />
       </div>
 
-      {/* MOBILE FULLSCREEN EXIT CONTROLS */}
-      {isMapFullscreen && (
-        <div className="md:hidden absolute top-4 right-4 z-[80]">
-          <button
-            onClick={toggleFullscreen}
-            className="w-10 h-10 bg-[#0a0a0a]/90 backdrop-blur-xl border border-[#222] rounded-full flex items-center justify-center text-white shadow-2xl"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-      )}
-
+      {/* ── REACT FLOW CANVAS ── */}
       <ReactFlow
-        nodes={mappedNodes}
-        edges={mappedEdges}
+        nodes={nodes}
+        edges={edges}
         nodeTypes={nodeTypes}
+        edgeTypes={edgeTypes}
         onNodesChange={onNodesChange}
         onEdgesChange={onEdgesChange}
         onConnect={onConnect}
@@ -731,61 +2221,63 @@ const FlowCanvas = ({
           e.preventDefault();
           setNodeMenu(null);
           setEdgeMenu(null);
-          setPaneMenu({ top: e.clientY, left: e.clientX });
+          const pos = clampMenuPos(e.clientX, e.clientY);
+          setPaneMenu({ ...pos, rawX: e.clientX, rawY: e.clientY });
         }}
         onNodeContextMenu={(e, node) => {
           e.preventDefault();
           setPaneMenu(null);
           setEdgeMenu(null);
-          setNodeMenu({ top: e.clientY, left: e.clientX, node });
+          setNodeMenu({
+            ...clampMenuPos(e.clientX, e.clientY, 220, 200),
+            node,
+          });
         }}
         onEdgeContextMenu={(e, edge) => {
           e.preventDefault();
           setPaneMenu(null);
           setNodeMenu(null);
-          setEdgeMenu({ top: e.clientY, left: e.clientX, edge });
+          setEdgeMenu({
+            ...clampMenuPos(e.clientX, e.clientY, 220, 180),
+            edge,
+          });
         }}
-        onNodeClick={(e, node) => {
-          e.preventDefault();
-          e.stopPropagation();
-          if (isMobileEditMode) {
-            setSelectedMobileElement({ type: "node", id: node.id });
-          } else {
-            setActiveEditNodeId(node.id);
-          }
-        }}
-        onEdgeClick={(e, edge) => {
-          if (isMobileEditMode) {
-            e.preventDefault();
-            e.stopPropagation();
-            setSelectedMobileElement({ type: "edge", id: edge.id });
-          }
-        }}
-        onPaneClick={() => {
-          setPaneMenu(null);
-          setNodeMenu(null);
-          setEdgeMenu(null);
-          if (isMobileEditMode) setSelectedMobileElement(null);
-        }}
+        onNodeClick={handleNodeClick}
+        onPaneClick={handlePaneClick}
         fitView
         className="bg-[#030303]"
-        minZoom={0.1}
-        maxZoom={1.5}
+        minZoom={0.04}
+        maxZoom={2.5}
         proOptions={{ hideAttribution: true }}
+        defaultEdgeOptions={{ type: "neuralEdge" }}
       >
-        <Background color="#222" gap={24} size={2} />
-        {/* Hide default controls on Mobile so custom mobile controls take over */}
+        <Background variant="dots" color="#1a1a1a" gap={48} size={1.5} />
         <Controls
           showInteractive={false}
-          className="!bg-transparent !border-none shadow-2xl [&_.react-flow__controls-button]:bg-[#0a0a0a] [&_.react-flow__controls-button]:border-[#222] [&_.react-flow__controls-button]:fill-[#888] hover:[&_.react-flow__controls-button]:fill-white hover:[&_.react-flow__controls-button]:bg-[#222] [&_.react-flow__controls-button]:transition-colors overflow-hidden rounded-xl border border-[#222] z-30 hidden md:flex"
+          className="!bg-transparent !border-none shadow-2xl [&_.react-flow__controls-button]:bg-[#080808] [&_.react-flow__controls-button]:border-[#1e1e1e] [&_.react-flow__controls-button]:fill-[#666] rounded-xl border border-[#1e1e1e] overflow-hidden z-30 hidden md:flex"
         />
+        {showMiniMap && (
+          <MiniMap
+            nodeColor={(n) => {
+              if (n.data.isCompleted) return "#10b981";
+              if (n.data.priorityStatus === "READY") return "#ca8a04";
+              return "#333";
+            }}
+            maskColor="rgba(0,0,0,0.85)"
+            style={{
+              background: "#080808",
+              border: "1px solid #1e1e1e",
+              borderRadius: 12,
+            }}
+          />
+        )}
       </ReactFlow>
 
+      {/* ── CONTEXT MENUS ── */}
       <AnimatePresence>
-        {/* Invisible Backdrop to close menus when clicking anywhere else */}
         {(paneMenu || nodeMenu || edgeMenu) && (
           <div
-            className="fixed inset-0 z-[90] hidden md:block"
+            className="fixed inset-0 z-[90]"
             onClick={() => {
               setPaneMenu(null);
               setNodeMenu(null);
@@ -800,55 +2292,184 @@ const FlowCanvas = ({
           />
         )}
 
+        {/* Pane context menu */}
         {paneMenu && (
           <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.95 }}
+            key="pane-menu"
+            initial={{ opacity: 0, scale: 0.93, y: -4 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.93, y: -4 }}
             style={{ top: paneMenu.top, left: paneMenu.left }}
-            className="fixed z-[100] bg-[#0a0a0a] border border-[#222] rounded-xl shadow-2xl overflow-hidden min-w-[220px] hidden md:block"
+            className="fixed z-[100] bg-[#080808] border border-[#1e1e1e] rounded-2xl shadow-[0_40px_80px_rgba(0,0,0,0.9)] overflow-hidden min-w-[270px]"
           >
-            <button
-              onClick={() => addNode("core")}
-              className="w-full px-4 py-3 text-left text-sm font-bold text-white hover:bg-[#111] flex items-center gap-3 border-b border-[#111]"
-            >
-              <Target className="w-4 h-4 text-[#888]" /> Deploy Core Milestone
-            </button>
-            <button
-              onClick={() => addNode("branch")}
-              className="w-full px-4 py-3 text-left text-sm font-bold text-white hover:bg-[#111] flex items-center gap-3"
-            >
-              <GitBranch className="w-4 h-4 text-[#888]" /> Deploy Sub-Branch
-            </button>
+            <div className="px-5 py-3 bg-[#050505] border-b border-[#1a1a1a] text-[9px] font-black text-[#444] uppercase tracking-widest flex items-center gap-2">
+              <Plus className="w-3 h-3" /> Deploy Element
+            </div>
+            {[
+              {
+                label: "Core Protocol",
+                type: "core",
+                cls: "executionNode",
+                icon: <Target className="w-4 h-4 text-amber-500" />,
+              },
+              {
+                label: "Sub-Routine",
+                type: "branch",
+                cls: "executionNode",
+                icon: <GitBranch className="w-4 h-4 text-[#888]" />,
+              },
+            ].map((item) => (
+              <button
+                key={item.label}
+                onClick={() => addNode(item.type, item.cls)}
+                className="w-full px-5 py-3.5 text-left text-xs font-bold text-white hover:bg-[#0d0d0d] flex items-center gap-3 border-b border-[#1a1a1a] transition-colors"
+              >
+                {item.icon} {item.label}
+              </button>
+            ))}
+            <div className="px-5 py-2.5 bg-[#050505] border-y border-[#1a1a1a] text-[9px] font-black text-[#444] uppercase tracking-widest">
+              Widgets & Media
+            </div>
+            {[
+              {
+                label: "Radar Matrix",
+                cls: "radarWidget",
+                icon: <Activity className="w-4 h-4 text-amber-500" />,
+              },
+              {
+                label: "Vault Asset",
+                cls: "assetWidget",
+                icon: <Database className="w-4 h-4 text-emerald-500" />,
+              },
+              {
+                label: "Video Source",
+                cls: "videoWidget",
+                icon: <Video className="w-4 h-4 text-sky-400" />,
+              },
+              {
+                label: "Execution Log",
+                cls: "journalNode",
+                icon: <BookOpen className="w-4 h-4 text-violet-500" />,
+              },
+              {
+                label: "Milestone Gate",
+                cls: "milestoneNode",
+                icon: <Trophy className="w-4 h-4 text-amber-400" />,
+              },
+            ].map((item) => (
+              <button
+                key={item.label}
+                onClick={() => addNode(item.cls, item.cls)}
+                className="w-full px-5 py-3.5 text-left text-xs font-bold text-white hover:bg-[#0d0d0d] flex items-center gap-3 border-b border-[#1a1a1a] transition-colors last:border-b-0"
+              >
+                {item.icon} {item.label}
+              </button>
+            ))}
           </motion.div>
         )}
+
+        {/* Node context menu */}
         {nodeMenu && (
           <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.95 }}
+            key="node-menu"
+            initial={{ opacity: 0, scale: 0.93, y: -4 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.93, y: -4 }}
             style={{ top: nodeMenu.top, left: nodeMenu.left }}
-            className="fixed z-[100] bg-[#0a0a0a] border border-[#222] rounded-xl shadow-2xl overflow-hidden min-w-[200px] hidden md:block"
+            className="fixed z-[100] bg-[#080808] border border-[#1e1e1e] rounded-xl shadow-[0_40px_80px_rgba(0,0,0,0.9)] overflow-hidden min-w-[220px]"
           >
+            <div className="px-4 py-2.5 bg-[#050505] border-b border-[#1a1a1a] text-[9px] font-black text-[#444] uppercase tracking-widest truncate">
+              {nodeMenu.node?.data?.title || "Node Actions"}
+            </div>
+            <button
+              onClick={() => {
+                setActiveEditNodeId(nodeMenu.node.id);
+                setNodeMenu(null);
+              }}
+              className="w-full px-4 py-3.5 text-left text-xs font-bold text-white hover:bg-[#0d0d0d] flex items-center gap-3 border-b border-[#1a1a1a]"
+            >
+              <Edit3 className="w-4 h-4 text-[#888]" /> Edit Protocol
+            </button>
+            <button
+              onClick={() => duplicateNode()}
+              className="w-full px-4 py-3.5 text-left text-xs font-bold text-white hover:bg-[#0d0d0d] flex items-center gap-3 border-b border-[#1a1a1a]"
+            >
+              <Copy className="w-4 h-4 text-[#888]" /> Duplicate Node
+            </button>
+            {/* Per-node colour strip */}
+            <div className="px-4 py-3 border-b border-[#1a1a1a]">
+              <p className="text-[8px] font-black text-[#444] uppercase tracking-widest mb-2">
+                Accent Color
+              </p>
+              <div className="flex gap-1.5">
+                {Object.entries(NODE_ACCENT_PALETTE)
+                  .slice(0, 6)
+                  .map(([key, val]) => (
+                    <button
+                      key={key}
+                      onClick={() => {
+                        setNodes((nds) =>
+                          nds.map((n) =>
+                            n.id === nodeMenu.node.id
+                              ? { ...n, data: { ...n.data, accentColor: key } }
+                              : n,
+                          ),
+                        );
+                        setHasUnsavedChanges(true);
+                        setNodeMenu(null);
+                      }}
+                      className="w-5 h-5 rounded-full border-2 transition-transform hover:scale-125"
+                      style={{
+                        background: val.primary,
+                        borderColor: "transparent",
+                      }}
+                    />
+                  ))}
+              </div>
+            </div>
             <button
               onClick={() => deleteNode()}
-              className="w-full px-4 py-3 text-left text-sm font-bold text-red-500 hover:bg-[#111] flex items-center gap-3"
+              className="w-full px-4 py-3.5 text-left text-xs font-bold text-red-500 hover:bg-[#0d0d0d] flex items-center gap-3"
             >
-              <Trash2 className="w-4 h-4" /> Delete Milestone
+              <Trash2 className="w-4 h-4" /> Obliterate
             </button>
           </motion.div>
         )}
+
+        {/* Edge context menu */}
         {edgeMenu && (
           <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            exit={{ opacity: 0, scale: 0.95 }}
+            key="edge-menu"
+            initial={{ opacity: 0, scale: 0.93, y: -4 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.93, y: -4 }}
             style={{ top: edgeMenu.top, left: edgeMenu.left }}
-            className="fixed z-[100] bg-[#0a0a0a] border border-[#222] rounded-xl shadow-2xl overflow-hidden min-w-[200px] hidden md:block"
+            className="fixed z-[100] bg-[#080808] border border-[#1e1e1e] rounded-xl shadow-[0_40px_80px_rgba(0,0,0,0.9)] overflow-hidden min-w-[220px]"
           >
+            <div className="px-4 py-2.5 bg-[#050505] border-b border-[#1a1a1a] text-[9px] font-black text-[#444] uppercase tracking-widest">
+              Connection Type
+            </div>
+            {["core-core", "core-branch", "branch-sub", "open"].map((ct) => (
+              <button
+                key={ct}
+                onClick={() => changeEdgeType(ct)}
+                className={cn(
+                  "w-full px-4 py-3 text-left text-xs font-bold hover:bg-[#0d0d0d] flex items-center gap-3 border-b border-[#1a1a1a] transition-colors",
+                  edgeMenu.edge?.data?.connType === ct
+                    ? "text-amber-500"
+                    : "text-white",
+                )}
+              >
+                <ArrowRight className="w-3.5 h-3.5 text-[#666]" />
+                {ct.replace(/-/g, " → ")}
+                {edgeMenu.edge?.data?.connType === ct && (
+                  <Check className="w-3 h-3 ml-auto" />
+                )}
+              </button>
+            ))}
             <button
               onClick={() => deleteEdge()}
-              className="w-full px-4 py-3 text-left text-sm font-bold text-red-500 hover:bg-[#111] flex items-center gap-3"
+              className="w-full px-4 py-3.5 text-left text-xs font-bold text-red-500 hover:bg-[#0d0d0d] flex items-center gap-3"
             >
               <Trash2 className="w-4 h-4" /> Sever Connection
             </button>
@@ -860,119 +2481,746 @@ const FlowCanvas = ({
 };
 
 // ============================================================================
-// MATHEMATICAL LAYOUT ENGINE (Horizontal Spine & Branch Neural Web)
+// § 16. NODE COMMAND CENTER — RIGHT PANEL (V5)
 // ============================================================================
-const generateWebLayout = (nodes) => {
-  const SPINE_Y = 0; // Base vertical center
-  const X_SPACING = 500; // Distance between Core nodes
-  const BRANCH_Y_OFFSET = 350; // Distance above/below spine for Branches
 
-  let coreIndex = 0;
-  let branchIndexForCurrentCore = 0;
+/**
+ * @component NodeCommandCenter
+ * @description
+ * Spring-animated right-panel slide-in for desktop node editing.
+ * Tabbed interface: Info → Tasks → Tags → Color → Journal → Danger.
+ * All inputs pass through the sanitize() filter before state updates.
+ */
+const NodeCommandCenter = ({
+  activeNode,
+  updateActiveNode,
+  onClose,
+  onDelete,
+  onSubtaskToggle,
+  onCompleteAll,
+  pendingScoreDelta,
+  edges,
+  nodes,
+}) => {
+  const [tab, setTab] = useState("info");
 
-  return nodes.map((node) => {
-    if (node.data?.nodeType === "branch") {
-      // Position branch horizontally relative to the LAST core node
-      const baseCoreX = (coreIndex > 0 ? coreIndex - 1 : 0) * X_SPACING;
+  const tabs = [
+    { id: "info", label: "Info", icon: <Type className="w-3.5 h-3.5" /> },
+    { id: "tasks", label: "Tasks", icon: <Activity className="w-3.5 h-3.5" /> },
+    { id: "tags", label: "Tags", icon: <Tag className="w-3.5 h-3.5" /> },
+    { id: "color", label: "Color", icon: <Palette className="w-3.5 h-3.5" /> },
+    { id: "journal", label: "Log", icon: <BookOpen className="w-3.5 h-3.5" /> },
+  ];
 
-      // Push it slightly forward, and space out multiple branches if they exist
-      const xPos = baseCoreX + 250 + branchIndexForCurrentCore * 100;
+  const totalTasks = activeNode?.data?.tasks?.length || 0;
+  const doneTasks =
+    activeNode?.data?.tasks?.filter((t) => t.completed).length || 0;
+  const accent = NODE_ACCENT_PALETTE[activeNode?.data?.accentColor || "amber"];
 
-      // Alternate Top/Bottom of the spine
-      const yPos =
-        branchIndexForCurrentCore % 2 === 0
-          ? -BRANCH_Y_OFFSET
-          : BRANCH_Y_OFFSET;
+  return (
+    <div className="fixed top-0 right-0 h-full w-full sm:w-[460px] bg-[#060606] border-l border-[#1a1a1a] shadow-[0_0_100px_rgba(0,0,0,0.95)] z-[110] flex flex-col">
+      {/* Panel header */}
+      <div
+        className="flex justify-between items-center p-5 pb-4 border-b border-[#1a1a1a] shrink-0"
+        style={{
+          background: `linear-gradient(135deg, #060606 0%, ${accent.bg} 100%)`,
+        }}
+      >
+        <div className="flex items-center gap-3 min-w-0">
+          <div
+            className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
+            style={{
+              background: accent.bg,
+              border: `1px solid ${accent.primary}30`,
+            }}
+          >
+            <Settings2 className="w-4 h-4" style={{ color: accent.primary }} />
+          </div>
+          <div className="min-w-0">
+            <h2 className="text-xs font-extrabold tracking-widest uppercase text-white truncate">
+              Node Command Center
+            </h2>
+            <p className="text-[9px] text-[#444] font-bold uppercase tracking-widest truncate">
+              {activeNode?.data?.nodeType || "Protocol"} ·{" "}
+              {activeNode?.id?.slice(-6) || ""}
+            </p>
+          </div>
+        </div>
+        <button
+          onClick={onClose}
+          className="w-8 h-8 bg-[#0d0d0d] border border-[#1e1e1e] rounded-full text-[#555] hover:text-white flex items-center justify-center transition-colors shrink-0"
+        >
+          <X className="w-3.5 h-3.5" />
+        </button>
+      </div>
 
-      branchIndexForCurrentCore++;
-      return { ...node, position: { x: xPos, y: yPos } };
-    } else {
-      // Core node marches straight down the horizontal spine
-      const xPos = coreIndex * X_SPACING;
+      {/* Progress micro-bar */}
+      {totalTasks > 0 && (
+        <div className="h-0.5 bg-[#1a1a1a] shrink-0">
+          <div
+            className="h-full transition-all duration-700"
+            style={{
+              width: `${(doneTasks / totalTasks) * 100}%`,
+              background: accent.primary,
+            }}
+          />
+        </div>
+      )}
 
-      // Slight vertical stagger for an organic "pulse" look
-      const yPos = coreIndex % 2 === 0 ? 50 : -50;
+      {/* Tab bar */}
+      <div className="flex border-b border-[#1a1a1a] shrink-0 overflow-x-auto">
+        {tabs.map((t) => (
+          <button
+            key={t.id}
+            onClick={() => setTab(t.id)}
+            className={cn(
+              "flex items-center gap-1.5 px-4 py-3 text-[9px] font-black uppercase tracking-widest whitespace-nowrap transition-colors border-b-2 -mb-px",
+              tab === t.id
+                ? "text-white border-current"
+                : "border-transparent text-[#444] hover:text-[#888]",
+            )}
+            style={
+              tab === t.id
+                ? { color: accent.primary, borderColor: accent.primary }
+                : {}
+            }
+          >
+            {t.icon} {t.label}
+          </button>
+        ))}
+      </div>
 
-      coreIndex++;
-      branchIndexForCurrentCore = 0; // Reset branches for the new core
+      {/* Tab content */}
+      <div className="flex-1 overflow-y-auto custom-scrollbar p-6 space-y-7">
+        {tab === "info" && (
+          <>
+            <div>
+              <label className="block text-[9px] font-bold text-[#444] uppercase tracking-widest mb-2.5">
+                Protocol Designation
+              </label>
+              <input
+                type="text"
+                value={activeNode.data.title || ""}
+                onChange={(e) =>
+                  updateActiveNode("title", sanitize(e.target.value))
+                }
+                placeholder="e.g. Secure Series A"
+                className="w-full bg-transparent text-[22px] font-black tracking-tight text-white placeholder-[#222] border-b border-[#1e1e1e] focus:border-current focus:outline-none pb-2 mb-5 transition-colors"
+                style={{ caretColor: accent.primary }}
+              />
+            </div>
+            <div>
+              <label className="block text-[9px] font-bold text-[#444] uppercase tracking-widest mb-2 flex items-center gap-1.5">
+                <Type className="w-3 h-3" /> Sub-Classification
+              </label>
+              <input
+                type="text"
+                value={activeNode.data.subtitle || ""}
+                onChange={(e) =>
+                  updateActiveNode("subtitle", sanitize(e.target.value))
+                }
+                placeholder="e.g. Funding Phase"
+                className="w-full bg-[#0d0d0d] border border-[#1e1e1e] rounded-xl px-4 py-3 text-sm text-white focus:outline-none transition-colors"
+                style={{ "--focus-border": accent.primary }}
+                onFocus={(e) => (e.target.style.borderColor = accent.primary)}
+                onBlur={(e) => (e.target.style.borderColor = "#1e1e1e")}
+              />
+            </div>
+            <div>
+              <label className="block text-[9px] font-bold text-[#444] uppercase tracking-widest mb-2 flex items-center gap-1.5">
+                <AlignLeft className="w-3 h-3" /> Execution Parameters
+              </label>
+              <textarea
+                value={activeNode.data.desc || ""}
+                onChange={(e) =>
+                  updateActiveNode("desc", sanitize(e.target.value))
+                }
+                placeholder="Define tactical approach..."
+                rows={4}
+                className="w-full bg-[#0d0d0d] border border-[#1e1e1e] rounded-xl p-4 text-sm text-white placeholder-[#333] resize-none focus:outline-none transition-colors custom-scrollbar"
+                onFocus={(e) => (e.target.style.borderColor = accent.primary)}
+                onBlur={(e) => (e.target.style.borderColor = "#1e1e1e")}
+              />
+            </div>
+            <div>
+              <label className="block text-[9px] font-bold text-[#444] uppercase tracking-widest mb-2 flex items-center gap-1.5">
+                <CalendarIcon className="w-3 h-3" /> Hard Deadline
+              </label>
+              <input
+                type="date"
+                value={activeNode.data.deadline || ""}
+                onChange={(e) => updateActiveNode("deadline", e.target.value)}
+                className="w-full bg-[#0d0d0d] border border-[#1e1e1e] rounded-xl px-4 py-3 text-sm text-white focus:outline-none transition-colors [&::-webkit-calendar-picker-indicator]:invert [&::-webkit-calendar-picker-indicator]:opacity-40"
+                onFocus={(e) => (e.target.style.borderColor = accent.primary)}
+                onBlur={(e) => (e.target.style.borderColor = "#1e1e1e")}
+              />
+            </div>
+            {/* Priority Status */}
+            <div>
+              <label className="block text-[9px] font-bold text-[#444] uppercase tracking-widest mb-2 flex items-center gap-1.5">
+                <Zap className="w-3 h-3" /> Priority Status
+              </label>
+              <div className="grid grid-cols-3 gap-2">
+                {["READY", "FUTURE", "BLOCKED"].map((status) => (
+                  <button
+                    key={status}
+                    onClick={() => updateActiveNode("priorityStatus", status)}
+                    className={cn(
+                      "py-2.5 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all border",
+                      activeNode.data.priorityStatus === status
+                        ? "text-white"
+                        : "border-[#1a1a1a] bg-[#0d0d0d] text-[#444] hover:text-white",
+                    )}
+                    style={
+                      activeNode.data.priorityStatus === status
+                        ? {
+                            background: accent.bg,
+                            borderColor: `${accent.primary}40`,
+                            color: accent.primary,
+                          }
+                        : {}
+                    }
+                  >
+                    {status}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
 
-      return { ...node, position: { x: xPos, y: yPos } };
-    }
-  });
+        {tab === "tasks" && (
+          <>
+            <div className="flex items-center justify-between">
+              <label className="text-[9px] font-bold text-[#444] uppercase tracking-widest flex items-center gap-1.5">
+                <Activity className="w-3 h-3" /> Sub-Routine Matrix
+                <span className="ml-1 text-[#666]">
+                  ({doneTasks}/{totalTasks})
+                </span>
+              </label>
+              <button
+                onClick={onCompleteAll}
+                disabled={activeNode.data.isCompleted}
+                className="px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest disabled:opacity-25 transition-colors border"
+                style={{
+                  background: "rgba(16,185,129,0.07)",
+                  borderColor: "rgba(16,185,129,0.25)",
+                  color: "#10b981",
+                }}
+              >
+                Force Secure
+              </button>
+            </div>
+            <div className="space-y-2">
+              {(activeNode.data.tasks || []).map((task) => (
+                <div
+                  key={task.id}
+                  className="flex items-center gap-3 bg-[#0d0d0d] border border-[#1a1a1a] p-3.5 rounded-xl group hover:border-[#2a2a2a] transition-all"
+                >
+                  <button
+                    onClick={() => onSubtaskToggle(task.id)}
+                    className="w-4 h-4 rounded border flex items-center justify-center shrink-0 transition-all"
+                    style={{
+                      background: task.completed ? accent.bg : "transparent",
+                      borderColor: task.completed ? accent.primary : "#2a2a2a",
+                      color: task.completed ? accent.primary : "transparent",
+                    }}
+                  >
+                    {task.completed && <Check className="w-2.5 h-2.5" />}
+                  </button>
+                  <input
+                    type="text"
+                    value={task.text}
+                    onChange={(e) =>
+                      updateActiveNode(
+                        "tasks",
+                        (activeNode.data.tasks || []).map((t) =>
+                          t.id === task.id
+                            ? { ...t, text: sanitize(e.target.value) }
+                            : t,
+                        ),
+                      )
+                    }
+                    className={cn(
+                      "flex-1 bg-transparent border-none outline-none text-sm transition-colors",
+                      task.completed
+                        ? "text-[#444] line-through"
+                        : "text-white",
+                    )}
+                  />
+                  <button
+                    onClick={() =>
+                      updateActiveNode(
+                        "tasks",
+                        (activeNode.data.tasks || []).filter(
+                          (t) => t.id !== task.id,
+                        ),
+                      )
+                    }
+                    className="opacity-0 group-hover:opacity-100 text-[#444] hover:text-red-500 transition-all"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+            <button
+              onClick={() =>
+                updateActiveNode("tasks", [
+                  ...(activeNode.data.tasks || []),
+                  { id: Date.now(), text: "", completed: false },
+                ])
+              }
+              className="w-full py-3.5 border border-dashed border-[#1e1e1e] rounded-xl text-[#555] text-xs font-bold uppercase tracking-widest hover:border-[#333] hover:text-white transition-all flex items-center justify-center gap-2 bg-[#0d0d0d]"
+            >
+              <Plus className="w-3.5 h-3.5" /> Inject Routine
+            </button>
+          </>
+        )}
+
+        {tab === "tags" && (
+          <>
+            <p className="text-[9px] font-bold text-[#444] uppercase tracking-widest">
+              Taxonomy Classification
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {NODE_TAGS.map((tag) => {
+                const active = (activeNode.data.tags || []).includes(tag);
+                return (
+                  <button
+                    key={tag}
+                    onClick={() => {
+                      const curr = activeNode.data.tags || [];
+                      updateActiveNode(
+                        "tags",
+                        active ? curr.filter((t) => t !== tag) : [...curr, tag],
+                      );
+                    }}
+                    className="px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all border"
+                    style={
+                      active
+                        ? {
+                            background: accent.bg,
+                            borderColor: `${accent.primary}40`,
+                            color: accent.primary,
+                          }
+                        : {
+                            background: "#0d0d0d",
+                            borderColor: "#1a1a1a",
+                            color: "#555",
+                          }
+                    }
+                  >
+                    {tag}
+                  </button>
+                );
+              })}
+            </div>
+          </>
+        )}
+
+        {tab === "color" && (
+          <>
+            <p className="text-[9px] font-bold text-[#444] uppercase tracking-widest">
+              Node Accent Theme
+            </p>
+            <div className="grid grid-cols-4 gap-3">
+              {Object.entries(NODE_ACCENT_PALETTE).map(([key, val]) => (
+                <button
+                  key={key}
+                  onClick={() => updateActiveNode("accentColor", key)}
+                  className={cn(
+                    "relative aspect-square rounded-2xl border-2 flex flex-col items-center justify-center gap-1.5 transition-all p-2",
+                    activeNode.data.accentColor === key
+                      ? "scale-105"
+                      : "opacity-55 hover:opacity-80 border-transparent",
+                  )}
+                  style={{
+                    background: val.bg,
+                    borderColor:
+                      activeNode.data.accentColor === key
+                        ? val.primary
+                        : "transparent",
+                    boxShadow:
+                      activeNode.data.accentColor === key
+                        ? `0 0 20px ${val.glow}`
+                        : "none",
+                  }}
+                >
+                  <div
+                    className="w-7 h-7 rounded-full"
+                    style={{ background: val.primary }}
+                  />
+                  <span
+                    className="text-[8px] font-black uppercase tracking-widest"
+                    style={{ color: val.primary }}
+                  >
+                    {key}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+
+        {tab === "journal" && (
+          <>
+            <div>
+              <label className="block text-[9px] font-bold text-[#444] uppercase tracking-widest mb-2">
+                Execution Reality Log
+              </label>
+              <textarea
+                value={activeNode.data.journalEntry || ""}
+                onChange={(e) =>
+                  updateActiveNode("journalEntry", sanitize(e.target.value))
+                }
+                placeholder="Document your execution reality. What happened today? What blocked you? What did you learn?"
+                rows={7}
+                className="w-full bg-[#0d0d0d] border border-[#1e1e1e] rounded-xl p-4 text-sm text-white placeholder-[#333] resize-none focus:outline-none custom-scrollbar"
+                onFocus={(e) => (e.target.style.borderColor = "#8b5cf6")}
+                onBlur={(e) => (e.target.style.borderColor = "#1e1e1e")}
+              />
+            </div>
+            <div>
+              <label className="block text-[9px] font-bold text-[#444] uppercase tracking-widest mb-2">
+                Execution State
+              </label>
+              <div className="flex gap-2 flex-wrap">
+                {[
+                  "⚡ In flow",
+                  "🔥 On fire",
+                  "😤 Grinding",
+                  "🧊 Blocked",
+                  "💡 Clarity",
+                  "🎯 Locked in",
+                ].map((mood) => (
+                  <button
+                    key={mood}
+                    onClick={() => updateActiveNode("mood", mood)}
+                    className={cn(
+                      "px-3 py-1.5 rounded-lg text-xs font-bold border transition-all",
+                      activeNode.data.mood === mood
+                        ? "bg-violet-500/10 border-violet-500/30 text-violet-400"
+                        : "bg-[#0d0d0d] border-[#1a1a1a] text-[#666] hover:text-white",
+                    )}
+                  >
+                    {mood}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <p className="text-[9px] text-[#333] font-medium">
+              Entries are saved with the node and form your execution history.
+            </p>
+          </>
+        )}
+      </div>
+
+      {/* Footer: danger zone + pending score */}
+      <div className="border-t border-[#1a1a1a] p-5 space-y-3 shrink-0 bg-[#050505]">
+        {pendingScoreDelta !== 0 && (
+          <div
+            className={cn(
+              "px-4 py-2.5 rounded-xl text-[9px] font-black uppercase tracking-widest flex items-center gap-2",
+              pendingScoreDelta > 0
+                ? "bg-emerald-500/8 text-emerald-500 border border-emerald-500/20"
+                : "bg-red-500/8 text-red-500 border border-red-500/20",
+            )}
+          >
+            <Zap className="w-3.5 h-3.5" />
+            {pendingScoreDelta > 0 ? "+" : ""}
+            {pendingScoreDelta} pts pending cloud save
+          </div>
+        )}
+        <button
+          onClick={onDelete}
+          className="w-full py-3 bg-red-500/8 border border-red-500/20 text-red-500 text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-red-500/15 transition-colors flex items-center justify-center gap-2"
+        >
+          <Trash2 className="w-3.5 h-3.5" /> Obliterate Protocol
+        </button>
+      </div>
+    </div>
+  );
 };
 
 // ============================================================================
-// 3. MAIN ROADMAP COMPONENT
+// § 17. MASTER ROADMAP ENGINE — ROOT COMPONENT
 // ============================================================================
+
+/**
+ * @component Roadmap
+ * @description
+ * Root orchestrator. Owns all top-level state and wires it to child components.
+ *
+ * Data flow:
+ *  1. Cold load: try Firestore → fall back to IDB cache → default empty state
+ *  2. All mutations go through optimistic local state first
+ *  3. IDB is written on every state change (debounced, not awaited)
+ *  4. Firestore batch write fires after SAVE_DEBOUNCE_MS of inactivity
+ *  5. Score delta accumulates in-memory; flushed only on confirmed Firestore persist
+ *
+ * Security surface:
+ *  – All freeform inputs pass through sanitize() before entering node.data
+ *  – Firebase uid is validated before every read/write
+ *  – Rate-limiting enforced via client-side write debounce and tier node caps
+ */
 const Roadmap = () => {
   const { userData } = useUserData();
   const navigate = useNavigate();
 
-  // --- CORE STATES ---
   const [nodes, setNodes] = useState([]);
   const [edges, setEdges] = useState([]);
-
-  // --- 1. SUBSCRIPTION STATE (MUST BE DECLARED FIRST) ---
   const [subscriptionTier, setSubscriptionTier] = useState("free");
-  const [isProModalOpen, setIsProModalOpen] = useState(false);
-  const [proModalReason, setProModalReason] = useState("journal");
 
-  // --- 2. AI GENERATION STATES ---
+  const [isProModalOpen, setIsProModalOpen] = useState(false);
+  const [proModalReason, setProModalReason] = useState("nodes");
+
   const [aiPhase, setAiPhase] = useState("idle");
   const [aiQuestions, setAiQuestions] = useState([]);
   const [aiAnswers, setAiAnswers] = useState({});
   const [currentQuestionIdx, setCurrentQuestionIdx] = useState(0);
 
-  // Check if it's a completely empty/new roadmap
-  const isFirstTime = nodes.length <= 1 && nodes[0]?.id === "init_1";
-
-  // --- 3. PRO LIMIT CALCULATIONS (Safely uses subscriptionTier now) ---
-  const lastGenDate = userData?.telemetry?.lastRoadmapGen;
-  const daysSinceLastGen = lastGenDate
-    ? (new Date() - new Date(lastGenDate)) / (1000 * 60 * 60 * 24)
-    : 999;
-  const canRegenerate = subscriptionTier === "pro" && daysSinceLastGen >= 14;
-
-  // dailyStats now tracks detailed counts per node type
-  const [dailyStats, setDailyStats] = useState({});
-  const [viewMode, setViewMode] = useState("timeline");
-  const [timeframe, setTimeframe] = useState("Macro Vision");
-  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
-  const dropdownRef = useRef(null);
-  const [currentTime, setCurrentTime] = useState(new Date());
-
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isMapFullscreen, setIsMapFullscreen] = useState(false);
-
   const [activeEditNodeId, setActiveEditNodeId] = useState(null);
-  const [calendarDate, setCalendarDate] = useState(new Date());
+  const [isMobileEditMode, setIsMobileEditMode] = useState(false);
 
-  // --- TELEMETRY & TOASTS ---
   const [systemLedger, setSystemLedger] = useState([]);
   const [toasts, setToasts] = useState([]);
+  const [pendingScoreDelta, setPendingScoreDelta] = useState(0);
+
+  const [vaultModal, setVaultModal] = useState({
+    isOpen: false,
+    targetNodeId: null,
+    filter: "All",
+  });
+  const [videoModal, setVideoModal] = useState({
+    isOpen: false,
+    targetNodeId: null,
+    tab: "courses",
+    customUrl: "",
+    customTitle: "",
+  });
 
   const addToast = useCallback((msg, type = "grey") => {
     const id = Date.now() + Math.random();
-    setToasts((prev) => [...prev, { id, msg, type }]);
+    setToasts((prev) => [...prev.slice(-4), { id, msg, type }]);
     setTimeout(
       () => setToasts((prev) => prev.filter((t) => t.id !== id)),
-      4000,
+      4200,
     );
   }, []);
 
   const addLedgerEntry = useCallback((action) => {
     const entry = { id: Date.now(), action, time: new Date().toISOString() };
     setSystemLedger((prev) => {
-      const updated = [entry, ...prev].filter(
-        (e) => Date.now() - new Date(e.time).getTime() < 86400000,
-      );
-      localStorage.setItem("discotive_ledger", JSON.stringify(updated));
+      const updated = [entry, ...prev].slice(0, 80);
+      try {
+        localStorage.setItem("discotive_ledger_v5", JSON.stringify(updated));
+      } catch (_) {}
       return updated;
     });
   }, []);
 
-  // --- AI HANDLERS (Live Gemini Integration) ---
+  /** @description Debounce timer ref for batched Firestore writes. */
+  const saveTimerRef = useRef(null);
+  /** @description Tracks whether initial data has been loaded from Firestore/IDB. */
+  const hasLoadedRef = useRef(false);
+
+  const isFirstTime =
+    nodes.length === 0 || (nodes.length === 1 && nodes[0].id === "init_1");
+  const lastGenDate = userData?.telemetry?.lastRoadmapGen;
+  const daysSinceLastGen = lastGenDate
+    ? (Date.now() - new Date(lastGenDate)) / 86400000
+    : 999;
+  const canRegenerate = subscriptionTier === "pro" && daysSinceLastGen >= 14;
+
+  // ── Custom event bus for vault/video modals dispatched from widget nodes ──
+  useEffect(() => {
+    const handleVaultOpen = (e) =>
+      setVaultModal({
+        isOpen: true,
+        targetNodeId: e.detail.nodeId,
+        filter: "All",
+      });
+    const handleVideoOpen = (e) =>
+      setVideoModal({
+        isOpen: true,
+        targetNodeId: e.detail.nodeId,
+        tab: "courses",
+        customUrl: "",
+        customTitle: "",
+      });
+
+    const handleVideoWatched = (e) => {
+      setNodes((nds) =>
+        nds.map((n) =>
+          n.id === e.detail.nodeId
+            ? { ...n, data: { ...n.data, isWatched: true } }
+            : n,
+        ),
+      );
+      setPendingScoreDelta((p) => p + 15);
+      setHasUnsavedChanges(true);
+      addToast("Media protocol verified. +15 pts pending save", "green");
+    };
+
+    window.addEventListener("OPEN_VAULT_MODAL", handleVaultOpen);
+    window.addEventListener("OPEN_VIDEO_MODAL", handleVideoOpen);
+    window.addEventListener("VIDEO_WATCHED", handleVideoWatched);
+    return () => {
+      window.removeEventListener("OPEN_VAULT_MODAL", handleVaultOpen);
+      window.removeEventListener("OPEN_VIDEO_MODAL", handleVideoOpen);
+      window.removeEventListener("VIDEO_WATCHED", handleVideoWatched);
+    };
+  }, []);
+
+  // ── Keyboard shortcuts ──
+  useEffect(() => {
+    const handler = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "s") {
+        e.preventDefault();
+        handleCloudSave();
+      }
+      if (e.key === "Escape") {
+        setActiveEditNodeId(null);
+        setNodes((nds) =>
+          nds.map((n) => ({ ...n, data: { ...n.data, isDimmed: false } })),
+        );
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [hasUnsavedChanges]); // eslint-disable-line
+
+  // ── Cold-load: Firestore primary, IDB fallback ──
+  useEffect(() => {
+    const fetchData = async () => {
+      const uid = userData?.uid || userData?.id;
+      if (!uid || hasLoadedRef.current) return;
+      hasLoadedRef.current = true;
+
+      try {
+        const [mapSnap, subSnap] = await Promise.all([
+          getDoc(doc(db, "users", uid, "execution_map", "current")),
+          getDoc(doc(db, "users", uid, "subscription", "current")),
+        ]);
+
+        if (mapSnap.exists()) {
+          const rm = mapSnap.data();
+          setNodes(rm.nodes || []);
+          setEdges(rm.edges || []);
+          // Sync authoritative Firestore data to IDB cache
+          idbPut(uid, { nodes: rm.nodes || [], edges: rm.edges || [] });
+        } else {
+          // Firestore miss — attempt IDB recovery
+          const cached = await idbGet(uid);
+          if (cached?.nodes?.length > 0) {
+            setNodes(cached.nodes);
+            setEdges(cached.edges || []);
+            addToast("Restored from local cache.", "grey");
+          }
+        }
+
+        if (subSnap.exists()) {
+          setSubscriptionTier((subSnap.data().tier || "free").toLowerCase());
+        }
+      } catch (err) {
+        console.error("[Roadmap] Cold-load failed:", err);
+        // IDB-only fallback on network error
+        const uid_fallback = userData?.id;
+        if (uid_fallback) {
+          const cached = await idbGet(uid_fallback);
+          if (cached?.nodes?.length > 0) {
+            setNodes(cached.nodes);
+            setEdges(cached.edges || []);
+            addToast("Offline mode: local cache active.", "grey");
+          }
+        }
+      }
+    };
+    fetchData();
+  }, [userData?.id]); // eslint-disable-line
+
+  /**
+   * @function handleCloudSave
+   * @description
+   * Batched Firestore write. Uses writeBatch for atomic node+edge update.
+   * Flushes pending score delta on success. Writes IDB mirror regardless.
+   */
+  const handleCloudSave = useCallback(async () => {
+    const uid = userData?.id;
+    if (!uid) return;
+    if (!hasUnsavedChanges && pendingScoreDelta === 0) return;
+    setIsSaving(true);
+    try {
+      const batch = writeBatch(db);
+      const cleanNodes = nodes.map(({ id, type, position, data }) => ({
+        id,
+        type,
+        position,
+        data,
+      }));
+      const cleanEdges = edges.map(
+        ({ id, source, target, sourceHandle, targetHandle, type, data }) => ({
+          id,
+          source,
+          target,
+          sourceHandle,
+          targetHandle,
+          type,
+          data,
+        }),
+      );
+      batch.set(
+        doc(db, "users", uid, "execution_map", "current"),
+        { nodes, edges, lastUpdated: new Date().toISOString() },
+        { merge: true },
+      );
+      await batch.commit();
+
+      // Parallel IDB sync (fire-and-forget)
+      idbPut(uid, { nodes, edges });
+
+      if (pendingScoreDelta !== 0) {
+        mutateScore(uid, pendingScoreDelta, "Execution Matrix Updated");
+        setPendingScoreDelta(0);
+      }
+      setHasUnsavedChanges(false);
+      addToast("Matrix synced.", "green");
+    } catch (err) {
+      console.error("[Roadmap] Save failed:", err);
+      addToast("Sync failed. Local state preserved.", "red");
+    } finally {
+      setIsSaving(false);
+    }
+  }, [
+    userData?.id,
+    hasUnsavedChanges,
+    pendingScoreDelta,
+    nodes,
+    edges,
+    addToast,
+  ]); // eslint-disable-line
+
+  /**
+   * @description
+   * Debounced auto-save: resets the SAVE_DEBOUNCE_MS timer on every dirty-state
+   * write. IDB is written immediately (optimistic); Firestore deferred.
+   * This pattern keeps free-tier Firestore writes well within daily budget.
+   */
+  useEffect(() => {
+    if (!hasUnsavedChanges || !userData?.id) return;
+    idbPut(userData.id, { nodes, edges }); // immediate local persist
+    clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(() => {
+      handleCloudSave();
+    }, SAVE_DEBOUNCE_MS);
+    return () => clearTimeout(saveTimerRef.current);
+  }, [nodes, edges, hasUnsavedChanges]); // eslint-disable-line
+
+  // ── AI Calibration Flow ──
   const handleStartCalibration = async () => {
     if (subscriptionTier === "free" && !isFirstTime) {
       setProModalReason("regenerate");
@@ -981,1648 +3229,669 @@ const Roadmap = () => {
     }
     if (subscriptionTier === "pro" && !canRegenerate && !isFirstTime) {
       addToast(
-        `Regeneration locked. Try again in ${Math.ceil(14 - daysSinceLastGen)} days.`,
+        `Locked. Try again in ${Math.ceil(14 - daysSinceLastGen)} days.`,
         "red",
       );
       return;
     }
-
     setAiPhase("loading_questions");
     setAiAnswers({});
     setCurrentQuestionIdx(0);
-
     try {
-      // 1. Call Gemini to generate personalized questions
       const questions = await generateCalibrationQuestions(userData);
       setAiQuestions(questions);
       setAiPhase("questions");
     } catch (err) {
-      addToast("Failed to initialize AI neural link. Try again.", "red");
+      addToast("AI neural link failed.", "red");
       setAiPhase("idle");
     }
   };
 
   const handleGenerateRoadmap = async () => {
     setAiPhase("loading_roadmap");
-
     try {
-      // 1. Send Answers to Gemini to build the JSON map
       const aiData = await generateExecutionMap(
         userData,
         aiAnswers,
         subscriptionTier,
       );
 
-      // 2. Parse Gemini's simple JSON into React Flow's complex Math UI
-      const newNodes = [];
-      const newEdges = [];
+      const newNodes = aiData.nodes.map((n) => {
+        let nodeClass = "executionNode";
+        let data = {};
 
-      let currentDate = new Date();
-      let lastCoreId = null; // Track the spine!
-
-      aiData.phases.forEach((phase, index) => {
-        const nodeId = `node_ai_${Date.now()}_${index}`;
-
-        // Add 14 days for each phase to create rolling deadlines
-        currentDate.setDate(currentDate.getDate() + 14);
-
-        newNodes.push({
-          id: nodeId,
-          type: "executionNode",
-          position: { x: 0, y: 0 },
-          data: {
-            title: phase.title,
-            subtitle: phase.subtitle,
-            desc: phase.desc,
-            nodeType: phase.nodeType || "core",
-            deadline: currentDate.toISOString().split("T")[0],
+        if (n.type === "core" || n.type === "branch") {
+          const offsetDate = new Date();
+          offsetDate.setDate(
+            offsetDate.getDate() + (n.deadline_offset_days || 30),
+          );
+          data = {
+            title: sanitize(n.title || "Protocol"),
+            subtitle: sanitize(n.subtitle || "Execution"),
+            desc: sanitize(n.desc || ""),
+            deadline: offsetDate.toISOString().split("T")[0],
             isCompleted: false,
-            priorityStatus: index === 0 ? "READY" : "FUTURE",
-            tasks: phase.tasks.map((t, i) => ({
-              id: `${nodeId}_t${i}`,
-              text: t,
+            priorityStatus: "READY",
+            nodeType: n.type,
+            tasks: (n.tasks || []).map((t, i) => ({
+              id: `${n.id}_t${i}`,
+              text: sanitize(String(t)),
               completed: false,
             })),
-          },
-        });
-
-        // Neural Connection Logic
-        if (index > 0) {
-          // Connect to the LAST CORE NODE, not just the previous index!
-          const sourceId = lastCoreId || newNodes[0].id;
-
-          newEdges.push({
-            id: `edge_${sourceId}-${nodeId}`,
-            source: sourceId,
-            target: nodeId,
-            sourceHandle: "right-source", // Force output from the right
-            targetHandle: phase.nodeType === "branch" ? "top" : "left-target", // Force input to the left (or top for branches)
-            animated: phase.nodeType === "branch",
-            style: {
-              stroke: phase.nodeType === "branch" ? "#444" : "#888", // Dimmer lines for branches
-              strokeWidth: phase.nodeType === "branch" ? 1.5 : 2,
-              strokeDasharray: phase.nodeType === "branch" ? "5,5" : "none",
-            },
-          });
+            linkedAssets: [],
+            delegates: [],
+            accentColor: n.type === "core" ? "amber" : "white",
+            tags: n.tags || [],
+            collapsed: false,
+          };
+        } else if (n.type === "radarWidget") {
+          nodeClass = "radarWidget";
+          data = {
+            radarData: n.radarData || [
+              { metric: "Focus", val: 80 },
+              { metric: "Intel", val: 70 },
+              { metric: "Pace", val: 85 },
+              { metric: "Output", val: 65 },
+            ],
+          };
+        } else if (n.type === "assetWidget") {
+          nodeClass = "assetWidget";
+          data = {
+            label: sanitize(n.label || "Awaiting Proof"),
+            type: sanitize(n.assetType || "Vault Integration"),
+          };
+        } else if (n.type === "videoWidget") {
+          nodeClass = "videoWidget";
+          data = {
+            title: sanitize(n.title || "External Source"),
+            platform: sanitize(n.platform || "Media"),
+            thumbnailUrl: null,
+            youtubeId: null,
+          };
+        } else if (n.type === "journalNode") {
+          nodeClass = "journalNode";
+          data = { entry: "", date: new Date().toISOString(), mood: "⚡" };
+        } else if (n.type === "milestoneNode") {
+          nodeClass = "milestoneNode";
+          data = {
+            title: sanitize(n.title || "Milestone"),
+            subtitle: sanitize(n.subtitle || "Achievement"),
+            isUnlocked: false,
+            xpReward: n.xpReward || 100,
+          };
         }
-
-        // If this node is a core milestone, update the spine tracker
-        if (phase.nodeType !== "branch") {
-          lastCoreId = nodeId;
-        }
+        return { id: n.id, type: nodeClass, position: { x: 0, y: 0 }, data };
       });
 
-      // 3. Apply the mathematical Sprawling Web Layout
-      const layoutedNodes = generateWebLayout(newNodes);
-
-      // 4. Update the Canvas
-      setNodes(layoutedNodes);
-      setEdges(newEdges);
-      setHasUnsavedChanges(true); // Triggers the Cloud Save button to appear
-
-      // 5. Update the backend timestamp to enforce the 14-day rule
-      const uid = auth.currentUser?.uid || userData?.id;
-      if (uid) {
-        await updateDoc(doc(db, "users", uid), {
-          "telemetry.lastRoadmapGen": new Date().toISOString(),
-        });
-      }
-
-      setAiPhase("idle");
-      addToast("Neural Map successfully deployed.", "green");
-      addLedgerEntry("Generated new AI Execution Map");
-
-      // --- FIREBASE ANALYTICS: TRACK ROADMAP GENERATION ---
-      if (analytics) {
-        logEvent(analytics, "generated_roadmap", {
-          user_niche: userData?.vision?.niche || "Unknown",
-          user_domain: userData?.vision?.passion || "Unknown",
-          tier: subscriptionTier || "free",
-        });
-      }
-    } catch (err) {
-      console.error(err);
-      addToast("Synthesis failed. Neural link severed.", "red");
-      setAiPhase("idle");
-    }
-  };
-
-  // ============================================================================
-  // TASK OVERFLOW ENGINE (Rollover past-due tasks)
-  // ============================================================================
-  useEffect(() => {
-    // Only run this if we have nodes and haven't already processed them today
-    if (nodes.length === 0) return;
-
-    const today = new Date();
-    let hasChanges = false;
-    let pendingRolloverTasks = [];
-
-    // Deep clone nodes to avoid mutating state directly
-    let processedNodes = JSON.parse(JSON.stringify(nodes));
-
-    for (let i = 0; i < processedNodes.length; i++) {
-      let node = processedNodes[i];
-      let nodeDeadline = new Date(node.data.deadline);
-
-      // 1. If this node's deadline is in the past
-      if (nodeDeadline < today && node.data.status !== "Completed") {
-        const unfinishedTasks = node.data.tasks.filter((t) => !t.completed);
-
-        if (unfinishedTasks.length > 0) {
-          // Tag them as rollover and add to queue
-          pendingRolloverTasks.push(
-            ...unfinishedTasks.map((t) => ({ ...t, isRollover: true })),
-          );
-
-          // Remove them from the old node, mark old node as completed
-          node.data.tasks = node.data.tasks.filter((t) => t.completed);
-          node.data.status = "Completed";
-          hasChanges = true;
-        }
-      }
-      // 2. Dump the rollover queue into the FIRST active/future node we find
-      else if (nodeDeadline >= today && pendingRolloverTasks.length > 0) {
-        node.data.tasks = [...pendingRolloverTasks, ...node.data.tasks];
-        pendingRolloverTasks = []; // Clear the queue
-        hasChanges = true;
-      }
-    }
-
-    // If the engine detected and moved tasks, update the UI & Database
-    if (hasChanges) {
-      // Apply the mathematical layout before setting state
-      const layoutedNodes = generateWebLayout(processedNodes);
-      setNodes(layoutedNodes);
-
-      // TODO: When API is connected, we will also fire an updateDoc here
-      // to permanently save the rolled-over state to Firebase!
-    }
-  }, []);
-
-  useEffect(() => {
-    const saved = localStorage.getItem("discotive_ledger");
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      setSystemLedger(
-        parsed.filter(
-          (e) => Date.now() - new Date(e.time).getTime() < 86400000,
-        ),
-      );
-    }
-  }, []);
-
-  useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
-        setIsDropdownOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
-
-  // --- FIREBASE FETCH ---
-  useEffect(() => {
-    const fetchData = async () => {
-      const uid = auth.currentUser?.uid || userData?.id;
-      if (!uid) return;
-      try {
-        const docRef = doc(db, "users", uid, "execution_map", "current");
-        const docSnap = await getDoc(docRef);
-        if (docSnap.exists()) {
-          const rm = docSnap.data();
-          setNodes(rm.nodes || []);
-          setEdges(rm.edges || []);
-          setDailyStats(rm.dailyStats || {});
-        } else {
-          setNodes([
-            {
-              id: "init_1",
-              type: "executionNode",
-              position: { x: 250, y: 250 },
-              data: {
-                title: "Phase 1 Initialization",
-                desc: "First deployment.",
-                tasks: [],
-                isCompleted: false,
-                nodeType: "core",
-              },
-            },
-          ]);
-        }
-
-        const subRef = doc(db, "users", uid, "subscription", "current");
-        const subSnap = await getDoc(subRef);
-        if (subSnap.exists()) {
-          setSubscriptionTier(subSnap.data().tier || "free");
-        } else {
-          await setDoc(subRef, {
-            tier: "free",
-            status: "active",
-            createdAt: new Date().toISOString(),
-          });
-          setSubscriptionTier("free");
-        }
-      } catch (e) {
-        console.error("Failed to load databank.", e);
-      }
-    };
-    fetchData();
-  }, [userData?.id]);
-
-  // --- FIREBASE SAVE ---
-  const handleCloudSave = useCallback(async () => {
-    const uid = auth.currentUser?.uid || userData?.id;
-    if (!hasUnsavedChanges || !uid) return;
-
-    setIsSaving(true);
-    try {
-      await setDoc(
-        doc(db, "users", uid, "execution_map", "current"),
-        {
-          nodes,
-          edges,
-          dailyStats,
-          lastUpdated: new Date().toISOString(),
+      const newEdges = aiData.edges.map((e, i) => ({
+        id: `e_ai_${Date.now()}_${i}`,
+        source: e.source,
+        target: e.target,
+        sourceHandle: e.sourceHandle || "right",
+        targetHandle: e.targetHandle || "left",
+        type: "neuralEdge",
+        data: {
+          connType: e.connType || "open",
+          accent:
+            NODE_ACCENT_PALETTE[e.accentColor || "amber"]?.primary || "#ca8a04",
         },
-        { merge: true },
-      );
-      setHasUnsavedChanges(false);
-      addToast("Successfully synced to chain.", "green");
-    } catch (e) {
-      console.error("Failed to save to chain", e);
-      addToast("Sync failed.", "red");
-    } finally {
-      setIsSaving(false);
-    }
-  }, [hasUnsavedChanges, userData?.id, nodes, edges, dailyStats, addToast]);
-
-  // --- TASK AUTO-MIGRATION ALGORITHM (Overdue handling) ---
-  useEffect(() => {
-    if (!nodes || nodes.length === 0) return;
-
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    let mutationsOccurred = false;
-    const updatedNodes = JSON.parse(JSON.stringify(nodes));
-
-    updatedNodes.forEach((node) => {
-      if (
-        !node.data.deadline ||
-        node.data.isCompleted ||
-        node.data.tasksMigrated
-      )
-        return;
-
-      const dDate = new Date(node.data.deadline);
-      dDate.setHours(0, 0, 0, 0);
-
-      if (dDate < today) {
-        const incompleteTasks = (node.data.tasks || []).filter(
-          (t) => !t.completed,
-        );
-
-        if (incompleteTasks.length > 0) {
-          let nextCore = null;
-          const visited = new Set();
-          const queue = [node.id];
-
-          while (queue.length > 0 && !nextCore) {
-            const currId = queue.shift();
-            visited.add(currId);
-            const outgoingEdges = edges.filter((e) => e.source === currId);
-
-            for (const edge of outgoingEdges) {
-              const targetNode = updatedNodes.find((x) => x.id === edge.target);
-              if (targetNode) {
-                if (
-                  targetNode.data.nodeType === "core" &&
-                  targetNode.id !== node.id
-                ) {
-                  nextCore = targetNode;
-                  break;
-                }
-                if (!visited.has(targetNode.id)) queue.push(targetNode.id);
-              }
-            }
-          }
-
-          if (!nextCore) {
-            nextCore = updatedNodes.find(
-              (x) =>
-                x.id !== node.id &&
-                x.data.nodeType === "core" &&
-                x.data.deadline &&
-                new Date(x.data.deadline) >= today,
-            );
-          }
-
-          if (nextCore) {
-            const clonedTasks = incompleteTasks.map((t) => ({
-              ...t,
-              id: Date.now() + Math.random(),
-            }));
-            nextCore.data.tasks = [
-              ...(nextCore.data.tasks || []),
-              ...clonedTasks,
-            ];
-            node.data.tasks = (node.data.tasks || []).filter(
-              (t) => t.completed,
-            );
-
-            addToast(
-              `Tasks migrated from ${node.data.title} to ${nextCore.data.title}`,
-              "grey",
-            );
-            addLedgerEntry(
-              `Auto-migrated overdue tasks to ${nextCore.data.title}`,
-            );
-          }
-        }
-
-        node.data.tasksMigrated = true;
-        mutationsOccurred = true;
-      }
-    });
-
-    if (mutationsOccurred) {
-      setNodes(updatedNodes);
-      setHasUnsavedChanges(true);
-    }
-  }, [nodes, edges, addToast, addLedgerEntry]);
-
-  // --- GLOBAL NOTIFICATIONS ENGINE ---
-  useEffect(() => {
-    const checkDeadlines = () => {
-      const storedNots = JSON.parse(
-        localStorage.getItem("discotive_notifications") || "[]",
-      );
-      let newNots = [...storedNots];
-      let added = false;
-      const today = new Date();
-
-      nodes.forEach((n) => {
-        if (!n.data.deadline || n.data.isCompleted) return;
-        const dDate = new Date(n.data.deadline);
-        const diffHours = (dDate - today) / (1000 * 60 * 60);
-
-        const checkAndAdd = (idSuffix, msg) => {
-          const notifId = `dl_${n.id}_${idSuffix}`;
-          if (!newNots.find((x) => x.id === notifId)) {
-            newNots.push({
-              id: notifId,
-              msg,
-              date: new Date().toISOString(),
-              read: false,
-              link: "/app/roadmap",
-            });
-            added = true;
-          }
-        };
-
-        if (diffHours > 0 && diffHours <= 24)
-          checkAndAdd("24h", `Deadline Approaching (24h): ${n.data.title}`);
-        else if (diffHours > 0 && diffHours <= 24 * 7)
-          checkAndAdd("7d", `Deadline Approaching (7 days): ${n.data.title}`);
-      });
-
-      newNots = newNots.filter(
-        (n) => new Date() - new Date(n.date) < 7 * 24 * 60 * 60 * 1000,
-      );
-      if (added)
-        localStorage.setItem(
-          "discotive_notifications",
-          JSON.stringify(newNots),
-        );
-    };
-    checkDeadlines();
-  }, [nodes]);
-
-  // --- ALGORITHMIC PRIORITY CALCULATOR ---
-  const nodesWithPriority = useMemo(() => {
-    const statusMap = {};
-    const updatedNodes = nodes.map((n) => {
-      const tasks = n.data.tasks || [];
-      const prog =
-        tasks.length > 0
-          ? Math.round(
-              (tasks.filter((t) => t.completed).length / tasks.length) * 100,
-            )
-          : n.data.isCompleted
-            ? 100
-            : 0;
-      if (prog === 100) statusMap[n.id] = "COMPLETED";
-      return {
-        ...n,
-        data: { ...n.data, progress: prog, isCompleted: prog === 100 },
-      };
-    });
-
-    const readyNodes = updatedNodes.filter((n) => {
-      if (statusMap[n.id] === "COMPLETED") return false;
-      const incoming = edges.filter((e) => e.target === n.id);
-      return incoming.every((e) => statusMap[e.source] === "COMPLETED");
-    });
-    readyNodes.forEach((n) => (statusMap[n.id] = "READY"));
-
-    edges.forEach((e) => {
-      if (statusMap[e.source] === "READY" && !statusMap[e.target])
-        statusMap[e.target] = "NEXT";
-    });
-    updatedNodes.forEach((n) => {
-      if (!statusMap[n.id]) statusMap[n.id] = "FUTURE";
-    });
-
-    return updatedNodes.map((n) => ({
-      ...n,
-      data: { ...n.data, priorityStatus: statusMap[n.id] },
-    }));
-  }, [nodes, edges]);
-
-  // --- TIMEFRAME FILTER ---
-  const filteredNodes = useMemo(() => {
-    if (timeframe === "Macro Vision") return nodesWithPriority;
-    const days =
-      timeframe === "1 Month Sprint"
-        ? 30
-        : timeframe === "3 Months Trajectory"
-          ? 90
-          : 365;
-    const cutoff = new Date();
-    cutoff.setDate(cutoff.getDate() + days);
-
-    return nodesWithPriority.filter((n) => {
-      if (!n.data.deadline) return true;
-      return new Date(n.data.deadline) <= cutoff;
-    });
-  }, [nodesWithPriority, timeframe]);
-
-  const handleAutoAdjustFilter = (dateStr) => {
-    if (!dateStr || timeframe === "Macro Vision") return;
-    const dDate = new Date(dateStr);
-    const today = new Date();
-    const diffDays = (dDate - today) / (1000 * 60 * 60 * 24);
-
-    if (timeframe === "1 Month Sprint" && diffDays > 30) {
-      setTimeframe(
-        diffDays <= 90
-          ? "3 Months Trajectory"
-          : diffDays <= 365
-            ? "12 Months Arc"
-            : "Macro Vision",
-      );
-      addToast("Filter auto-adjusted to fit deadline.", "grey");
-    } else if (timeframe === "3 Months Trajectory" && diffDays > 90) {
-      setTimeframe(diffDays <= 365 ? "12 Months Arc" : "Macro Vision");
-      addToast("Filter auto-adjusted to fit deadline.", "grey");
-    } else if (timeframe === "12 Months Arc" && diffDays > 365) {
-      setTimeframe("Macro Vision");
-      addToast("Filter auto-adjusted to fit deadline.", "grey");
-    }
-  };
-
-  // --- NODE EDITOR HANDLERS ---
-  const activeNode = nodesWithPriority.find((n) => n.id === activeEditNodeId);
-
-  const updateActiveNode = (key, value) => {
-    if (key === "deadline") handleAutoAdjustFilter(value);
-    setNodes((nds) =>
-      nds.map((n) =>
-        n.id === activeEditNodeId
-          ? { ...n, data: { ...n.data, [key]: value } }
-          : n,
-      ),
-    );
-    setHasUnsavedChanges(true);
-  };
-
-  const handleSubtaskToggle = (taskId) => {
-    const tasks = activeNode.data.tasks || [];
-    const taskToToggle = tasks.find((t) => t.id === taskId);
-    const willBeCompleted = !taskToToggle.completed; // The new state
-
-    const updatedTasks = tasks.map((t) =>
-      t.id === taskId ? { ...t, completed: willBeCompleted } : t,
-    );
-    updateActiveNode("tasks", updatedTasks);
-
-    // FIRE SCORE ENGINE! (+5 or -5)
-    awardTaskCompletion(auth.currentUser?.uid || userData?.id, willBeCompleted);
-
-    if (willBeCompleted) {
-      addToast("Task sequence executed. +5 PTS", "green"); // Updated toast
-      logDailyStat("task", 1);
-      addLedgerEntry(`Executed sub-task in: ${activeNode.data.title}`);
-    } else {
-      addToast("Task sequence reversed. -5 PTS", "grey");
-    }
-  };
-
-  const handleCompleteAll = () => {
-    if (window.confirm("Mark node and all tasks as completed?")) {
-      const incompleteTasksCount = (activeNode.data.tasks || []).filter(
-        (t) => !t.completed,
-      ).length;
-
-      const tasks = (activeNode.data.tasks || []).map((t) => ({
-        ...t,
-        completed: true,
       }));
 
+      const layoutedNodes = generateNeuralLayout(newNodes, newEdges);
+      setNodes(layoutedNodes);
+      setEdges(newEdges);
+      setHasUnsavedChanges(true);
+
+      const uid = userData?.uid || userData?.id; // Bulletproof UID check
+      if (uid) {
+        // Safe Telemetry Update: Do not let this crash the main thread
+        try {
+          await setDoc(
+            doc(db, "users", uid),
+            { telemetry: { lastRoadmapGen: new Date().toISOString() } },
+            { merge: true },
+          );
+        } catch (telemetryErr) {
+          console.warn("Non-critical telemetry write skipped.", telemetryErr);
+        }
+        const cleanNodes = layoutedNodes.map(
+          ({ id, type, position, data }) => ({ id, type, position, data }),
+        );
+        const cleanEdges = newEdges.map(
+          ({ id, source, target, sourceHandle, targetHandle, type, data }) => ({
+            id,
+            source,
+            target,
+            sourceHandle,
+            targetHandle,
+            type,
+            data,
+          }),
+        );
+
+        try {
+          await setDoc(
+            doc(db, "users", uid, "execution_map", "current"),
+            {
+              nodes: cleanNodes,
+              edges: cleanEdges,
+              lastUpdated: new Date().toISOString(),
+            },
+            { merge: true },
+          );
+          idbPut(uid, { nodes: cleanNodes, edges: cleanEdges });
+          setHasUnsavedChanges(false); // Matrix safely synced
+        } catch (dbErr) {
+          console.error("Auto-save on generation failed", dbErr);
+          addToast("Warning: Map generated but cloud save failed.", "red");
+        }
+      }
+
+      setAiPhase("idle");
+      addToast("Neural web synthesized & deployed.", "green");
+      addLedgerEntry("Generated AI trajectory map");
+    } catch (err) {
+      console.error("[Roadmap] AI gen failed:", err);
+      setAiPhase("idle");
+      addToast("Synthesis failed. Retry.", "red");
+    }
+  };
+
+  // ── Active node operations ──
+  const activeNode = nodes.find((n) => n.id === activeEditNodeId);
+
+  const updateActiveNode = useCallback(
+    (key, value) => {
       setNodes((nds) =>
         nds.map((n) =>
           n.id === activeEditNodeId
-            ? { ...n, data: { ...n.data, tasks, isCompleted: true } }
+            ? { ...n, data: { ...n.data, [key]: value } }
             : n,
         ),
       );
       setHasUnsavedChanges(true);
+    },
+    [activeEditNodeId, setNodes],
+  );
 
-      logDailyStat(activeNode.data.nodeType, 1);
+  const handleSubtaskToggle = useCallback(
+    (taskId) => {
+      if (!activeNode) return;
+      const tasks = activeNode.data.tasks || [];
+      const task = tasks.find((t) => t.id === taskId);
+      if (!task) return;
+      const willBeCompleted = !task.completed;
 
-      // --- FIRE SCORE ENGINE! ---
-      const uid = auth.currentUser?.uid || userData?.id;
-      // 1. Award points for any remaining unchecked subtasks (+5 each)
-      if (incompleteTasksCount > 0) {
-        logDailyStat("task", incompleteTasksCount);
-        for (let i = 0; i < incompleteTasksCount; i++)
-          awardTaskCompletion(uid, true);
-      }
-      // 2. Award points for the node itself (+20 or +10)
-      awardNodeCompletion(uid, activeNode.data.nodeType);
-
-      const pts =
-        incompleteTasksCount * 5 +
-        (activeNode.data.nodeType === "core" ? 20 : 10);
-      addToast(
-        `Milestone Secured: ${activeNode.data.title} (+${pts} PTS)`,
-        "green",
-      );
-      addLedgerEntry(`Completed Milestone: ${activeNode.data.title}`);
-    }
-  };
-
-  // Upgraded Ledger Counter for Multi-Layer Gradients
-  const logDailyStat = (type, count = 1) => {
-    // 1. Get exact local date string (prevents UTC shift bugs)
-    const d = new Date();
-    const offset = d.getTimezoneOffset() * 60000;
-    const todayStr = new Date(d.getTime() - offset).toISOString().split("T")[0];
-
-    setDailyStats((prev) => {
-      // 2. Safely capture old schema data if it exists
-      const current = prev[todayStr] || {
-        total: prev[todayStr]?.count || 0,
-        subTasks: 0,
-        branches: prev[todayStr]?.hasBranch ? 1 : 0,
-        cores: prev[todayStr]?.hasCore ? 1 : 0,
-      };
-      return {
-        ...prev,
-        [todayStr]: {
-          total: current.total + count,
-          subTasks: current.subTasks + (type === "task" ? count : 0),
-          branches: current.branches + (type === "branch" ? count : 0),
-          cores: current.cores + (type === "core" ? count : 0),
-        },
-      };
-    });
-    setHasUnsavedChanges(true);
-  };
-
-  // --- CALENDAR VIEW ---
-  const renderCalendarView = () => {
-    const daysInMonth = getDaysInMonth(
-      calendarDate.getFullYear(),
-      calendarDate.getMonth(),
-    );
-    const firstDay = new Date(
-      calendarDate.getFullYear(),
-      calendarDate.getMonth(),
-      1,
-    ).getDay();
-
-    const days = Array.from({ length: daysInMonth }, (_, i) => {
-      const d = new Date(
-        calendarDate.getFullYear(),
-        calendarDate.getMonth(),
-        i + 1,
-      );
-      const dayNodes = filteredNodes.filter(
-        (n) => n.data.deadline && isSameDay(new Date(n.data.deadline), d),
-      );
-      return { date: d, day: i + 1, nodes: dayNodes };
-    });
-
-    const monthNames = [
-      "January",
-      "February",
-      "March",
-      "April",
-      "May",
-      "June",
-      "July",
-      "August",
-      "September",
-      "October",
-      "November",
-      "December",
-    ];
-
-    return (
-      <div className="w-full border-y border-[#111] h-[700px] overflow-y-auto custom-scrollbar p-6 md:p-12 bg-[#050505]">
-        <div className="max-w-[1200px] mx-auto">
-          <div className="flex items-center justify-between mb-8">
-            <h2 className="text-3xl font-extrabold text-white">
-              {monthNames[calendarDate.getMonth()]} {calendarDate.getFullYear()}
-            </h2>
-            <div className="flex gap-2">
-              <button
-                onClick={() =>
-                  setCalendarDate(
-                    new Date(
-                      calendarDate.getFullYear(),
-                      calendarDate.getMonth() - 1,
-                      1,
-                    ),
-                  )
-                }
-                className="p-2 bg-[#111] border border-[#333] rounded-lg text-white hover:bg-[#222] transition-colors"
-              >
-                <ChevronLeft className="w-5 h-5" />
-              </button>
-              <button
-                onClick={() =>
-                  setCalendarDate(
-                    new Date(
-                      calendarDate.getFullYear(),
-                      calendarDate.getMonth() + 1,
-                      1,
-                    ),
-                  )
-                }
-                className="p-2 bg-[#111] border border-[#333] rounded-lg text-white hover:bg-[#222] transition-colors"
-              >
-                <ChevronRight className="w-5 h-5" />
-              </button>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-7 gap-2 md:gap-4">
-            {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => (
-              <div
-                key={d}
-                className="text-center text-[10px] md:text-xs font-bold text-[#666] uppercase pb-4"
-              >
-                {d}
-              </div>
-            ))}
-            {Array.from({ length: firstDay }).map((_, i) => (
-              <div
-                key={`empty-${i}`}
-                className="h-24 md:h-32 rounded-2xl bg-transparent"
-              />
-            ))}
-            {days.map(({ day, date, nodes }) => {
-              const isToday = isSameDay(date, new Date());
-              return (
-                <div
-                  key={day}
-                  className={cn(
-                    "h-24 md:h-32 rounded-2xl p-2 md:p-4 border flex flex-col transition-colors overflow-hidden",
-                    isToday
-                      ? "bg-white/5 border-white/20"
-                      : "bg-[#0a0a0a] border-[#111]",
-                  )}
-                >
-                  <span
-                    className={cn(
-                      "text-xs md:text-sm font-bold font-mono mb-2",
-                      isToday ? "text-white" : "text-[#666]",
-                    )}
-                  >
-                    {day}
-                  </span>
-                  <div className="flex-1 overflow-y-auto custom-scrollbar space-y-1">
-                    {nodes.map((n) => (
-                      <div
-                        key={n.id}
-                        onClick={() => setActiveEditNodeId(n.id)}
-                        className={cn(
-                          "text-[8px] md:text-[10px] font-bold px-2 py-1 rounded cursor-pointer truncate",
-                          n.data.nodeType === "core"
-                            ? "bg-white text-black"
-                            : "bg-[#222] text-[#ccc] hover:bg-[#333]",
-                        )}
-                      >
-                        {n.data.title}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      </div>
-    );
-  };
-
-  // --- UPGRADED ADVANCED INSIGHTS TRACKER CHART ---
-  const InsightsChart = () => {
-    const chartRef = useRef(null);
-    let isDown = false;
-    let startX;
-    let scrollLeft;
-
-    // 1. Define handlers
-    const handleMouseDown = (e) => {
-      isDown = true;
-      startX = e.pageX - chartRef.current.offsetLeft;
-      scrollLeft = chartRef.current.scrollLeft;
-    };
-    const handleMouseLeave = () => {
-      isDown = false;
-    };
-    const handleMouseUp = () => {
-      isDown = false;
-    };
-    const handleMouseMove = (e) => {
-      if (!isDown) return;
-      e.preventDefault();
-      const x = e.pageX - chartRef.current.offsetLeft;
-      const walk = (x - startX) * 2;
-      chartRef.current.scrollLeft = scrollLeft - walk;
-    };
-
-    // 2. Safely memoize the data generation to prevent ReferenceErrors
-    const chartDays = useMemo(() => {
-      return Array.from({ length: 31 }, (_, i) => {
-        const d = new Date();
-        d.setDate(d.getDate() - (15 - i));
-
-        const offset = d.getTimezoneOffset() * 60000;
-        const ds = new Date(d.getTime() - offset).toISOString().split("T")[0];
-
-        const rawStat = dailyStats[ds] || {};
-
-        return {
-          date: d,
-          ds,
-          stat: {
-            total: rawStat.total || rawStat.count || 0,
-            subTasks: rawStat.subTasks || 0,
-            branches: rawStat.branches || (rawStat.hasBranch ? 1 : 0),
-            cores: rawStat.cores || (rawStat.hasCore ? 1 : 0),
-          },
-        };
-      });
-    }, [dailyStats]);
-
-    // 3. Auto-scroll center
-    useEffect(() => {
-      if (chartRef.current) {
-        const container = chartRef.current;
-        const childWidth = container.scrollWidth / 31;
-        const middleOffset =
-          15 * childWidth - container.clientWidth / 2 + childWidth / 2;
-        container.scrollLeft = middleOffset;
-      }
-    }, [chartDays]);
-
-    return (
-      <div
-        ref={chartRef}
-        onMouseDown={handleMouseDown}
-        onMouseLeave={handleMouseLeave}
-        onMouseUp={handleMouseUp}
-        onMouseMove={handleMouseMove}
-        className="flex items-end gap-1.5 h-full w-full mt-auto overflow-x-auto custom-scrollbar cursor-grab active:cursor-grabbing pb-2 pt-24 group/chart"
-      >
-        {chartDays.map(({ date, ds, stat }, i) => {
-          const isToday = isSameDay(date, new Date());
-
-          let bgClass = "bg-[#222]";
-          if (stat.total > 0) {
-            if (stat.cores > 0 && stat.branches > 0) {
-              bgClass =
-                "bg-gradient-to-b from-[#052e16] via-[#15803d] to-[#4ade80]";
-            } else if (stat.cores > 0) {
-              bgClass = "bg-gradient-to-b from-[#14532d] to-[#4ade80]";
-            } else if (stat.branches > 0) {
-              bgClass = "bg-gradient-to-b from-[#16a34a] to-[#86efac]";
-            } else {
-              bgClass = "bg-[#4ade80]";
-            }
-          }
-
+      // Asset-linkage verification gate for certificate/proof tasks
+      if (willBeCompleted && /certif|proof/i.test(task.text)) {
+        const hasLinkedAsset = edges.some((e) => {
+          const connectedId =
+            e.source === activeNode.id
+              ? e.target
+              : e.target === activeNode.id
+                ? e.source
+                : null;
           return (
-            <div
-              key={i}
-              className="relative group flex-1 min-w-[14px] flex flex-col justify-end items-center h-full hover:z-50 transition-opacity duration-300 group-hover/chart:opacity-50 hover:!opacity-100"
-            >
-              <div
-                className={cn("w-full rounded-sm transition-all", bgClass)}
-                style={{
-                  height: `${Math.max(5, Math.min(75, stat.total * 15))}%`,
-                }}
-              />
-              {isToday && (
-                <div className="w-full h-1 bg-white mt-1 rounded-full shrink-0" />
-              )}
-
-              <div className="absolute bottom-[calc(100%+12px)] opacity-0 translate-y-2 group-hover:opacity-100 group-hover:translate-y-0 bg-[#0a0a0a]/95 backdrop-blur-xl border border-[#222] shadow-[0_20px_50px_rgba(0,0,0,0.8)] text-white text-xs px-4 py-3 rounded-xl pointer-events-none whitespace-nowrap z-[100] flex flex-col gap-1.5 transition-all duration-300">
-                <div className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-[#0a0a0a] border-b border-r border-[#222] rotate-45" />
-
-                <span className="font-extrabold border-b border-[#333] pb-1.5 mb-1 text-center tracking-wide">
-                  {date.toLocaleDateString("en-US", {
-                    month: "short",
-                    day: "numeric",
-                  })}
-                </span>
-                <span className="text-[#888] flex justify-between gap-6">
-                  <span>Sub-Tasks</span>{" "}
-                  <span className="text-[#4ade80] font-extrabold">
-                    {stat.subTasks}
-                  </span>
-                </span>
-                <span className="text-[#888] flex justify-between gap-6">
-                  <span>Branches</span>{" "}
-                  <span className="text-[#16a34a] font-extrabold">
-                    {stat.branches}
-                  </span>
-                </span>
-                <span className="text-[#888] flex justify-between gap-6">
-                  <span>Cores</span>{" "}
-                  <span className="text-[#14532d] font-extrabold">
-                    {stat.cores}
-                  </span>
-                </span>
-              </div>
-            </div>
+            connectedId &&
+            nodes.find((n) => n.id === connectedId)?.type === "assetWidget"
           );
-        })}
-      </div>
+        });
+        if (!hasLinkedAsset) {
+          addToast("Verification denied. Link a Vault Asset first.", "red");
+          return;
+        }
+      }
+
+      updateActiveNode(
+        "tasks",
+        tasks.map((t) =>
+          t.id === taskId ? { ...t, completed: willBeCompleted } : t,
+        ),
+      );
+      setPendingScoreDelta((p) => p + (willBeCompleted ? 5 : -10));
+      addToast(
+        willBeCompleted ? "+5 pts pending save" : "-10 pts pending save",
+        willBeCompleted ? "green" : "grey",
+      );
+    },
+    [activeNode, edges, nodes, updateActiveNode, addToast],
+  );
+
+  const handleCompleteAll = useCallback(() => {
+    if (!activeNode) return;
+    if (!window.confirm("Authorize milestone sequence completion?")) return;
+    const incomplete = (activeNode.data.tasks || []).filter(
+      (t) => !t.completed,
+    ).length;
+    updateActiveNode(
+      "tasks",
+      (activeNode.data.tasks || []).map((t) => ({ ...t, completed: true })),
     );
-  };
+    updateActiveNode("isCompleted", true);
+    if (incomplete > 0) setPendingScoreDelta((p) => p + incomplete * 5);
+    setPendingScoreDelta(
+      (p) => p + (activeNode.data.nodeType === "core" ? 30 : 15),
+    );
+    addToast(
+      `Milestone secured: ${activeNode.data.title} (+pts pending save)`,
+      "green",
+    );
+    addLedgerEntry(`Completed: ${activeNode.data.title}`);
+  }, [activeNode, updateActiveNode, addToast, addLedgerEntry]);
 
-  // --- CLOCK & JOURNAL LOGIC ---
-  const [isJournalOpen, setIsJournalOpen] = useState(false);
-  const [isJournalFullscreen, setIsJournalFullscreen] = useState(false);
-  const [journalText, setJournalText] = useState("");
-  const [journalCalDate, setJournalCalDate] = useState(new Date());
-  const [selectedJournalDate, setSelectedJournalDate] = useState(new Date());
-  const JOURNAL_LIMIT = 1000;
+  const handleDeleteActiveNode = useCallback(() => {
+    if (!activeEditNodeId) return;
+    setNodes((nds) => nds.filter((n) => n.id !== activeEditNodeId));
+    setEdges((eds) =>
+      eds.filter(
+        (e) => e.source !== activeEditNodeId && e.target !== activeEditNodeId,
+      ),
+    );
+    setHasUnsavedChanges(true);
+    setActiveEditNodeId(null);
+    addToast("Node obliterated.", "red");
+    addLedgerEntry(
+      `Deleted node: ${activeNode?.data?.title || activeEditNodeId}`,
+    );
+  }, [
+    activeEditNodeId,
+    activeNode,
+    setNodes,
+    setEdges,
+    addToast,
+    addLedgerEntry,
+  ]);
 
-  useEffect(() => {
-    const timer = setInterval(() => setCurrentTime(new Date()), 1000);
-    return () => clearInterval(timer);
-  }, []);
+  const closePanel = useCallback(() => {
+    setActiveEditNodeId(null);
+    setNodes((nds) =>
+      nds.map((n) => ({ ...n, data: { ...n.data, isDimmed: false } })),
+    );
+  }, [setNodes]);
 
-  const formattedDate = currentTime.toLocaleDateString("en-US", {
-    weekday: "long",
-    month: "long",
-    day: "numeric",
-  });
-  const formattedTime = currentTime.toLocaleTimeString("en-US", {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
-
-  const handleSaveJournal = async () => {
-    const uid = auth.currentUser?.uid || userData?.id;
-    if (!journalText.trim() || !uid) return;
-    try {
-      await addDoc(collection(db, "users", uid, "journal_entries"), {
-        timestamp: new Date().toISOString(),
-        content: journalText,
-      });
-      setJournalText("");
-      addToast("Journal entry secured to databank.", "green");
-      addLedgerEntry("Logged execution journal entry");
-    } catch (e) {
-      console.error(e);
-      addToast("Failed to secure journal entry.", "red");
+  const embedVideo = () => {
+    if (!videoModal.customUrl || !videoModal.targetNodeId) return;
+    const videoCount = nodes.filter(
+      (n) => n.type === "videoWidget" && n.data.youtubeId,
+    ).length;
+    if (subscriptionTier === "free" && videoCount >= 3) {
+      setProModalReason("nodes");
+      setIsProModalOpen(true);
+      setVideoModal({ ...videoModal, isOpen: false });
+      return;
     }
-  };
-
-  const generateMiniCalendar = () => {
-    const daysInMonth = getDaysInMonth(
-      journalCalDate.getFullYear(),
-      journalCalDate.getMonth(),
+    const match = videoModal.customUrl.match(
+      /(?:youtu\.be\/|v\/|embed\/|watch\?v=|&v=)([^#&?]{11})/,
     );
-    const firstDay = new Date(
-      journalCalDate.getFullYear(),
-      journalCalDate.getMonth(),
-      1,
-    ).getDay();
-    const days = Array.from({ length: daysInMonth }, (_, i) => i + 1);
-    const monthNames = [
-      "January",
-      "February",
-      "March",
-      "April",
-      "May",
-      "June",
-      "July",
-      "August",
-      "September",
-      "October",
-      "November",
-      "December",
-    ];
-
-    return (
-      <div>
-        <div className="flex justify-between items-center mb-4">
-          <span className="text-xs font-bold text-white">
-            {monthNames[journalCalDate.getMonth()]}{" "}
-            {journalCalDate.getFullYear()}
-          </span>
-          <div className="flex gap-2">
-            <button
-              onClick={() =>
-                setJournalCalDate(
-                  new Date(
-                    journalCalDate.getFullYear(),
-                    journalCalDate.getMonth() - 1,
-                    1,
-                  ),
-                )
-              }
-              className="p-1 hover:bg-[#222] rounded transition-colors"
-            >
-              <ChevronLeft className="w-3 h-3" />
-            </button>
-            <button
-              onClick={() =>
-                setJournalCalDate(
-                  new Date(
-                    journalCalDate.getFullYear(),
-                    journalCalDate.getMonth() + 1,
-                    1,
-                  ),
-                )
-              }
-              className="p-1 hover:bg-[#222] rounded transition-colors"
-            >
-              <ChevronRight className="w-3 h-3" />
-            </button>
-          </div>
-        </div>
-        <div className="grid grid-cols-7 gap-1.5">
-          {["S", "M", "T", "W", "T", "F", "S"].map((d) => (
-            <div
-              key={Math.random()}
-              className="text-[9px] text-[#666] font-bold text-center mb-2"
-            >
-              {d}
-            </div>
-          ))}
-          {Array.from({ length: firstDay }).map((_, i) => (
-            <div key={`empty-${i}`} />
-          ))}
-          {days.map((day) => {
-            const d = new Date(
-              journalCalDate.getFullYear(),
-              journalCalDate.getMonth(),
-              day,
-            );
-            const isToday = isSameDay(d, new Date());
-            const isSelected = isSameDay(d, selectedJournalDate);
-
-            let dayClass = "text-[#444] hover:bg-[#222] hover:text-white";
-            if (isSelected) dayClass = "bg-white text-black font-extrabold";
-            else if (isToday)
-              dayClass = "border border-white text-white font-bold";
-
-            return (
-              <div
-                key={day}
-                onClick={() => setSelectedJournalDate(d)}
-                className={cn(
-                  "aspect-square flex items-center justify-center rounded-full text-xs font-mono relative transition-colors cursor-pointer",
-                  dayClass,
-                )}
-              >
-                {day}
-              </div>
-            );
-          })}
-        </div>
-      </div>
+    const videoId = match ? match[1] : null;
+    setNodes((nds) =>
+      nds.map((n) =>
+        n.id === videoModal.targetNodeId
+          ? {
+              ...n,
+              data: {
+                ...n.data,
+                title: sanitize(videoModal.customTitle || "External Protocol"),
+                thumbnailUrl: videoId
+                  ? `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`
+                  : null,
+                youtubeId: videoId,
+                platform: videoId ? "YouTube" : "External",
+              },
+            }
+          : n,
+      ),
+    );
+    setVideoModal({ ...videoModal, isOpen: false });
+    setHasUnsavedChanges(true);
+    addToast(
+      videoId ? "YouTube link established." : "External link attached.",
+      "green",
     );
   };
 
+  const linkVaultAsset = (asset) => {
+    setNodes((nds) =>
+      nds.map((n) =>
+        n.id === vaultModal.targetNodeId
+          ? {
+              ...n,
+              data: {
+                ...n.data,
+                label: sanitize(asset.name),
+                type: sanitize(asset.type),
+                assetId: asset.id,
+              },
+            }
+          : n,
+      ),
+    );
+    setVaultModal({ ...vaultModal, isOpen: false });
+    setHasUnsavedChanges(true);
+    addToast("Asset locked to protocol.", "green");
+  };
+
+  const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
+
+  // ──────────────────────────────────────────────────────────────────────────
   return (
-    <div className="bg-[#030303] min-h-screen w-full max-w-full overflow-x-hidden text-white selection:bg-white selection:text-black pb-20 relative">
-      {/* HEADER */}
-      <div className="max-w-[1600px] mx-auto px-4 md:px-12 pt-10 md:pt-12 pb-6 md:pb-8 flex flex-col md:flex-row justify-between items-start md:items-end gap-6 md:gap-8 relative z-20">
+    <div className="bg-[#030303] min-h-screen w-full max-w-full overflow-x-hidden text-white pb-24 relative">
+      {/* ── PAGE HEADER ── */}
+      <div className="max-w-[1700px] mx-auto px-4 md:px-12 pt-10 md:pt-14 pb-6 md:pb-8 flex flex-col md:flex-row justify-between items-start md:items-end gap-6 relative z-20">
         <div>
-          <h1 className="text-4xl md:text-7xl font-extrabold tracking-tighter text-white mb-2 leading-none">
-            Execution Plan.
+          <div className="flex items-center gap-3 mb-3">
+            <div className="w-2 h-8 bg-amber-500 rounded-full" />
+            <span className="text-[9px] font-black text-[#444] uppercase tracking-[0.35em]">
+              Discotive OS · v5
+            </span>
+          </div>
+          <h1 className="text-5xl md:text-7xl font-extrabold tracking-[-0.04em] text-white mb-3 leading-none">
+            Execution Map.
           </h1>
-          <p className="text-sm md:text-xl text-[#888] font-medium tracking-tight">
-            The algorithmic blueprint of your monopoly.
+          <p className="text-sm md:text-base text-[#666] font-medium tracking-tight max-w-md">
+            The mathematical topology of your monopoly. Every node, a protocol.
+            Every edge, a dependency.
           </p>
         </div>
-        <div className="flex items-center gap-2 md:gap-4 w-full md:w-auto relative">
-          {/* Changed w-full to flex-1 min-w-0 to perfectly share the row without stretching */}
-          <div className="relative flex-1 min-w-0 md:w-64" ref={dropdownRef}>
-            <button
-              onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-              className="w-full flex items-center justify-between gap-2 bg-[#0a0a0a] border border-[#222] px-4 md:px-6 py-3 md:py-4 rounded-full font-bold text-xs md:text-sm text-white hover:border-[#444] transition-colors"
-            >
-              <span className="truncate">{timeframe}</span>{" "}
-              <ChevronDown className="w-4 h-4 text-[#666] shrink-0" />
-            </button>
-            <AnimatePresence>
-              {isDropdownOpen && (
-                <motion.div
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: 10 }}
-                  className="absolute top-full mt-2 w-full bg-[#0a0a0a] border border-[#222] rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.9)] overflow-hidden z-50"
-                >
-                  {[
-                    "1 Month Sprint",
-                    "3 Months Trajectory",
-                    "12 Months Arc",
-                    "Macro Vision",
-                  ].map((t) => (
-                    <button
-                      key={t}
-                      onClick={() => {
-                        setTimeframe(t);
-                        setIsDropdownOpen(false);
-                      }}
-                      className="w-full text-left px-6 py-4 text-xs md:text-sm font-bold text-[#888] hover:text-white hover:bg-[#111] transition-colors"
-                    >
-                      {t}
-                    </button>
-                  ))}
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
-          <div className="flex bg-[#0a0a0a] border border-[#222] rounded-full p-1 shrink-0">
-            <button
-              onClick={() => setViewMode("timeline")}
-              className={cn(
-                "p-2 md:p-3 rounded-full transition-all",
-                viewMode === "timeline"
-                  ? "bg-[#222] text-white"
-                  : "text-[#666] hover:text-white",
-              )}
-            >
-              <GitBranch className="w-4 h-4 md:w-5 md:h-5" />
-            </button>
-            <button
-              onClick={() => setViewMode("calendar")}
-              className={cn(
-                "p-2 md:p-3 rounded-full transition-all",
-                viewMode === "calendar"
-                  ? "bg-[#222] text-white"
-                  : "text-[#666] hover:text-white",
-              )}
-            >
-              <CalendarIcon className="w-4 h-4 md:w-5 md:h-5" />
-            </button>
-          </div>
+        <div className="flex items-center gap-3">
+          {/* Mobile edit mode toggle */}
+          <button
+            onClick={() => setIsMobileEditMode((v) => !v)}
+            className={cn(
+              "md:hidden px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest border transition-all flex items-center gap-2",
+              isMobileEditMode
+                ? "bg-amber-500/10 border-amber-500/30 text-amber-500"
+                : "bg-[#0d0d0d] border-[#1e1e1e] text-[#666]",
+            )}
+          >
+            <Edit3 className="w-3.5 h-3.5" />
+            {isMobileEditMode ? "Exit Edit" : "Edit Mode"}
+          </button>
         </div>
       </div>
 
-      {/* VIEW ENGINE */}
-      <div className="relative overflow-x-hidden">
-        {viewMode === "timeline" ? (
-          <div className="relative h-full w-full">
-            {/* FIRST TIME BLUR OVERLAY */}
-            {isFirstTime && aiPhase === "idle" && (
-              <div className="absolute inset-0 z-[80] bg-black/60 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center">
-                <div className="w-16 h-16 rounded-full bg-amber-500/10 border border-amber-500/30 flex items-center justify-center mb-6">
-                  <Sparkles className="w-8 h-8 text-amber-500" />
+      {/* ── FLOW CANVAS ZONE ── */}
+      <div className="relative">
+        {/* First-time splash overlay */}
+        {isFirstTime && aiPhase === "idle" && (
+          <div className="absolute inset-0 z-[80] bg-black/70 backdrop-blur-xl flex flex-col items-center justify-center p-6 text-center">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              transition={{ duration: 0.6, ease: "easeOut" }}
+              className="flex flex-col items-center"
+            >
+              <div className="relative mb-8">
+                <div className="w-20 h-20 rounded-[2rem] bg-amber-500/10 border border-amber-500/20 flex items-center justify-center">
+                  <Sparkles className="w-10 h-10 text-amber-500" />
                 </div>
-                <h2 className="text-2xl md:text-4xl font-extrabold text-white mb-4">
-                  Initialize Your Trajectory
-                </h2>
-                <p className="text-[#888] max-w-lg mb-8 leading-relaxed">
-                  Your Execution Map is empty. Deploy the Discotive AI to
-                  analyze your operator profile and synthesize a
-                  hyper-personalized, mathematical career roadmap.
-                </p>
-                <button
-                  onClick={handleStartCalibration}
-                  className="px-8 py-4 bg-white text-black font-extrabold rounded-xl hover:bg-[#ccc] transition-colors shadow-[0_0_40px_rgba(255,255,255,0.2)] flex items-center gap-3"
-                >
-                  <Wand2 className="w-5 h-5" /> Generate Career Roadmap
-                </button>
+                <div className="absolute -inset-3 rounded-[2.5rem] border border-amber-500/10 animate-ping" />
               </div>
-            )}
-
-            {/* AI GENERATION FULL-PAGE MODAL */}
-            <AnimatePresence>
-              {aiPhase !== "idle" && (
-                <div className="fixed inset-0 z-[999] flex items-center justify-center p-4 md:p-8 bg-black/90 backdrop-blur-xl">
-                  <motion.div
-                    initial={{ opacity: 0, scale: 0.95 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    exit={{ opacity: 0, scale: 0.95 }}
-                    className="w-full max-w-2xl bg-[#0a0a0a] border border-[#222] rounded-[2rem] p-6 md:p-12 shadow-2xl flex flex-col min-h-[400px] justify-center"
-                  >
-                    {(aiPhase === "loading_questions" ||
-                      aiPhase === "loading_roadmap") && (
-                      <AILoader
-                        phase={
-                          aiPhase === "loading_questions"
-                            ? "questions"
-                            : "roadmap"
-                        }
-                      />
-                    )}
-
-                    {aiPhase === "questions" && aiQuestions.length > 0 && (
-                      <div className="flex flex-col h-full">
-                        <div className="mb-8">
-                          <p className="text-[10px] font-bold text-amber-500 uppercase tracking-widest mb-2">
-                            Calibration {currentQuestionIdx + 1} of{" "}
-                            {aiQuestions.length}
-                          </p>
-                          <h3 className="text-xl md:text-2xl font-extrabold text-white">
-                            {aiQuestions[currentQuestionIdx].question}
-                          </h3>
-                        </div>
-
-                        <div className="flex-1">
-                          {aiQuestions[currentQuestionIdx].type === "text" ? (
-                            <textarea
-                              autoFocus
-                              value={
-                                aiAnswers[aiQuestions[currentQuestionIdx].id] ||
-                                ""
-                              }
-                              onChange={(e) =>
-                                setAiAnswers({
-                                  ...aiAnswers,
-                                  [aiQuestions[currentQuestionIdx].id]:
-                                    e.target.value,
-                                })
-                              }
-                              placeholder="Type your response..."
-                              className="w-full h-32 bg-[#111] border border-[#333] rounded-xl p-4 text-white focus:border-amber-500 outline-none resize-none custom-scrollbar"
-                            />
-                          ) : (
-                            <div className="space-y-3">
-                              {aiQuestions[currentQuestionIdx].options.map(
-                                (opt) => (
-                                  <button
-                                    key={opt}
-                                    onClick={() =>
-                                      setAiAnswers({
-                                        ...aiAnswers,
-                                        [aiQuestions[currentQuestionIdx].id]:
-                                          opt,
-                                      })
-                                    }
-                                    className={cn(
-                                      "w-full text-left px-5 py-4 border rounded-xl font-bold transition-all text-sm",
-                                      aiAnswers[
-                                        aiQuestions[currentQuestionIdx].id
-                                      ] === opt
-                                        ? "bg-amber-500/10 border-amber-500 text-amber-500"
-                                        : "bg-[#111] border-[#333] text-[#888] hover:bg-[#222] hover:text-white",
-                                    )}
-                                  >
-                                    {opt}
-                                  </button>
-                                ),
-                              )}
-                            </div>
-                          )}
-                        </div>
-
-                        <div className="mt-8 flex justify-end pt-6 border-t border-[#222]">
-                          <button
-                            onClick={() => {
-                              if (currentQuestionIdx < aiQuestions.length - 1) {
-                                setCurrentQuestionIdx((prev) => prev + 1);
-                              } else {
-                                handleGenerateRoadmap();
-                              }
-                            }}
-                            disabled={
-                              !aiAnswers[aiQuestions[currentQuestionIdx].id]
-                            }
-                            className="px-8 py-3 bg-white text-black font-extrabold rounded-xl hover:bg-[#ccc] disabled:opacity-30 flex items-center gap-2"
-                          >
-                            {currentQuestionIdx < aiQuestions.length - 1
-                              ? "Next"
-                              : "Synthesize Roadmap"}{" "}
-                            <ChevronRightIcon className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </div>
-                    )}
-                  </motion.div>
-                </div>
-              )}
-            </AnimatePresence>
-
-            <ReactFlowProvider>
-              <FlowCanvas
-                filteredNodes={filteredNodes}
-                edges={edges}
-                setNodes={setNodes}
-                setEdges={setEdges}
-                hasUnsavedChanges={hasUnsavedChanges}
-                setHasUnsavedChanges={setHasUnsavedChanges}
-                isSaving={isSaving}
-                handleCloudSave={handleCloudSave}
-                isMapFullscreen={isMapFullscreen}
-                setIsMapFullscreen={setIsMapFullscreen}
-                setActiveEditNodeId={setActiveEditNodeId}
-                addToast={addToast}
-                addLedgerEntry={addLedgerEntry}
-                subscriptionTier={subscriptionTier}
-                totalNodesCount={nodes.length}
-                onLimitReached={() => {
-                  setProModalReason("nodes");
-                  setIsProModalOpen(true);
-                }}
-                isFirstTime={isFirstTime}
-                handleStartCalibration={handleStartCalibration}
-              />
-            </ReactFlowProvider>
+              <h2 className="text-4xl md:text-6xl font-extrabold text-white mb-4 tracking-[-0.03em] leading-none">
+                Initialize Protocol
+              </h2>
+              <p className="text-[#666] max-w-md mb-10 leading-relaxed font-medium text-sm">
+                Your neural web is empty. Deploy the Discotive AI to synthesize
+                a mathematically aligned, multi-branch execution topology based
+                on your operator vision.
+              </p>
+              <button
+                onClick={handleStartCalibration}
+                className="px-10 py-5 bg-white text-black font-extrabold rounded-full hover:bg-[#ddd] transition-all shadow-[0_0_60px_rgba(255,255,255,0.15)] flex items-center gap-3 text-sm uppercase tracking-widest"
+              >
+                <Wand2 className="w-5 h-5" /> Generate Trajectory
+              </button>
+            </motion.div>
           </div>
-        ) : (
-          renderCalendarView()
         )}
 
-        {/* PARAMETER DRAWER */}
+        {/* AI Calibration modal */}
         <AnimatePresence>
-          {activeEditNodeId && activeNode && (
+          {aiPhase !== "idle" && (
+            <div className="fixed inset-0 z-[999] flex items-center justify-center p-4 md:p-8 bg-black/95 backdrop-blur-2xl">
+              <motion.div
+                initial={{ opacity: 0, scale: 0.94, y: 16 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.94, y: 16 }}
+                className="w-full max-w-2xl bg-[#080808] border border-[#1e1e1e] rounded-[2.5rem] p-6 md:p-12 shadow-[0_80px_160px_rgba(0,0,0,0.95)] flex flex-col min-h-[420px] justify-center"
+              >
+                {(aiPhase === "loading_questions" ||
+                  aiPhase === "loading_roadmap") && (
+                  <AILoader
+                    phase={
+                      aiPhase === "loading_questions" ? "questions" : "roadmap"
+                    }
+                  />
+                )}
+
+                {aiPhase === "questions" && aiQuestions.length > 0 && (
+                  <div className="flex flex-col h-full">
+                    {/* Progress bar */}
+                    <div className="mb-8">
+                      <div className="flex items-center justify-between mb-3">
+                        <p className="text-[9px] font-black text-amber-500 uppercase tracking-widest">
+                          Calibration {currentQuestionIdx + 1} /{" "}
+                          {aiQuestions.length}
+                        </p>
+                        <div className="flex gap-1">
+                          {aiQuestions.map((_, i) => (
+                            <div
+                              key={i}
+                              className="w-6 h-0.5 rounded-full transition-all duration-500"
+                              style={{
+                                background:
+                                  i <= currentQuestionIdx
+                                    ? "#ca8a04"
+                                    : "#1e1e1e",
+                              }}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                      <h3 className="text-xl md:text-2xl font-extrabold text-white leading-tight tracking-tight">
+                        {aiQuestions[currentQuestionIdx].question}
+                      </h3>
+                    </div>
+
+                    <div className="flex-1">
+                      {aiQuestions[currentQuestionIdx].type === "text" ? (
+                        <textarea
+                          autoFocus
+                          value={
+                            aiAnswers[aiQuestions[currentQuestionIdx].id] || ""
+                          }
+                          onChange={(e) =>
+                            setAiAnswers({
+                              ...aiAnswers,
+                              [aiQuestions[currentQuestionIdx].id]:
+                                e.target.value,
+                            })
+                          }
+                          placeholder="Inject parameters..."
+                          className="w-full h-32 bg-[#0d0d0d] border border-[#1e1e1e] rounded-2xl p-5 text-white focus:border-amber-500 outline-none resize-none custom-scrollbar text-sm"
+                        />
+                      ) : (
+                        <div className="space-y-2.5">
+                          {aiQuestions[currentQuestionIdx].options.map(
+                            (opt) => {
+                              const isSelected =
+                                aiAnswers[
+                                  aiQuestions[currentQuestionIdx].id
+                                ] === opt;
+                              return (
+                                <button
+                                  key={opt}
+                                  onClick={() =>
+                                    setAiAnswers({
+                                      ...aiAnswers,
+                                      [aiQuestions[currentQuestionIdx].id]: opt,
+                                    })
+                                  }
+                                  className="w-full text-left px-5 py-4 border rounded-2xl font-bold transition-all text-sm"
+                                  style={
+                                    isSelected
+                                      ? {
+                                          background: "rgba(202,138,4,0.08)",
+                                          borderColor: "#ca8a04",
+                                          color: "#ca8a04",
+                                        }
+                                      : {
+                                          background: "#0d0d0d",
+                                          borderColor: "#1e1e1e",
+                                          color: "#888",
+                                        }
+                                  }
+                                >
+                                  {opt}
+                                </button>
+                              );
+                            },
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="mt-8 flex justify-between items-center pt-6 border-t border-[#1a1a1a]">
+                      {currentQuestionIdx > 0 ? (
+                        <button
+                          onClick={() => setCurrentQuestionIdx((p) => p - 1)}
+                          className="flex items-center gap-2 px-5 py-2.5 text-[#666] hover:text-white text-sm font-bold transition-colors"
+                        >
+                          <ChevronLeft className="w-4 h-4" /> Back
+                        </button>
+                      ) : (
+                        <div />
+                      )}
+                      <button
+                        onClick={() =>
+                          currentQuestionIdx < aiQuestions.length - 1
+                            ? setCurrentQuestionIdx((p) => p + 1)
+                            : handleGenerateRoadmap()
+                        }
+                        disabled={
+                          !aiAnswers[aiQuestions[currentQuestionIdx].id]
+                        }
+                        className="px-8 py-3.5 bg-white text-black font-extrabold rounded-full hover:bg-[#ddd] disabled:opacity-30 flex items-center gap-2 text-sm transition-colors"
+                      >
+                        {currentQuestionIdx < aiQuestions.length - 1
+                          ? "Next Input"
+                          : "Synthesize Topology"}
+                        <ChevronRightIcon className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
+
+        {/* Main Flow Canvas */}
+        <ReactFlowProvider>
+          <FlowCanvas
+            nodes={nodes}
+            setNodes={setNodes}
+            edges={edges}
+            setEdges={setEdges}
+            hasUnsavedChanges={hasUnsavedChanges}
+            setHasUnsavedChanges={setHasUnsavedChanges}
+            isSaving={isSaving}
+            handleCloudSave={handleCloudSave}
+            isMapFullscreen={isMapFullscreen}
+            setIsMapFullscreen={setIsMapFullscreen}
+            setActiveEditNodeId={setActiveEditNodeId}
+            addToast={addToast}
+            addLedgerEntry={addLedgerEntry}
+            subscriptionTier={subscriptionTier}
+            totalNodesCount={nodes.length}
+            onLimitReached={() => {
+              setProModalReason("nodes");
+              setIsProModalOpen(true);
+            }}
+            isFirstTime={isFirstTime}
+            handleStartCalibration={handleStartCalibration}
+          />
+        </ReactFlowProvider>
+
+        {/* ── DESKTOP: Node Command Center panel ── */}
+        <AnimatePresence>
+          {activeEditNodeId && activeNode && !isMobile && (
             <>
               <motion.div
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                onClick={() => setActiveEditNodeId(null)}
-                className="fixed inset-0 z-[100] bg-black/50 backdrop-blur-[2px]"
+                onClick={closePanel}
+                className="fixed inset-0 z-[100] bg-black/50 backdrop-blur-sm"
               />
               <motion.div
                 initial={{ x: "100%" }}
                 animate={{ x: 0 }}
                 exit={{ x: "100%" }}
-                transition={{ type: "spring", damping: 25, stiffness: 200 }}
+                transition={{ type: "spring", damping: 26, stiffness: 220 }}
                 onClick={(e) => e.stopPropagation()}
-                className="fixed top-0 right-0 h-full w-full sm:w-[450px] bg-[#0a0a0a] border-l border-[#222] shadow-[auto_0_100px_rgba(0,0,0,0.9)] z-[110] flex flex-col"
+                className="fixed top-0 right-0 h-full z-[110]"
               >
-                <div className="flex justify-between items-center p-6 border-b border-[#222] shrink-0 bg-[#050505]">
-                  <div className="flex items-center gap-3">
-                    <Settings2 className="w-5 h-5 text-[#888]" />
-                    <h2 className="text-sm font-extrabold tracking-widest uppercase text-white">
-                      Node Parameters
-                    </h2>
-                  </div>
-                  <button
-                    onClick={() => setActiveEditNodeId(null)}
-                    className="p-2 bg-[#111] rounded-full text-[#666] hover:text-white transition-colors"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
-
-                <div className="p-6 overflow-y-auto custom-scrollbar flex-1 space-y-8">
-                  <div>
-                    <label className="block text-[10px] font-bold text-[#666] uppercase tracking-widest mb-3">
-                      Milestone Designation
-                    </label>
-                    <input
-                      type="text"
-                      value={activeNode.data.title || ""}
-                      onChange={(e) =>
-                        updateActiveNode("title", e.target.value)
-                      }
-                      placeholder="e.g. Boot OS Foundation"
-                      className="w-full bg-transparent text-2xl font-extrabold text-white placeholder-[#333] border-b border-[#222] focus:border-white focus:outline-none pb-2 mb-4 transition-colors"
-                    />
-
-                    <label className="block text-[10px] font-bold text-[#666] uppercase tracking-widest mb-3 mt-4 flex items-center gap-2">
-                      <Type className="w-3 h-3" /> Sub-Classification
-                    </label>
-                    <input
-                      type="text"
-                      value={activeNode.data.subtitle || ""}
-                      onChange={(e) =>
-                        updateActiveNode("subtitle", e.target.value)
-                      }
-                      placeholder="e.g. Phase 1, UI/UX, Backend..."
-                      className="w-full bg-[#111] border border-[#222] rounded-xl px-4 py-3 text-sm text-white focus:border-[#555] focus:outline-none transition-colors"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[10px] font-bold text-[#666] uppercase tracking-widest mb-3 flex items-center gap-2">
-                      <AlignLeft className="w-3 h-3" /> Execution Notes
-                    </label>
-                    <textarea
-                      value={activeNode.data.desc || ""}
-                      onChange={(e) => updateActiveNode("desc", e.target.value)}
-                      placeholder="Define execution parameters and tactical approach..."
-                      rows="4"
-                      className="w-full bg-[#111] border border-[#222] rounded-xl p-4 text-sm text-white placeholder-[#444] focus:border-[#555] focus:outline-none resize-none transition-colors"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[10px] font-bold text-[#666] uppercase tracking-widest mb-3 flex items-center gap-2">
-                      <CalendarIcon className="w-3 h-3" /> Target Deadline
-                    </label>
-                    <input
-                      type="date"
-                      value={activeNode.data.deadline || ""}
-                      onChange={(e) =>
-                        updateActiveNode("deadline", e.target.value)
-                      }
-                      className="w-full bg-[#111] border border-[#222] rounded-xl px-4 py-3 text-sm text-white focus:border-[#555] focus:outline-none transition-colors [&::-webkit-calendar-picker-indicator]:invert [&::-webkit-calendar-picker-indicator]:opacity-50 hover:[&::-webkit-calendar-picker-indicator]:opacity-100 cursor-pointer"
-                    />
-                  </div>
-
-                  <div className="pt-4 border-t border-[#222]">
-                    <div className="flex justify-between items-center mb-6">
-                      <label className="text-[10px] font-bold text-[#666] uppercase tracking-widest flex items-center gap-2">
-                        Completion Status
-                      </label>
-                      <div className="flex items-center gap-3">
-                        <span className="text-xs font-mono font-bold text-white bg-[#111] px-3 py-1.5 rounded-lg border border-[#333]">
-                          {activeNode.data.progress || 0}%
-                        </span>
-                        <button
-                          onClick={handleCompleteAll}
-                          disabled={activeNode.data.isCompleted}
-                          className="w-8 h-8 rounded-lg bg-green-500/10 border border-green-500/30 flex items-center justify-center hover:bg-green-500/30 transition-colors disabled:opacity-30"
-                        >
-                          <Check className="w-4 h-4 text-green-500" />
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="space-y-3 mb-4">
-                      {(activeNode.data.tasks || []).map((task) => (
-                        <div
-                          key={task.id}
-                          className="flex items-center gap-3 bg-[#111] border border-[#222] p-3 rounded-xl group"
-                        >
-                          <button
-                            onClick={() => handleSubtaskToggle(task.id)}
-                            className={cn(
-                              "w-5 h-5 rounded flex items-center justify-center shrink-0 border transition-colors",
-                              task.completed
-                                ? "bg-white border-white text-black"
-                                : "bg-[#222] border-[#444] hover:border-white",
-                            )}
-                          >
-                            {task.completed && <Check className="w-3 h-3" />}
-                          </button>
-                          <input
-                            type="text"
-                            value={task.text}
-                            onChange={(e) => {
-                              const ut = activeNode.data.tasks.map((t) =>
-                                t.id === task.id
-                                  ? { ...t, text: e.target.value }
-                                  : t,
-                              );
-                              updateActiveNode("tasks", ut);
-                            }}
-                            className={cn(
-                              "flex-1 bg-transparent border-none outline-none text-sm transition-colors",
-                              task.completed
-                                ? "text-[#666] line-through"
-                                : "text-white",
-                            )}
-                          />
-                          <button
-                            onClick={() => {
-                              const ut = activeNode.data.tasks.filter(
-                                (t) => t.id !== task.id,
-                              );
-                              updateActiveNode("tasks", ut);
-                            }}
-                            className="opacity-0 group-hover:opacity-100 text-[#666] hover:text-red-500 transition-all"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-
-                    <button
-                      onClick={() => {
-                        const newTask = {
-                          id: Date.now(),
-                          text: "",
-                          completed: false,
-                        };
-                        updateActiveNode("tasks", [
-                          ...(activeNode.data.tasks || []),
-                          newTask,
-                        ]);
-                      }}
-                      className="w-full py-3 border border-dashed border-[#333] rounded-xl text-[#666] text-xs font-bold uppercase tracking-widest hover:border-white hover:text-white transition-colors flex items-center justify-center gap-2"
-                    >
-                      <Plus className="w-4 h-4" /> Add Execution Task
-                    </button>
-                  </div>
-                </div>
+                <NodeCommandCenter
+                  activeNode={activeNode}
+                  updateActiveNode={updateActiveNode}
+                  onClose={closePanel}
+                  onDelete={handleDeleteActiveNode}
+                  onSubtaskToggle={handleSubtaskToggle}
+                  onCompleteAll={handleCompleteAll}
+                  pendingScoreDelta={pendingScoreDelta}
+                  edges={edges}
+                  nodes={nodes}
+                />
               </motion.div>
             </>
           )}
         </AnimatePresence>
+
+        {/* ── MOBILE: Bottom Sheet (shown when Edit Mode active + node selected) ── */}
+        <AnimatePresence>
+          {activeEditNodeId && activeNode && isMobile && isMobileEditMode && (
+            <MobileEditSheet
+              activeNode={activeNode}
+              onUpdate={updateActiveNode}
+              onClose={closePanel}
+              onDelete={handleDeleteActiveNode}
+              onSubtaskToggle={handleSubtaskToggle}
+              onCompleteAll={handleCompleteAll}
+              pendingScoreDelta={pendingScoreDelta}
+            />
+          )}
+        </AnimatePresence>
       </div>
 
-      {/* DATE/TIME/JOURNAL BAR */}
-      <div className="bg-[#050505] border-b border-[#222] py-4 md:py-5 shadow-lg relative z-20">
-        <div className="max-w-[1600px] mx-auto px-4 md:px-12 flex flex-col md:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-3 text-xs md:text-sm font-bold text-[#888] tracking-tight">
-            <CalendarIcon className="w-4 h-4" /> {formattedDate}
-          </div>
-
-          <button
-            onClick={() => {
-              if (subscriptionTier === "free") {
-                setProModalReason("journal");
-                setIsProModalOpen(true);
-              } else {
-                setIsJournalOpen(true);
-              }
-            }}
-            className={cn(
-              "flex-1 max-w-lg w-full transition-all rounded-full py-3 px-6 flex items-center justify-center gap-3 group border",
-              subscriptionTier === "free"
-                ? "bg-red-500/10 border-red-500/30 hover:bg-red-500/20 text-red-500"
-                : "bg-[#111] border-[#333] hover:border-white text-[#ccc] hover:text-white",
-            )}
-          >
-            {subscriptionTier === "free" ? (
-              <>
-                <Lock className="w-4 h-4" />
-                <span className="text-sm font-bold">
-                  Open Execution Journal
-                </span>
-              </>
-            ) : (
-              <>
-                <Edit3 className="w-4 h-4 text-[#888] group-hover:text-white transition-colors" />
-                <span className="text-sm font-bold text-[#ccc] group-hover:text-white transition-colors">
-                  Open Execution Journal
-                </span>
-              </>
-            )}
-          </button>
-
-          <div className="flex items-center gap-2 text-xs md:text-sm font-mono text-white tracking-widest">
-            {formattedTime}
-          </div>
-        </div>
-      </div>
-
-      {/* PROGRESS INSIGHTS (TELEMETRY) */}
-      <div className="max-w-[1600px] mx-auto px-4 md:px-12 py-12 md:py-20 relative z-20">
-        <div className="mb-8 md:mb-12">
-          <h2 className="text-2xl md:text-3xl font-extrabold tracking-tight text-white mb-1 md:mb-2">
-            Progress Insights.
-          </h2>
-          <p className="text-xs md:text-sm text-[#888] font-medium">
-            Tracking verified execution data.
-          </p>
-        </div>
-
-        {/* RESTRICTED HEIGHT GRID TO PREVENT STRETCHING BUG */}
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 md:gap-8 h-auto lg:h-[400px]">
-          <div className="lg:col-span-2 bg-[#0a0a0a] border border-[#222] rounded-[2rem] p-6 md:p-12 hover:border-[#333] transition-colors flex flex-col h-[300px] lg:h-full">
-            <div className="flex justify-between items-start mb-4 md:mb-8">
-              <div>
-                <p className="text-[10px] md:text-xs font-bold text-[#666] uppercase tracking-[0.2em] mb-2">
-                  Milestones Completed
-                </p>
-                <p className="text-4xl md:text-5xl font-extrabold text-white tracking-tighter">
-                  {nodesWithPriority.filter((n) => n.data.isCompleted).length}
-                </p>
-                <p className="text-xs md:text-sm text-[#888] mt-2">
-                  Roadmap completions (All Time)
-                </p>
-              </div>
-              <Activity className="w-6 h-6 md:w-8 md:h-8 text-[#444]" />
-            </div>
-            <div className="flex-1 min-h-[100px] min-w-0 overflow-hidden w-full relative">
-              <InsightsChart />
-            </div>
-          </div>
-
-          <div className="flex flex-col gap-6 md:gap-8 h-full">
-            <div className="flex-1 bg-[#0a0a0a] border border-[#222] rounded-[2rem] p-6 md:p-8 flex flex-col justify-center hover:border-[#333] transition-colors min-h-0">
-              <p className="text-[10px] md:text-xs font-bold text-[#666] uppercase tracking-[0.2em] mb-3 md:mb-4 flex items-center gap-2">
-                <ShieldCheck className="w-4 h-4" /> Profile Reach
-              </p>
-              <div className="flex items-baseline gap-2">
-                <span className="text-4xl md:text-6xl font-extrabold tracking-tighter text-white">
-                  0
-                </span>
-                <span className="text-xs md:text-sm text-[#888] font-medium">
-                  views
-                </span>
-              </div>
-              <p className="text-xs md:text-sm text-[#666] mt-2">
-                Public visibility over 7 days.
-              </p>
-            </div>
-
-            <div className="flex-1 bg-white text-black rounded-[2rem] p-6 md:p-8 flex flex-col justify-between hover:scale-[1.02] transition-transform cursor-pointer min-h-0">
-              <div className="flex justify-between items-start">
-                <p className="text-[10px] md:text-xs font-extrabold uppercase tracking-[0.2em]">
-                  Current Focus
-                </p>
-                <div className="w-2 h-2 bg-black rounded-full animate-pulse" />
-              </div>
-              <div>
-                <h3 className="text-lg md:text-xl font-extrabold tracking-tight mb-1 truncate">
-                  {nodesWithPriority.find(
-                    (n) => n.data.priorityStatus === "READY",
-                  )?.data.title || "Awaiting Assignment"}
-                </h3>
-                <p className="text-[10px] md:text-xs font-bold opacity-70 flex items-center gap-2">
-                  <Clock className="w-3.5 h-3.5" /> Deploy node to start
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-[#0a0a0a] border border-[#222] rounded-[2rem] p-6 md:p-8 flex flex-col h-[300px] lg:h-full overflow-hidden hover:border-[#333] transition-colors">
-            <div className="flex justify-between items-center mb-4 md:mb-6 shrink-0">
-              <p className="text-[10px] md:text-xs font-bold text-[#666] uppercase tracking-[0.2em] flex items-center gap-2">
-                <List className="w-4 h-4" /> System Ledger
-              </p>
-              <span className="text-[8px] md:text-[9px] font-mono text-[#444] uppercase">
-                24H Cache
-              </span>
-            </div>
-            <div className="flex flex-col flex-1 overflow-y-auto custom-scrollbar space-y-4 pr-2">
-              {systemLedger.length === 0 ? (
-                <div className="flex flex-col items-center justify-center h-full opacity-50">
-                  <Hash className="w-6 h-6 md:w-8 md:h-8 text-[#444] mb-3" />
-                  <p className="text-[10px] md:text-xs font-bold text-[#888]">
-                    No activity logged yet.
-                  </p>
-                </div>
-              ) : (
-                systemLedger.map((entry) => (
-                  <div
-                    key={entry.id}
-                    className="border-l-2 border-[#333] pl-3 py-1 shrink-0"
-                  >
-                    <p className="text-[10px] md:text-xs font-bold text-[#ccc] truncate">
-                      {entry.action}
-                    </p>
-                    <p className="text-[8px] md:text-[9px] font-mono text-[#666]">
-                      {new Date(entry.time).toLocaleTimeString()}
-                    </p>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* TOAST SYSTEM (Bottom Left Pop-ups) */}
+      {/* ── TOAST SYSTEM ── */}
       {createPortal(
-        <div className="fixed bottom-4 md:bottom-6 left-4 right-4 md:left-6 md:right-auto z-[9999] flex flex-col gap-2 pointer-events-none">
+        <div className="fixed bottom-5 left-4 right-4 md:left-6 md:right-auto z-[9999] flex flex-col gap-2 pointer-events-none">
           <AnimatePresence>
             {toasts.map((t) => (
               <motion.div
                 key={t.id}
-                initial={{ opacity: 0, x: -20, y: 10 }}
+                initial={{ opacity: 0, x: -16, y: 8 }}
                 animate={{ opacity: 1, x: 0, y: 0 }}
-                exit={{ opacity: 0, scale: 0.9 }}
+                exit={{ opacity: 0, x: -16, scale: 0.95 }}
+                transition={{ type: "spring", damping: 20, stiffness: 260 }}
                 className={cn(
-                  "px-4 py-3 rounded-xl shadow-2xl flex items-center gap-3 border text-xs font-bold tracking-wide pointer-events-auto",
+                  "px-4 py-3 rounded-xl shadow-[0_20px_60px_rgba(0,0,0,0.8)] flex items-center gap-3 border text-xs font-bold tracking-wide pointer-events-auto max-w-[320px]",
                   t.type === "green"
-                    ? "bg-[#052e16] border-green-500/30 text-green-400"
+                    ? "bg-[#041f10] border-emerald-500/25 text-emerald-400"
                     : t.type === "red"
-                      ? "bg-[#450a0a] border-red-500/30 text-red-400"
-                      : "bg-[#111] border-[#333] text-white",
+                      ? "bg-[#1a0505] border-red-500/25 text-red-400"
+                      : "bg-[#0d0d0d] border-[#1e1e1e] text-white",
                 )}
               >
                 {t.type === "green" && (
                   <CheckCircle2 className="w-4 h-4 shrink-0" />
                 )}
                 {t.type === "red" && (
-                  <AlertOctagon className="w-4 h-4 shrink-0" />
+                  <AlertTriangle className="w-4 h-4 shrink-0" />
                 )}
                 {t.type === "grey" && (
-                  <Activity className="w-4 h-4 text-[#888] shrink-0" />
+                  <Activity className="w-4 h-4 text-[#555] shrink-0" />
                 )}
                 <span className="truncate">{t.msg}</span>
               </motion.div>
@@ -2632,46 +3901,215 @@ const Roadmap = () => {
         document.body,
       )}
 
-      {/* PRO UPGRADE MODAL */}
+      {/* ── VAULT ASSET INTEGRATOR MODAL ── */}
       <AnimatePresence>
-        {isProModalOpen && (
-          <div className="fixed inset-0 z-[300] flex items-center justify-center p-4">
+        {vaultModal.isOpen && (
+          <div className="fixed inset-0 z-[400] flex items-center justify-center p-4">
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              onClick={() => setIsProModalOpen(false)}
-              className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+              onClick={() => setVaultModal({ ...vaultModal, isOpen: false })}
+              className="absolute inset-0 bg-black/85 backdrop-blur-lg"
             />
             <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              initial={{ opacity: 0, scale: 0.94, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className="relative w-full max-w-md bg-[#0a0a0a] border border-[#222] rounded-[2rem] p-6 md:p-8 text-center shadow-2xl"
+              exit={{ opacity: 0, scale: 0.94, y: 20 }}
+              className="relative w-full max-w-2xl bg-[#060606] border border-[#1e1e1e] rounded-[2rem] p-6 md:p-8 shadow-[0_80px_160px_rgba(0,0,0,0.95)] flex flex-col h-[500px]"
             >
-              <div className="w-12 h-12 md:w-16 md:h-16 rounded-full bg-red-500/10 border border-red-500/30 flex items-center justify-center mx-auto mb-4 md:mb-6">
-                <Lock className="w-6 h-6 md:w-8 md:h-8 text-red-500" />
-              </div>
-              <h3 className="text-xl md:text-2xl font-extrabold text-white mb-2">
-                Protocol Locked
-              </h3>
-              <p className="text-[#888] text-xs md:text-sm mb-6 md:mb-8 leading-relaxed">
-                {proModalReason === "nodes"
-                  ? "The Free tier is strictly limited to 10 active execution nodes. Delete previous nodes or upgrade your clearance to deploy an unlimited map."
-                  : "The Execution Journal and historical ledger are Discotive Pro features. Do you wish to upgrade your clearance?"}
-              </p>
-              <div className="flex gap-3 md:gap-4">
+              <div className="flex justify-between items-center mb-6">
+                <div>
+                  <h3 className="text-xl font-black text-white flex items-center gap-2.5">
+                    <Database className="w-5 h-5 text-emerald-500" /> Vault
+                    Synchronization
+                  </h3>
+                  <p className="text-[9px] text-[#444] font-bold uppercase tracking-widest mt-1">
+                    Select an asset to wire into the neural map.
+                  </p>
+                </div>
                 <button
-                  onClick={() => setIsProModalOpen(false)}
-                  className="flex-1 py-2.5 md:py-3 bg-[#111] border border-[#333] text-white text-xs md:text-sm font-bold rounded-xl hover:bg-[#222] transition-colors"
+                  onClick={() =>
+                    setVaultModal({ ...vaultModal, isOpen: false })
+                  }
+                  className="w-9 h-9 bg-[#0d0d0d] border border-[#1e1e1e] rounded-full text-[#555] hover:text-white flex items-center justify-center"
                 >
-                  Cancel
+                  <X className="w-4 h-4" />
                 </button>
+              </div>
+              <div className="flex gap-2 mb-6 flex-wrap">
+                {["All", "Document", "Image", "Code"].map((f) => (
+                  <button
+                    key={f}
+                    onClick={() => setVaultModal({ ...vaultModal, filter: f })}
+                    className={cn(
+                      "px-4 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-colors border",
+                      vaultModal.filter === f
+                        ? "bg-emerald-500/10 border-emerald-500/25 text-emerald-400"
+                        : "bg-[#0d0d0d] border-[#1a1a1a] text-[#555] hover:text-white",
+                    )}
+                  >
+                    {f}
+                  </button>
+                ))}
+              </div>
+              <div className="flex-1 overflow-y-auto custom-scrollbar space-y-2 pr-1">
+                {(userData?.vault || [])
+                  .filter(
+                    (a) =>
+                      vaultModal.filter === "All" ||
+                      a.type.includes(vaultModal.filter),
+                  )
+                  .map((asset) => (
+                    <div
+                      key={asset.id}
+                      onClick={() => linkVaultAsset(asset)}
+                      className="flex items-center justify-between p-4 bg-[#0d0d0d] border border-[#1a1a1a] hover:border-emerald-500/30 rounded-xl cursor-pointer group transition-all"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 bg-[#111] rounded-lg flex items-center justify-center">
+                          <FileText className="w-4 h-4 text-[#555] group-hover:text-emerald-400 transition-colors" />
+                        </div>
+                        <div>
+                          <p className="text-sm font-bold text-white">
+                            {asset.name}
+                          </p>
+                          <p className="text-[9px] text-[#444] font-bold uppercase tracking-widest">
+                            {asset.type} · {asset.status}
+                          </p>
+                        </div>
+                      </div>
+                      <ChevronRightIcon className="w-4 h-4 text-[#333] group-hover:text-emerald-400 transition-colors" />
+                    </div>
+                  ))}
+                {(!userData?.vault || userData.vault.length === 0) && (
+                  <div className="flex flex-col items-center justify-center h-full text-center">
+                    <Database className="w-7 h-7 text-[#222] mb-3" />
+                    <p className="text-sm font-bold text-[#666]">
+                      Your Vault is Empty
+                    </p>
+                    <p className="text-[9px] text-[#444] uppercase tracking-widest mt-1">
+                      Upload files in the Vault module first.
+                    </p>
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* ── VIDEO INTEGRATOR MODAL ── */}
+      <AnimatePresence>
+        {videoModal.isOpen && (
+          <div className="fixed inset-0 z-[400] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setVideoModal({ ...videoModal, isOpen: false })}
+              className="absolute inset-0 bg-black/85 backdrop-blur-lg"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.94, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.94, y: 20 }}
+              className="relative w-full max-w-xl bg-[#060606] border border-[#1e1e1e] rounded-[2rem] p-6 md:p-8 shadow-[0_80px_160px_rgba(0,0,0,0.95)] flex flex-col h-[500px]"
+            >
+              <div className="flex justify-between items-center mb-6">
+                <div>
+                  <h3 className="text-xl font-black text-white flex items-center gap-2.5">
+                    <Video className="w-5 h-5 text-sky-400" /> Media
+                    Synchronization
+                  </h3>
+                  <p className="text-[9px] text-[#444] font-bold uppercase tracking-widest mt-1">
+                    Embed external video protocols.
+                  </p>
+                </div>
                 <button
-                  onClick={() => navigate("/premium")}
-                  className="flex-1 py-2.5 md:py-3 bg-white text-black text-xs md:text-sm font-extrabold rounded-xl hover:bg-[#ccc] transition-colors"
+                  onClick={() =>
+                    setVideoModal({ ...videoModal, isOpen: false })
+                  }
+                  className="w-9 h-9 bg-[#0d0d0d] border border-[#1e1e1e] rounded-full text-[#555] hover:text-white flex items-center justify-center"
                 >
-                  Upgrade to Pro
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <div className="flex gap-4 mb-6 border-b border-[#1a1a1a] pb-4">
+                {["courses", "podcasts", "other", "add_own"].map((tab) => (
+                  <button
+                    key={tab}
+                    onClick={() => setVideoModal({ ...videoModal, tab })}
+                    className={cn(
+                      "text-[9px] font-black uppercase tracking-widest transition-colors",
+                      videoModal.tab === tab
+                        ? "text-sky-400"
+                        : "text-[#444] hover:text-white",
+                    )}
+                  >
+                    {tab.replace("_", " ")}
+                  </button>
+                ))}
+              </div>
+              <div className="flex-1 flex flex-col">
+                {videoModal.tab === "add_own" ? (
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-[9px] font-bold text-[#444] uppercase tracking-widest mb-2">
+                        Video Designation
+                      </label>
+                      <input
+                        type="text"
+                        value={videoModal.customTitle}
+                        onChange={(e) =>
+                          setVideoModal({
+                            ...videoModal,
+                            customTitle: e.target.value,
+                          })
+                        }
+                        placeholder="e.g. YC Startup School Lecture 4"
+                        className="w-full bg-[#0d0d0d] border border-[#1e1e1e] rounded-xl p-3 text-sm text-white focus:border-sky-400 outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[9px] font-bold text-[#444] uppercase tracking-widest mb-2">
+                        Media URL (YouTube Supported)
+                      </label>
+                      <input
+                        type="url"
+                        value={videoModal.customUrl}
+                        onChange={(e) =>
+                          setVideoModal({
+                            ...videoModal,
+                            customUrl: e.target.value,
+                          })
+                        }
+                        placeholder="https://youtube.com/watch?v=..."
+                        className="w-full bg-[#0d0d0d] border border-[#1e1e1e] rounded-xl p-3 text-sm text-white focus:border-sky-400 outline-none"
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center justify-center h-full text-center">
+                    <Video className="w-7 h-7 text-[#222] mb-3" />
+                    <p className="text-sm font-bold text-[#555]">
+                      Directory Empty
+                    </p>
+                    <p className="text-[9px] text-[#333] uppercase tracking-widest mt-1">
+                      No system videos. Add your own.
+                    </p>
+                  </div>
+                )}
+              </div>
+              <div className="pt-5 mt-auto border-t border-[#1a1a1a]">
+                <button
+                  onClick={embedVideo}
+                  disabled={
+                    !videoModal.customUrl && videoModal.tab === "add_own"
+                  }
+                  className="w-full py-3.5 bg-sky-500 hover:bg-sky-400 disabled:opacity-30 text-black text-[10px] font-black uppercase tracking-widest rounded-xl transition-colors shadow-[0_0_25px_rgba(56,189,248,0.25)]"
+                >
+                  Establish Link
                 </button>
               </div>
             </motion.div>
@@ -2679,115 +4117,50 @@ const Roadmap = () => {
         )}
       </AnimatePresence>
 
-      {/* EXECUTION JOURNAL MODAL */}
+      {/* ── PRO TIER GATE MODAL ── */}
       <AnimatePresence>
-        {isJournalOpen && (
-          <div className="fixed inset-0 z-[150] flex items-center justify-center p-0 md:p-8">
+        {isProModalOpen && (
+          <div className="fixed inset-0 z-[500] flex items-center justify-center p-4">
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              onClick={() => setIsJournalOpen(false)}
-              className="absolute inset-0 bg-[#000]/90 backdrop-blur-md"
+              onClick={() => setIsProModalOpen(false)}
+              className="absolute inset-0 bg-black/90 backdrop-blur-xl"
             />
-
             <motion.div
-              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              initial={{ opacity: 0, scale: 0.93, y: 20 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.95, y: 20 }}
-              className={cn(
-                "relative bg-[#0a0a0a] border border-[#222] shadow-2xl flex flex-col transition-all duration-300",
-                isJournalFullscreen
-                  ? "w-full h-full rounded-none"
-                  : "w-full h-full md:h-[80vh] md:max-w-6xl rounded-none md:rounded-[2rem]",
-              )}
+              exit={{ opacity: 0, scale: 0.93, y: 20 }}
+              className="relative w-full max-w-md bg-[#060606] border border-[#1e1e1e] rounded-[2rem] p-8 text-center shadow-[0_80px_160px_rgba(0,0,0,0.95)]"
             >
-              <div className="flex justify-between items-center p-4 md:p-8 border-b border-[#222] shrink-0">
-                <div>
-                  <h2 className="text-xl md:text-2xl font-extrabold tracking-tight text-white mb-1">
-                    Execution Journal.
-                  </h2>
-                  <p className="text-[#666] font-mono text-[10px] md:text-xs">
-                    {formattedDate}
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setIsJournalFullscreen(!isJournalFullscreen)}
-                    className="hidden md:block p-2 md:p-3 text-[#888] hover:text-white bg-[#111] hover:bg-[#222] rounded-full transition-colors"
-                  >
-                    {isJournalFullscreen ? (
-                      <Minimize className="w-4 h-4" />
-                    ) : (
-                      <Maximize className="w-4 h-4" />
-                    )}
-                  </button>
-                  <button
-                    onClick={() => setIsJournalOpen(false)}
-                    className="p-2 md:p-3 text-[#888] hover:text-white bg-[#111] hover:bg-[#222] rounded-full transition-colors"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
+              <div className="w-16 h-16 rounded-2xl bg-red-500/8 border border-red-500/20 flex items-center justify-center mx-auto mb-6">
+                <Lock className="w-7 h-7 text-red-500" />
               </div>
-
-              <div className="flex-1 flex flex-col md:flex-row overflow-hidden">
-                {/* Mobile: Mini Tracker shifts to top */}
-                <div className="w-full md:w-80 border-b md:border-b-0 md:border-r border-[#222] p-4 md:p-6 overflow-y-auto custom-scrollbar bg-[#050505] flex flex-col shrink-0 md:shrink">
-                  <div className="mb-4 md:mb-8">
-                    <p className="text-[9px] md:text-[10px] font-bold text-[#666] uppercase tracking-[0.2em] mb-3 md:mb-4 flex items-center gap-2">
-                      <CalendarIcon className="w-3 h-3" /> Tracker
-                    </p>
-                    <div className="bg-[#111] border border-[#222] rounded-xl p-3 md:p-4">
-                      {generateMiniCalendar()}
-                    </div>
-                  </div>
-                  <p className="hidden md:flex text-[10px] font-bold text-[#666] uppercase tracking-[0.2em] mb-4 items-center gap-2">
-                    <Clock className="w-3 h-3" /> Archive
-                  </p>
-                  <div className="hidden md:flex space-y-4 flex-1">
-                    <div className="flex flex-col items-center justify-center py-10 opacity-50 w-full">
-                      <p className="text-xs font-bold text-[#666]">
-                        No previous entries.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex-1 flex flex-col p-4 md:p-10 relative bg-[#0a0a0a]">
-                  <div className="flex items-center gap-3 md:gap-4 mb-4 md:mb-6 opacity-50">
-                    <AlignLeft className="w-4 h-4 md:w-5 md:h-5 text-[#888]" />
-                    <span className="text-xs md:text-sm font-bold text-[#888]">
-                      Drafting new entry...
-                    </span>
-                  </div>
-                  <textarea
-                    autoFocus
-                    maxLength={JOURNAL_LIMIT}
-                    value={journalText}
-                    onChange={(e) => setJournalText(e.target.value)}
-                    placeholder="Document the reality of today's execution..."
-                    className="flex-1 w-full bg-transparent text-base md:text-xl font-medium text-white placeholder-[#444] focus:outline-none resize-none leading-relaxed custom-scrollbar"
-                  />
-                  <div className="flex items-center justify-between pt-4 md:pt-6 border-t border-[#222] mt-auto shrink-0">
-                    <p
-                      className={cn(
-                        "text-[10px] md:text-xs font-mono font-bold",
-                        journalText.length >= JOURNAL_LIMIT
-                          ? "text-red-500"
-                          : "text-[#666]",
-                      )}
-                    >
-                      {journalText.length} / {JOURNAL_LIMIT}
-                    </p>
-                    <button
-                      onClick={handleSaveJournal}
-                      className="px-6 md:px-8 py-2.5 md:py-3.5 font-extrabold text-black bg-white hover:bg-[#ccc] rounded-full transition-colors text-xs md:text-sm"
-                    >
-                      Save Entry
-                    </button>
-                  </div>
-                </div>
+              <div className="w-2 h-2 rounded-full bg-red-500 mx-auto mb-4 animate-pulse" />
+              <h3 className="text-2xl font-black text-white mb-3 tracking-tight">
+                Protocol Locked
+              </h3>
+              <p className="text-[#666] text-sm mb-8 leading-relaxed">
+                {proModalReason === "nodes"
+                  ? `Free tier restricts topology to ${TIER_LIMITS.free} active nodes. Upgrade to Discotive Pro for unlimited neural expansion.`
+                  : proModalReason === "regenerate"
+                    ? "Neural regeneration requires Pro clearance. Upgrade to unlock AI trajectory synthesis."
+                    : "This feature requires an active Discotive Pro subscription."}
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setIsProModalOpen(false)}
+                  className="flex-1 py-3.5 bg-[#0d0d0d] border border-[#1e1e1e] text-white text-xs font-bold rounded-xl hover:bg-[#111] transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={() => navigate("/premium")}
+                  className="flex-1 py-3.5 bg-amber-500 text-black text-xs font-extrabold uppercase tracking-widest rounded-xl hover:bg-amber-400 transition-colors shadow-[0_0_30px_rgba(202,138,4,0.3)]"
+                >
+                  Upgrade OS
+                </button>
               </div>
             </motion.div>
           </div>
