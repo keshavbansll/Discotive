@@ -19,6 +19,7 @@ import React, {
 import { useNavigate, Link } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import AuthLoader from "../components/AuthLoader";
+import { awardOnboardingComplete } from "../lib/scoreEngine";
 
 import {
   createUserWithEmailAndPassword,
@@ -57,7 +58,11 @@ import {
   Sparkles,
   Eye,
   EyeOff,
+  AlertTriangle,
+  Activity,
 } from "lucide-react";
+import { createPortal } from "react-dom";
+import emailjs from "@emailjs/browser";
 
 // ============================================================================
 // MASSIVE TAXONOMY & DATA DICTIONARIES
@@ -925,6 +930,19 @@ function profileReducer(state, action) {
 const Auth = () => {
   const navigate = useNavigate();
 
+  // --- TOAST NOTIFICATION ENGINE ---
+  const [toasts, setToasts] = useState([]);
+
+  const addToast = useCallback((msg, type = "grey") => {
+    const id = Date.now() + Math.random();
+    setToasts((prev) => [...prev.slice(-4), { id, msg, type }]);
+
+    // Auto-dismiss after 4.2 seconds
+    setTimeout(() => {
+      setToasts((prev) => prev.filter((t) => t.id !== id));
+    }, 4200);
+  }, []);
+
   // --- SYSTEM STATES ---
   const [isLogin, setIsLogin] = useState(true);
   const [step, setStep] = useState(1);
@@ -991,9 +1009,43 @@ const Auth = () => {
         const snap = await getDoc(docRef);
 
         if (snap.exists()) {
+          const data = snap.data();
+          /**
+           * @description
+           * A ghost document exists (created by handleSocialAuth) but onboarding
+           * is incomplete. Do NOT navigate to /app — keep the user on the auth
+           * flow so they complete their profile. Only fully onboarded users
+           * (onboardingComplete === true) are routed to the main app.
+           */
+          if (
+            data?.onboardingComplete === false ||
+            data?.isGhostUser === true
+          ) {
+            setIsLogin(false);
+            // Hydrate name fields from ghost doc
+            dispatch({
+              type: "HYDRATE_OAUTH",
+              payload: {
+                firstName: data?.identity?.firstName || "",
+                lastName: data?.identity?.lastName || "",
+                email: data?.identity?.email || user.email || "",
+                username: data?.identity?.username || "",
+              },
+            });
+            const wlSnap = await getDocs(
+              query(
+                collection(db, "whitelisted_emails"),
+                where("email", "==", user.email || data?.identity?.email),
+              ),
+            );
+            if (wlSnap.empty) setStep("locked");
+            else setStep(2);
+            return;
+          }
+          // Fully onboarded — route to app
           navigate("/app", { replace: true });
         } else {
-          // Ghost User Detection Protocol
+          // No document at all (email/password pre-creation flow)
           const wlSnap = await getDocs(
             query(
               collection(db, "whitelisted_emails"),
@@ -1076,18 +1128,49 @@ const Auth = () => {
           },
         });
 
-        const userSnap = await getDocs(
-          query(
-            collection(db, "users"),
-            where("identity.email", "==", safeEmail),
-          ),
-        );
+        // Check if a Firestore user document already exists for this UID
+        const existingSnap = await getDoc(doc(db, "users", user.uid));
 
-        if (!userSnap.empty) {
+        if (existingSnap.exists()) {
+          // Fully onboarded user — route to app
           setSystemStatus((prev) => ({ ...prev, loading: false }));
           navigate("/app", { replace: true });
           return;
         }
+
+        /**
+         * @description
+         * GHOST DOCUMENT PROTOCOL:
+         * Create a minimal Firestore document immediately so that:
+         *  1. Auth state listener doesn't loop (snap.exists() will be true)
+         *  2. All platform modules can check `onboardingComplete` to lock UI
+         *  3. The user can browse leaderboard etc. in a locked/preview state
+         *  4. Score percentile queries don't fail on missing documents
+         *
+         * This doc is upgraded to a full profile in handleFinalSubmit.
+         */
+        const todayStr = new Date().toISOString().split("T")[0];
+        await setDoc(doc(db, "users", user.uid), {
+          identity: {
+            firstName: nameParts[0] || "Operator",
+            lastName: nameParts.slice(1).join(" ") || "",
+            email: safeEmail,
+            username: "", // Not yet assigned
+            gender: "",
+          },
+          onboardingComplete: false,
+          isGhostUser: true,
+          createdAt: new Date().toISOString(),
+          discotiveScore: {
+            current: 0,
+            streak: 0,
+            lastLoginDate: todayStr,
+            lastAmount: 0,
+            lastReason: "Ghost Account — Onboarding Pending",
+            lastUpdatedAt: new Date().toISOString(),
+          },
+          login_history: [todayStr],
+        });
 
         const wlSnap = await getDocs(
           query(
@@ -1099,6 +1182,7 @@ const Auth = () => {
         setIsLogin(false);
         setSystemStatus((prev) => ({ ...prev, loading: false }));
 
+        // Route to onboarding step 2 — ghost doc ensures auth routing won't loop
         if (wlSnap.empty) setStep("locked");
         else setStep(2);
       } catch (error) {
@@ -1380,6 +1464,13 @@ const Auth = () => {
           uid = userCredential.user.uid;
         }
 
+        /**
+         * @description
+         * Final OS boot write. Merges the full profile over the ghost doc
+         * (or creates fresh for email/password users).
+         * `onboardingComplete: true` is the master gate that unlocks all
+         * modules across the platform.
+         */
         const systemPayload = {
           identity: {
             firstName: profileData.firstName,
@@ -1387,7 +1478,14 @@ const Auth = () => {
             email: profileData.email,
             username: profileData.username.toLowerCase(),
             gender: profileData.gender,
+            // Leaderboard-queryable flat fields (mirrors of nested identity)
+            domain: profileData.passion,
+            niche: profileData.niche,
+            parallelGoal: profileData.parallelPath,
+            country: profileData.country,
           },
+          onboardingComplete: true,
+          isGhostUser: false,
           location: {
             state: profileData.userState,
             country: profileData.country,
@@ -1410,6 +1508,17 @@ const Auth = () => {
             goal3Months: profileData.goal3Months,
             longTermGoal: profileData.longTermGoal,
           },
+          /**
+           * @description
+           * Flat `identity.*` mirrors for Firestore compound queries.
+           * Leaderboard + percentile engines query `identity.domain`,
+           * `identity.niche`, `identity.parallelGoal`, `identity.country`.
+           * These MUST exist at the top level of `identity` map.
+           */
+          "identity.domain": profileData.passion,
+          "identity.niche": profileData.niche,
+          "identity.parallelGoal": profileData.parallelPath,
+          "identity.country": profileData.country,
           skills: {
             rawSkills: profileData.rawSkills,
             alignedSkills: profileData.alignedSkills,
@@ -1430,15 +1539,43 @@ const Auth = () => {
             wildcardInfo: profileData.wildcardInfo,
             coreMotivation: profileData.coreMotivation,
           },
+          /**
+           * @description
+           * For ghost users (Google OAuth), we DON'T reset to 70 because
+           * their discotiveScore doc already exists. merge: true means only
+           * missing fields get set. The 70pt onboarding bonus comes from
+           * awardOnboardingComplete() called above.
+           * For fresh email/password users, these defaults set the baseline.
+           */
           discotiveScore: {
-            current: 70, // Bootup baseline
+            current: 0,
             last24h: 0,
             lastLoginDate: new Date().toISOString().split("T")[0],
+            streak: 1,
+            lastAmount: 0,
+            lastReason: "OS Booted",
+            lastUpdatedAt: new Date().toISOString(),
           },
+          score_history: [
+            {
+              date: new Date().toISOString().split("T")[0],
+              score: 0,
+            },
+          ],
+          consistency_log: [new Date().toISOString().split("T")[0]],
+          login_history: [new Date().toISOString().split("T")[0]],
           createdAt: new Date().toISOString(),
         };
 
-        await setDoc(doc(db, "users", uid), systemPayload);
+        /**
+         * @description
+         * merge: true ensures we UPGRADE the ghost doc rather than
+         * overwrite it, preserving login_history and ghost-phase score fields.
+         * awardOnboardingComplete is idempotent — it checks the flag before writing.
+         */
+        await setDoc(doc(db, "users", uid), systemPayload, { merge: true });
+        await awardOnboardingComplete(uid);
+
         setSystemStatus((prev) => ({
           ...prev,
           isBooting: false,
@@ -1555,6 +1692,46 @@ const Auth = () => {
     },
     [profileData, setNestedField, inputClass],
   );
+
+  // --- EMAILJS: LOCKED PROTOCOL REQUEST ENGINE ---
+  const handleAccessRequest = async (e) => {
+    e.preventDefault();
+
+    // BULLETPROOF DOM EXTRACTION:
+    // Safely grabs values directly from the form inputs, bypassing React state names.
+    const form = e.target;
+    const emailInput =
+      form.querySelector('input[type="email"]') ||
+      form.querySelector('[name="email"]');
+    const nameInput =
+      form.querySelector('input[type="text"]') ||
+      form.querySelector('[name="name"]');
+
+    const userEmail = emailInput ? emailInput.value : "Unknown Email";
+    const userName = nameInput ? nameInput.value : "Unknown User";
+
+    try {
+      // 1. Fire the payload to EmailJS
+      await emailjs.send(
+        "discotive", // <-- Replace with your actual Service ID
+        "requestaccess", // <-- Replace with your actual Template ID
+        {
+          to_name: "Admin",
+          from_name: userName,
+          from_email: userEmail,
+          message: `URGENT: ${userName} (${userEmail}) has requested access to the locked Discotive protocol.`,
+        },
+        "tNizhqFNon4v2m6OC", // <-- Replace with your actual Public Key
+      );
+
+      // 2. ONLY change the UI state AFTER the email successfully sends
+      setStep("requested"); // Using setStep as per your original form code
+      addToast("Access request transmitted securely.", "green");
+    } catch (error) {
+      console.error("EmailJS Transmission Failed:", error);
+      addToast("Transmission failed. Check network.", "red");
+    }
+  };
 
   // ============================================================================
   // OS INTERFACE RENDER (Hemispheric Layout)
@@ -2105,11 +2282,8 @@ const Auth = () => {
                   is not verified on the chain.
                 </p>
                 <form
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    setStep("requested");
-                  }}
-                  className="space-y-4 pt-4 border-t border-[#222]"
+                  onSubmit={handleAccessRequest}
+                  className="flex flex-col gap-4 mt-6"
                 >
                   <div>
                     <label className={labelClass}>Contact Number</label>
@@ -2821,6 +2995,18 @@ const SetupSequence = React.memo(({ onComplete }) => {
   const [score, setScore] = useState(0);
   const [phase, setPhase] = useState("tasks"); // 'tasks', 'bonus', 'done'
 
+  // --- TOAST STATE DEFINITION ---
+  const [toasts, setToasts] = useState([]); // <-- This is what was missing!
+
+  const addToast = useCallback((msg, type = "grey") => {
+    const id = Date.now() + Math.random();
+    setToasts((prev) => [...prev.slice(-4), { id, msg, type }]);
+
+    setTimeout(() => {
+      setToasts((prev) => prev.filter((t) => t.id !== id));
+    }, 4200);
+  }, []);
+
   const tasks = useMemo(
     () => [
       "Initializing command center",
@@ -2965,6 +3151,42 @@ const SetupSequence = React.memo(({ onComplete }) => {
           </AnimatePresence>
         </div>
       </div>
+
+      {/* ── TOAST SYSTEM ── */}
+      {createPortal(
+        <div className="fixed bottom-5 left-4 right-4 md:left-6 md:right-auto z-[9999] flex flex-col gap-2 pointer-events-none">
+          <AnimatePresence>
+            {toasts.map((t) => (
+              <motion.div
+                key={t.id}
+                initial={{ opacity: 0, x: -16, y: 8 }}
+                animate={{ opacity: 1, x: 0, y: 0 }}
+                exit={{ opacity: 0, x: -16, scale: 0.95 }}
+                transition={{ type: "spring", damping: 20, stiffness: 260 }}
+                className={`px-4 py-3 rounded-xl shadow-[0_20px_60px_rgba(0,0,0,0.8)] flex items-center gap-3 border text-xs font-bold tracking-wide pointer-events-auto max-w-[320px] ${
+                  t.type === "green"
+                    ? "bg-[#041f10] border-emerald-500/25 text-emerald-400"
+                    : t.type === "red"
+                      ? "bg-[#1a0505] border-red-500/25 text-red-400"
+                      : "bg-[#0d0d0d] border-[#1e1e1e] text-white"
+                }`}
+              >
+                {t.type === "green" && (
+                  <CheckCircle2 className="w-4 h-4 shrink-0" />
+                )}
+                {t.type === "red" && (
+                  <AlertTriangle className="w-4 h-4 shrink-0" />
+                )}
+                {t.type === "grey" && (
+                  <Activity className="w-4 h-4 text-[#555] shrink-0" />
+                )}
+                <span className="truncate">{t.msg}</span>
+              </motion.div>
+            ))}
+          </AnimatePresence>
+        </div>,
+        document.body,
+      )}
     </motion.div>
   );
 });

@@ -37,9 +37,10 @@ import {
 } from "lucide-react";
 import { cn } from "../components/ui/BentoCard";
 import { useUserData } from "../hooks/useUserData";
+import { awardVaultUpload } from "../lib/scoreEngine";
 
 // --- LIVE FIREBASE IMPORTS ---
-import { db, storage } from "../firebase";
+import { db, storage, auth } from "../firebase";
 import { doc, updateDoc, arrayUnion, arrayRemove } from "firebase/firestore";
 import {
   ref,
@@ -52,17 +53,37 @@ import {
 // SECURITY & VALIDATION CONSTANTS
 // ============================================================================
 const VAULT_CONSTANTS = Object.freeze({
-  MAX_FILE_SIZE_MB: 15,
+  MAX_FILE_SIZE_MB: 25,
+
+  /**
+   * @description
+   * Expanded MIME type allowlist.
+   * Includes images (PNG/JPG) for certificate screenshots,
+   * plus common code/doc formats.
+   */
   ALLOWED_MIME_TYPES: [
     "application/pdf",
     "application/msword",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     "text/plain",
     "application/json",
+    "image/png",
+    "image/jpeg",
+    "image/jpg",
+    "image/webp",
+    "text/javascript",
+    "text/typescript",
+    "application/zip",
+    "application/x-zip-compressed",
+    "text/html",
+    "text/css",
+    "application/vnd.ms-excel",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
   ],
+
   STATUS: Object.freeze({
     VERIFIED: {
-      label: "IMMUTABLE",
+      label: "VERIFIED",
       color: "text-green-500",
       bg: "bg-green-500/10",
       border: "border-green-500/30",
@@ -78,6 +99,253 @@ const VAULT_CONSTANTS = Object.freeze({
       color: "text-red-500",
       bg: "bg-red-500/10",
       border: "border-red-500/30",
+    },
+  }),
+
+  /**
+   * @description
+   * Verification strength ratings assigned by the Discotive review team.
+   * Affects Discotive Score yield and public profile display weight.
+   */
+  STRENGTH: Object.freeze({
+    Strong: {
+      label: "STRONG",
+      color: "text-emerald-400",
+      bg: "bg-emerald-500/10",
+      border: "border-emerald-500/30",
+      pts: 30,
+    },
+    Medium: {
+      label: "MEDIUM",
+      color: "text-amber-400",
+      bg: "bg-amber-500/10",
+      border: "border-amber-500/20",
+      pts: 20,
+    },
+    Weak: {
+      label: "WEAK",
+      color: "text-orange-400",
+      bg: "bg-orange-500/10",
+      border: "border-orange-500/20",
+      pts: 10,
+    },
+  }),
+
+  /**
+   * @description
+   * Asset category taxonomy with per-category credential field definitions.
+   * credentialFields: array of field objects the user must fill in during upload.
+   *   { key, label, placeholder, required, type }
+   * acceptedFormats: human-readable hint for the file picker.
+   * icon: lucide icon name (used in getAssetIcon).
+   */
+  ASSET_CATEGORIES: Object.freeze({
+    Certificate: {
+      label: "Certificate / Award",
+      description: "Course completions, hackathon wins, competition medals",
+      color: "text-amber-400",
+      bg: "bg-amber-500/8",
+      border: "border-amber-500/20",
+      acceptedFormats: "PDF, PNG, JPG (Max 25MB)",
+      credentialFields: [
+        {
+          key: "issuer",
+          label: "Issuing Organisation",
+          placeholder: "e.g. Coursera, Google, HackerEarth",
+          required: true,
+          type: "text",
+        },
+        {
+          key: "credentialId",
+          label: "Credential ID",
+          placeholder: "e.g. UC-xxxxxxxx",
+          required: false,
+          type: "text",
+        },
+        {
+          key: "verificationUrl",
+          label: "Verification URL",
+          placeholder: "https://...",
+          required: false,
+          type: "url",
+        },
+        {
+          key: "issuedDate",
+          label: "Issue Date",
+          placeholder: "",
+          required: false,
+          type: "date",
+        },
+        {
+          key: "expiryDate",
+          label: "Expiry Date (if any)",
+          placeholder: "",
+          required: false,
+          type: "date",
+        },
+      ],
+    },
+    Resume: {
+      label: "Resume / CV",
+      description: "Your latest resume or curriculum vitae",
+      color: "text-blue-400",
+      bg: "bg-blue-500/8",
+      border: "border-blue-500/20",
+      acceptedFormats: "PDF, DOCX (Max 25MB)",
+      credentialFields: [
+        {
+          key: "version",
+          label: "Version / Variant",
+          placeholder: "e.g. SWE — 2025, General",
+          required: true,
+          type: "text",
+        },
+        {
+          key: "targetRole",
+          label: "Target Role",
+          placeholder: "e.g. Frontend Engineer at FAANG",
+          required: false,
+          type: "text",
+        },
+      ],
+    },
+    Project: {
+      label: "Project / Build",
+      description: "GitHub repo, live demo link, or deployed application",
+      color: "text-violet-400",
+      bg: "bg-violet-500/8",
+      border: "border-violet-500/20",
+      acceptedFormats: "Link, PDF, ZIP (Max 25MB)",
+      credentialFields: [
+        {
+          key: "techStack",
+          label: "Tech Stack",
+          placeholder: "e.g. React, Node.js, PostgreSQL",
+          required: true,
+          type: "text",
+        },
+        {
+          key: "repoUrl",
+          label: "Repository URL",
+          placeholder: "https://github.com/...",
+          required: false,
+          type: "url",
+        },
+        {
+          key: "liveUrl",
+          label: "Live Demo URL",
+          placeholder: "https://...",
+          required: false,
+          type: "url",
+        },
+        {
+          key: "role",
+          label: "Your Role",
+          placeholder: "e.g. Solo Developer, Frontend Lead",
+          required: false,
+          type: "text",
+        },
+      ],
+    },
+    Publication: {
+      label: "Publication / Research",
+      description: "Research papers, articles, patents, whitepapers",
+      color: "text-cyan-400",
+      bg: "bg-cyan-500/8",
+      border: "border-cyan-500/20",
+      acceptedFormats: "PDF, Link (Max 25MB)",
+      credentialFields: [
+        {
+          key: "journal",
+          label: "Journal / Platform",
+          placeholder: "e.g. IEEE, Medium, arXiv",
+          required: true,
+          type: "text",
+        },
+        {
+          key: "doi",
+          label: "DOI / Publication ID",
+          placeholder: "e.g. 10.1000/xyz123",
+          required: false,
+          type: "text",
+        },
+        {
+          key: "publicationUrl",
+          label: "Publication URL",
+          placeholder: "https://...",
+          required: false,
+          type: "url",
+        },
+        {
+          key: "publishedDate",
+          label: "Published Date",
+          placeholder: "",
+          required: false,
+          type: "date",
+        },
+      ],
+    },
+    Employment: {
+      label: "Employment Proof",
+      description: "Offer letters, experience letters, internship certificates",
+      color: "text-emerald-400",
+      bg: "bg-emerald-500/8",
+      border: "border-emerald-500/20",
+      acceptedFormats: "PDF, PNG, JPG (Max 25MB)",
+      credentialFields: [
+        {
+          key: "company",
+          label: "Company / Organisation",
+          placeholder: "e.g. Google, Y Combinator Startup",
+          required: true,
+          type: "text",
+        },
+        {
+          key: "role",
+          label: "Role / Designation",
+          placeholder: "e.g. SWE Intern, Product Manager",
+          required: true,
+          type: "text",
+        },
+        {
+          key: "startDate",
+          label: "Start Date",
+          placeholder: "",
+          required: false,
+          type: "date",
+        },
+        {
+          key: "endDate",
+          label: "End Date",
+          placeholder: "",
+          required: false,
+          type: "date",
+        },
+      ],
+    },
+    Link: {
+      label: "External Link",
+      description: "Portfolio, website, social proof, public profile",
+      color: "text-sky-400",
+      bg: "bg-sky-500/8",
+      border: "border-sky-500/20",
+      acceptedFormats: "URL only",
+      credentialFields: [
+        {
+          key: "platform",
+          label: "Platform / Context",
+          placeholder: "e.g. GitHub, Behance, ProductHunt",
+          required: true,
+          type: "text",
+        },
+        {
+          key: "description",
+          label: "What does this link prove?",
+          placeholder: "e.g. My open source contributions",
+          required: false,
+          type: "text",
+        },
+      ],
     },
   }),
 });
@@ -105,9 +373,38 @@ const generateVisualHash = (str) => {
   return `0x${hex}${randomSuffix}`.substring(0, 64);
 };
 
-const getAssetIcon = (type) => {
-  if (type === "link") return <LinkIcon className="w-5 h-5" />;
-  return <FileText className="w-5 h-5" />; // Everything else is classified as a document
+import {
+  Award,
+  Briefcase,
+  Code2,
+  BookOpen as PubIcon,
+  Globe as GlobeIcon,
+} from "lucide-react";
+
+/**
+ * @function getAssetIcon
+ * @param {string} category — VAULT_CONSTANTS.ASSET_CATEGORIES key
+ * @param {string} [mimeType] — fallback for file MIME
+ * @returns {JSX.Element}
+ */
+const getAssetIcon = (category, mimeType) => {
+  switch (category) {
+    case "Certificate":
+      return <Award className="w-5 h-5" />;
+    case "Resume":
+      return <FileText className="w-5 h-5" />;
+    case "Project":
+      return <Code2 className="w-5 h-5" />;
+    case "Publication":
+      return <PubIcon className="w-5 h-5" />;
+    case "Employment":
+      return <Briefcase className="w-5 h-5" />;
+    case "Link":
+      return <LinkIcon className="w-5 h-5" />;
+    default:
+      if (mimeType === "link") return <GlobeIcon className="w-5 h-5" />;
+      return <FileText className="w-5 h-5" />;
+  }
 };
 
 // ============================================================================
@@ -135,6 +432,37 @@ const Vault = () => {
   const [urlInput, setUrlInput] = useState("");
   const [urlTitle, setUrlTitle] = useState("");
 
+  /**
+   * @description
+   * Two-step upload flow state machine:
+   *   Step 1 ("category"): User selects asset category
+   *   Step 2 ("credentials"): User fills category-specific fields + attaches file/URL
+   *
+   * selectedCategory: key from VAULT_CONSTANTS.ASSET_CATEGORIES
+   * credentialData: { [fieldKey]: value } map built from credentialFields
+   * uploadMode: "file" | "url" — toggles the attachment method in step 2
+   * uploadError: string | null — validation error shown inline
+   */
+  const [uploadStep, setUploadStep] = useState("category");
+  const [selectedCategory, setSelectedCategory] = useState(null);
+  const [credentialData, setCredentialData] = useState({});
+  const [uploadMode, setUploadMode] = useState("file");
+  const [uploadError, setUploadError] = useState(null);
+  const fileInputRef = useRef(null);
+
+  // Reset upload modal state on close
+  const resetUploadModal = () => {
+    setIsUploadModalOpen(false);
+    setUploadQueue([]);
+    setUploadStep("category");
+    setSelectedCategory(null);
+    setCredentialData({});
+    setUploadMode("file");
+    setUploadError(null);
+    setUrlInput("");
+    setUrlTitle("");
+  };
+
   // --- DRAG AND DROP ENGINE ---
   const handleDragOver = useCallback(
     (e) => {
@@ -153,15 +481,26 @@ const Vault = () => {
 
   const validateAndQueueFiles = (files) => {
     if (!userData?.uid) return;
+    if (!selectedCategory) {
+      setUploadError("Select an asset category before attaching a file.");
+      return;
+    }
     const newQueue = [];
+    const errors = [];
 
     Array.from(files).forEach((file) => {
       if (file.size > VAULT_CONSTANTS.MAX_FILE_SIZE_MB * 1024 * 1024) {
-        console.error(`File ${file.name} exceeds limits.`);
+        errors.push(
+          `"${file.name}" exceeds the ${VAULT_CONSTANTS.MAX_FILE_SIZE_MB}MB limit.`,
+        );
         return;
       }
-      if (!VAULT_CONSTANTS.ALLOWED_MIME_TYPES.includes(file.type)) {
-        console.error(`File ${file.name} is not an allowed document type.`);
+      // Allow empty type for some browsers (they report "" for certain files)
+      if (
+        file.type &&
+        !VAULT_CONSTANTS.ALLOWED_MIME_TYPES.includes(file.type)
+      ) {
+        errors.push(`"${file.name}" is not a supported file format.`);
         return;
       }
 
@@ -171,12 +510,19 @@ const Vault = () => {
         file,
         progress: 0,
         hash: generateVisualHash(file.name),
+        category: selectedCategory,
+        credentialData,
       });
     });
 
+    if (errors.length > 0) {
+      setUploadError(errors.join(" "));
+      return;
+    }
+
     if (newQueue.length > 0) {
+      setUploadError(null);
       setUploadQueue((prev) => [...prev, ...newQueue]);
-      setIsUploadModalOpen(true);
       executeFirebaseUpload(newQueue);
     }
   };
@@ -220,33 +566,53 @@ const Vault = () => {
           setUploadQueue((prev) => prev.filter((q) => q.id !== item.id)); // Remove failed from queue
         },
         async () => {
-          // 3. Upload Complete -> Get Download URL
+          // 3. Upload Complete → Get Download URL
           const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
 
-          // 4. Construct Asset Payload
+          // 4. Construct enriched Asset Payload
           const newAsset = {
             id: item.id,
             title: item.file.name,
-            type: item.file.type,
+            type: item.file.type || "application/octet-stream",
             size: item.file.size,
             hash: item.hash,
+            /**
+             * @description
+             * category: key from VAULT_CONSTANTS.ASSET_CATEGORIES.
+             * Used to render the correct icon, filter, and
+             * display credential fields in the detail panel.
+             */
+            category: item.category || "Resume",
+            credentials: item.credentialData || {},
             status: "PENDING",
+            strength: null, // Set by admin during verification
             uploadedAt: new Date().toISOString(),
             scoreYield: null,
             url: downloadURL,
-            storagePath: storageRef.fullPath, // Keep reference for deletion later
+            storagePath: storageRef.fullPath,
+            // Public profile flag — only VERIFIED assets appear publicly
+            isPublic: false,
           };
 
-          // 5. Atomic Array Union to Firestore User Profile
+          // 5. Atomic write to Firestore
           try {
             await updateDoc(doc(db, "users", userData.uid), {
               vault: arrayUnion(newAsset),
             });
-            // Remove from local processing queue, Firestore listener will hydrate the UI automatically
+            // Award upload score event (non-blocking)
+            awardVaultUpload(userData.uid).catch(console.warn);
+
             setUploadQueue((prev) => prev.filter((q) => q.id !== item.id));
-            if (uploadQueue.length <= 1) setIsUploadModalOpen(false); // Close if last item
+            // Auto-close modal when all uploads complete
+            setUploadQueue((prev) => {
+              const remaining = prev.filter((q) => q.id !== item.id);
+              if (remaining.length === 0) {
+                setTimeout(resetUploadModal, 800);
+              }
+              return remaining;
+            });
           } catch (dbError) {
-            console.error("Firestore Ledger Update Fault:", dbError);
+            console.error("[Vault] Firestore ledger update failed:", dbError);
           }
         },
       );
@@ -257,29 +623,39 @@ const Vault = () => {
   const handleUrlSubmit = async (e) => {
     e.preventDefault();
     if (!urlInput || !urlTitle || !userData?.uid) return;
+    if (!selectedCategory) {
+      setUploadError("Select an asset category first.");
+      return;
+    }
     setIsProcessing(true);
+    setUploadError(null);
 
     const newAsset = {
       id: `ast_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
       title: urlTitle,
       type: "link",
+      category: selectedCategory,
+      credentials: { ...credentialData, url: urlInput },
       size: 0,
       hash: generateVisualHash(urlInput),
       status: "PENDING",
+      strength: null,
       uploadedAt: new Date().toISOString(),
       scoreYield: null,
       url: urlInput,
+      storagePath: null,
+      isPublic: false,
     };
 
     try {
       await updateDoc(doc(db, "users", userData.uid), {
         vault: arrayUnion(newAsset),
       });
-      setUrlInput("");
-      setUrlTitle("");
-      setIsUploadModalOpen(false);
+      awardVaultUpload(userData.uid).catch(console.warn);
+      resetUploadModal();
     } catch (err) {
-      console.error("Link encryption failed:", err);
+      console.error("[Vault] Link upload failed:", err);
+      setUploadError("Upload failed. Check your connection and try again.");
     } finally {
       setIsProcessing(false);
     }
@@ -310,15 +686,27 @@ const Vault = () => {
     }
   };
 
-  // --- REAL-TIME FILTERS (Documents & Links Only) ---
+  /**
+   * @description
+   * Multi-dimension filter: search (title | hash | issuer credential) +
+   * category filter. Gracefully handles assets created before the category
+   * system existed (they have no `category` field — shown under ALL).
+   */
   const filteredAssets = assets.filter((asset) => {
+    const searchLower = searchQuery.toLowerCase();
     const matchesSearch =
-      asset.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      asset.hash.includes(searchQuery.toLowerCase());
+      (asset.title || "").toLowerCase().includes(searchLower) ||
+      (asset.hash || "").toLowerCase().includes(searchLower) ||
+      (asset.credentials?.issuer || "").toLowerCase().includes(searchLower) ||
+      (asset.credentials?.company || "").toLowerCase().includes(searchLower) ||
+      (asset.category || "").toLowerCase().includes(searchLower);
 
-    let matchesType = true;
-    if (filterType === "DOCUMENT") matchesType = asset.type !== "link";
-    if (filterType === "LINK") matchesType = asset.type === "link";
+    const matchesType =
+      filterType === "ALL" ||
+      asset.category === filterType ||
+      // Legacy fallback
+      (filterType === "DOCUMENT" && asset.type !== "link") ||
+      (filterType === "LINK" && asset.type === "link");
 
     return matchesSearch && matchesType;
   });
@@ -448,8 +836,11 @@ const Vault = () => {
               className="bg-[#111] border border-[#222] text-white pl-10 pr-8 py-2.5 rounded-xl focus:outline-none focus:border-amber-500/50 transition-all font-mono text-xs appearance-none cursor-pointer"
             >
               <option value="ALL">ALL ASSETS</option>
-              <option value="DOCUMENT">DOCUMENTS ONLY</option>
-              <option value="LINK">LINKS ONLY</option>
+              {Object.keys(VAULT_CONSTANTS.ASSET_CATEGORIES).map((cat) => (
+                <option key={cat} value={cat}>
+                  {cat.toUpperCase()}
+                </option>
+              ))}
             </select>
           </div>
         </div>
@@ -563,6 +954,46 @@ const Vault = () => {
                       >
                         {asset.title}
                       </h3>
+                      {/* Category + Issuer / Company */}
+                      <div className="flex items-center gap-1.5 mb-1">
+                        {asset.category && (
+                          <span
+                            className={cn(
+                              "text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded border",
+                              VAULT_CONSTANTS.ASSET_CATEGORIES[asset.category]
+                                ?.bg || "bg-white/5",
+                              VAULT_CONSTANTS.ASSET_CATEGORIES[asset.category]
+                                ?.color || "text-white/40",
+                              VAULT_CONSTANTS.ASSET_CATEGORIES[asset.category]
+                                ?.border || "border-white/10",
+                            )}
+                          >
+                            {asset.category}
+                          </span>
+                        )}
+                        {/* Strength pill — only after admin verification */}
+                        {asset.strength &&
+                          VAULT_CONSTANTS.STRENGTH[asset.strength] && (
+                            <span
+                              className={cn(
+                                "text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded border",
+                                VAULT_CONSTANTS.STRENGTH[asset.strength].bg,
+                                VAULT_CONSTANTS.STRENGTH[asset.strength].color,
+                                VAULT_CONSTANTS.STRENGTH[asset.strength].border,
+                              )}
+                            >
+                              {VAULT_CONSTANTS.STRENGTH[asset.strength].label}
+                            </span>
+                          )}
+                      </div>
+                      {/* Issuer / company credential summary */}
+                      {(asset.credentials?.issuer ||
+                        asset.credentials?.company) && (
+                        <p className="text-[10px] font-medium text-[#666] truncate mb-1">
+                          {asset.credentials.issuer ||
+                            asset.credentials.company}
+                        </p>
+                      )}
                       <div className="flex items-center gap-1.5 mb-4 opacity-50 group-hover:opacity-100 transition-opacity">
                         <Hash className="w-3 h-3 text-[#666]" />
                         <span className="text-[10px] font-mono text-[#888] truncate">
@@ -742,6 +1173,117 @@ const Vault = () => {
                   </div>
                 )}
 
+                {/* Credential Fields — rendered dynamically per category */}
+                {selectedAsset.category &&
+                  VAULT_CONSTANTS.ASSET_CATEGORIES[selectedAsset.category] &&
+                  Object.keys(selectedAsset.credentials || {}).length > 0 && (
+                    <div className="p-4 bg-[#0a0a0a] border border-[#1a1a1a] rounded-xl space-y-3">
+                      <span className="text-[9px] font-black text-[#555] uppercase tracking-widest block">
+                        Credential Metadata
+                      </span>
+                      {VAULT_CONSTANTS.ASSET_CATEGORIES[
+                        selectedAsset.category
+                      ].credentialFields.map((field) => {
+                        const val = selectedAsset.credentials?.[field.key];
+                        if (!val) return null;
+                        return (
+                          <div key={field.key}>
+                            <span className="text-[9px] font-bold text-[#666] uppercase tracking-widest block mb-0.5">
+                              {field.label}
+                            </span>
+                            {field.type === "url" ? (
+                              <a
+                                href={val}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-xs font-mono text-sky-400 hover:text-sky-300 truncate block"
+                              >
+                                {val}
+                              </a>
+                            ) : (
+                              <span className="text-xs font-mono text-[#ccc]">
+                                {val}
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                {/* Verification strength */}
+                {selectedAsset.strength &&
+                  VAULT_CONSTANTS.STRENGTH[selectedAsset.strength] && (
+                    <div
+                      className={cn(
+                        "p-4 border rounded-xl flex items-center justify-between",
+                        VAULT_CONSTANTS.STRENGTH[selectedAsset.strength].bg,
+                        VAULT_CONSTANTS.STRENGTH[selectedAsset.strength].border,
+                      )}
+                    >
+                      <div>
+                        <span className="text-[9px] font-black uppercase tracking-widest block mb-1 text-[#666]">
+                          Verification Strength
+                        </span>
+                        <span
+                          className={cn(
+                            "text-sm font-black",
+                            VAULT_CONSTANTS.STRENGTH[selectedAsset.strength]
+                              .color,
+                          )}
+                        >
+                          {
+                            VAULT_CONSTANTS.STRENGTH[selectedAsset.strength]
+                              .label
+                          }
+                        </span>
+                      </div>
+                      <ShieldCheck
+                        className={cn(
+                          "w-6 h-6",
+                          VAULT_CONSTANTS.STRENGTH[selectedAsset.strength]
+                            .color,
+                        )}
+                      />
+                    </div>
+                  )}
+
+                {/* Public Profile Visibility */}
+                <div
+                  className={cn(
+                    "p-3 border rounded-xl flex items-center gap-2.5",
+                    selectedAsset.status === "VERIFIED"
+                      ? "bg-green-500/5 border-green-500/20"
+                      : "bg-[#0a0a0a] border-[#1a1a1a]",
+                  )}
+                >
+                  <div
+                    className={cn(
+                      "w-2 h-2 rounded-full shrink-0",
+                      selectedAsset.status === "VERIFIED"
+                        ? "bg-green-500"
+                        : "bg-[#333]",
+                    )}
+                  />
+                  <div>
+                    <span className="text-[9px] font-black uppercase tracking-widest block text-[#555]">
+                      Public Profile
+                    </span>
+                    <span
+                      className={cn(
+                        "text-[10px] font-bold",
+                        selectedAsset.status === "VERIFIED"
+                          ? "text-green-400"
+                          : "text-[#444]",
+                      )}
+                    >
+                      {selectedAsset.status === "VERIFIED"
+                        ? "Visible — Verified assets appear on your public profile"
+                        : "Hidden — Only verified assets are shown publicly"}
+                    </span>
+                  </div>
+                </div>
+
                 {/* Cryptographic Metadata */}
                 <div className="space-y-4">
                   <div className="p-4 bg-[#0a0a0a] border border-[#222] rounded-xl space-y-3">
@@ -837,112 +1379,279 @@ const Vault = () => {
               initial={{ scale: 0.95, opacity: 0, y: 20 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.95, opacity: 0, y: 20 }}
-              className="bg-[#0a0a0a] border border-[#222] rounded-[2rem] max-w-lg w-full shadow-[0_30px_60px_rgba(0,0,0,0.9)] overflow-hidden flex flex-col relative"
+              className="bg-[#0a0a0a] border border-[#222] rounded-[2rem] max-w-lg w-full shadow-[0_30px_60px_rgba(0,0,0,0.9)] overflow-hidden flex flex-col relative max-h-[90vh]"
             >
-              {/* Fake ambient scanning glow */}
-              <div className="absolute top-0 left-1/4 w-1/2 h-1 bg-amber-500 shadow-[0_0_20px_rgba(245,158,11,1)]" />
+              {/* Ambient scanning glow */}
+              <div className="absolute top-0 left-1/4 w-1/2 h-px bg-amber-500 shadow-[0_0_20px_rgba(245,158,11,1)]" />
 
-              <div className="flex justify-between items-center p-6 border-b border-[#111]">
-                <h3 className="text-xl font-black text-white flex items-center gap-3">
-                  <Cpu className="w-6 h-6 text-amber-500" /> Asset Ingestion
-                </h3>
+              {/* Modal Header */}
+              <div className="flex justify-between items-center p-5 border-b border-[#111] shrink-0">
+                <div className="flex items-center gap-3">
+                  <Cpu className="w-5 h-5 text-amber-500" />
+                  <div>
+                    <h3 className="text-base font-black text-white">
+                      {uploadStep === "category"
+                        ? "Select Asset Category"
+                        : uploadStep === "credentials"
+                          ? `New ${selectedCategory} — Fill Credentials`
+                          : "Transmitting to Cloud"}
+                    </h3>
+                    <p className="text-[9px] font-bold text-[#555] uppercase tracking-widest">
+                      {uploadStep === "category"
+                        ? "Step 1 of 2"
+                        : uploadStep === "credentials"
+                          ? "Step 2 of 2"
+                          : "Uploading..."}
+                    </p>
+                  </div>
+                </div>
                 <button
-                  onClick={() => {
-                    setIsUploadModalOpen(false);
-                    setUploadQueue([]);
-                  }}
+                  onClick={resetUploadModal}
                   className="p-2 bg-[#111] hover:bg-[#222] border border-[#333] rounded-xl transition-colors text-[#888]"
                 >
-                  <X className="w-5 h-5" />
+                  <X className="w-4 h-4" />
                 </button>
               </div>
 
-              <div className="p-6">
-                {uploadQueue.length === 0 ? (
-                  // --- INPUT MODE ---
-                  <div className="space-y-6">
-                    {/* File Drop Target */}
-                    <div
-                      className="w-full border-2 border-dashed border-[#333] hover:border-amber-500 bg-[#050505] rounded-2xl p-8 text-center cursor-pointer transition-colors group relative overflow-hidden"
-                      onClick={() =>
-                        document.getElementById("vault-file-upload").click()
-                      }
-                    >
-                      <input
-                        id="vault-file-upload"
-                        type="file"
-                        multiple
-                        className="hidden"
-                        onChange={(e) => validateAndQueueFiles(e.target.files)}
-                      />
-                      <div className="w-16 h-16 bg-[#111] rounded-full flex items-center justify-center mx-auto mb-4 group-hover:bg-amber-500/10 transition-colors">
-                        <UploadCloud className="w-8 h-8 text-[#666] group-hover:text-amber-500 transition-colors" />
-                      </div>
-                      <p className="text-sm font-bold text-white mb-1">
-                        Click or drag documents here
-                      </p>
-                      <p className="text-[10px] font-mono text-[#888] uppercase tracking-widest">
-                        PDF, DOC, TXT, JSON (Max 15MB)
-                      </p>
-                    </div>
+              {/* Step progress bar */}
+              <div className="h-px bg-[#111] shrink-0">
+                <div
+                  className="h-full bg-amber-500 transition-all duration-500"
+                  style={{
+                    width:
+                      uploadStep === "category"
+                        ? "33%"
+                        : uploadStep === "credentials"
+                          ? "66%"
+                          : "100%",
+                  }}
+                />
+              </div>
 
-                    <div className="flex items-center gap-4">
-                      <div className="flex-1 h-px bg-[#222]" />
-                      <span className="text-[10px] font-bold text-[#555] uppercase tracking-widest">
-                        OR DEPLOY URL
-                      </span>
-                      <div className="flex-1 h-px bg-[#222]" />
-                    </div>
+              {/* Error display */}
+              <AnimatePresence>
+                {uploadError && (
+                  <motion.div
+                    initial={{ opacity: 0, height: 0 }}
+                    animate={{ opacity: 1, height: "auto" }}
+                    exit={{ opacity: 0, height: 0 }}
+                    className="mx-5 mt-4 p-3 bg-red-500/8 border border-red-500/20 rounded-xl flex items-center gap-2.5 text-red-400 text-xs font-bold shrink-0"
+                  >
+                    <AlertTriangle className="w-4 h-4 shrink-0" />
+                    {uploadError}
+                  </motion.div>
+                )}
+              </AnimatePresence>
 
-                    {/* URL Input Form */}
-                    <form onSubmit={handleUrlSubmit} className="space-y-4">
-                      <div className="relative group">
-                        <FileText className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-[#555] group-focus-within:text-white" />
+              <div className="flex-1 overflow-y-auto custom-scrollbar p-5">
+                {/* ─── STEP 1: CATEGORY SELECTION ─── */}
+                {uploadStep === "category" && (
+                  <div className="grid grid-cols-2 gap-3">
+                    {Object.entries(VAULT_CONSTANTS.ASSET_CATEGORIES).map(
+                      ([key, cat]) => (
+                        <button
+                          key={key}
+                          onClick={() => {
+                            setSelectedCategory(key);
+                            setCredentialData({});
+                            setUploadError(null);
+                            setUploadStep("credentials");
+                            // For Link category, default to url mode
+                            if (key === "Link") setUploadMode("url");
+                            else setUploadMode("file");
+                          }}
+                          className={cn(
+                            "flex flex-col items-start gap-2 p-4 rounded-2xl border text-left transition-all hover:scale-[1.02] active:scale-[0.98]",
+                            cat.bg,
+                            cat.border,
+                          )}
+                        >
+                          <div
+                            className={cn(
+                              "w-8 h-8 rounded-xl flex items-center justify-center",
+                              cat.bg,
+                              cat.border,
+                              "border",
+                            )}
+                          >
+                            <span className={cat.color}>
+                              {getAssetIcon(key)}
+                            </span>
+                          </div>
+                          <div>
+                            <p className={cn("text-xs font-black", cat.color)}>
+                              {cat.label}
+                            </p>
+                            <p className="text-[9px] text-[#555] leading-relaxed mt-0.5">
+                              {cat.description}
+                            </p>
+                          </div>
+                        </button>
+                      ),
+                    )}
+                  </div>
+                )}
+
+                {/* ─── STEP 2: CREDENTIAL FIELDS + ATTACHMENT ─── */}
+                {uploadStep === "credentials" &&
+                  selectedCategory &&
+                  uploadQueue.length === 0 && (
+                    <div className="space-y-5">
+                      {/* Back button */}
+                      <button
+                        onClick={() => {
+                          setUploadStep("category");
+                          setUploadError(null);
+                        }}
+                        className="flex items-center gap-1.5 text-[10px] font-black text-[#555] uppercase tracking-widest hover:text-white transition-colors"
+                      >
+                        ← Back to categories
+                      </button>
+
+                      {/* Asset title */}
+                      <div>
+                        <label className="block text-[9px] font-black text-[#666] uppercase tracking-widest mb-1.5">
+                          Asset Title *
+                        </label>
                         <input
                           type="text"
-                          placeholder="Asset Title (e.g., Code Repository)"
+                          placeholder={`e.g. ${
+                            selectedCategory === "Certificate"
+                              ? "Google Cloud Associate Certificate"
+                              : selectedCategory === "Resume"
+                                ? "SWE Resume — 2025"
+                                : selectedCategory === "Project"
+                                  ? "Discotive OS — Full Stack"
+                                  : "Asset name"
+                          }`}
                           value={urlTitle}
                           onChange={(e) => setUrlTitle(e.target.value)}
-                          required
-                          className="w-full bg-[#111] border border-[#222] text-white pl-11 pr-4 py-3.5 rounded-xl focus:outline-none focus:border-amber-500 transition-colors text-sm"
+                          className="w-full bg-[#111] border border-[#222] text-white px-4 py-3 rounded-xl focus:outline-none focus:border-amber-500 transition-colors text-sm"
                         />
                       </div>
-                      <div className="relative group">
-                        <LinkIcon className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-[#555] group-focus-within:text-white" />
-                        <input
-                          type="url"
-                          placeholder="https://..."
-                          value={urlInput}
-                          onChange={(e) => setUrlInput(e.target.value)}
-                          required
-                          className="w-full bg-[#111] border border-[#222] text-white pl-11 pr-4 py-3.5 rounded-xl focus:outline-none focus:border-amber-500 transition-colors text-sm font-mono"
-                        />
-                      </div>
-                      <button
-                        type="submit"
-                        disabled={isProcessing}
-                        className="w-full py-4 bg-white text-black font-extrabold text-xs uppercase tracking-widest rounded-xl hover:bg-[#ccc] disabled:opacity-50 transition-colors flex justify-center items-center gap-2"
-                      >
-                        {isProcessing ? (
-                          <RefreshCw className="w-4 h-4 animate-spin" />
-                        ) : (
-                          <Zap className="w-4 h-4" />
-                        )}{" "}
-                        Sync URL Asset
-                      </button>
-                    </form>
-                  </div>
-                ) : (
-                  // --- REAL FIREBASE SCANNING MODE ---
-                  <div className="space-y-4 max-h-[60vh] overflow-y-auto custom-scrollbar pr-2">
-                    <div className="flex items-center gap-3 mb-6 p-4 bg-blue-500/10 border border-blue-500/30 rounded-xl text-blue-400">
-                      <RefreshCw className="w-5 h-5 animate-spin" />
+
+                      {/* Dynamic credential fields */}
+                      {VAULT_CONSTANTS.ASSET_CATEGORIES[
+                        selectedCategory
+                      ].credentialFields.map((field) => (
+                        <div key={field.key}>
+                          <label className="block text-[9px] font-black text-[#666] uppercase tracking-widest mb-1.5">
+                            {field.label}{" "}
+                            {field.required && (
+                              <span className="text-amber-500">*</span>
+                            )}
+                          </label>
+                          <input
+                            type={field.type}
+                            placeholder={field.placeholder}
+                            value={credentialData[field.key] || ""}
+                            onChange={(e) =>
+                              setCredentialData((prev) => ({
+                                ...prev,
+                                [field.key]: e.target.value,
+                              }))
+                            }
+                            className="w-full bg-[#111] border border-[#222] text-white px-4 py-3 rounded-xl focus:outline-none focus:border-amber-500 transition-colors text-sm font-mono"
+                          />
+                        </div>
+                      ))}
+
+                      {/* Attachment method toggle */}
+                      {selectedCategory !== "Link" && (
+                        <div className="flex gap-2 p-1 bg-[#111] border border-[#222] rounded-xl">
+                          <button
+                            onClick={() => setUploadMode("file")}
+                            className={cn(
+                              "flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg transition-all",
+                              uploadMode === "file"
+                                ? "bg-[#222] text-white"
+                                : "text-[#555] hover:text-white",
+                            )}
+                          >
+                            Upload File
+                          </button>
+                          <button
+                            onClick={() => setUploadMode("url")}
+                            className={cn(
+                              "flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg transition-all",
+                              uploadMode === "url"
+                                ? "bg-[#222] text-white"
+                                : "text-[#555] hover:text-white",
+                            )}
+                          >
+                            Link URL
+                          </button>
+                        </div>
+                      )}
+
+                      {/* File attachment */}
+                      {uploadMode === "file" && (
+                        <div
+                          className="w-full border-2 border-dashed border-[#333] hover:border-amber-500 bg-[#050505] rounded-2xl p-6 text-center cursor-pointer transition-colors group"
+                          onClick={() => fileInputRef.current?.click()}
+                        >
+                          <input
+                            ref={fileInputRef}
+                            type="file"
+                            multiple
+                            className="hidden"
+                            onChange={(e) =>
+                              validateAndQueueFiles(e.target.files)
+                            }
+                          />
+                          <UploadCloud className="w-8 h-8 text-[#555] group-hover:text-amber-500 transition-colors mx-auto mb-3" />
+                          <p className="text-sm font-bold text-white mb-1">
+                            Click or drag file here
+                          </p>
+                          <p className="text-[10px] font-mono text-[#666] uppercase tracking-widest">
+                            {VAULT_CONSTANTS.ASSET_CATEGORIES[selectedCategory]
+                              ?.acceptedFormats || "Max 25MB"}
+                          </p>
+                        </div>
+                      )}
+
+                      {/* URL attachment */}
+                      {uploadMode === "url" && (
+                        <form onSubmit={handleUrlSubmit} className="space-y-3">
+                          <div className="relative">
+                            <LinkIcon className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-[#555]" />
+                            <input
+                              type="url"
+                              placeholder="https://..."
+                              value={urlInput}
+                              onChange={(e) => setUrlInput(e.target.value)}
+                              required
+                              className="w-full bg-[#111] border border-[#222] text-white pl-11 pr-4 py-3 rounded-xl focus:outline-none focus:border-amber-500 transition-colors text-sm font-mono"
+                            />
+                          </div>
+                          <button
+                            type="submit"
+                            disabled={isProcessing || !urlInput || !urlTitle}
+                            className="w-full py-3.5 bg-white text-black font-extrabold text-[10px] uppercase tracking-widest rounded-xl hover:bg-[#ddd] disabled:opacity-40 transition-colors flex justify-center items-center gap-2"
+                          >
+                            {isProcessing ? (
+                              <RefreshCw className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <Zap className="w-4 h-4" />
+                            )}
+                            Sync URL Asset
+                          </button>
+                        </form>
+                      )}
+                    </div>
+                  )}
+
+                {/* ─── STEP 3: FIREBASE UPLOAD PROGRESS ─── */}
+                {uploadQueue.length > 0 && (
+                  <div className="space-y-4">
+                    <div className="flex items-center gap-3 p-4 bg-blue-500/10 border border-blue-500/30 rounded-xl text-blue-400">
+                      <RefreshCw className="w-5 h-5 animate-spin shrink-0" />
                       <div>
                         <p className="text-xs font-bold uppercase tracking-widest leading-none mb-1">
                           Transmitting to Cloud Node
                         </p>
                         <p className="text-[10px] font-mono opacity-80">
-                          Syncing with Firebase Storage bucket...
+                          Syncing with Firebase Storage...
                         </p>
                       </div>
                     </div>
@@ -957,7 +1666,6 @@ const Vault = () => {
                           exit={{ opacity: 0, scale: 0.9 }}
                           className="p-4 bg-[#111] border border-[#222] rounded-xl relative overflow-hidden"
                         >
-                          {/* Progress Bar Background */}
                           <div
                             className="absolute top-0 left-0 h-full bg-white/5"
                             style={{
@@ -965,18 +1673,17 @@ const Vault = () => {
                               transition: "width 0.3s ease",
                             }}
                           />
-
                           <div className="relative z-10 flex justify-between items-start mb-3">
                             <div className="flex items-center gap-3">
                               <div className="w-8 h-8 rounded-lg bg-[#222] flex items-center justify-center shrink-0">
-                                {getAssetIcon(item.file.type)}
+                                {getAssetIcon(item.category, item.file?.type)}
                               </div>
                               <div className="min-w-0">
                                 <p className="text-xs font-bold text-white truncate max-w-[200px]">
-                                  {item.file.name}
+                                  {item.file?.name || "Uploading..."}
                                 </p>
                                 <p className="text-[9px] font-mono text-amber-500 mt-0.5">
-                                  {item.hash.substring(0, 24)}...
+                                  {(item.hash || "").substring(0, 24)}...
                                 </p>
                               </div>
                             </div>
@@ -984,7 +1691,6 @@ const Vault = () => {
                               {Math.round(item.progress)}%
                             </span>
                           </div>
-
                           <div className="relative z-10 w-full h-1 bg-[#222] rounded-full overflow-hidden">
                             <div
                               className="h-full bg-amber-500 shadow-[0_0_10px_rgba(245,158,11,0.8)]"

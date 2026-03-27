@@ -35,7 +35,7 @@ import {
   useTransform,
 } from "framer-motion";
 import { doc, updateDoc, getDoc, setDoc, writeBatch } from "firebase/firestore";
-import { db } from "../firebase";
+import { db, auth } from "../firebase";
 import ReactFlow, {
   Background,
   Controls,
@@ -53,6 +53,7 @@ import ReactFlow, {
   EdgeLabelRenderer,
 } from "reactflow";
 import { toPng } from "html-to-image";
+import { jsPDF } from "jspdf";
 import "reactflow/dist/style.css";
 
 import {
@@ -144,7 +145,7 @@ import { mutateScore } from "../lib/scoreEngine";
  * @description Milliseconds before a dirty-state batch write fires to Firestore.
  * Calibrated to stay well within free-tier write budget (50k/day).
  */
-const SAVE_DEBOUNCE_MS = 2500;
+const SAVE_DEBOUNCE_MS = 10000;
 
 /** @constant IDB_DB_NAME — IndexedDB database identifier for the local-first layer. */
 const IDB_DB_NAME = "discotive_neural_v5";
@@ -307,7 +308,6 @@ const sanitize = (raw = "") =>
 const generateNeuralLayout = (nodes, edges) => {
   if (nodes.length === 0) return nodes;
 
-  /** @type {Map<string, { inDegree: number, outNodes: string[], layer: number, orderInLayer: number }>} */
   const nodeMap = new Map(
     nodes.map((n) => [n.id, { ...n, inDegree: 0, outNodes: [], layer: 0 }]),
   );
@@ -319,54 +319,62 @@ const generateNeuralLayout = (nodes, edges) => {
     }
   });
 
-  // BFS topo-sort: assign layer numbers
-  let queue = [];
+  const orphans = [];
+  const connectedQueue = [];
+
+  // Separate orphans from the connected graph
   nodeMap.forEach((node, id) => {
-    if (node.inDegree === 0) queue.push(id);
+    if (node.inDegree === 0 && node.outNodes.length === 0) {
+      orphans.push(id);
+    } else if (node.inDegree === 0) {
+      connectedQueue.push(id);
+    }
   });
 
   let maxLayer = 0;
-  while (queue.length > 0) {
-    const currId = queue.shift();
+  while (connectedQueue.length > 0) {
+    const currId = connectedQueue.shift();
     const curr = nodeMap.get(currId);
     curr.outNodes.forEach((tid) => {
       const tgt = nodeMap.get(tid);
       tgt.layer = Math.max(tgt.layer, curr.layer + 1);
       maxLayer = Math.max(maxLayer, tgt.layer);
-      if (--tgt.inDegree === 0) queue.push(tid);
+      if (--tgt.inDegree === 0) connectedQueue.push(tid);
     });
   }
 
-  // Barycentric node ordering within layers
   const layerBuckets = Array.from({ length: maxLayer + 1 }, () => []);
-  nodeMap.forEach((_, id) => layerBuckets[nodeMap.get(id).layer].push(id));
+  nodeMap.forEach((node, id) => {
+    if (!orphans.includes(id)) layerBuckets[node.layer].push(id);
+  });
 
-  const X_GAP = 1280;
-  const Y_GAP = 820;
-  const JITTER_AMPLITUDE = 60;
-
-  // Deterministic jitter seeded per node-id to survive re-renders
-  const deterministicJitter = (id) => {
-    let hash = 0;
-    for (let i = 0; i < id.length; i++)
-      hash = (hash << 5) - hash + id.charCodeAt(i);
-    return (hash % JITTER_AMPLITUDE) - JITTER_AMPLITUDE / 2;
-  };
+  // TIGHTENED CONSTANTS
+  const X_GAP = 480;
+  const Y_GAP = 280;
+  const ORPHAN_COLS = 3;
 
   return nodes.map((n) => {
-    if (n.type !== "executionNode" && n.position.x !== 0) return n;
+    // Leave manual placements alone unless requested
+    if (n.position.x !== 0 && n.position.y !== 0) return n;
+
+    if (orphans.includes(n.id)) {
+      const idx = orphans.indexOf(n.id);
+      const col = idx % ORPHAN_COLS;
+      const row = Math.floor(idx / ORPHAN_COLS);
+      return {
+        ...n,
+        position: { x: col * X_GAP, y: -(row + 1) * Y_GAP - 150 }, // Place grid above DAG
+      };
+    }
+
     const meta = nodeMap.get(n.id);
-    const layer = meta.layer;
-    const bucket = layerBuckets[layer];
+    const bucket = layerBuckets[meta.layer];
     const idx = bucket.indexOf(n.id);
-    const totalInLayer = bucket.length;
-    const yCenter = ((totalInLayer - 1) * Y_GAP) / 2;
+    const yCenter = ((bucket.length - 1) * Y_GAP) / 2;
+
     return {
       ...n,
-      position: {
-        x: layer * X_GAP,
-        y: idx * Y_GAP - yCenter + deterministicJitter(n.id),
-      },
+      position: { x: meta.layer * X_GAP, y: idx * Y_GAP - yCenter },
     };
   });
 };
@@ -393,7 +401,6 @@ const NeuralEdge = ({
   targetPosition,
   style,
   data,
-  markerEnd,
   selected,
 }) => {
   const [edgePath, labelX, labelY] = getBezierPath({
@@ -405,6 +412,8 @@ const NeuralEdge = ({
     targetPosition,
   });
 
+  const accent = data?.accent || "#ca8a04";
+
   const connType = data?.connType || "open";
 
   const EDGE_CONFIG = {
@@ -415,7 +424,6 @@ const NeuralEdge = ({
   };
 
   const cfg = EDGE_CONFIG[connType] || EDGE_CONFIG.open;
-  const accent = data?.accent || "#ca8a04";
 
   return (
     <>
@@ -434,17 +442,23 @@ const NeuralEdge = ({
       />
       <BaseEdge
         path={edgePath}
-        markerEnd={markerEnd}
-        className={cn(cfg.animated && "react-flow__edge-path--animated")}
         style={{
           ...style,
           stroke: accent,
-          strokeWidth: cfg.weight,
-          strokeDasharray: cfg.dash,
-          opacity: selected ? 1 : cfg.opacity,
+          strokeWidth: selected ? 3 : 1.5,
+          opacity: selected ? 1 : 0.4,
           transition: "stroke-width 0.3s, opacity 0.3s",
         }}
       />
+      {/* The "Alive" Particle Flow Layer */}
+      <circle
+        r="4"
+        fill={accent}
+        style={{ filter: `drop-shadow(0 0 8px ${accent})` }}
+      >
+        <animateMotion dur="3s" repeatCount="indefinite" path={edgePath} />
+      </circle>
+
       {/* Connection type micro-label on hover */}
       {selected && (
         <EdgeLabelRenderer>
@@ -531,36 +545,25 @@ const ExecutionNode = ({ data, selected, id }) => {
   return (
     <div
       className={cn(
-        "w-[420px] rounded-[32px] p-2 transition-all duration-500 backdrop-blur-2xl border relative",
-        // Fading Logic: Dim unselected nodes, OR deeply fade FUTURE nodes to create depth
+        "w-[420px] rounded-[32px] p-2 transition-all duration-500 backdrop-blur-2xl relative group",
+        // Fading Logic: Dim unselected/unconnected nodes
         data.isDimmed
           ? "opacity-20 grayscale pointer-events-none"
           : isFuture && !selected
-            ? "opacity-60 bg-[#060606]/80"
-            : "opacity-100 bg-[#0a0a0c]/97",
-        selected ? "scale-[1.03] z-50" : "scale-100 z-10",
+            ? "opacity-60 bg-[#060606]/80 hover:bg-[#0a0a0c]"
+            : "opacity-100 bg-[#0a0a0c]/90 hover:bg-[#0d0d0f]",
+        // Hover life & Scale
+        selected ? "scale-[1.03] z-50" : "scale-100 hover:scale-[1.01] z-10",
       )}
       style={{
-        borderColor: selected
-          ? accent.primary
-          : isCompleted
-            ? "#10b981"
-            : isOverdue
-              ? "#ef4444"
-              : isActive
-                ? accent.primary
-                : "#2a2a2a",
+        // BORDERS REMOVED. Pure glow mathematics applied.
         boxShadow: selected
-          ? `0 0 70px ${accent.glow}, 0 30px 60px rgba(0,0,0,0.7)`
+          ? `0 0 80px ${accent.glow}, 0 30px 60px rgba(0,0,0,0.8)`
           : isCompleted
-            ? "0 0 30px rgba(16,185,129,0.12), 0 20px 40px rgba(0,0,0,0.5)"
-            : isOverdue
-              ? "0 0 40px rgba(239,68,68,0.18), 0 20px 40px rgba(0,0,0,0.5)"
-              : isActive
-                ? `0 0 30px ${accent.glow}, 0 20px 40px rgba(0,0,0,0.5)`
-                : isFuture
-                  ? "none" // Flatten future nodes
-                  : "0 20px 40px rgba(0,0,0,0.4)",
+            ? "0 0 30px rgba(16,185,129,0.1), 0 20px 40px rgba(0,0,0,0.4)"
+            : isActive
+              ? `0 0 40px ${accent.glow}, 0 20px 40px rgba(0,0,0,0.4)`
+              : "0 20px 40px rgba(0,0,0,0.4)",
       }}
     >
       <Handle
@@ -1065,7 +1068,7 @@ const VideoWidgetNode = ({ id, data, selected }) => {
 };
 
 // ============================================================================
-// § 10. JOURNAL NODE — NEW: Inline execution journal entry
+// § 10. JOURNAL NODE — new: Inline execution journal entry
 // ============================================================================
 
 /**
@@ -1144,7 +1147,7 @@ const JournalNode = ({ id, data, selected }) => (
 );
 
 // ============================================================================
-// § 11. MILESTONE NODE — NEW: Achievement checkpoint
+// § 11. MILESTONE NODE — new: Achievement checkpoint
 // ============================================================================
 
 /**
@@ -1740,6 +1743,220 @@ const FlowCanvas = ({
     );
   }, [tagFilter]); // eslint-disable-line
 
+  // ── Canvas keyboard controls ──
+  useEffect(() => {
+    const handler = (e) => {
+      const tag = document.activeElement?.tagName;
+      const isTyping =
+        tag === "INPUT" ||
+        tag === "TEXTAREA" ||
+        tag === "SELECT" ||
+        document.activeElement?.contentEditable === "true";
+      if (isTyping) return;
+
+      // Delete / Backspace — delete all selected nodes and edges
+      if (e.key === "Delete" || e.key === "Backspace") {
+        const selNodes = nodes.filter((n) => n.selected);
+        const selEdges = edges.filter((ed) => ed.selected);
+        if (selNodes.length === 0 && selEdges.length === 0) return;
+        e.preventDefault();
+        const selNodeIds = new Set(selNodes.map((n) => n.id));
+        const selEdgeIds = new Set(selEdges.map((ed) => ed.id));
+        setEdges((eds) =>
+          eds.filter(
+            (ed) =>
+              !selNodeIds.has(ed.source) &&
+              !selNodeIds.has(ed.target) &&
+              !selEdgeIds.has(ed.id),
+          ),
+        );
+        setNodes((nds) => nds.filter((n) => !selNodeIds.has(n.id)));
+        setHasUnsavedChanges(true);
+        addToast(`${selNodes.length} node(s) obliterated.`, "red");
+        return;
+      }
+
+      // + or = — add a new node at the center of the current viewport
+      if ((e.key === "+" || e.key === "=") && !e.ctrlKey && !e.metaKey) {
+        e.preventDefault();
+        const vpEl = document.querySelector(".react-flow__viewport");
+        if (!vpEl) return;
+        const transform = window.getComputedStyle(vpEl).transform;
+        // Parse matrix(a,b,c,d,tx,ty)
+        const mat = transform.match(/matrix\(([^)]+)\)/);
+        let tx = 0,
+          ty = 0,
+          zoom = 1;
+        if (mat) {
+          const vals = mat[1].split(",").map(Number);
+          [zoom, , , , tx, ty] = vals;
+        }
+        const containerEl = vpEl.closest(".react-flow");
+        const W = containerEl?.clientWidth || window.innerWidth;
+        const H = containerEl?.clientHeight || window.innerHeight;
+        const cx = (-tx + W / 2) / zoom;
+        const cy = (-ty + H / 2) / zoom;
+        const maxAllowed = TIER_LIMITS[subscriptionTier] || TIER_LIMITS.free;
+        if (nodes.length >= maxAllowed) {
+          onLimitReached();
+          return;
+        }
+        const newNodeId = `node_${Date.now()}`;
+        const newNode = {
+          id: newNodeId,
+          type: "executionNode",
+          position: { x: cx - 210, y: cy - 100 },
+          data: {
+            title: "New Protocol",
+            subtitle: "Awaiting Parameters",
+            desc: "",
+            deadline: "",
+            tasks: [],
+            isCompleted: false,
+            priorityStatus: "FUTURE",
+            nodeType: "branch",
+            linkedAssets: [],
+            delegates: [],
+            accentColor: "amber",
+            tags: [],
+            collapsed: false,
+          },
+        };
+        setNodes((nds) => [...nds, newNode]);
+        setHasUnsavedChanges(true);
+        setActiveEditNodeId(newNodeId);
+        addToast("Protocol deployed at canvas center.", "grey");
+        return;
+      }
+
+      // Tab / Shift+Tab — cycle selection through execution nodes
+      if (e.key === "Tab") {
+        e.preventDefault();
+        const execNodes = nodes.filter((n) => n.type === "executionNode");
+        if (execNodes.length === 0) return;
+        const curIdx = execNodes.findIndex((n) => n.selected);
+        const nextIdx = e.shiftKey
+          ? curIdx <= 0
+            ? execNodes.length - 1
+            : curIdx - 1
+          : curIdx >= execNodes.length - 1
+            ? 0
+            : curIdx + 1;
+        const next = execNodes[nextIdx];
+        setNodes((nds) =>
+          nds.map((n) => ({ ...n, selected: n.id === next.id })),
+        );
+        setActiveEditNodeId(next.id);
+        setCenter(next.position.x + 210, next.position.y + 100, {
+          zoom: 1.2,
+          duration: 600,
+        });
+        return;
+      }
+
+      // Ctrl/Cmd + A — select all nodes
+      if ((e.ctrlKey || e.metaKey) && e.key === "a") {
+        e.preventDefault();
+        setNodes((nds) => nds.map((n) => ({ ...n, selected: true })));
+        return;
+      }
+
+      // Ctrl/Cmd + D — duplicate selected
+      if ((e.ctrlKey || e.metaKey) && e.key === "d") {
+        e.preventDefault();
+        const selNodes = nodes.filter((n) => n.selected);
+        if (selNodes.length === 0) return;
+        const maxAllowed = TIER_LIMITS[subscriptionTier] || TIER_LIMITS.free;
+        if (nodes.length + selNodes.length > maxAllowed) {
+          onLimitReached();
+          return;
+        }
+        const clones = selNodes.map((n) => ({
+          id: `node_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+          type: n.type,
+          position: { x: n.position.x + 100, y: n.position.y + 100 },
+          selected: true,
+          data: {
+            ...n.data,
+            title: `${n.data.title || ""} (Copy)`,
+            isCompleted: false,
+          },
+        }));
+        setNodes((nds) => [
+          ...nds.map((n) => ({ ...n, selected: false })),
+          ...clones,
+        ]);
+        setHasUnsavedChanges(true);
+        addToast(`${clones.length} node(s) duplicated.`, "grey");
+        return;
+      }
+
+      // Arrow keys — pan the canvas by 80px
+      const PAN_AMOUNT = 80;
+      if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key)) {
+        e.preventDefault();
+        const vpEl = document.querySelector(".react-flow__viewport");
+        if (!vpEl) return;
+        const transform = window.getComputedStyle(vpEl).transform;
+        const mat = transform.match(/matrix\(([^)]+)\)/);
+        if (!mat) return;
+        const vals = mat[1].split(",").map(Number);
+        const zoom = vals[0];
+        const dx =
+          e.key === "ArrowLeft"
+            ? PAN_AMOUNT
+            : e.key === "ArrowRight"
+              ? -PAN_AMOUNT
+              : 0;
+        const dy =
+          e.key === "ArrowUp"
+            ? PAN_AMOUNT
+            : e.key === "ArrowDown"
+              ? -PAN_AMOUNT
+              : 0;
+        // ReactFlow handles translation via the instance setViewport
+        // We dispatch a synthetic pan via fitView offset hack
+        // The cleanest approach: dispatch custom pan event
+        window.dispatchEvent(
+          new CustomEvent("CANVAS_PAN", { detail: { dx, dy, zoom } }),
+        );
+        return;
+      }
+    };
+
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [
+    nodes,
+    edges,
+    setNodes,
+    setEdges,
+    setHasUnsavedChanges,
+    addToast,
+    setActiveEditNodeId,
+    subscriptionTier,
+    onLimitReached,
+    setCenter,
+  ]);
+
+  // Listen for CANVAS_PAN events and apply them via ReactFlow setViewport
+  const { setViewport, getViewport } = useReactFlow();
+  useEffect(() => {
+    const handler = (e) => {
+      const vp = getViewport();
+      setViewport(
+        {
+          x: vp.x + e.detail.dx,
+          y: vp.y + e.detail.dy,
+          zoom: vp.zoom,
+        },
+        { duration: 120 },
+      );
+    };
+    window.addEventListener("CANVAS_PAN", handler);
+    return () => window.removeEventListener("CANVAS_PAN", handler);
+  }, [getViewport, setViewport]);
+
   const handleSearch = useCallback(
     (e) => {
       const q = e.target.value;
@@ -1991,20 +2208,30 @@ const FlowCanvas = ({
     (e, clickedNode) => {
       e.preventDefault();
       e.stopPropagation();
+
+      // Active Node Math: Calculate 1st-degree matrix connections
+      const connectedIds = new Set([clickedNode.id]);
+      edges.forEach((edge) => {
+        if (edge.source === clickedNode.id) connectedIds.add(edge.target);
+        if (edge.target === clickedNode.id) connectedIds.add(edge.source);
+      });
+
       setNodes((nds) =>
         nds.map((n) => ({
           ...n,
-          data: { ...n.data, isDimmed: n.id !== clickedNode.id },
+          data: { ...n.data, isDimmed: !connectedIds.has(n.id) },
         })),
       );
+
       if (
         clickedNode.type === "executionNode" ||
         clickedNode.type === "journalNode" ||
         clickedNode.type === "milestoneNode"
-      )
+      ) {
         setActiveEditNodeId(clickedNode.id);
+      }
     },
-    [setNodes, setActiveEditNodeId],
+    [edges, setNodes, setActiveEditNodeId],
   );
 
   const handlePaneClick = useCallback(() => {
@@ -2012,6 +2239,7 @@ const FlowCanvas = ({
     setNodeMenu(null);
     setEdgeMenu(null);
     setActiveEditNodeId(null);
+    // Restore full matrix visibility on background click
     setNodes((nds) =>
       nds.map((n) => ({ ...n, data: { ...n.data, isDimmed: false } })),
     );
@@ -2019,29 +2247,45 @@ const FlowCanvas = ({
 
   const handleDownload = async (format) => {
     setIsDownloadOpen(false);
-    addToast("Compiling telemetry export...", "grey");
+    addToast(`Compiling ${format.toUpperCase()} telemetry...`, "grey");
     fitView({ duration: 800, padding: 0.2 });
     await new Promise((r) => setTimeout(r, 1000));
     const el = document.querySelector(".react-flow");
     if (!el) return;
+
     try {
       const controls = el.querySelectorAll(
         ".react-flow__controls, .react-flow__minimap",
       );
       controls.forEach((c) => (c.style.display = "none"));
+
+      // Force extreme resolution for crisp text rendering
       const dataUrl = await toPng(el, {
         backgroundColor: "#030303",
         quality: 1,
-        pixelRatio: 2.5,
+        pixelRatio: 4, // Upgraded from 2.5
       });
       controls.forEach((c) => (c.style.display = ""));
-      const link = document.createElement("a");
-      link.download = `Discotive-NeuralMap-${new Date().toISOString().split("T")[0]}.png`;
-      link.href = dataUrl;
-      link.click();
-      addToast("PNG secured.", "green");
+
+      if (format === "png") {
+        const link = document.createElement("a");
+        link.download = `Discotive-Matrix-${new Date().toISOString().split("T")[0]}.png`;
+        link.href = dataUrl;
+        link.click();
+      } else if (format === "pdf") {
+        const pdf = new jsPDF({
+          orientation: "landscape",
+          unit: "px",
+          format: [el.clientWidth, el.clientHeight],
+        });
+        pdf.addImage(dataUrl, "PNG", 0, 0, el.clientWidth, el.clientHeight);
+        pdf.save(
+          `Discotive-Matrix-${new Date().toISOString().split("T")[0]}.pdf`,
+        );
+      }
+      addToast(`${format.toUpperCase()} secured.`, "green");
     } catch (_) {
-      addToast("Export failed.", "red");
+      addToast("Telemetry export failed.", "red");
     }
   };
 
@@ -2052,8 +2296,8 @@ const FlowCanvas = ({
       className={cn(
         "relative transition-all duration-500 overflow-hidden",
         isMapFullscreen
-          ? "fixed inset-0 z-[60] bg-[#030303]"
-          : "w-full h-[600px] md:h-[880px] border-y border-[#1a1a1a]",
+          ? "fixed inset-0 z-[9999] bg-[#030303]" // Escapes the DOM hierarchy
+          : "w-full h-full border-y border-[#1a1a1a]",
       )}
     >
       {/* ── HUD: SEARCH + FILTER BAR (CENTER TOP) ── */}
@@ -2181,18 +2425,31 @@ const FlowCanvas = ({
                 exit={{ opacity: 0, y: 8, scale: 0.95 }}
                 className="absolute top-full right-0 mt-2 w-44 bg-[#080808] border border-[#1e1e1e] rounded-xl shadow-2xl overflow-hidden"
               >
+                {/* Inside the AnimatePresence for isDownloadOpen */}
                 <button
                   onClick={() => handleDownload("png")}
-                  className="flex items-center gap-3 px-4 py-3.5 text-xs font-bold text-white hover:bg-[#111] w-full"
+                  className="flex items-center gap-3 px-4 py-3.5 text-xs font-bold text-white hover:bg-[#111] w-full border-b border-[#1a1a1a]"
                 >
                   <ImageIcon className="w-4 h-4 text-[#666]" /> Export PNG
+                  (High-Res)
+                </button>
+                <button
+                  onClick={() => handleDownload("pdf")}
+                  className="flex items-center gap-3 px-4 py-3.5 text-xs font-bold text-white hover:bg-[#111] w-full"
+                >
+                  <FileText className="w-4 h-4 text-[#666]" /> Export PDF
+                  Document
                 </button>
               </motion.div>
             )}
           </AnimatePresence>
         </div>
         <button
-          onClick={() => setIsMapFullscreen((v) => !v)}
+          onClick={() => {
+            setIsMapFullscreen((v) => !v);
+            // Force ReactFlow engine to recalculate bounds after DOM expansion
+            setTimeout(() => fitView({ duration: 800, padding: 0.3 }), 50);
+          }}
           className="w-10 h-10 md:w-11 md:h-11 bg-[#080808]/95 backdrop-blur-xl border border-[#1a1a1a] rounded-full text-[#666] hover:text-white hover:bg-[#111] transition-all shadow-2xl flex items-center justify-center"
         >
           {isMapFullscreen ? (
@@ -2610,7 +2867,7 @@ const NodeCommandCenter = ({
               />
             </div>
             <div>
-              <label className="block text-[9px] font-bold text-[#444] uppercase tracking-widest mb-2 flex items-center gap-1.5">
+              <label className="text-[9px] font-bold text-[#444] uppercase tracking-widest mb-2 flex items-center gap-1.5">
                 <Type className="w-3 h-3" /> Sub-Classification
               </label>
               <input
@@ -2627,7 +2884,7 @@ const NodeCommandCenter = ({
               />
             </div>
             <div>
-              <label className="block text-[9px] font-bold text-[#444] uppercase tracking-widest mb-2 flex items-center gap-1.5">
+              <label className="text-[9px] font-bold text-[#444] uppercase tracking-widest mb-2 flex items-center gap-1.5">
                 <AlignLeft className="w-3 h-3" /> Execution Parameters
               </label>
               <textarea
@@ -2643,7 +2900,7 @@ const NodeCommandCenter = ({
               />
             </div>
             <div>
-              <label className="block text-[9px] font-bold text-[#444] uppercase tracking-widest mb-2 flex items-center gap-1.5">
+              <label className="text-[9px] font-bold text-[#444] uppercase tracking-widest mb-2 flex items-center gap-1.5">
                 <CalendarIcon className="w-3 h-3" /> Hard Deadline
               </label>
               <input
@@ -2657,7 +2914,7 @@ const NodeCommandCenter = ({
             </div>
             {/* Priority Status */}
             <div>
-              <label className="block text-[9px] font-bold text-[#444] uppercase tracking-widest mb-2 flex items-center gap-1.5">
+              <label className="text-[9px] font-bold text-[#444] uppercase tracking-widest mb-2 flex items-center gap-1.5">
                 <Zap className="w-3 h-3" /> Priority Status
               </label>
               <div className="grid grid-cols-3 gap-2">
@@ -2965,6 +3222,7 @@ const NodeCommandCenter = ({
  *  – Rate-limiting enforced via client-side write debounce and tier node caps
  */
 const Roadmap = () => {
+  const [isBooting, setIsBooting] = useState(true);
   const { userData } = useUserData();
   const navigate = useNavigate();
 
@@ -2989,6 +3247,22 @@ const Roadmap = () => {
   const [systemLedger, setSystemLedger] = useState([]);
   const [toasts, setToasts] = useState([]);
   const [pendingScoreDelta, setPendingScoreDelta] = useState(0);
+
+  const [isJournalOpen, setIsJournalOpen] = useState(false);
+
+  /**
+   * @state hasInitializedBefore
+   * @description Persisted flag that separates "truly first-time user"
+   * from "user who deleted all nodes." The Initialize Protocol splash
+   * must ONLY show for the former.
+   */
+  const [hasInitializedBefore, setHasInitializedBefore] = useState(() => {
+    try {
+      return localStorage.getItem("discotive_initialized_v5") === "true";
+    } catch (_) {
+      return false;
+    }
+  });
 
   const [vaultModal, setVaultModal] = useState({
     isOpen: false,
@@ -3028,8 +3302,15 @@ const Roadmap = () => {
   /** @description Tracks whether initial data has been loaded from Firestore/IDB. */
   const hasLoadedRef = useRef(false);
 
-  const isFirstTime =
-    nodes.length === 0 || (nodes.length === 1 && nodes[0].id === "init_1");
+  /**
+   * @description
+   * `isFirstTime` is TRUE only when the user has never generated a map
+   * before (localStorage flag absent) AND there are no nodes loaded.
+   * `showInitProtocol` gates the full-bleed splash overlay.
+   * An empty canvas after node deletion should NOT re-trigger the splash.
+   */
+  const isFirstTime = !hasInitializedBefore && nodes.length === 0 && !isBooting;
+  const showInitProtocol = isFirstTime && aiPhase === "idle";
   const lastGenDate = userData?.telemetry?.lastRoadmapGen;
   const daysSinceLastGen = lastGenDate
     ? (Date.now() - new Date(lastGenDate)) / 86400000
@@ -3079,25 +3360,69 @@ const Roadmap = () => {
   // ── Keyboard shortcuts ──
   useEffect(() => {
     const handler = (e) => {
+      const tag = document.activeElement?.tagName;
+      const isTyping =
+        tag === "INPUT" ||
+        tag === "TEXTAREA" ||
+        tag === "SELECT" ||
+        document.activeElement?.contentEditable === "true";
+
+      // Ctrl/Cmd + S — save
       if ((e.metaKey || e.ctrlKey) && e.key === "s") {
         e.preventDefault();
         handleCloudSave();
+        return;
       }
+
+      // Escape — exit fullscreen first, then deselect
       if (e.key === "Escape") {
+        if (isMapFullscreen) {
+          setIsMapFullscreen(false);
+          return;
+        }
         setActiveEditNodeId(null);
         setNodes((nds) =>
           nds.map((n) => ({ ...n, data: { ...n.data, isDimmed: false } })),
         );
+        return;
+      }
+
+      // F — toggle fullscreen (when not typing)
+      if (
+        (e.key === "f" || e.key === "F") &&
+        !isTyping &&
+        !e.ctrlKey &&
+        !e.metaKey
+      ) {
+        e.preventDefault();
+        setIsMapFullscreen((v) => !v);
+        return;
+      }
+
+      // J — toggle journal (when not typing)
+      if (
+        (e.key === "j" || e.key === "J") &&
+        !isTyping &&
+        !e.ctrlKey &&
+        !e.metaKey
+      ) {
+        e.preventDefault();
+        if (subscriptionTier !== "free") setIsJournalOpen((v) => !v);
+        else {
+          setProModalReason("journal");
+          setIsProModalOpen(true);
+        }
+        return;
       }
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [hasUnsavedChanges]); // eslint-disable-line
+  }, [hasUnsavedChanges, isMapFullscreen, subscriptionTier]); // eslint-disable-line
 
   // ── Cold-load: Firestore primary, IDB fallback ──
   useEffect(() => {
     const fetchData = async () => {
-      const uid = userData?.uid || userData?.id;
+      const uid = auth?.currentUser?.uid || userData?.uid || userData?.id;
       if (!uid || hasLoadedRef.current) return;
       hasLoadedRef.current = true;
 
@@ -3111,37 +3436,41 @@ const Roadmap = () => {
           const rm = mapSnap.data();
           setNodes(rm.nodes || []);
           setEdges(rm.edges || []);
-          // Sync authoritative Firestore data to IDB cache
           idbPut(uid, { nodes: rm.nodes || [], edges: rm.edges || [] });
+          // Mark as initialized so the splash never reappears
+          if (rm.nodes?.length > 0) {
+            setHasInitializedBefore(true);
+            try {
+              localStorage.setItem("discotive_initialized_v5", "true");
+            } catch (_) {}
+          }
         } else {
-          // Firestore miss — attempt IDB recovery
           const cached = await idbGet(uid);
           if (cached?.nodes?.length > 0) {
             setNodes(cached.nodes);
             setEdges(cached.edges || []);
-            addToast("Restored from local cache.", "grey");
+            setHasInitializedBefore(true);
+            try {
+              localStorage.setItem("discotive_initialized_v5", "true");
+            } catch (_) {}
           }
         }
 
         if (subSnap.exists()) {
           setSubscriptionTier((subSnap.data().tier || "free").toLowerCase());
+        } else if (userData?.subscription?.tier) {
+          // Fallback to local user context if Firestore sub doc is missing
+          setSubscriptionTier(userData.subscription.tier.toLowerCase());
         }
       } catch (err) {
         console.error("[Roadmap] Cold-load failed:", err);
-        // IDB-only fallback on network error
-        const uid_fallback = userData?.id;
-        if (uid_fallback) {
-          const cached = await idbGet(uid_fallback);
-          if (cached?.nodes?.length > 0) {
-            setNodes(cached.nodes);
-            setEdges(cached.edges || []);
-            addToast("Offline mode: local cache active.", "grey");
-          }
-        }
+      } finally {
+        // CRITICAL: Unlock the UI only after network resolution
+        setIsBooting(false);
       }
     };
     fetchData();
-  }, [userData?.id]); // eslint-disable-line
+  }, [userData?.id]);
 
   /**
    * @function handleCloudSave
@@ -3150,59 +3479,76 @@ const Roadmap = () => {
    * Flushes pending score delta on success. Writes IDB mirror regardless.
    */
   const handleCloudSave = useCallback(async () => {
-    const uid = userData?.id;
-    if (!uid) return;
+    // RUTHLESS AUTH CHECK: Bypass the React hook and go straight to the Firebase singleton
+    const uid = auth?.currentUser?.uid || userData?.uid || userData?.id;
+
+    if (!uid) {
+      console.error(
+        "Auth Failure Matrix. UserData:",
+        userData,
+        "Auth Object:",
+        auth?.currentUser,
+      );
+      addToast("Authentication missing. Cannot sync.", "red");
+      return;
+    }
+
     if (!hasUnsavedChanges && pendingScoreDelta === 0) return;
     setIsSaving(true);
-    try {
-      const batch = writeBatch(db);
-      const cleanNodes = nodes.map(({ id, type, position, data }) => ({
-        id,
-        type,
-        position,
-        data,
-      }));
-      const cleanEdges = edges.map(
-        ({ id, source, target, sourceHandle, targetHandle, type, data }) => ({
-          id,
-          source,
-          target,
-          sourceHandle,
-          targetHandle,
-          type,
-          data,
-        }),
-      );
-      batch.set(
-        doc(db, "users", uid, "execution_map", "current"),
-        { nodes, edges, lastUpdated: new Date().toISOString() },
-        { merge: true },
-      );
-      await batch.commit();
 
-      // Parallel IDB sync (fire-and-forget)
-      idbPut(uid, { nodes, edges });
+    try {
+      // 1. STRICT SERIALIZATION
+      // Extract only the mathematical and string primitives. Drop all React proxy data.
+      const cleanNodes = nodes.map((n) => ({
+        id: n.id,
+        type: n.type,
+        position: { x: n.position.x, y: n.position.y },
+        data: n.data || {},
+      }));
+
+      const cleanEdges = edges.map((e) => ({
+        id: e.id,
+        source: e.source,
+        target: e.target,
+        sourceHandle: e.sourceHandle || null,
+        targetHandle: e.targetHandle || null,
+        type: e.type || "neuralEdge",
+        data: e.data || {},
+      }));
+
+      // 2. DIRECT OVERWRITE
+      const mapRef = doc(db, "users", uid, "execution_map", "current");
+      await setDoc(
+        mapRef,
+        {
+          nodes: cleanNodes,
+          edges: cleanEdges,
+          lastUpdated: new Date().toISOString(),
+        },
+        { merge: false },
+      );
+
+      // 3. CACHE & SCORE SYNC
+      idbPut(uid, { nodes: cleanNodes, edges: cleanEdges });
 
       if (pendingScoreDelta !== 0) {
-        mutateScore(uid, pendingScoreDelta, "Execution Matrix Updated");
+        try {
+          await mutateScore(uid, pendingScoreDelta, "Execution Matrix Updated");
+        } catch (scoreErr) {
+          console.warn("Score mutation failed, but matrix saved.", scoreErr);
+        }
         setPendingScoreDelta(0);
       }
+
       setHasUnsavedChanges(false);
-      addToast("Matrix synced.", "green");
+      addToast("Matrix securely persisted.", "green");
     } catch (err) {
-      console.error("[Roadmap] Save failed:", err);
-      addToast("Sync failed. Local state preserved.", "red");
+      console.error("[Roadmap] Cloud sync failed:", err);
+      addToast("Sync failed. Local integrity preserved.", "red");
     } finally {
       setIsSaving(false);
     }
-  }, [
-    userData?.id,
-    hasUnsavedChanges,
-    pendingScoreDelta,
-    nodes,
-    edges,
-    addToast,
-  ]); // eslint-disable-line
+  }, [userData, hasUnsavedChanges, pendingScoreDelta, nodes, edges, addToast]);
 
   /**
    * @description
@@ -3211,14 +3557,18 @@ const Roadmap = () => {
    * This pattern keeps free-tier Firestore writes well within daily budget.
    */
   useEffect(() => {
-    if (!hasUnsavedChanges || !userData?.id) return;
-    idbPut(userData.id, { nodes, edges }); // immediate local persist
+    const uid = auth?.currentUser?.uid || userData?.uid || userData?.id;
+    if (!hasUnsavedChanges || !uid) return;
+
+    idbPut(uid, { nodes, edges });
+
     clearTimeout(saveTimerRef.current);
     saveTimerRef.current = setTimeout(() => {
       handleCloudSave();
     }, SAVE_DEBOUNCE_MS);
+
     return () => clearTimeout(saveTimerRef.current);
-  }, [nodes, edges, hasUnsavedChanges]); // eslint-disable-line
+  }, [nodes, edges, hasUnsavedChanges, userData, handleCloudSave]);
 
   // ── AI Calibration Flow ──
   const handleStartCalibration = async () => {
@@ -3571,27 +3921,56 @@ const Roadmap = () => {
     addToast("Asset locked to protocol.", "green");
   };
 
-  const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
+  const [isMobile, setIsMobile] = useState(
+    typeof window !== "undefined" && window.innerWidth < 768,
+  );
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
 
   // ──────────────────────────────────────────────────────────────────────────
   return (
-    <div className="bg-[#030303] min-h-screen w-full max-w-full overflow-x-hidden text-white pb-24 relative">
+    <div className="bg-[#030303] h-[100dvh] w-full max-w-full overflow-hidden text-white relative flex flex-col">
+      {/* ── FULLSCREEN ESCAPE HATCH ──
+          Rendered as a portal directly on document.body so it floats above
+          the ReactFlow fixed container (z-[9999]) at z-[99999].
+          Always visible. Always clickable. No exceptions.
+      ── */}
+      {isMapFullscreen &&
+        createPortal(
+          <div className="fixed top-4 right-4 z-[99999] flex items-center gap-2">
+            <div className="px-3 py-1.5 bg-[#080808]/90 backdrop-blur-xl border border-amber-500/20 rounded-full text-[8px] font-black text-[#555] uppercase tracking-widest hidden md:flex items-center gap-1.5">
+              <kbd className="text-amber-500">ESC</kbd>
+              <span>or</span>
+              <kbd className="text-amber-500">F</kbd>
+              <span>to exit</span>
+            </div>
+            <button
+              onClick={() => setIsMapFullscreen(false)}
+              className="w-11 h-11 bg-[#080808]/95 backdrop-blur-xl border border-amber-500/30 rounded-full text-amber-400 hover:bg-amber-500/15 hover:border-amber-400 transition-all shadow-[0_0_30px_rgba(202,138,4,0.25)] flex items-center justify-center"
+              title="Exit Fullscreen (Esc / F)"
+            >
+              <Minimize className="w-5 h-5" />
+            </button>
+          </div>,
+          document.body,
+        )}
       {/* ── PAGE HEADER ── */}
-      <div className="max-w-[1700px] mx-auto px-4 md:px-12 pt-10 md:pt-14 pb-6 md:pb-8 flex flex-col md:flex-row justify-between items-start md:items-end gap-6 relative z-20">
-        <div>
-          <div className="flex items-center gap-3 mb-3">
-            <div className="w-2 h-8 bg-amber-500 rounded-full" />
-            <span className="text-[9px] font-black text-[#444] uppercase tracking-[0.35em]">
-              Discotive OS · v5
-            </span>
+      <div className="max-w-[1700px] mx-auto px-4 md:px-10 pt-4 md:pt-5 pb-3 md:pb-3 flex flex-row justify-between items-center gap-4 relative z-20 shrink-0">
+        <div className="flex items-center gap-4">
+          <div className="w-1.5 h-8 bg-amber-500 rounded-full hidden md:block" />
+          <div className="mb-6">
+            <div className="flex items-center gap-2.5 mb-0.5">
+              <span className="text-[8px] font-black text-[#444] uppercase tracking-[0.35em]">
+                Discotive OS · v5
+              </span>
+            </div>
+            <h1 className="text-[36px] font-extrabold tracking-tight text-white leading-none">
+              Execution Map
+            </h1>
           </div>
-          <h1 className="text-5xl md:text-7xl font-extrabold tracking-[-0.04em] text-white mb-3 leading-none">
-            Execution Map.
-          </h1>
-          <p className="text-sm md:text-base text-[#666] font-medium tracking-tight max-w-md">
-            The mathematical topology of your monopoly. Every node, a protocol.
-            Every edge, a dependency.
-          </p>
         </div>
         <div className="flex items-center gap-3">
           {/* Mobile edit mode toggle */}
@@ -3611,9 +3990,9 @@ const Roadmap = () => {
       </div>
 
       {/* ── FLOW CANVAS ZONE ── */}
-      <div className="relative">
-        {/* First-time splash overlay */}
-        {isFirstTime && aiPhase === "idle" && (
+      <div className="relative flex-1 min-h-0">
+        {/* First-time splash overlay — fires ONLY on account creation, never on empty canvas */}
+        {showInitProtocol && (
           <div className="absolute inset-0 z-[80] bg-black/70 backdrop-blur-xl flex flex-col items-center justify-center p-6 text-center">
             <motion.div
               initial={{ opacity: 0, scale: 0.9, y: 20 }}
@@ -3863,6 +4242,219 @@ const Roadmap = () => {
           )}
         </AnimatePresence>
       </div>
+
+      {/* ── BOTTOM COMMAND BAR: TOPOLOGY STATS + EXECUTION JOURNAL ── */}
+      <div className="shrink-0 border-t border-[#1a1a1a] bg-[#030303] px-4 md:px-10 py-2 flex items-center justify-between z-20">
+        {/* LEFT: TOPOLOGY STATS */}
+        <div className="flex items-center gap-1.5 flex-wrap">
+          {(() => {
+            const total = nodes.filter(
+              (n) => n.type === "executionNode",
+            ).length;
+            const completed = nodes.filter(
+              (n) => n.type === "executionNode" && n.data.isCompleted,
+            ).length;
+            const overdue = nodes.filter(
+              (n) =>
+                n.type === "executionNode" &&
+                !n.data.isCompleted &&
+                n.data.deadline &&
+                new Date(n.data.deadline) < new Date(),
+            ).length;
+            const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
+            const stats = [
+              {
+                label: "Nodes",
+                value: total,
+                color: "#ca8a04",
+                icon: <Layers className="w-3 h-3" />,
+              },
+              {
+                label: "Complete",
+                value: `${pct}%`,
+                color: "#10b981",
+                icon: <CheckCircle2 className="w-3 h-3" />,
+              },
+              {
+                label: "Overdue",
+                value: overdue,
+                color: overdue > 0 ? "#ef4444" : "#444",
+                icon: <AlertTriangle className="w-3 h-3" />,
+              },
+              {
+                label: "Edges",
+                value: edges.length,
+                color: "#38bdf8",
+                icon: <GitBranch className="w-3 h-3" />,
+              },
+            ];
+            return stats.map((s) => (
+              <div
+                key={s.label}
+                className="flex items-center gap-1.5 px-2.5 py-1 bg-[#0a0a0c] border border-[#1a1a1a] rounded-lg"
+              >
+                <span style={{ color: s.color }}>{s.icon}</span>
+                <span
+                  className="text-[10px] font-black"
+                  style={{ color: s.color }}
+                >
+                  {s.value}
+                </span>
+                <span className="text-[8px] font-bold text-[#444] uppercase tracking-widest hidden lg:inline">
+                  {s.label}
+                </span>
+              </div>
+            ));
+          })()}
+        </div>
+
+        {/* RIGHT: EXECUTION JOURNAL + KEYBOARD HINT */}
+        <div className="flex items-center gap-2">
+          <span className="text-[8px] font-bold text-[#333] uppercase tracking-widest hidden lg:inline">
+            Press <kbd className="text-[#555] font-mono">+</kbd> to add ·{" "}
+            <kbd className="text-[#555] font-mono">Del</kbd> to remove ·{" "}
+            <kbd className="text-[#555] font-mono">Tab</kbd> to cycle ·{" "}
+            <kbd className="text-[#555] font-mono">F</kbd> fullscreen
+          </span>
+          <button
+            onClick={() => {
+              if (subscriptionTier === "free") {
+                setProModalReason("journal");
+                setIsProModalOpen(true);
+              } else {
+                setIsJournalOpen(true);
+              }
+            }}
+            className={cn(
+              "flex items-center gap-2 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all",
+              subscriptionTier === "free"
+                ? "bg-[#0d0d0d] border-[#1e1e1e] text-[#444] hover:border-[#333] hover:text-[#666]"
+                : "bg-amber-500/8 border-amber-500/20 text-amber-500 hover:bg-amber-500/15 shadow-[0_0_20px_rgba(202,138,4,0.1)]",
+            )}
+            title={
+              subscriptionTier === "free"
+                ? "Pro Feature — Upgrade to access Execution Journal"
+                : "Open Execution Journal (J)"
+            }
+          >
+            <BookOpen className="w-3.5 h-3.5" />
+            <span>Journal</span>
+            {subscriptionTier === "free" && (
+              <Lock className="w-2.5 h-2.5 opacity-50" />
+            )}
+          </button>
+        </div>
+      </div>
+
+      {/* ── EXECUTION JOURNAL MODAL ── */}
+      <AnimatePresence>
+        {isJournalOpen && subscriptionTier !== "free" && (
+          <div className="fixed inset-0 z-[500] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setIsJournalOpen(false)}
+              className="absolute inset-0 bg-black/85 backdrop-blur-lg"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.94, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.94, y: 20 }}
+              className="relative w-full max-w-2xl bg-[#060606] border border-[#1e1e1e] rounded-[2rem] shadow-[0_80px_160px_rgba(0,0,0,0.95)] flex flex-col max-h-[80vh]"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* JOURNAL HEADER */}
+              <div className="flex justify-between items-center p-6 pb-4 border-b border-[#1a1a1a] shrink-0">
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 bg-amber-500/10 border border-amber-500/20 rounded-xl flex items-center justify-center">
+                    <BookOpen className="w-4 h-4 text-amber-500" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-black text-white">
+                      Execution Journal
+                    </h3>
+                    <p className="text-[9px] text-[#444] font-bold uppercase tracking-widest mt-0.5">
+                      Chronological Action Ledger · {systemLedger.length}{" "}
+                      Entries
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setIsJournalOpen(false)}
+                  className="w-9 h-9 bg-[#0d0d0d] border border-[#1e1e1e] rounded-full text-[#555] hover:text-white flex items-center justify-center transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {/* LEDGER ENTRIES */}
+              <div className="flex-1 overflow-y-auto custom-scrollbar p-6 space-y-2">
+                {systemLedger.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center h-48 text-center">
+                    <BookOpen className="w-8 h-8 text-[#222] mb-3" />
+                    <p className="text-sm font-bold text-[#555]">
+                      Journal Empty
+                    </p>
+                    <p className="text-[9px] text-[#333] uppercase tracking-widest mt-1">
+                      Actions will appear here as you operate the map.
+                    </p>
+                  </div>
+                ) : (
+                  systemLedger.map((entry, idx) => (
+                    <motion.div
+                      key={entry.id}
+                      initial={{ opacity: 0, x: -8 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: idx * 0.015 }}
+                      className="flex items-start gap-3 p-3 bg-[#0a0a0c] border border-[#1a1a1a] rounded-xl group hover:border-[#2a2a2a] transition-colors"
+                    >
+                      <div className="w-1.5 h-1.5 bg-amber-500/60 rounded-full mt-1.5 shrink-0" />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-bold text-[#ccc] leading-relaxed">
+                          {entry.action}
+                        </p>
+                        <p className="text-[9px] font-bold text-[#333] mt-0.5 font-mono">
+                          {new Date(entry.time).toLocaleString(undefined, {
+                            month: "short",
+                            day: "numeric",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })}
+                        </p>
+                      </div>
+                    </motion.div>
+                  ))
+                )}
+              </div>
+
+              {/* FOOTER */}
+              <div className="px-6 py-4 border-t border-[#1a1a1a] flex justify-between items-center shrink-0">
+                <p className="text-[9px] font-bold text-[#333] uppercase tracking-widest">
+                  Last 80 Actions · Local-First Storage
+                </p>
+                <button
+                  onClick={() => {
+                    if (
+                      window.confirm(
+                        "Purge execution journal? This is irreversible.",
+                      )
+                    ) {
+                      setSystemLedger([]);
+                      try {
+                        localStorage.removeItem("discotive_ledger_v5");
+                      } catch (_) {}
+                    }
+                  }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-red-500/8 border border-red-500/20 text-red-500 text-[9px] font-black uppercase tracking-widest rounded-lg hover:bg-red-500/15 transition-colors"
+                >
+                  <Trash2 className="w-3 h-3" /> Purge
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* ── TOAST SYSTEM ── */}
       {createPortal(

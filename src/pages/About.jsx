@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import GlobalLoader from "../components/GlobalLoader";
 import { cn } from "../components/ui/BentoCard";
+import emailjs from "@emailjs/browser";
 
 // ============================================================================
 // 1. DATA & CONFIG

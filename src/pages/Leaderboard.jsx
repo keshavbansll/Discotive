@@ -6,7 +6,13 @@
  * Features strict Firebase cursors and container-aware sticky positioning.
  */
 
-import React, { useState, useEffect, useRef } from "react";
+import React, {
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+  useMemo,
+} from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate } from "react-router-dom";
 import {
@@ -61,6 +67,9 @@ import {
   Minus,
   Crosshair,
   Network,
+  Lock,
+  AlertTriangle,
+  ArrowRight,
 } from "lucide-react";
 import { cn } from "../components/ui/BentoCard";
 
@@ -335,29 +344,60 @@ const Leaderboard = () => {
   const [compareTarget, setCompareTarget] = useState(null);
   const [isCompareOpen, setIsCompareOpen] = useState(false);
 
+  // --- ERROR STATE ---
+  const [fetchError, setFetchError] = useState(null);
+
+  /**
+   * @description
+   * Ghost user detection. Leaderboard is the ONE module ghost users
+   * can view in read-only mode. Their "WHERE AM I?" bar is locked
+   * with an onboarding CTA instead of rank data.
+   */
+  const isGhostUser = useMemo(
+    () =>
+      userData?.isGhostUser === true || userData?.onboardingComplete === false,
+    [userData],
+  );
+
   // ============================================================================
   // 4. FIREBASE TELEMETRY ENGINE
   // ============================================================================
 
-  const applyFilterConstraints = (constraintsArray) => {
-    if (filters.domain)
-      constraintsArray.push(where("identity.domain", "==", filters.domain));
-    if (filters.niche)
-      constraintsArray.push(where("identity.niche", "==", filters.niche));
-    if (filters.level)
-      constraintsArray.push(where("identity.level", "==", filters.level));
-    if (filters.country)
-      constraintsArray.push(where("identity.country", "==", filters.country));
-    if (filters.state)
-      constraintsArray.push(where("identity.state", "==", filters.state));
-    return constraintsArray;
-  };
+  const applyFilterConstraints = useCallback(
+    (constraintsArray) => {
+      /**
+       * @description
+       * Only include fully-onboarded users in the leaderboard.
+       * Ghost users (onboardingComplete: false) should not appear
+       * in rankings — they have score: 0 and no identity data.
+       */
+      constraintsArray.push(where("onboardingComplete", "==", true));
+      if (filters.domain)
+        constraintsArray.push(where("identity.domain", "==", filters.domain));
+      if (filters.niche)
+        constraintsArray.push(where("identity.niche", "==", filters.niche));
+      if (filters.level)
+        constraintsArray.push(where("identity.level", "==", filters.level));
+      if (filters.country)
+        constraintsArray.push(where("identity.country", "==", filters.country));
+      if (filters.state)
+        constraintsArray.push(where("identity.state", "==", filters.state));
+      return constraintsArray;
+    },
+    [
+      filters.domain,
+      filters.niche,
+      filters.level,
+      filters.country,
+      filters.state,
+    ],
+  );
 
-  const fetchTelemetryAndTarget = async () => {
-    if (!userData?.discotiveScore?.current) return;
+  const fetchTelemetryAndTarget = useCallback(async () => {
+    // Ghost users don't participate — no rank to calculate
+    if (isGhostUser || !userData?.discotiveScore?.current) return;
     try {
-      let baseConstraints = [];
-      baseConstraints = applyFilterConstraints(baseConstraints);
+      const baseConstraints = applyFilterConstraints([]);
 
       const rankQuery = query(
         collection(db, "users"),
@@ -384,119 +424,135 @@ const Leaderboard = () => {
         setNextTarget(null);
       }
     } catch (err) {
-      console.error("Telemetry Engine Failed. Missing Index?", err);
+      console.error("[Leaderboard] Telemetry engine failed:", err);
     }
-  };
+  }, [isGhostUser, userData, applyFilterConstraints]);
 
-  const executeFetch = async (direction = "initial") => {
-    if (direction === "initial") setIsLoading(true);
-    else setIsPaginating(true);
+  const executeFetch = useCallback(
+    async (direction = "initial") => {
+      setFetchError(null);
+      if (direction === "initial") setIsLoading(true);
+      else setIsPaginating(true);
 
-    try {
-      let q;
+      try {
+        let q;
 
-      // --- BRANCH A: THE SEARCH ENGINE ---
-      if (filters.search) {
-        const searchTerm = filters.search; // Case sensitive prefix search
-        q = query(
-          collection(db, "users"),
-          where("identity.username", ">=", searchTerm),
-          where("identity.username", "<=", searchTerm + "\uf8ff"),
-          limit(20),
-        );
-      }
-      // --- BRANCH B: THE FILTERED MATRIX ---
-      else {
-        let constraints = [];
-        constraints = applyFilterConstraints(constraints);
-        constraints.push(orderBy("discotiveScore.current", filters.sortBy));
-
-        if (direction === "next" && lastVisibleDoc) {
-          constraints.push(startAfter(lastVisibleDoc), limit(filters.pageSize));
-        } else if (direction === "prev" && firstVisibleDoc) {
-          constraints.push(
-            endBefore(firstVisibleDoc),
-            limitToLast(filters.pageSize),
-          );
-        } else {
-          constraints.push(limit(filters.pageSize));
-        }
-        q = query(collection(db, "users"), ...constraints);
-      }
-
-      const snapshot = await getDocs(q);
-
-      if (!snapshot.empty) {
-        const docs = snapshot.docs;
-        setFirstVisibleDoc(docs[0]);
-        setLastVisibleDoc(docs[docs.length - 1]);
-
-        let fetchedPlayers = docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-
-        // If we used the Search Branch, we must sort them locally by score
-        // since Firebase only allows one inequality filter per query.
+        // --- BRANCH A: THE SEARCH ENGINE ---
         if (filters.search) {
-          fetchedPlayers.sort(
-            (a, b) =>
-              (b.discotiveScore?.current || 0) -
-              (a.discotiveScore?.current || 0),
+          const searchTerm = filters.search; // Case sensitive prefix search
+          q = query(
+            collection(db, "users"),
+            where("identity.username", ">=", searchTerm),
+            where("identity.username", "<=", searchTerm + "\uf8ff"),
+            limit(20),
           );
         }
-
-        setPlayers(fetchedPlayers);
-
-        // Pagination State
-        if (direction === "initial") {
-          setCurrentPage(1);
-          setHasMorePrev(false);
-          setHasMoreNext(
-            docs.length === (filters.search ? 20 : filters.pageSize),
-          );
-        } else if (direction === "next") {
-          setCurrentPage((c) => c + 1);
-          setHasMorePrev(true);
-          setHasMoreNext(docs.length === filters.pageSize);
-        } else if (direction === "prev") {
-          setCurrentPage((c) => c - 1);
-          setHasMoreNext(true);
-          setHasMorePrev(currentPage - 1 > 1);
-        }
-      } else {
-        if (direction === "initial") setPlayers([]);
-        setHasMoreNext(false);
-      }
-    } catch (err) {
-      // 🔴 CRITICAL CTO LOG: This will print the exact link you need to click to fix the filters.
-      console.error(
-        "FIREBASE INDEX REQUIRED. Open this link in your browser to fix the filter:",
-        err.message,
-      );
-      alert(
-        "Database index building required for this filter. Please check browser console.",
-      );
-    } finally {
-      setIsLoading(false);
-      setIsPaginating(false);
-    }
-  };
-
-  useEffect(() => {
-    if (!userLoading) {
-      executeFetch("initial");
-      fetchTelemetryAndTarget();
-
-      const fetchCount = async () => {
-        try {
+        // --- BRANCH B: THE FILTERED MATRIX ---
+        else {
           let constraints = [];
           constraints = applyFilterConstraints(constraints);
-          const countSnap = await getCountFromServer(
-            query(collection(db, "users"), ...constraints),
-          );
-          setTotalFilteredUsers(countSnap.data().count);
-        } catch (e) {}
-      };
-      fetchCount();
-    }
+          constraints.push(orderBy("discotiveScore.current", filters.sortBy));
+
+          if (direction === "next" && lastVisibleDoc) {
+            constraints.push(
+              startAfter(lastVisibleDoc),
+              limit(filters.pageSize),
+            );
+          } else if (direction === "prev" && firstVisibleDoc) {
+            constraints.push(
+              endBefore(firstVisibleDoc),
+              limitToLast(filters.pageSize),
+            );
+          } else {
+            constraints.push(limit(filters.pageSize));
+          }
+          q = query(collection(db, "users"), ...constraints);
+        }
+
+        const snapshot = await getDocs(q);
+
+        if (!snapshot.empty) {
+          const docs = snapshot.docs;
+          setFirstVisibleDoc(docs[0]);
+          setLastVisibleDoc(docs[docs.length - 1]);
+
+          let fetchedPlayers = docs.map((doc) => ({
+            id: doc.id,
+            ...doc.data(),
+          }));
+
+          // If we used the Search Branch, we must sort them locally by score
+          // since Firebase only allows one inequality filter per query.
+          if (filters.search) {
+            fetchedPlayers.sort(
+              (a, b) =>
+                (b.discotiveScore?.current || 0) -
+                (a.discotiveScore?.current || 0),
+            );
+          }
+
+          setPlayers(fetchedPlayers);
+
+          // Pagination State
+          if (direction === "initial") {
+            setCurrentPage(1);
+            setHasMorePrev(false);
+            setHasMoreNext(
+              docs.length === (filters.search ? 20 : filters.pageSize),
+            );
+          } else if (direction === "next") {
+            setCurrentPage((c) => c + 1);
+            setHasMorePrev(true);
+            setHasMoreNext(docs.length === filters.pageSize);
+          } else if (direction === "prev") {
+            setCurrentPage((c) => c - 1);
+            setHasMoreNext(true);
+            setHasMorePrev(currentPage - 1 > 1);
+          }
+        } else {
+          if (direction === "initial") setPlayers([]);
+          setHasMoreNext(false);
+        }
+      } catch (err) {
+        console.error("[Leaderboard] Firebase query failed:", err.message);
+        /**
+         * @description
+         * Replace alert() with inline error state. If this fires, a Firestore
+         * composite index is missing. The console will print the exact URL to
+         * create it. Do NOT use alert() in production — it blocks the thread.
+         */
+        setFetchError(
+          "Matrix index building in progress. Try a broader filter or check console for the index creation link.",
+        );
+      } finally {
+        setIsLoading(false);
+        setIsPaginating(false);
+      }
+    },
+    [
+      filters,
+      applyFilterConstraints,
+      lastVisibleDoc,
+      firstVisibleDoc,
+      currentPage,
+    ],
+  ); // eslint-disable-line
+
+  useEffect(() => {
+    if (userLoading) return;
+    executeFetch("initial");
+    fetchTelemetryAndTarget();
+
+    const fetchCount = async () => {
+      try {
+        const constraints = applyFilterConstraints([]);
+        const countSnap = await getCountFromServer(
+          query(collection(db, "users"), ...constraints),
+        );
+        setTotalFilteredUsers(countSnap.data().count);
+      } catch (_) {}
+    };
+    fetchCount();
   }, [
     filters.domain,
     filters.niche,
@@ -506,14 +562,14 @@ const Leaderboard = () => {
     filters.sortBy,
     filters.pageSize,
     userLoading,
-  ]);
+    // executeFetch and others are stable via useCallback
+  ]); // eslint-disable-line
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      if (!userLoading) executeFetch("initial");
-    }, 500);
+    if (userLoading) return;
+    const timer = setTimeout(() => executeFetch("initial"), 500);
     return () => clearTimeout(timer);
-  }, [filters.search]);
+  }, [filters.search]); // eslint-disable-line
 
   // ============================================================================
   // 5. EVENT HANDLERS
@@ -524,19 +580,28 @@ const Leaderboard = () => {
     setSelectedUserProfile(user);
   };
 
-  const triggerCompare = (e, targetUser) => {
-    e.stopPropagation();
-    if (!userData) return navigate("/auth");
-    if (targetUser.id === userData?.uid) return;
+  const triggerCompare = useCallback(
+    (e, targetUser) => {
+      e.stopPropagation();
+      if (!userData) return navigate("/auth");
+      if (targetUser.id === userData?.uid) return;
 
-    if (userData.tier !== "PRO" && userData.tier !== "ENTERPRISE") {
-      setIsUpsellOpen(true);
-      return;
-    }
+      // Ghost users cannot use the compare engine
+      if (isGhostUser) {
+        setIsUpsellOpen(true);
+        return;
+      }
 
-    setCompareTarget(targetUser);
-    setIsCompareOpen(true);
-  };
+      if (userData.tier !== "PRO" && userData.tier !== "ENTERPRISE") {
+        setIsUpsellOpen(true);
+        return;
+      }
+
+      setCompareTarget(targetUser);
+      setIsCompareOpen(true);
+    },
+    [userData, isGhostUser, navigate],
+  );
 
   const toggleFilters = () => {
     setSelectedUserProfile(null);
@@ -559,6 +624,26 @@ const Leaderboard = () => {
   // ============================================================================
   // 6. RENDER PIPELINE
   // ============================================================================
+
+  /**
+   * @function resolvePlayerName
+   * @description
+   * Auth.jsx stores names as `identity.firstName` + `identity.lastName`.
+   * Older docs or social-auth ghost docs may have `identity.fullName`.
+   * This resolver handles all cases without crashing.
+   */
+  const resolvePlayerName = useCallback((player, firstOnly = false) => {
+    const identity = player?.identity || {};
+    if (identity.firstName) {
+      const full = `${identity.firstName} ${identity.lastName || ""}`.trim();
+      return firstOnly ? identity.firstName : full;
+    }
+    if (identity.fullName) {
+      return firstOnly ? identity.fullName.split(" ")[0] : identity.fullName;
+    }
+    if (identity.username) return `@${identity.username}`;
+    return "Operator";
+  }, []);
 
   if (userLoading || (isLoading && players.length === 0 && !filters.search)) {
     return (
@@ -639,6 +724,43 @@ const Leaderboard = () => {
         </div>
       </header>
 
+      {/* Ghost user read-only banner */}
+      {isGhostUser && (
+        <div className="shrink-0 px-6 py-3 bg-amber-500/8 border-b border-amber-500/20 flex flex-col md:flex-row items-start md:items-center gap-3">
+          <div className="flex items-center gap-2.5 flex-1">
+            <Lock className="w-4 h-4 text-amber-500 shrink-0" />
+            <p className="text-xs font-bold text-amber-400">
+              Preview Mode —{" "}
+              <span className="text-[#888] font-medium">
+                You can browse the arena, but your name bar is locked until you
+                complete onboarding. Complete your profile to participate and
+                appear in the rankings.
+              </span>
+            </p>
+          </div>
+          <button
+            onClick={() => navigate("/")}
+            className="shrink-0 flex items-center gap-1.5 px-4 py-2 bg-amber-500 text-black font-extrabold text-[10px] uppercase tracking-widest rounded-xl hover:bg-amber-400 transition-all"
+          >
+            Complete Onboarding <ArrowRight className="w-3 h-3" />
+          </button>
+        </div>
+      )}
+
+      {/* Fetch error banner */}
+      {fetchError && (
+        <div className="shrink-0 px-6 py-2.5 bg-red-500/8 border-b border-red-500/20 flex items-center gap-2.5">
+          <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
+          <p className="text-xs font-bold text-red-400">{fetchError}</p>
+          <button
+            onClick={() => setFetchError(null)}
+            className="ml-auto text-red-400 hover:text-white"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
       {/* ==================== MAIN WORKSPACE ==================== */}
       <div className="flex flex-1 relative overflow-hidden">
         {/* CENTER MATRIX (Adjusts width when sidebar opens) */}
@@ -662,10 +784,7 @@ const Leaderboard = () => {
                       </div>
                       <div className="w-full bg-gradient-to-t from-[#1a1c23] to-[#12141a] border border-slate-700/30 rounded-t-xl h-24 md:h-44 flex flex-col items-center pt-3 md:pt-6 relative z-0 shadow-lg">
                         <h3 className="font-extrabold text-white text-[10px] md:text-sm truncate w-full text-center px-1 md:px-2">
-                          {top3[1].identity?.fullName?.split(" ")[0] ||
-                            top3[1].fullName?.split(" ")[0] ||
-                            top3[1].identity?.username ||
-                            "Operator"}
+                          {resolvePlayerName(top3[1], true)}
                         </h3>
                         <p className="text-[8px] text-white/50 truncate w-full text-center px-1 md:px-2 mt-0.5">
                           @
@@ -701,10 +820,7 @@ const Leaderboard = () => {
                       </div>
                       <div className="w-full bg-gradient-to-t from-[#221705] to-[#1a1205] border border-amber-900/50 rounded-t-xl h-32 md:h-60 flex flex-col items-center pt-4 md:pt-8 shadow-[0_-20px_50px_rgba(245,158,11,0.15)] relative z-0">
                         <h3 className="font-extrabold text-white text-[10px] md:text-base truncate w-full text-center px-1 md:px-2">
-                          {top3[0].identity?.fullName?.split(" ")[0] ||
-                            top3[0].fullName?.split(" ")[0] ||
-                            top3[0].identity?.username ||
-                            "Operator"}
+                          {resolvePlayerName(top3[0], true)}
                         </h3>
                         <p className="text-[9px] text-white/50 truncate w-full text-center px-1 md:px-2 mt-0.5">
                           @
@@ -738,10 +854,7 @@ const Leaderboard = () => {
                       </div>
                       <div className="w-full bg-gradient-to-t from-[#1a0f05] to-[#120a02] border border-orange-900/30 rounded-t-xl h-20 md:h-36 flex flex-col items-center pt-2 md:pt-5 relative z-0 shadow-lg">
                         <h3 className="font-extrabold text-[#ccc] text-[9px] md:text-sm truncate w-full text-center px-1 md:px-2">
-                          {top3[2].identity?.fullName?.split(" ")[0] ||
-                            top3[2].fullName?.split(" ")[0] ||
-                            top3[2].identity?.username ||
-                            "Operator"}
+                          {resolvePlayerName(top3[2], true)}
                         </h3>
                         <p className="text-[8px] text-white/50 truncate w-full text-center px-1 md:px-2 mt-0.5">
                           @
@@ -826,11 +939,15 @@ const Leaderboard = () => {
                           const userLevel =
                             player.level || player.identity?.level || "L1";
 
-                          const initial = player.identity?.fullName
-                            ? player.identity.fullName.charAt(0).toUpperCase()
-                            : player.identity?.username
-                              ? player.identity.username.charAt(0).toUpperCase()
-                              : "?";
+                          const displayName = resolvePlayerName(player);
+                          const initial = (
+                            player.identity?.firstName ||
+                            player.identity?.fullName ||
+                            player.identity?.username ||
+                            "?"
+                          )
+                            .charAt(0)
+                            .toUpperCase();
                           const auraClass = getLevelAura(userLevel);
 
                           return (
@@ -890,9 +1007,7 @@ const Leaderboard = () => {
                                           : "text-white/90 group-hover:text-white",
                                       )}
                                     >
-                                      {player.identity?.fullName ||
-                                        player.fullName ||
-                                        "Operator"}
+                                      {displayName}
                                     </span>
                                     {player.tier === "PRO" && (
                                       <img
@@ -1040,61 +1155,109 @@ const Leaderboard = () => {
                 WHERE AM I? (Nested Sticky Container for Flawless Alignment)
             ============================================================================ */}
             <div className="sticky bottom-4 z-40 pointer-events-none mt-8">
-              <div className="bg-[#111113]/95 backdrop-blur-2xl border border-white/10 rounded-2xl p-4 shadow-[0_20px_60px_rgba(0,0,0,0.8)] pointer-events-auto flex flex-col md:flex-row items-center justify-between gap-4">
-                <div className="flex items-center gap-4 w-full md:w-auto">
-                  <div className="w-12 h-12 bg-white/5 border border-white/10 rounded-xl flex items-center justify-center shrink-0">
-                    <span className="text-lg font-semibold text-white/90 font-mono">
-                      #{myExactRank || "?"}
-                    </span>
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[10px] font-semibold text-white/40 uppercase tracking-widest mb-0.5 flex items-center gap-1">
-                      <User className="w-3 h-3" /> Current Identity
-                    </p>
-                    <p className="text-sm font-medium text-white truncate">
-                      {userData?.identity?.fullName ||
-                        `@${userData?.identity?.username}`}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-6 w-full md:w-auto justify-between md:justify-end border-t border-white/5 md:border-none pt-4 md:pt-0">
-                  {/* THE PSYCHOLOGY ENGINE: NEXT TARGET */}
-                  <div className="text-left md:text-right flex items-center gap-3">
-                    <div className="hidden lg:flex items-center justify-center w-8 h-8 rounded-full bg-red-500/10 border border-red-500/30 text-red-500">
-                      <Target className="w-4 h-4 animate-pulse" />
+              {isGhostUser ? (
+                /**
+                 * @description
+                 * Ghost user "WHERE AM I?" locked state.
+                 * Shows a CTA to complete onboarding instead of rank data.
+                 * The bar still appears so ghost users know it exists and what
+                 * they're missing — classic psychology trigger.
+                 */
+                <div className="bg-[#111113]/95 backdrop-blur-2xl border border-amber-500/20 rounded-2xl p-4 shadow-[0_20px_60px_rgba(0,0,0,0.8)] pointer-events-auto flex flex-col md:flex-row items-center justify-between gap-4">
+                  <div className="flex items-center gap-4">
+                    <div className="w-12 h-12 bg-amber-500/10 border border-amber-500/20 rounded-xl flex items-center justify-center shrink-0">
+                      <Lock className="w-5 h-5 text-amber-500/60" />
                     </div>
                     <div>
-                      <p className="text-[10px] font-semibold text-red-400 uppercase tracking-widest mb-0.5">
-                        Next Target
+                      <p className="text-[10px] font-black text-amber-500 uppercase tracking-widest mb-0.5 flex items-center gap-1">
+                        <Lock className="w-3 h-3" /> Arena Locked
                       </p>
-                      <p className="text-xs font-medium text-white/70 truncate max-w-[150px]">
-                        {nextTarget
-                          ? `@${nextTarget.identity?.username} (${nextTarget.discotiveScore?.current - (userData?.discotiveScore?.current || 0)} pts)`
-                          : "Rank #1 Secured"}
+                      <p className="text-sm font-medium text-[#666]">
+                        Complete onboarding to enter the global rankings
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => navigate("/")}
+                    className="shrink-0 flex items-center gap-2 px-5 py-2.5 bg-amber-500 text-black font-extrabold text-[10px] uppercase tracking-widest rounded-xl hover:bg-amber-400 transition-all shadow-[0_0_20px_rgba(245,158,11,0.2)]"
+                  >
+                    Complete Onboarding <ArrowRight className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ) : (
+                <div className="bg-[#111113]/95 backdrop-blur-2xl border border-white/10 rounded-2xl p-4 shadow-[0_20px_60px_rgba(0,0,0,0.8)] pointer-events-auto flex flex-col md:flex-row items-center justify-between gap-4">
+                  <div className="flex items-center gap-4 w-full md:w-auto">
+                    <div className="w-12 h-12 bg-white/5 border border-white/10 rounded-xl flex items-center justify-center shrink-0">
+                      <span className="text-lg font-semibold text-white/90 font-mono">
+                        #{myExactRank ?? "?"}
+                      </span>
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[10px] font-semibold text-white/40 uppercase tracking-widest mb-0.5 flex items-center gap-1">
+                        <User className="w-3 h-3" /> Current Identity
+                      </p>
+                      <p className="text-sm font-medium text-white truncate">
+                        {userData ? resolvePlayerName(userData) : "—"}
                       </p>
                     </div>
                   </div>
 
-                  <div className="h-8 w-px bg-white/10 hidden md:block" />
+                  <div className="flex items-center gap-6 w-full md:w-auto justify-between md:justify-end border-t border-white/5 md:border-none pt-4 md:pt-0">
+                    {/* THE PSYCHOLOGY ENGINE: NEXT TARGET */}
+                    <div className="text-left md:text-right flex items-center gap-3">
+                      <div className="hidden lg:flex items-center justify-center w-8 h-8 rounded-full bg-red-500/10 border border-red-500/30 text-red-500">
+                        <Target className="w-4 h-4 animate-pulse" />
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-semibold text-red-400 uppercase tracking-widest mb-0.5">
+                          Next Target
+                        </p>
+                        <p className="text-xs font-medium text-white/70 truncate max-w-[150px]">
+                          {nextTarget
+                            ? `@${nextTarget.identity?.username} (+${(nextTarget.discotiveScore?.current || 0) - (userData?.discotiveScore?.current || 0)} pts away)`
+                            : "Rank #1 Secured"}
+                        </p>
+                      </div>
+                    </div>
 
-                  <div className="text-right">
-                    <p className="text-[10px] font-semibold text-white/40 uppercase tracking-widest mb-0.5">
-                      Your Score
-                    </p>
-                    <div className="flex items-center gap-2">
-                      <p className="text-lg font-semibold text-white font-mono leading-none">
-                        {userData?.discotiveScore?.current || 0}
+                    <div className="h-8 w-px bg-white/10 hidden md:block" />
+
+                    <div className="text-right">
+                      <p className="text-[10px] font-semibold text-white/40 uppercase tracking-widest mb-0.5">
+                        Your Score
                       </p>
-                      <span className="text-[10px] text-green-400 font-bold bg-green-500/10 px-1.5 py-0.5 rounded flex items-center">
-                        <TrendingUp className="w-3 h-3 mr-0.5" /> +
-                        {(userData?.discotiveScore?.current || 0) -
-                          (userData?.discotiveScore?.last24h || 0)}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <p className="text-lg font-semibold text-white font-mono leading-none">
+                          {userData?.discotiveScore?.current ?? 0}
+                        </p>
+                        {(() => {
+                          const gain =
+                            (userData?.discotiveScore?.current || 0) -
+                            (userData?.discotiveScore?.last24h || 0);
+                          return gain !== 0 ? (
+                            <span
+                              className={cn(
+                                "text-[10px] font-bold px-1.5 py-0.5 rounded flex items-center",
+                                gain > 0
+                                  ? "text-green-400 bg-green-500/10"
+                                  : "text-red-400 bg-red-500/10",
+                              )}
+                            >
+                              {gain > 0 ? (
+                                <TrendingUp className="w-3 h-3 mr-0.5" />
+                              ) : (
+                                <TrendingDown className="w-3 h-3 mr-0.5" />
+                              )}
+                              {gain > 0 ? "+" : ""}
+                              {gain}
+                            </span>
+                          ) : null;
+                        })()}
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
+              )}
             </div>
           </div>
         </main>
@@ -1308,6 +1471,36 @@ const Leaderboard = () => {
                   </div>
                 </div>
 
+                {/* Verified asset count — only public/verified assets shown */}
+                {(() => {
+                  const verifiedAssets = (
+                    selectedUserProfile.vault || []
+                  ).filter(
+                    (v) => v.status === "VERIFIED" && v.isPublic !== false,
+                  );
+                  if (verifiedAssets.length > 0) {
+                    return (
+                      <div className="flex items-center gap-1.5 justify-center mb-4 flex-wrap">
+                        {verifiedAssets.slice(0, 3).map((asset, i) => (
+                          <span
+                            key={i}
+                            className="px-2 py-0.5 bg-green-500/10 border border-green-500/20 text-green-400 text-[8px] font-black uppercase tracking-widest rounded-full flex items-center gap-1"
+                          >
+                            <ShieldCheck className="w-2.5 h-2.5" />
+                            {asset.category || "Verified"}
+                          </span>
+                        ))}
+                        {verifiedAssets.length > 3 && (
+                          <span className="text-[8px] text-white/30 font-bold">
+                            +{verifiedAssets.length - 3} more
+                          </span>
+                        )}
+                      </div>
+                    );
+                  }
+                  return null;
+                })()}
+
                 {/* Score & Vault Mini-Stats */}
                 <div className="grid grid-cols-2 gap-3 mb-6">
                   <div className="p-3 rounded-xl bg-white/[0.02] border border-white/5 flex flex-col items-center justify-center text-center">
@@ -1484,8 +1677,9 @@ const Leaderboard = () => {
                 Protocol Locked
               </h3>
               <p className="text-xs text-[#888] font-medium leading-relaxed mb-8">
-                The Competitor X-Ray engine is classified telemetry. Upgrade to
-                Discotive Pro to unlock deep-dive operator analytics.
+                {isGhostUser
+                  ? "Complete your operator onboarding to unlock the Competitor X-Ray engine and participate in the Arena rankings."
+                  : "The Competitor X-Ray engine is classified telemetry. Upgrade to Discotive Pro to unlock deep-dive operator analytics."}
               </p>
               <div className="flex gap-3">
                 <button
@@ -1495,10 +1689,12 @@ const Leaderboard = () => {
                   Cancel
                 </button>
                 <button
-                  onClick={() => navigate("/premium")}
+                  onClick={() =>
+                    isGhostUser ? navigate("/") : navigate("/premium")
+                  }
                   className="flex-1 py-3 bg-amber-500 text-black rounded-xl text-xs font-extrabold uppercase tracking-widest shadow-[0_0_20px_rgba(245,158,11,0.3)] hover:bg-amber-400"
                 >
-                  Upgrade
+                  {isGhostUser ? "Complete Onboarding" : "Upgrade"}
                 </button>
               </div>
             </motion.div>

@@ -39,6 +39,10 @@ import {
   Shield,
   Languages,
   Moon,
+  Lock,
+  AlertTriangle,
+  Check,
+  ArrowRight,
 } from "lucide-react";
 import { cn } from "../components/ui/BentoCard";
 import { processDailyConsistency } from "../lib/scoreEngine";
@@ -66,6 +70,27 @@ const contentNavItems = [
 const bottomNavItems = [
   { icon: LineChart, label: "Financial Ledger", path: "/app/finance" },
   { icon: Settings, label: "Settings", path: "/app/settings" },
+];
+
+/**
+ * @constant GHOST_LOCKED_ROUTES
+ * @description Routes that require completed onboarding to access.
+ * Ghost users (isGhostUser: true OR onboardingComplete: false) will see
+ * a locked overlay with a CTA to complete onboarding instead of the page.
+ * Leaderboard is the ONLY module ghost users can preview (read-only).
+ */
+const GHOST_LOCKED_ROUTES = [
+  "/app/roadmap",
+  "/app/vault",
+  "/app/network",
+  "/app/finance",
+  "/app/opportunities",
+  "/app/hubs",
+  "/app/learn",
+  "/app/podcasts",
+  "/app/assessments",
+  "/app/settings",
+  "/app/profile",
 ];
 
 // --- MAIN LAYOUT COMPONENT ---
@@ -109,6 +134,29 @@ const MainLayout = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const { userData, loading } = useUserData();
+
+  /**
+   * @description
+   * `isGhostUser`: true when a user authenticated via OAuth but hasn't
+   * completed the 8-step onboarding. The ghost doc has `onboardingComplete: false`
+   * and `isGhostUser: true`. We check both for resilience.
+   *
+   * `isRouteLocked`: true when a ghost user tries to access a protected route.
+   * The Outlet renders a full-bleed locked overlay instead of the page.
+   */
+  const isGhostUser =
+    userData?.isGhostUser === true || userData?.onboardingComplete === false;
+
+  const isRouteLocked =
+    isGhostUser &&
+    GHOST_LOCKED_ROUTES.some(
+      (route) =>
+        location.pathname === route ||
+        location.pathname.startsWith(route + "/"),
+    );
+
+  // Dashboard is partially visible for ghost users — not locked, but shows banner
+  const isCommandCenter = location.pathname === "/app";
 
   // --- THE GHOST USER BOUNCER ---
   useEffect(() => {
@@ -169,25 +217,62 @@ const MainLayout = () => {
     const Icon = item.icon;
     const isActive = location.pathname === item.path;
 
+    /**
+     * @description
+     * A nav item is "ghost-locked" if the user is a ghost AND the route
+     * appears in GHOST_LOCKED_ROUTES. Leaderboard (/app/leaderboard)
+     * is intentionally NOT in that list so ghost users can preview it.
+     */
+    const isItemLocked =
+      isGhostUser &&
+      GHOST_LOCKED_ROUTES.some(
+        (r) => r === item.path || item.path.startsWith(r + "/"),
+      );
+
     return (
       <Link
         to={item.path}
+        onClick={
+          isItemLocked
+            ? (e) => {
+                e.preventDefault();
+                // Navigate anyway — the outlet overlay will handle it
+                navigate(item.path);
+              }
+            : undefined
+        }
         className={cn(
           "flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 group relative",
           isActive
             ? "bg-white text-black font-bold shadow-[0_0_20px_rgba(255,255,255,0.1)]"
-            : "text-[#888] hover:bg-[#111] hover:text-white font-medium",
+            : isItemLocked
+              ? "text-[#444] hover:bg-[#0d0d0d] font-medium cursor-pointer"
+              : "text-[#888] hover:bg-[#111] hover:text-white font-medium",
         )}
         title={isCollapsed ? item.label : undefined}
       >
         <Icon
           className={cn(
             "w-5 h-5 shrink-0",
-            isActive ? "text-black" : "text-[#888] group-hover:text-white",
+            isActive
+              ? "text-black"
+              : isItemLocked
+                ? "text-[#333]"
+                : "text-[#888] group-hover:text-white",
           )}
         />
         {!isCollapsed && (
-          <span className="truncate text-sm tracking-wide">{item.label}</span>
+          <span className="truncate text-sm tracking-wide flex-1">
+            {item.label}
+          </span>
+        )}
+        {/* Lock badge — only visible in expanded state */}
+        {isItemLocked && !isCollapsed && (
+          <Lock className="w-3 h-3 text-[#333] shrink-0" />
+        )}
+        {/* Collapsed lock tooltip dot */}
+        {isItemLocked && isCollapsed && (
+          <span className="absolute top-1 right-1 w-1.5 h-1.5 bg-[#333] rounded-full" />
         )}
       </Link>
     );
@@ -228,6 +313,40 @@ const MainLayout = () => {
             </AnimatePresence>
           </Link>
         </div>
+
+        {/* Ghost Onboarding Banner — only shown to unboarded users */}
+        {isGhostUser && isSidebarOpen && (
+          <div className="mx-3 mt-3 p-3 bg-amber-500/8 border border-amber-500/20 rounded-xl">
+            <div className="flex items-start gap-2.5">
+              <AlertTriangle className="w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5" />
+              <div>
+                <p className="text-[10px] font-black text-amber-400 uppercase tracking-widest mb-1">
+                  Onboarding Required
+                </p>
+                <p className="text-[9px] text-[#666] leading-relaxed mb-2">
+                  Complete your profile to unlock all Career Engine modules.
+                </p>
+                <button
+                  onClick={() => navigate("/")}
+                  className="flex items-center gap-1 text-[9px] font-black text-amber-500 hover:text-amber-400 uppercase tracking-widest transition-colors"
+                >
+                  Start Onboarding <ArrowRight className="w-2.5 h-2.5" />
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+        {isGhostUser && !isSidebarOpen && (
+          <div className="mx-3 mt-3 flex items-center justify-center">
+            <div
+              title="Complete Onboarding to unlock all modules"
+              className="w-8 h-8 bg-amber-500/10 border border-amber-500/20 rounded-full flex items-center justify-center cursor-pointer"
+              onClick={() => navigate("/")}
+            >
+              <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
+            </div>
+          </div>
+        )}
 
         {/* Navigation Sections */}
         <div className="flex-1 overflow-y-auto custom-scrollbar px-3 py-6 space-y-8">
@@ -407,16 +526,6 @@ const MainLayout = () => {
 
             {/* --- PROFILE DROPDOWN ENGINE --- */}
             <div className="relative" ref={profileMenuRef}>
-              <button
-                onClick={() => {
-                  setShowProfileMenu(!showProfileMenu);
-                  setShowLanguageMenu(false);
-                }}
-                className="w-8 h-8 md:w-10 md:h-10 rounded-full bg-[#111] border border-[#333] flex items-center justify-center text-[10px] md:text-xs font-bold text-[#888] hover:text-white hover:border-white transition-colors shrink-0"
-              >
-                {userData?.identity?.firstName?.charAt(0) || "U"}
-              </button>
-
               <AnimatePresence mode="wait">
                 {/* 1. MAIN PROFILE MENU */}
                 {showProfileMenu && !showLanguageMenu && (
@@ -428,30 +537,65 @@ const MainLayout = () => {
                     transition={{ duration: 0.15 }}
                     className="absolute right-0 top-full mt-3 w-[280px] md:w-[320px] bg-[#0a0a0a] border border-[#222] rounded-2xl shadow-[0_30px_60px_rgba(0,0,0,0.9)] overflow-hidden z-[120] flex flex-col py-2"
                   >
-                    {/* Header: User Info */}
+                    {/* Header: User Info — Ghost-aware */}
                     <div className="px-4 py-3 flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-full bg-[#111] border border-[#333] flex items-center justify-center text-sm font-bold text-[#666] shrink-0">
-                        {userData?.identity?.firstName?.charAt(0) || "U"}
+                      <div
+                        className={cn(
+                          "w-10 h-10 rounded-full border flex items-center justify-center text-sm font-bold shrink-0",
+                          isGhostUser
+                            ? "bg-amber-500/10 border-amber-500/30 text-amber-500"
+                            : "bg-[#111] border-[#333] text-[#666]",
+                        )}
+                      >
+                        {isGhostUser
+                          ? "?"
+                          : userData?.identity?.firstName?.charAt(0) || "U"}
                       </div>
                       <div className="min-w-0">
-                        <p className="font-extrabold text-sm text-white truncate">
-                          {userData?.identity?.firstName}{" "}
-                          {userData?.identity?.lastName}
-                        </p>
-                        <p className="text-[10px] md:text-xs text-[#888] font-mono truncate">
-                          @{userData?.identity?.username}
-                        </p>
+                        {isGhostUser ? (
+                          <>
+                            <p className="font-extrabold text-sm text-amber-400 truncate">
+                              Incomplete Profile
+                            </p>
+                            <p className="text-[10px] text-[#666] font-mono truncate">
+                              Onboarding required
+                            </p>
+                          </>
+                        ) : (
+                          <>
+                            <p className="font-extrabold text-sm text-white truncate">
+                              {userData?.identity?.firstName}{" "}
+                              {userData?.identity?.lastName}
+                            </p>
+                            <p className="text-[10px] md:text-xs text-[#888] font-mono truncate">
+                              @{userData?.identity?.username || "—"}
+                            </p>
+                          </>
+                        )}
                       </div>
                     </div>
 
                     <div className="px-4 pb-2 border-b border-[#222]">
-                      <Link
-                        to="/app/profile"
-                        onClick={() => setShowProfileMenu(false)}
-                        className="text-blue-400 text-xs font-bold hover:text-blue-300 transition-colors"
-                      >
-                        View full profile
-                      </Link>
+                      {isGhostUser ? (
+                        <button
+                          onClick={() => {
+                            setShowProfileMenu(false);
+                            navigate("/");
+                          }}
+                          className="flex items-center gap-1.5 text-amber-400 text-xs font-bold hover:text-amber-300 transition-colors"
+                        >
+                          <ArrowRight className="w-3 h-3" />
+                          Complete Onboarding to unlock profile
+                        </button>
+                      ) : (
+                        <Link
+                          to="/app/profile"
+                          onClick={() => setShowProfileMenu(false)}
+                          className="text-blue-400 text-xs font-bold hover:text-blue-300 transition-colors"
+                        >
+                          View full profile
+                        </Link>
+                      )}
                     </div>
 
                     {/* Section 1: Localization */}
@@ -575,9 +719,108 @@ const MainLayout = () => {
           </div>
         </header>
 
-        {/* --- MAIN PAGE CONTENT OUTLET (Behind dropdowns, above background) --- */}
+        {/* --- MAIN PAGE CONTENT OUTLET --- */}
         <main className="flex-1 overflow-y-auto overflow-x-hidden relative z-0 custom-scrollbar">
-          <Outlet />
+          {isRouteLocked ? (
+            /**
+             * @description
+             * Full-bleed locked overlay. Shown when a ghost user navigates to
+             * any GHOST_LOCKED_ROUTE. The Outlet is NOT rendered — we show
+             * this component instead to prevent the module from partially
+             * mounting and crashing on missing userData fields.
+             */
+            <div className="min-h-full flex flex-col items-center justify-center p-8 text-center bg-[#030303]">
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95, y: 16 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                transition={{ duration: 0.4, ease: "easeOut" }}
+                className="max-w-md w-full"
+              >
+                {/* Lock icon */}
+                <div className="w-20 h-20 mx-auto mb-6 rounded-[2rem] bg-amber-500/8 border border-amber-500/20 flex items-center justify-center relative">
+                  <Lock className="w-9 h-9 text-amber-500/70" />
+                  <div className="absolute -inset-3 rounded-[2.5rem] border border-amber-500/8 animate-ping" />
+                </div>
+
+                {/* Title */}
+                <div className="w-1.5 h-1.5 bg-amber-500 rounded-full mx-auto mb-4 animate-pulse" />
+                <h2 className="text-3xl md:text-4xl font-extrabold text-white tracking-tight mb-3 leading-tight">
+                  Module Locked.
+                </h2>
+                <p className="text-[#555] text-sm leading-relaxed mb-8 max-w-sm mx-auto">
+                  This module requires a complete operator profile. Finish your
+                  8-step onboarding to unlock the full Career Engine — execution
+                  map, asset vault, networking, and more.
+                </p>
+
+                {/* What they unlock */}
+                <div className="mb-8 p-4 bg-[#0a0a0c] border border-[#1a1a1a] rounded-2xl text-left space-y-2.5">
+                  {[
+                    "Execution Map — AI-generated career DAG",
+                    "Asset Vault — credential & proof storage",
+                    "Leaderboard — compete in your domain",
+                    "Networking — alliances & operator discovery",
+                    "Opportunities — curated roles & gigs",
+                  ].map((item) => (
+                    <div key={item} className="flex items-center gap-2.5">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                      <span className="text-[11px] font-bold text-[#888]">
+                        {item}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+
+                {/* CTA */}
+                <button
+                  onClick={() => navigate("/")}
+                  className="w-full py-4 bg-white text-black font-extrabold rounded-2xl hover:bg-[#e5e5e5] transition-all shadow-[0_0_40px_rgba(255,255,255,0.1)] flex items-center justify-center gap-2 text-sm uppercase tracking-widest"
+                >
+                  Complete Onboarding
+                  <ArrowRight className="w-4 h-4" />
+                </button>
+
+                <button
+                  onClick={() => navigate("/app/leaderboard")}
+                  className="mt-3 w-full py-3 bg-transparent border border-[#222] text-[#666] hover:text-white hover:border-[#444] font-bold rounded-2xl transition-all text-xs uppercase tracking-widest"
+                >
+                  Preview Leaderboard (Available to All)
+                </button>
+              </motion.div>
+            </div>
+          ) : (
+            <>
+              {/* Ghost Command Center Banner — shown on dashboard for ghost users */}
+              {isGhostUser && isCommandCenter && (
+                <motion.div
+                  initial={{ opacity: 0, y: -8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="mx-4 md:mx-8 mt-4 md:mt-6 p-4 bg-amber-500/8 border border-amber-500/20 rounded-2xl flex flex-col md:flex-row items-start md:items-center gap-4"
+                >
+                  <div className="flex items-start gap-3 flex-1">
+                    <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-sm font-black text-amber-400 mb-0.5">
+                        Onboarding Incomplete — Career Engine Locked
+                      </p>
+                      <p className="text-xs text-[#666] leading-relaxed">
+                        You're signed in but your operator profile is empty.
+                        Complete the 8-step setup to activate all modules, enter
+                        the leaderboard, and generate your execution map.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => navigate("/")}
+                    className="shrink-0 px-5 py-2.5 bg-amber-500 text-black font-extrabold text-[10px] uppercase tracking-widest rounded-xl hover:bg-amber-400 transition-all shadow-[0_0_20px_rgba(245,158,11,0.25)] flex items-center gap-2"
+                  >
+                    Start Onboarding <ArrowRight className="w-3.5 h-3.5" />
+                  </button>
+                </motion.div>
+              )}
+              <Outlet />
+            </>
+          )}
         </main>
       </div>
 
@@ -588,18 +831,24 @@ const MainLayout = () => {
         {[
           { icon: LayoutDashboard, path: "/app", label: "Dashboard" },
           { icon: Target, path: "/app/roadmap", label: "Roadmap" },
-          { icon: Trophy, path: "/app/leaderboard", label: "Leaderboard" },
+          { icon: Trophy, path: "/app/leaderboard", label: "Arena" },
           { icon: Users, path: "/app/network", label: "Network" },
         ].map((item) => {
           const Icon = item.icon;
           const isActive = location.pathname === item.path;
+          const isMobileItemLocked =
+            isGhostUser && GHOST_LOCKED_ROUTES.some((r) => r === item.path);
           return (
             <Link
               key={item.path}
               to={item.path}
               className={cn(
                 "flex flex-col items-center justify-center w-14 h-full gap-1 transition-colors relative",
-                isActive ? "text-white" : "text-[#666] hover:text-[#aaa]",
+                isActive
+                  ? "text-white"
+                  : isMobileItemLocked
+                    ? "text-[#444]"
+                    : "text-[#666] hover:text-[#aaa]",
               )}
             >
               {isActive && (
@@ -608,7 +857,12 @@ const MainLayout = () => {
                   className="absolute top-0 w-8 h-0.5 bg-white rounded-b-full shadow-[0_2px_10px_rgba(255,255,255,0.5)]"
                 />
               )}
-              <Icon className="w-5 h-5" />
+              <div className="relative">
+                <Icon className="w-5 h-5" />
+                {isMobileItemLocked && (
+                  <Lock className="absolute -top-1 -right-1 w-2.5 h-2.5 text-[#444]" />
+                )}
+              </div>
               <span className="text-[9px] font-bold tracking-wider">
                 {item.label}
               </span>
@@ -656,29 +910,51 @@ const MainLayout = () => {
 
             {/* Scrollable Overlay Content */}
             <div className="flex-1 overflow-y-auto custom-scrollbar px-6 py-8 space-y-8 pb-24">
-              {/* User Snapshot */}
-              <div className="flex items-center gap-4 p-4 bg-[#111] border border-[#222] rounded-2xl">
-                <div className="w-12 h-12 rounded-full bg-[#222] border border-[#444] flex items-center justify-center text-lg font-bold text-[#888]">
-                  {userData?.identity?.firstName?.charAt(0) || "U"}
+              {/* User Snapshot — Ghost-aware */}
+              {isGhostUser ? (
+                <div
+                  className="flex items-center gap-4 p-4 bg-amber-500/8 border border-amber-500/20 rounded-2xl cursor-pointer"
+                  onClick={() => {
+                    setIsMobileMenuOpen(false);
+                    navigate("/");
+                  }}
+                >
+                  <div className="w-12 h-12 rounded-full bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-lg font-bold text-amber-500">
+                    ?
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="font-extrabold text-amber-400">
+                      Profile Incomplete
+                    </p>
+                    <p className="text-[10px] text-[#666] font-mono tracking-widest uppercase truncate">
+                      Tap to complete onboarding
+                    </p>
+                  </div>
+                  <ArrowRight className="w-4 h-4 text-amber-500 shrink-0" />
                 </div>
-                <div>
-                  <p className="font-extrabold text-white">
-                    {userData?.identity?.firstName}{" "}
-                    {userData?.identity?.lastName}
-                  </p>
-                  {/* --- FIX: Safely extract .current for the Math calculation --- */}
-                  <p className="text-[10px] text-[#888] font-mono tracking-widest uppercase">
-                    Lvl{" "}
-                    {Math.min(
-                      Math.floor(
-                        (userData?.discotiveScore?.current ?? 0) / 1000,
-                      ) + 1,
-                      10,
-                    )}{" "}
-                    Operator
-                  </p>
+              ) : (
+                <div className="flex items-center gap-4 p-4 bg-[#111] border border-[#222] rounded-2xl">
+                  <div className="w-12 h-12 rounded-full bg-[#222] border border-[#444] flex items-center justify-center text-lg font-bold text-[#888]">
+                    {userData?.identity?.firstName?.charAt(0) || "U"}
+                  </div>
+                  <div>
+                    <p className="font-extrabold text-white">
+                      {userData?.identity?.firstName}{" "}
+                      {userData?.identity?.lastName}
+                    </p>
+                    <p className="text-[10px] text-[#888] font-mono tracking-widest uppercase">
+                      Lvl{" "}
+                      {Math.min(
+                        Math.floor(
+                          (userData?.discotiveScore?.current ?? 0) / 1000,
+                        ) + 1,
+                        10,
+                      )}{" "}
+                      Operator
+                    </p>
+                  </div>
                 </div>
-              </div>
+              )}
 
               {/* Sections */}
               <div>
