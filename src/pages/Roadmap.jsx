@@ -162,7 +162,7 @@ import { mutateScore } from "../lib/scoreEngine";
  * @description Milliseconds before a dirty-state batch write fires to Firestore.
  * Calibrated to stay well within free-tier write budget (50k/day).
  */
-const SAVE_DEBOUNCE_MS = 10000;
+const SAVE_DEBOUNCE_MS = 20000;
 
 /** @constant IDB_DB_NAME — IndexedDB database identifier for the local-first layer. */
 const IDB_DB_NAME = "discotive_neural_v5";
@@ -874,8 +874,12 @@ const ExecutionNode = ({ data, selected, id, style: nodeStyle }) => {
           boxShadow: `0 0 8px ${accent.glow}`,
         }}
         keepAspectRatio={false}
-        onResize={() => {
-          // Trigger re-render on resize so content reflows
+        onResize={(e, params) => {
+          window.dispatchEvent(
+            new CustomEvent("NODE_RESIZED", {
+              detail: { id, width: params.width, height: params.height },
+            }),
+          );
         }}
       />
       <Handle
@@ -2203,6 +2207,30 @@ const FlowCanvas = ({
   );
 
   useEffect(() => {
+    const handler = (e) => {
+      const { id, width, height } = e.detail;
+
+      setNodes((nds) =>
+        nds.map((n) =>
+          n.id === id
+            ? {
+                ...n,
+                style: {
+                  ...n.style,
+                  width,
+                  height,
+                },
+              }
+            : n,
+        ),
+      );
+    };
+
+    window.addEventListener("NODE_RESIZED", handler);
+    return () => window.removeEventListener("NODE_RESIZED", handler);
+  }, []);
+
+  useEffect(() => {
     const outside = (e) => {
       if (downloadRef.current && !downloadRef.current.contains(e.target))
         setIsDownloadOpen(false);
@@ -3014,13 +3042,12 @@ const FlowCanvas = ({
         </button>
       </div>
 
-      {/* ── TOPOLOGY STATS (BOTTOM LEFT) ── */}
-      <div className="absolute bottom-4 left-4 z-[70] hidden md:flex">
-        <TopologyStats nodes={nodes} edges={edges} />
-      </div>
-
       {/* ── REACT FLOW CANVAS ── */}
       <ReactFlow
+        nodesDraggable
+        nodesConnectable
+        elementsSelectable
+        fitView
         nodes={nodes}
         edges={edges}
         nodeTypes={nodeTypes}
@@ -3142,7 +3169,7 @@ const FlowCanvas = ({
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.93, y: -4 }}
             style={{ top: paneMenu.top, left: paneMenu.left }}
-            className="fixed z-[100] bg-[#080808] border border-[#1e1e1e] rounded-2xl shadow-[0_40px_80px_rgba(0,0,0,0.9)] overflow-hidden min-w-[270px]"
+            className="fixed z-[100] bg-[#080808] border border-[#1e1e1e] rounded-2xl shadow-[0_40px_80px_rgba(0,0,0,0.9)] overflow-y-auto custom-scrollbar min-w-[270px] max-h-[calc(100vh-100px)]"
           >
             <div className="px-5 py-3 bg-[#050505] border-b border-[#1a1a1a] text-[9px] font-black text-[#444] uppercase tracking-widest flex items-center gap-2">
               <Plus className="w-3 h-3" /> Deploy Element
@@ -3278,7 +3305,7 @@ const FlowCanvas = ({
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.93, y: -4 }}
             style={{ top: nodeMenu.top, left: nodeMenu.left }}
-            className="fixed z-[100] bg-[#080808] border border-[#1e1e1e] rounded-xl shadow-[0_40px_80px_rgba(0,0,0,0.9)] overflow-hidden min-w-[220px]"
+            className="fixed z-[100] bg-[#080808] border border-[#1e1e1e] rounded-xl shadow-[0_40px_80px_rgba(0,0,0,0.9)] overflow-y-auto custom-scrollbar min-w-[220px] max-h-[calc(100vh-100px)]"
           >
             <div className="px-4 py-2.5 bg-[#050505] border-b border-[#1a1a1a] text-[9px] font-black text-[#444] uppercase tracking-widest truncate">
               {nodeMenu.node?.data?.title || "Node Actions"}
@@ -4610,10 +4637,10 @@ const Roadmap = () => {
           document.body,
         )}
       {/* ── PAGE HEADER ── */}
-      <div className="max-w-[1700px] mx-auto px-4 md:px-10 pt-4 md:pt-5 pb-3 md:pb-3 flex flex-row justify-between items-center gap-4 relative z-20 shrink-0">
-        <div className="flex items-center gap-4">
+      <div className="w-full px-6 md:px-10 pt-6 pb-3 flex flex-row justify-between items-center gap-4 relative z-20 shrink-0">
+        <div className="flex items-center gap-4 ">
           <div className="w-1.5 h-8 bg-amber-500 rounded-full hidden md:block" />
-          <div className="mb-6">
+          <div className="mb-6 ">
             <div className="flex items-center gap-2.5 mb-0.5">
               <span className="text-[8px] font-black text-[#444] uppercase tracking-[0.35em]">
                 Discotive OS · v5

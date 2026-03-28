@@ -625,7 +625,7 @@ const CustomSearchSelect = React.memo(
 
     return (
       <div ref={wrapperRef} className="relative w-full">
-        <div className="flex items-center w-full bg-[#121212] border border-white/10 rounded-xl px-4 py-3 focus-within:border-white/40 transition-all">
+        <div className="flex items-center w-full bg-[#121212] border border-white/10 rounded-xl px-4 py-3 focus-within:border-white/40 transition-[box-shadow,transform,background,opacity,filter]">
           <input
             type="text"
             value={query || ""}
@@ -716,7 +716,7 @@ const CustomMultiSelect = React.memo(
     return (
       <div ref={wrapperRef} className="relative w-full">
         <div
-          className="min-h-[50px] w-full bg-[#121212] border border-white/10 rounded-xl px-3 py-2 focus-within:border-white/40 transition-all flex flex-wrap gap-2 items-center cursor-text"
+          className="min-h-[50px] w-full bg-[#121212] border border-white/10 rounded-xl px-3 py-2 focus-within:border-white/40 transition-[box-shadow,transform,background,opacity,filter] flex flex-wrap gap-2 items-center cursor-text"
           onClick={() => setIsOpen(true)}
         >
           {selected.map((item) => (
@@ -789,7 +789,7 @@ const OAuthButton = React.memo(
       type="button"
       onClick={() => onClick(provider)}
       disabled={disabled}
-      className="w-full flex items-center justify-center gap-3 py-3.5 bg-[#121212] border border-white/10 text-white font-bold rounded-xl hover:bg-[#222] hover:border-white/20 transition-all shadow-sm disabled:opacity-50"
+      className="w-full flex items-center justify-center gap-3 py-3.5 bg-[#121212] border border-white/10 text-white font-bold rounded-xl hover:bg-[#222] hover:border-white/20 transition-[box-shadow,transform,background,opacity,filter] shadow-sm disabled:opacity-50"
       aria-label={`Continue with ${label}`}
     >
       {disabled ? (
@@ -1637,7 +1637,7 @@ const Auth = () => {
     return <AuthLoader taskComplete={systemStatus.authTaskComplete} />;
 
   const inputClass =
-    "w-full bg-[#121212] border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-white/40 transition-all placeholder-[#555]";
+    "w-full bg-[#121212] border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-white/40 transition-[box-shadow,transform,background,opacity,filter] placeholder-[#555]";
   const labelClass =
     "block text-[10px] font-bold text-[#888] uppercase tracking-[0.2em] mb-2 px-1";
 
@@ -1698,35 +1698,31 @@ const Auth = () => {
   const handleAccessRequest = async (e) => {
     e.preventDefault();
 
-    // BULLETPROOF DOM EXTRACTION:
-    // Safely grabs values directly from the form inputs, bypassing React state names.
-    const form = e.target;
-    const emailInput =
-      form.querySelector('input[type="email"]') ||
-      form.querySelector('[name="email"]');
-    const nameInput =
-      form.querySelector('input[type="text"]') ||
-      form.querySelector('[name="name"]');
-
-    const userEmail = emailInput ? emailInput.value : "Unknown Email";
-    const userName = nameInput ? nameInput.value : "Unknown User";
+    // Grab the data directly from your state machine. No DOM scraping required.
+    const userName =
+      `${profileData.firstName || ""} ${profileData.lastName || ""}`.trim() ||
+      "Unknown Operator";
+    const userEmail = profileData.email || "Unknown Email";
+    const userContact = profileData.contact || "No Contact Provided";
+    const userMessage =
+      profileData.requestMessage || "No transmission attached.";
 
     try {
-      // 1. Fire the payload to EmailJS
+      // 1. Fire the payload to EmailJS (KEYS MUST MATCH THE HTML TEMPLATE EXACTLY)
       await emailjs.send(
-        "discotive", // <-- Replace with your actual Service ID
-        "requestaccess", // <-- Replace with your actual Template ID
+        "discotive", // Your Service ID
+        "requestaccess", // Your Template ID
         {
-          to_name: "Admin",
-          from_name: userName,
-          from_email: userEmail,
-          message: `URGENT: ${userName} (${userEmail}) has requested access to the locked Discotive protocol.`,
+          name: userName, // Maps to {{name}}
+          email: userEmail, // Maps to {{email}}
+          contact: userContact, // Maps to {{contact}}
+          message: userMessage, // Maps to {{message}}
         },
-        "tNizhqFNon4v2m6OC", // <-- Replace with your actual Public Key
+        "tNizhqFNon4v2m6OC", // Your Public Key
       );
 
-      // 2. ONLY change the UI state AFTER the email successfully sends
-      setStep("requested"); // Using setStep as per your original form code
+      // 2. Advance the UI state
+      setStep("requested");
       addToast("Access request transmitted securely.", "green");
     } catch (error) {
       console.error("EmailJS Transmission Failed:", error);
@@ -1951,7 +1947,7 @@ const Auth = () => {
                         success: "",
                       }));
                     }}
-                    className="text-white hover:underline transition-all font-bold focus:outline-none"
+                    className="text-white hover:underline transition-[box-shadow,transform,background,opacity,filter] font-bold focus:outline-none"
                   >
                     Create your universe
                   </button>
@@ -2124,7 +2120,7 @@ const Auth = () => {
                         success: "",
                       }));
                     }}
-                    className="text-white hover:underline transition-all font-bold focus:outline-none"
+                    className="text-white hover:underline transition-[box-shadow,transform,background,opacity,filter] font-bold focus:outline-none"
                   >
                     Log in here
                   </button>
