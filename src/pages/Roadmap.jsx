@@ -1195,72 +1195,123 @@ const RadarWidgetNode = ({ data, selected }) => (
 // ============================================================================
 
 /** @component AssetWidgetNode — Vault asset linkage proxy node. */
-const AssetWidgetNode = ({ id, data, selected }) => (
-  <div
-    className="w-[270px] bg-[#0a0a0c]/95 backdrop-blur-2xl border rounded-[1.5rem] p-5 relative transition-all duration-300"
-    style={{
-      borderColor: selected ? "#10b981" : "#1e1e1e",
-      boxShadow: selected
-        ? "0 0 40px rgba(16,185,129,0.25), 0 20px 40px rgba(0,0,0,0.6)"
-        : "0 20px 40px rgba(0,0,0,0.4)",
-      transform: selected ? "scale(1.04)" : "scale(1)",
-    }}
-  >
-    <Handle
-      type="target"
-      position={Position.Top}
-      id="top"
-      className="w-4 h-4 bg-[#111] border-2 border-emerald-500 relative before:absolute before:-inset-6 before:content-['']"
-    />
-    <Handle
-      type="source"
-      position={Position.Bottom}
-      id="bottom"
-      className="w-4 h-4 bg-[#111] border-2 border-emerald-500 relative before:absolute before:-inset-6 before:content-['']"
-    />
+const AssetWidgetNode = ({ id, data, selected }) => {
+  const handleAccess = (e) => {
+    e.stopPropagation();
+    if (data.url) {
+      window.open(data.url, "_blank", "noopener,noreferrer");
+    } else {
+      window.dispatchEvent(
+        new CustomEvent("OPEN_VAULT_MODAL", { detail: { nodeId: id } }),
+      );
+    }
+  };
 
-    <div className="flex items-start gap-3.5">
-      <div className="w-11 h-11 bg-emerald-500/10 border border-emerald-500/20 rounded-xl flex items-center justify-center shrink-0">
-        <Database className="w-5 h-5 text-emerald-400" />
-      </div>
-      <div className="min-w-0">
-        <h4 className="text-sm font-black text-white mb-0.5 leading-tight truncate">
-          {data.label || "Awaiting Sync"}
-        </h4>
-        <p className="text-[9px] font-bold text-[#555] uppercase tracking-widest truncate">
-          {data.type || "Vault Integration"}
-        </p>
-        {data.assetId && (
+  const handleNew = (e) => {
+    e.stopPropagation();
+    window.dispatchEvent(
+      new CustomEvent("OPEN_VAULT_MODAL", {
+        detail: { nodeId: id, mode: "new" },
+      }),
+    );
+  };
+
+  return (
+    <div
+      className="w-[270px] bg-[#0a0a0c]/95 backdrop-blur-2xl border rounded-[1.5rem] p-5 relative transition-all duration-300"
+      style={{
+        borderColor: selected
+          ? "#10b981"
+          : data.assetId
+            ? "rgba(16,185,129,0.4)"
+            : "#1e1e1e",
+        boxShadow: selected
+          ? "0 0 40px rgba(16,185,129,0.25), 0 20px 40px rgba(0,0,0,0.6)"
+          : data.assetId
+            ? "0 0 20px rgba(16,185,129,0.1)"
+            : "0 20px 40px rgba(0,0,0,0.4)",
+        transform: selected ? "scale(1.04)" : "scale(1)",
+      }}
+    >
+      <Handle
+        type="target"
+        position={Position.Top}
+        id="top"
+        className="w-4 h-4 bg-[#111] border-2 border-emerald-500 relative before:absolute before:-inset-6 before:content-['']"
+      />
+      <Handle
+        type="source"
+        position={Position.Bottom}
+        id="bottom"
+        className="w-4 h-4 bg-[#111] border-2 border-emerald-500 relative before:absolute before:-inset-6 before:content-['']"
+      />
+
+      <div className="flex items-start gap-3.5">
+        <div
+          className={cn(
+            "w-11 h-11 rounded-xl flex items-center justify-center shrink-0 border",
+            data.assetId
+              ? "bg-emerald-500/15 border-emerald-500/30"
+              : "bg-[#111] border-[#1e1e1e]",
+          )}
+        >
+          <Database
+            className={cn(
+              "w-5 h-5",
+              data.assetId ? "text-emerald-400" : "text-[#555]",
+            )}
+          />
+        </div>
+        <div className="min-w-0 flex-1">
+          <h4 className="text-sm font-black text-white mb-0.5 leading-tight truncate">
+            {data.label || "No Asset Linked"}
+          </h4>
+          <p className="text-[9px] font-bold text-[#555] uppercase tracking-widest truncate">
+            {data.category || data.type || "Vault Integration"}
+          </p>
           <div className="flex items-center gap-1 mt-1.5">
-            <div className="w-1.5 h-1.5 bg-emerald-500 rounded-full" />
-            <span className="text-[9px] font-bold text-emerald-500">
-              LINKED
+            <div
+              className={cn(
+                "w-1.5 h-1.5 rounded-full",
+                data.assetId ? "bg-emerald-500" : "bg-[#333]",
+              )}
+            />
+            <span
+              className={cn(
+                "text-[9px] font-bold uppercase tracking-widest",
+                data.assetId ? "text-emerald-400" : "text-[#444]",
+              )}
+            >
+              {data.assetId ? "LINKED" : "UNLINKED"}
             </span>
           </div>
-        )}
+        </div>
+      </div>
+
+      <div className="flex gap-2 mt-4">
+        <button
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={handleAccess}
+          className={cn(
+            "flex-1 py-2.5 border text-[9px] font-black uppercase tracking-widest rounded-xl transition-all flex items-center justify-center gap-1.5",
+            data.assetId
+              ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20"
+              : "border-[#2a2a2a] bg-[#111] text-[#555] hover:text-white hover:border-[#444]",
+          )}
+        >
+          <Eye className="w-3 h-3" /> Access
+        </button>
+        <button
+          onMouseDown={(e) => e.stopPropagation()}
+          onClick={handleNew}
+          className="flex-1 py-2.5 bg-emerald-500 hover:bg-emerald-400 active:scale-95 text-black text-[9px] font-black uppercase tracking-widest rounded-xl transition-all flex items-center justify-center gap-1.5 shadow-[0_0_20px_rgba(16,185,129,0.25)]"
+        >
+          <Plus className="w-3 h-3" /> New
+        </button>
       </div>
     </div>
-
-    <div className="flex gap-2 mt-4">
-      <button
-        disabled={!data.assetId}
-        className="flex-1 py-2.5 border border-[#2a2a2a] bg-[#111] hover:bg-[#1a1a1a] text-white disabled:opacity-25 text-[9px] font-black uppercase tracking-widest rounded-xl transition-colors flex items-center justify-center gap-1.5"
-      >
-        <Eye className="w-3 h-3" /> Access
-      </button>
-      <button
-        onClick={() =>
-          window.dispatchEvent(
-            new CustomEvent("OPEN_VAULT_MODAL", { detail: { nodeId: id } }),
-          )
-        }
-        className="flex-1 py-2.5 bg-emerald-500 hover:bg-emerald-400 text-black text-[9px] font-black uppercase tracking-widest rounded-xl transition-colors flex items-center justify-center gap-1.5 shadow-[0_0_20px_rgba(16,185,129,0.25)]"
-      >
-        <RefreshCw className="w-3 h-3" /> Sync
-      </button>
-    </div>
-  </div>
-);
+  );
+};
 
 // ============================================================================
 // § 9. VIDEO WIDGET NODE
@@ -2255,9 +2306,11 @@ const FlowCanvas = ({
     return () => window.removeEventListener("NODE_COLLAPSE_TOGGLE", handler);
   }, [setNodes, setHasUnsavedChanges]);
 
-  // Time-based visibility filter
+  // Time-based visibility filter (fixed: removed nodes.length from deps to prevent loop)
+  const prevTimeFilterRef = useRef("all");
   useEffect(() => {
-    if (nodes.length === 0) return;
+    if (prevTimeFilterRef.current === timeFilter) return;
+    prevTimeFilterRef.current = timeFilter;
     setNodes((nds) =>
       nds.map((n) => {
         if (timeFilter === "all" || !n.data.deadline)
@@ -2277,10 +2330,13 @@ const FlowCanvas = ({
     );
     if (timeFilter !== "all")
       setTimeout(() => fitView({ duration: 800, padding: 0.25 }), 100);
-  }, [timeFilter, nodes.length]); // eslint-disable-line
+  }, [timeFilter]); // eslint-disable-line
 
   // Tag-based dim filter
+  const prevTagFilterRef = useRef("all");
   useEffect(() => {
+    if (prevTagFilterRef.current === tagFilter) return;
+    prevTagFilterRef.current = tagFilter;
     if (tagFilter === "all") {
       setNodes((nds) =>
         nds.map((n) => ({ ...n, data: { ...n.data, isDimmed: false } })),
@@ -2927,7 +2983,10 @@ const FlowCanvas = ({
       </div>
 
       {/* ── HUD: LEFT CONTROL CLUSTER ── */}
-      <div className="absolute top-4 left-4 md:top-6 md:left-6 z-[70] flex items-center gap-2 bg-[#080808]/95 backdrop-blur-2xl border border-[#1a1a1a] p-1.5 rounded-full shadow-[0_20px_60px_rgba(0,0,0,0.8)]">
+      <div
+        className="absolute top-4 left-4 md:top-5 md:left-5 z-[70] flex items-center gap-2 bg-[#080808]/95 backdrop-blur-2xl border border-[#1a1a1a] p-1.5 rounded-full shadow-[0_20px_60px_rgba(0,0,0,0.8)]"
+        style={{ pointerEvents: "all" }}
+      >
         <button
           onClick={triggerAutoLayout}
           title="Auto-Align Topology"
@@ -3168,8 +3227,12 @@ const FlowCanvas = ({
             initial={{ opacity: 0, scale: 0.93, y: -4 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.93, y: -4 }}
-            style={{ top: paneMenu.top, left: paneMenu.left }}
-            className="fixed z-[100] bg-[#080808] border border-[#1e1e1e] rounded-2xl shadow-[0_40px_80px_rgba(0,0,0,0.9)] overflow-y-auto custom-scrollbar min-w-[270px] max-h-[calc(100vh-100px)]"
+            style={{
+              top: paneMenu.top,
+              left: paneMenu.left,
+              maxHeight: `min(520px, calc(100vh - ${paneMenu.top + 24}px))`,
+            }}
+            className="fixed z-[100] bg-[#080808] border border-[#1e1e1e] rounded-2xl shadow-[0_40px_80px_rgba(0,0,0,0.9)] overflow-y-auto custom-scrollbar min-w-[260px] max-w-[280px]"
           >
             <div className="px-5 py-3 bg-[#050505] border-b border-[#1a1a1a] text-[9px] font-black text-[#444] uppercase tracking-widest flex items-center gap-2">
               <Plus className="w-3 h-3" /> Deploy Element
@@ -3868,6 +3931,330 @@ const NodeCommandCenter = ({
           <Trash2 className="w-3.5 h-3.5" /> Obliterate Protocol
         </button>
       </div>
+    </div>
+  );
+};
+
+// ============================================================================
+// § JOURNAL MODAL — Firestore-backed daily execution log with inline calendar
+// ============================================================================
+
+const MONTH_NAMES = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+];
+const DAY_NAMES = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
+
+const JournalModal = ({ userId, onClose, addToast }) => {
+  const today = new Date();
+  const [selectedDate, setSelectedDate] = useState(today);
+  const [calMonth, setCalMonth] = useState(
+    new Date(today.getFullYear(), today.getMonth(), 1),
+  );
+  const [entryText, setEntryText] = useState("");
+  const [mood, setMood] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [savedDates, setSavedDates] = useState(new Set());
+  const MAX_CHARS = 1000;
+
+  const dateStr = (d) => d.toISOString().split("T")[0];
+
+  // Load entry for selected date
+  useEffect(() => {
+    if (!userId) return;
+    setIsLoading(true);
+    setEntryText("");
+    setMood("");
+    const loadEntry = async () => {
+      try {
+        const { getDoc, doc: firestoreDoc } =
+          await import("firebase/firestore");
+        const snap = await getDoc(
+          firestoreDoc(db, "users", userId, "journal", dateStr(selectedDate)),
+        );
+        if (snap.exists()) {
+          const d = snap.data();
+          setEntryText(d.entry || "");
+          setMood(d.mood || "");
+        }
+      } catch (e) {
+        console.warn("Journal load failed", e);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    loadEntry();
+  }, [selectedDate, userId]);
+
+  // Load which dates have entries (for calendar dots)
+  useEffect(() => {
+    if (!userId) return;
+    const loadSavedDates = async () => {
+      try {
+        const { getDocs, collection: firestoreCollection } =
+          await import("firebase/firestore");
+        const snap = await getDocs(
+          firestoreCollection(db, "users", userId, "journal"),
+        );
+        const dates = new Set(snap.docs.map((d) => d.id));
+        setSavedDates(dates);
+      } catch (e) {}
+    };
+    loadSavedDates();
+  }, [userId]);
+
+  const handleSave = async () => {
+    if (!userId || !entryText.trim()) return;
+    setIsSaving(true);
+    try {
+      const { setDoc, doc: firestoreDoc } = await import("firebase/firestore");
+      const payload = {
+        entry: entryText.trim(),
+        mood,
+        date: dateStr(selectedDate),
+        savedAt: new Date().toISOString(),
+      };
+      await setDoc(
+        firestoreDoc(db, "users", userId, "journal", dateStr(selectedDate)),
+        payload,
+      );
+      setSavedDates((prev) => new Set([...prev, dateStr(selectedDate)]));
+      addToast("Journal entry saved.", "green");
+    } catch (e) {
+      addToast("Save failed.", "red");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // Calendar rendering
+  const renderCalendar = () => {
+    const year = calMonth.getFullYear();
+    const month = calMonth.getMonth();
+    const firstDay = new Date(year, month, 1).getDay();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const cells = [];
+
+    for (let i = 0; i < firstDay; i++) cells.push(null);
+    for (let d = 1; d <= daysInMonth; d++) cells.push(d);
+
+    const isSelected = (d) =>
+      d &&
+      new Date(year, month, d).toDateString() === selectedDate.toDateString();
+    const isToday = (d) =>
+      d && new Date(year, month, d).toDateString() === today.toDateString();
+    const hasEntry = (d) =>
+      d && savedDates.has(dateStr(new Date(year, month, d)));
+    const isFuture = (d) => d && new Date(year, month, d) > today;
+
+    return (
+      <div className="w-full">
+        <div className="flex items-center justify-between mb-3">
+          <button
+            onClick={() => setCalMonth(new Date(year, month - 1, 1))}
+            className="w-7 h-7 rounded-lg bg-[#111] border border-[#1a1a1a] text-[#666] hover:text-white flex items-center justify-center transition-colors"
+          >
+            <ChevronLeft className="w-3.5 h-3.5" />
+          </button>
+          <span className="text-[11px] font-black text-white uppercase tracking-widest">
+            {MONTH_NAMES[month]} {year}
+          </span>
+          <button
+            onClick={() => setCalMonth(new Date(year, month + 1, 1))}
+            disabled={
+              new Date(year, month + 1, 1) >
+              new Date(today.getFullYear(), today.getMonth(), 1)
+            }
+            className="w-7 h-7 rounded-lg bg-[#111] border border-[#1a1a1a] text-[#666] hover:text-white flex items-center justify-center transition-colors disabled:opacity-30"
+          >
+            <ChevronRightIcon className="w-3.5 h-3.5" />
+          </button>
+        </div>
+        <div className="grid grid-cols-7 gap-0.5 mb-1">
+          {DAY_NAMES.map((d) => (
+            <div
+              key={d}
+              className="text-center text-[8px] font-black text-[#444] uppercase py-1"
+            >
+              {d}
+            </div>
+          ))}
+        </div>
+        <div className="grid grid-cols-7 gap-0.5">
+          {cells.map((d, i) => (
+            <button
+              key={i}
+              onClick={() =>
+                d && !isFuture(d) && setSelectedDate(new Date(year, month, d))
+              }
+              disabled={!d || isFuture(d)}
+              className={cn(
+                "relative aspect-square flex items-center justify-center rounded-lg text-[11px] font-bold transition-all",
+                !d ? "opacity-0 pointer-events-none" : "",
+                isFuture(d) ? "text-[#2a2a2a] cursor-not-allowed" : "",
+                isSelected(d)
+                  ? "bg-amber-500 text-black shadow-[0_0_12px_rgba(202,138,4,0.4)]"
+                  : isToday(d)
+                    ? "bg-[#1a1a1a] border border-amber-500/30 text-amber-400"
+                    : d && !isFuture(d)
+                      ? "hover:bg-[#1a1a1a] text-[#888] hover:text-white"
+                      : "",
+              )}
+            >
+              {d}
+              {hasEntry(d) && !isSelected(d) && (
+                <div className="absolute bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-emerald-500" />
+              )}
+            </button>
+          ))}
+        </div>
+      </div>
+    );
+  };
+
+  const MOODS = [
+    "⚡ In Flow",
+    "🔥 On Fire",
+    "😤 Grinding",
+    "🧊 Blocked",
+    "💡 Clarity",
+  ];
+
+  return (
+    <div className="fixed inset-0 z-[500] flex items-center justify-center p-4">
+      <motion.div
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        onClick={onClose}
+        className="absolute inset-0 bg-black/85 backdrop-blur-lg"
+      />
+      <motion.div
+        initial={{ opacity: 0, scale: 0.94, y: 20 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        exit={{ opacity: 0, scale: 0.94, y: 20 }}
+        onClick={(e) => e.stopPropagation()}
+        className="relative w-full max-w-3xl bg-[#060606] border border-[#1e1e1e] rounded-[2rem] shadow-[0_80px_160px_rgba(0,0,0,0.95)] flex flex-col overflow-hidden"
+        style={{ maxHeight: "min(90vh, 680px)" }}
+      >
+        {/* Header */}
+        <div className="flex justify-between items-center px-6 py-4 border-b border-[#1a1a1a] shrink-0 bg-[#050505]">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 bg-amber-500/10 border border-amber-500/20 rounded-xl flex items-center justify-center">
+              <BookOpen className="w-4 h-4 text-amber-500" />
+            </div>
+            <div>
+              <h3 className="text-sm font-black text-white">
+                Execution Journal
+              </h3>
+              <p className="text-[9px] text-[#444] font-bold uppercase tracking-widest">
+                {selectedDate.toLocaleDateString(undefined, {
+                  weekday: "long",
+                  month: "long",
+                  day: "numeric",
+                  year: "numeric",
+                })}
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="w-8 h-8 bg-[#0d0d0d] border border-[#1e1e1e] rounded-full text-[#555] hover:text-white flex items-center justify-center transition-colors"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* Body: two-column layout */}
+        <div className="flex flex-1 min-h-0 overflow-hidden">
+          {/* Left: Calendar */}
+          <div className="w-52 shrink-0 border-r border-[#1a1a1a] p-4 overflow-y-auto custom-scrollbar bg-[#030303]">
+            {renderCalendar()}
+            <div className="mt-4 pt-3 border-t border-[#1a1a1a] space-y-1">
+              <p className="text-[8px] font-black text-[#444] uppercase tracking-widest mb-2">
+                Mood
+              </p>
+              {MOODS.map((m) => (
+                <button
+                  key={m}
+                  onClick={() => setMood(mood === m ? "" : m)}
+                  className={cn(
+                    "w-full text-left px-2.5 py-1.5 rounded-lg text-[10px] font-bold transition-all",
+                    mood === m
+                      ? "bg-amber-500/12 border border-amber-500/25 text-amber-400"
+                      : "text-[#555] hover:text-white hover:bg-[#111]",
+                  )}
+                >
+                  {m}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Right: Entry */}
+          <div className="flex-1 flex flex-col overflow-hidden">
+            {isLoading ? (
+              <div className="flex-1 flex items-center justify-center">
+                <RefreshCw className="w-5 h-5 text-[#333] animate-spin" />
+              </div>
+            ) : (
+              <>
+                <textarea
+                  value={entryText}
+                  onChange={(e) =>
+                    setEntryText(e.target.value.slice(0, MAX_CHARS))
+                  }
+                  placeholder={`What did you execute today?\n\nDocument your reality — wins, blockers, insights...`}
+                  className="flex-1 w-full p-5 bg-transparent text-sm text-white placeholder-[#333] resize-none focus:outline-none custom-scrollbar leading-relaxed"
+                  style={{ fontFamily: "inherit" }}
+                />
+                <div className="shrink-0 flex items-center justify-between px-5 py-3 border-t border-[#1a1a1a] bg-[#050505]">
+                  <div className="flex items-center gap-3">
+                    <span
+                      className={cn(
+                        "text-[10px] font-mono font-bold",
+                        entryText.length > MAX_CHARS * 0.9
+                          ? "text-amber-500"
+                          : "text-[#444]",
+                      )}
+                    >
+                      {entryText.length}/{MAX_CHARS}
+                    </span>
+                    {mood && (
+                      <span className="text-[10px] font-bold text-amber-400 bg-amber-500/8 px-2 py-1 rounded-md border border-amber-500/15">
+                        {mood}
+                      </span>
+                    )}
+                  </div>
+                  <button
+                    onClick={handleSave}
+                    disabled={isSaving || !entryText.trim()}
+                    className="flex items-center gap-2 px-5 py-2.5 bg-white text-black text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-[#ddd] disabled:opacity-30 transition-all"
+                  >
+                    {isSaving ? (
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                    )}
+                    Save Entry
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      </motion.div>
     </div>
   );
 };
@@ -4637,33 +5024,34 @@ const Roadmap = () => {
           document.body,
         )}
       {/* ── PAGE HEADER ── */}
-      <div className="w-full px-6 md:px-10 pt-6 pb-3 flex flex-row justify-between items-center gap-4 relative z-20 shrink-0">
-        <div className="flex items-center gap-4 ">
-          <div className="w-1.5 h-8 bg-amber-500 rounded-full hidden md:block" />
-          <div className="mb-6 ">
-            <div className="flex items-center gap-2.5 mb-0.5">
-              <span className="text-[8px] font-black text-[#444] uppercase tracking-[0.35em]">
-                Discotive OS · v5
-              </span>
-            </div>
-            <h1 className="text-[36px] font-extrabold tracking-tight text-white leading-none">
-              Execution Map
-            </h1>
+      <div className="w-full px-4 md:px-8 py-2.5 flex flex-row justify-between items-center gap-4 relative z-20 shrink-0 border-b border-[#111] bg-[#030303]">
+        <div className="flex items-center gap-2.5">
+          <div className="w-1 h-5 bg-amber-500 rounded-full hidden md:block" />
+          <span className="text-[9px] font-black text-[#444] uppercase tracking-[0.3em] hidden lg:block">
+            OS ·
+          </span>
+          <h1 className="text-base md:text-lg font-extrabold tracking-tight text-white leading-none">
+            Execution Map
+          </h1>
+          <div className="hidden md:flex items-center gap-1 ml-2 px-2 py-0.5 bg-amber-500/8 border border-amber-500/20 rounded-md">
+            <div className="w-1.5 h-1.5 bg-amber-500 rounded-full animate-pulse" />
+            <span className="text-[8px] font-black text-amber-500 uppercase tracking-widest">
+              Live
+            </span>
           </div>
         </div>
-        <div className="flex items-center gap-3">
-          {/* Mobile edit mode toggle */}
+        <div className="flex items-center gap-2">
           <button
             onClick={() => setIsMobileEditMode((v) => !v)}
             className={cn(
-              "md:hidden px-4 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest border transition-all flex items-center gap-2",
+              "md:hidden px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest border transition-all flex items-center gap-1.5",
               isMobileEditMode
                 ? "bg-amber-500/10 border-amber-500/30 text-amber-500"
                 : "bg-[#0d0d0d] border-[#1e1e1e] text-[#666]",
             )}
           >
-            <Edit3 className="w-3.5 h-3.5" />
-            {isMobileEditMode ? "Exit Edit" : "Edit Mode"}
+            <Edit3 className="w-3 h-3" />
+            {isMobileEditMode ? "Exit" : "Edit"}
           </button>
         </div>
       </div>
@@ -4995,39 +5383,55 @@ const Roadmap = () => {
             <kbd className="text-[#555] font-mono">Tab</kbd> to cycle ·{" "}
             <kbd className="text-[#555] font-mono">F</kbd> fullscreen
           </span>
-          <button
-            onClick={() => {
-              if (subscriptionTier === "free") {
-                setProModalReason("journal");
-                setIsProModalOpen(true);
-              } else {
-                setIsJournalOpen(true);
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => {
+                if (subscriptionTier === "free") {
+                  setProModalReason("journal");
+                  setIsProModalOpen(true);
+                } else {
+                  setIsJournalOpen(true);
+                }
+              }}
+              className={cn(
+                "flex items-center gap-2 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all",
+                subscriptionTier === "free"
+                  ? "bg-[#0d0d0d] border-[#1e1e1e] text-[#444] hover:border-[#333] hover:text-[#666]"
+                  : "bg-amber-500/8 border-amber-500/20 text-amber-500 hover:bg-amber-500/15 shadow-[0_0_20px_rgba(202,138,4,0.1)]",
+              )}
+              title={
+                subscriptionTier === "free" ? "Pro Feature" : "Open Journal (J)"
               }
-            }}
-            className={cn(
-              "flex items-center gap-2 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all",
-              subscriptionTier === "free"
-                ? "bg-[#0d0d0d] border-[#1e1e1e] text-[#444] hover:border-[#333] hover:text-[#666]"
-                : "bg-amber-500/8 border-amber-500/20 text-amber-500 hover:bg-amber-500/15 shadow-[0_0_20px_rgba(202,138,4,0.1)]",
-            )}
-            title={
-              subscriptionTier === "free"
-                ? "Pro Feature — Upgrade to access Execution Journal"
-                : "Open Execution Journal (J)"
-            }
-          >
-            <BookOpen className="w-3.5 h-3.5" />
-            <span>Journal</span>
-            {subscriptionTier === "free" && (
-              <Lock className="w-2.5 h-2.5 opacity-50" />
-            )}
-          </button>
+            >
+              <BookOpen className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Journal</span>
+              {subscriptionTier === "free" && (
+                <Lock className="w-2.5 h-2.5 opacity-50" />
+              )}
+            </button>
+            <div
+              className="hidden md:flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#080808] border border-[#1a1a1a] text-[9px] font-black text-[#333] uppercase tracking-widest cursor-not-allowed"
+              title="Coming soon"
+            >
+              <Sparkles className="w-3 h-3 text-[#2a2a2a]" />
+              AI Coach
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* ── EXECUTION JOURNAL MODAL ── */}
+      {/* ── EXECUTION JOURNAL MODAL — Firestore-backed daily log ── */}
       <AnimatePresence>
         {isJournalOpen && subscriptionTier !== "free" && (
+          <JournalModal
+            userId={auth?.currentUser?.uid || userData?.uid}
+            onClose={() => setIsJournalOpen(false)}
+            addToast={addToast}
+          />
+        )}
+      </AnimatePresence>
+      <AnimatePresence>
+        {isJournalOpen && (
           <div className="fixed inset-0 z-[500] flex items-center justify-center p-4">
             <motion.div
               initial={{ opacity: 0 }}
