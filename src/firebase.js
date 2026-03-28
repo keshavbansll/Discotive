@@ -25,12 +25,18 @@ if (import.meta.env.DEV) {
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
 
-//Initialize App Check
-if (import.meta.env.PROD) {
+// Initialize App Check
+if (import.meta.env.PROD && import.meta.env.VITE_RECAPTCHA_KEY) {
   initializeAppCheck(app, {
-    provider: new ReCaptchaEnterpriseProvider("YOUR_RECAPTCHA_KEY"),
+    provider: new ReCaptchaEnterpriseProvider(
+      import.meta.env.VITE_RECAPTCHA_KEY,
+    ),
     isTokenAutoRefreshEnabled: true,
   });
+} else if (import.meta.env.PROD) {
+  console.warn(
+    "App Check skipped: VITE_RECAPTCHA_KEY is missing from environment variables.",
+  );
 }
 
 // Initialize Services

@@ -1650,9 +1650,6 @@ const Auth = () => {
   // RENDER HELPERS
   // ============================================================================
 
-  if (systemStatus.isBooting)
-    return <AuthLoader taskComplete={systemStatus.authTaskComplete} />;
-
   const inputClass =
     "w-full bg-[#121212] border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-white/40 transition-[box-shadow,transform,background,opacity,filter] placeholder-[#555]";
   const labelClass =
@@ -1710,6 +1707,9 @@ const Auth = () => {
     },
     [profileData, setNestedField, inputClass],
   );
+
+  if (systemStatus.isBooting)
+    return <AuthLoader taskComplete={systemStatus.authTaskComplete} />;
 
   // --- EMAILJS: LOCKED PROTOCOL REQUEST ENGINE ---
   const handleAccessRequest = async (e) => {
