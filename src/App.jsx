@@ -3,6 +3,7 @@ import {
   Routes,
   Route,
   Navigate,
+  Outlet,
 } from "react-router-dom";
 import GlobalLoader from "./components/GlobalLoader";
 import React, { Suspense, lazy } from "react";
@@ -27,6 +28,10 @@ import VerifyAsset from "./pages/VerifyAsset";
 import PageTracker from "./components/PageTracker";
 import EditProfile from "./pages/EditProfile";
 const Features = lazy(() => import("./pages/Features"));
+// ── Admin ──
+import AdminRoute from "./components/AdminRoute";
+const AdminDashboard = lazy(() => import("./pages/admin/AdminDashboard"));
+const VaultVerification = lazy(() => import("./pages/admin/VaultVerification"));
 
 const ProtectedRoute = ({ children }) => {
   const { currentUser } = useAuth();
@@ -95,8 +100,7 @@ function App() {
               <Route path="hubs" element={<ComingSoon title="Hubs" />} />
               {/* PROFILE ROUTES */}
               <Route path="profile" element={<Profile />} />
-              <Route path="profile/edit" element={<EditProfile />} />{" "}
-              {/* NEW ROUTE */}
+              <Route path="profile/edit" element={<EditProfile />} />
               <Route path="settings" element={<Settings />} />
               <Route
                 path="finance"
@@ -116,6 +120,15 @@ function App() {
                 path="discover"
                 element={<ComingSoon title="Discover" />}
               />
+
+              {/* ── ADMIN ROUTES (protected by AdminRoute — checks `admins` Firestore collection) ── */}
+              <Route path="admin" element={<AdminRoute />}>
+                <Route index element={<AdminDashboard />} />
+                <Route
+                  path="users/verifyvault"
+                  element={<VaultVerification />}
+                />
+              </Route>
             </Route>
           </Routes>
         </Suspense>
