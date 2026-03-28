@@ -6,7 +6,7 @@
  * Uploads chunked files directly to Firebase Storage and atomically updates Firestore.
  */
 
-import React, { useState, useCallback, useRef } from "react";
+import React, { useState, useCallback, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   ShieldCheck,
@@ -413,8 +413,16 @@ const getAssetIcon = (category, mimeType) => {
 const Vault = () => {
   const { userData } = useUserData();
 
+  const [localAssets, setLocalAssets] = useState([]);
+
+  useEffect(() => {
+    if (userData?.vault) {
+      setLocalAssets(userData.vault);
+    }
+  }, [userData?.vault]);
+
   // Real Assets drawn directly from Firestore profile
-  const assets = userData?.vault || [];
+  const assets = localAssets;
 
   // --- STATE MACHINE ---
   const [uploadQueue, setUploadQueue] = useState([]);
@@ -485,10 +493,7 @@ const Vault = () => {
       setUploadError("Select an asset category before attaching a file.");
       return;
     }
-    if (!urlTitle.trim()) {
-      setUploadError("Asset Title is required.");
-      return;
-    }
+
     const newQueue = [];
     const errors = [];
 
@@ -516,7 +521,7 @@ const Vault = () => {
         hash: generateVisualHash(file.name),
         category: selectedCategory,
         credentialData,
-        customTitle: urlTitle,
+        customTitle: urlTitle.trim() ? urlTitle : file.name,
       });
     });
 
@@ -606,6 +611,8 @@ const Vault = () => {
             await updateDoc(doc(db, "users", userData.uid), {
               vault: arrayUnion(newAsset),
             });
+            // Instantly inject the new asset into the UI
+            setLocalAssets((prev) => [...prev, newAsset]);
             // Award upload score event (non-blocking)
             awardVaultUpload(userData.uid).catch(console.warn);
 
@@ -658,6 +665,8 @@ const Vault = () => {
       await updateDoc(doc(db, "users", userData.uid), {
         vault: arrayUnion(newAsset),
       });
+      // NEW: Instantly inject the new link asset into the UI
+      setLocalAssets((prev) => [...prev, newAsset]);
       awardVaultUpload(userData.uid).catch(console.warn);
       resetUploadModal();
     } catch (err) {
@@ -684,6 +693,11 @@ const Vault = () => {
         const fileRef = ref(storage, assetToDelete.storagePath);
         await deleteObject(fileRef);
       }
+
+      // NEW: Instantly remove the asset from the UI
+      setLocalAssets((prev) =>
+        prev.filter((asset) => asset.id !== assetToDelete.id),
+      );
 
       setSelectedAsset(null);
     } catch (err) {
