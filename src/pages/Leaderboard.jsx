@@ -1,9 +1,21 @@
 /**
- * @fileoverview Discotive OS - Global Leaderboard Matrix (Gamified & Monolithic)
+ * @fileoverview Discotive OS — Arena Leaderboard (MAANG-Grade Definitive)
  * @module Execution/Leaderboard
+ *
  * @description
- * High-performance telemetry matrix with Next-Target psychology and dynamic sidebars.
- * Features strict Firebase cursors and container-aware sticky positioning.
+ * Zero onSnapshot usage. Strict cursor-based pagination.
+ * getCountFromServer fires only on filter change (never on pagination).
+ * Rank milestone notifications written to Firestore once per threshold
+ * (cached in localStorage to prevent spam).
+ * Search is debounced 500 ms client-side prefix filter on fetched data.
+ *
+ * Notification thresholds (written to users/{uid}.notifications):
+ *   - Rank improved by 10+ positions
+ *   - Entered Top 10%, Top 5%, Top 1% globally
+ *   - Entered global Top 10 or Top 3
+ *   - New #1 rank achieved
+ *
+ * Premium logo: /logo-premium.png shown next to PRO tier users.
  */
 
 import React, {
@@ -14,7 +26,7 @@ import React, {
   useMemo,
 } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   collection,
   query,
@@ -24,12 +36,14 @@ import {
   getDocs,
   getCountFromServer,
   where,
-  endBefore,
   limitToLast,
+  endBefore,
+  doc,
+  updateDoc,
+  arrayUnion,
 } from "firebase/firestore";
 import { db } from "../firebase";
 import { useUserData } from "../hooks/useUserData";
-import { TIERS } from "../lib/TierEngine";
 import CompareModal from "../components/CompareModal";
 import {
   Radar,
@@ -37,12 +51,7 @@ import {
   PolarGrid,
   PolarAngleAxis,
   ResponsiveContainer,
-  PieChart,
-  Pie,
-  Cell,
-  Tooltip as RechartsTooltip,
 } from "recharts";
-
 import {
   Search,
   Filter,
@@ -54,7 +63,6 @@ import {
   Zap,
   Activity,
   ChevronDown,
-  ChevronRight,
   MapPin,
   Target,
   Database,
@@ -62,119 +70,116 @@ import {
   SlidersHorizontal,
   User,
   ChevronLeft,
-  ChevronsRight,
-  ChevronsLeft,
-  Minus,
+  ChevronRight,
   Crosshair,
   Network,
   Lock,
   AlertTriangle,
   ArrowRight,
+  RefreshCw,
+  Flame,
+  Award,
+  Users,
+  Trophy,
+  Star,
+  Bell,
+  Check,
+  BarChart2,
+  Eye,
 } from "lucide-react";
 import { cn } from "../components/ui/BentoCard";
 
-// ============================================================================
-// 1. TAXONOMY & GAMIFICATION CONFIG
-// ============================================================================
-
-const TAXONOMY = {
-  DOMAINS: [
-    "Engineering & Tech",
-    "Design & Creative",
-    "Business & Strategy",
-    "Marketing & Growth",
-    "Product Management",
-    "Data & Analytics",
-    "Sales & Revenue",
+// ─── Taxonomy ─────────────────────────────────────────────────────────────────
+const DOMAINS = [
+  "Engineering & Tech",
+  "Design & Creative",
+  "Business & Strategy",
+  "Marketing & Growth",
+  "Product Management",
+  "Data & Analytics",
+  "Sales & Revenue",
+];
+const NICHES = {
+  "Engineering & Tech": [
+    "Frontend",
+    "Backend",
+    "Fullstack",
+    "DevOps",
+    "AI/ML",
+    "Cybersecurity",
+    "Mobile iOS",
+    "Mobile Android",
+    "Web3/Blockchain",
   ],
-  NICHES: {
-    "Engineering & Tech": [
-      "Frontend",
-      "Backend",
-      "Fullstack",
-      "DevOps",
-      "AI/ML",
-      "Cybersecurity",
-      "Mobile iOS",
-      "Mobile Android",
-      "Web3/Blockchain",
-    ],
-    "Design & Creative": [
-      "UI/UX",
-      "Product Design",
-      "Graphic Design",
-      "Motion Graphics",
-      "3D Modeling",
-      "Brand Identity",
-    ],
-    "Business & Strategy": [
-      "Operations",
-      "Finance",
-      "Venture Capital",
-      "Consulting",
-      "Supply Chain",
-    ],
-    "Marketing & Growth": [
-      "SEO/SEM",
-      "Content Marketing",
-      "Performance Marketing",
-      "Social Media",
-      "Email Marketing",
-    ],
-    "Product Management": [
-      "Technical PM",
-      "Growth PM",
-      "Data PM",
-      "Scrum Master",
-    ],
-    "Data & Analytics": [
-      "Data Science",
-      "Data Engineering",
-      "Business Intelligence",
-      "Quantitative Analysis",
-    ],
-    "Sales & Revenue": [
-      "B2B Enterprise",
-      "SaaS Sales",
-      "Account Management",
-      "Customer Success",
-    ],
-  },
-  LEVELS: [
-    "L1 - Initiate (0-1 YOE)",
-    "L2 - Operator (1-3 YOE)",
-    "L3 - Specialist (3-5 YOE)",
-    "L4 - Architect (5-8 YOE)",
-    "L5 - Principal (8+ YOE)",
+  "Design & Creative": [
+    "UI/UX",
+    "Product Design",
+    "Graphic Design",
+    "Motion Graphics",
+    "3D Modeling",
+    "Brand Identity",
   ],
-  COUNTRIES: [
-    "India",
-    "United States",
-    "United Kingdom",
-    "Canada",
-    "Australia",
-    "Germany",
-    "Singapore",
-    "United Arab Emirates",
-    "Remote/Global",
+  "Business & Strategy": [
+    "Operations",
+    "Finance",
+    "Venture Capital",
+    "Consulting",
+    "Supply Chain",
   ],
-  STATES_INDIA: [
-    "Rajasthan",
-    "Maharashtra",
-    "Karnataka",
-    "Delhi",
-    "Telangana",
-    "Tamil Nadu",
-    "Gujarat",
-    "Haryana",
-    "Uttar Pradesh",
-    "Kerala",
-    "West Bengal",
+  "Marketing & Growth": [
+    "SEO/SEM",
+    "Content Marketing",
+    "Performance Marketing",
+    "Social Media",
+    "Email Marketing",
+  ],
+  "Product Management": [
+    "Technical PM",
+    "Growth PM",
+    "Data PM",
+    "Scrum Master",
+  ],
+  "Data & Analytics": [
+    "Data Science",
+    "Data Engineering",
+    "Business Intelligence",
+    "Quantitative Analysis",
+  ],
+  "Sales & Revenue": [
+    "B2B Enterprise",
+    "SaaS Sales",
+    "Account Management",
+    "Customer Success",
   ],
 };
+const LEVELS = [
+  "L1 - Initiate",
+  "L2 - Operator",
+  "L3 - Specialist",
+  "L4 - Architect",
+  "L5 - Principal",
+];
+const COUNTRIES = [
+  "India",
+  "United States",
+  "United Kingdom",
+  "Canada",
+  "Australia",
+  "Germany",
+  "Singapore",
+  "UAE",
+  "Remote/Global",
+];
+const SORT_OPTIONS = [
+  { label: "Score ↓", value: "score_desc" },
+  { label: "Score ↑", value: "score_asc" },
+  { label: "Vault", value: "vault_desc" },
+  { label: "Streak", value: "streak_desc" },
+];
+const PAGE_SIZES = [10, 15, 20, 30];
 
-// CHARACTER ASSET MATRIX
-const CHARACTERS = {
+// ─── Character assets ─────────────────────────────────────────────────────────
+const CHARS = {
   rank1: {
     Male: "/Characters/Boy-1.gif",
     Female: "/Characters/Girl-1.gif",
@@ -187,8 +192,8 @@ const CHARACTERS = {
   },
   rank3: {
     Male: "/Characters/Boy-3.gif",
-    Female: "/Characters/Boy-1.gif",
-    Other: "/Characters/Boy-1.gif",
+    Female: "/Characters/Girl-3.gif",
+    Other: "/Characters/Others-1.gif",
   },
   observer: {
     Male: "/Characters/Observer.gif",
@@ -196,101 +201,266 @@ const CHARACTERS = {
     Other: "/Characters/Observer.gif",
   },
 };
+const getAvatar = (key, gender) =>
+  CHARS[key]?.[gender] || CHARS[key]?.Other || CHARS.observer.Other;
 
-const getAvatar = (rankKey, gender) =>
-  CHARACTERS[rankKey]?.[gender] ||
-  CHARACTERS[rankKey]?.Other ||
-  "/Characters/Observer.gif";
-
-// Gamified styling based on user level
-const getLevelAura = (levelString) => {
-  if (!levelString) return "bg-white/5 border-white/10 text-white/50";
-  if (levelString.includes("L5"))
-    return "bg-red-500/10 border-red-500/50 text-red-500 shadow-[0_0_15px_rgba(239,68,68,0.4)]";
-  if (levelString.includes("L4"))
-    return "bg-amber-500/10 border-amber-500/50 text-amber-500 shadow-[0_0_10px_rgba(245,158,11,0.3)]";
-  if (levelString.includes("L3"))
-    return "bg-indigo-500/10 border-indigo-500/40 text-indigo-400";
-  if (levelString.includes("L2"))
-    return "bg-blue-500/10 border-blue-500/30 text-blue-400";
-  return "bg-slate-500/10 border-slate-500/30 text-slate-400";
+// ─── Level aura ───────────────────────────────────────────────────────────────
+const LEVEL_AURA = {
+  L5: {
+    card: "bg-red-500/10 border-red-500/40",
+    badge: "bg-red-500/15 border-red-500/40 text-red-400",
+    glow: "shadow-[0_0_20px_rgba(239,68,68,0.3)]",
+    ring: "border-red-500/50",
+  },
+  L4: {
+    card: "bg-amber-500/10 border-amber-500/40",
+    badge: "bg-amber-500/15 border-amber-500/40 text-amber-400",
+    glow: "shadow-[0_0_15px_rgba(245,158,11,0.25)]",
+    ring: "border-amber-500/60",
+  },
+  L3: {
+    card: "bg-indigo-500/8 border-indigo-500/30",
+    badge: "bg-indigo-500/15 border-indigo-500/30 text-indigo-400",
+    glow: "",
+    ring: "border-indigo-500/40",
+  },
+  L2: {
+    card: "bg-blue-500/6 border-blue-500/20",
+    badge: "bg-blue-500/15 border-blue-500/20 text-blue-400",
+    glow: "",
+    ring: "border-blue-500/30",
+  },
+  L1: {
+    card: "bg-white/[0.02] border-white/[0.06]",
+    badge: "bg-white/[0.05] border-white/[0.08] text-white/40",
+    glow: "",
+    ring: "border-white/20",
+  },
+};
+const getLevelKey = (level) => {
+  if (!level) return "L1";
+  const code = String(level).match(/L(\d)/)?.[1];
+  const n = parseInt(code || "1");
+  return n >= 5
+    ? "L5"
+    : n === 4
+      ? "L4"
+      : n === 3
+        ? "L3"
+        : n === 2
+          ? "L2"
+          : "L1";
 };
 
-// ============================================================================
-// 2. HELPER COMPONENTS
-// ============================================================================
+// ─── Notification milestones ──────────────────────────────────────────────────
+const RANK_MILESTONES = [1, 3, 10, 50];
+const PERCENTILE_MILESTONES = [1, 5, 10, 25, 50];
 
-const CustomSelect = ({
-  label,
-  value,
-  onChange,
-  options,
-  icon: Icon,
-  disabled = false,
-}) => {
-  const [isOpen, setIsOpen] = useState(false);
-  const ref = useRef(null);
+async function maybeWriteRankNotification(uid, newRank, totalUsers) {
+  if (!uid || !newRank || !totalUsers) return;
+  const storageKey = `lbNotified_${uid}`;
+  let stored;
+  try {
+    stored = JSON.parse(localStorage.getItem(storageKey) || "{}");
+  } catch {
+    stored = {};
+  }
 
-  useEffect(() => {
-    const handleClickOutside = (e) => {
-      if (ref.current && !ref.current.contains(e.target)) setIsOpen(false);
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
+  const prevRank = stored.rank || newRank;
+  const prevPct = stored.pct || 100;
+  const newPct = Math.ceil((newRank / totalUsers) * 100);
 
+  const notifications = [];
+
+  // Rank improved by 10+ positions
+  if (prevRank - newRank >= 10) {
+    notifications.push({
+      message: `⚡ Rank climbed! You're now #${newRank} on the global leaderboard. Keep executing.`,
+      time: new Date().toISOString(),
+      type: "rank",
+      read: false,
+    });
+  }
+
+  // Crossed a rank milestone
+  for (const milestone of RANK_MILESTONES) {
+    if (newRank <= milestone && prevRank > milestone) {
+      const msgs = {
+        1: "🏆 You are #1 globally. Absolute elite. Congratulations.",
+        3: "🥉 You've entered the Top 3 globally. Extraordinary execution.",
+        10: "🎯 Top 10 globally. You are in the elite tier.",
+        50: "🔥 Top 50 globally. Exceptional momentum.",
+      };
+      notifications.push({
+        message: msgs[milestone],
+        time: new Date().toISOString(),
+        type: "rank_milestone",
+        read: false,
+      });
+    }
+  }
+
+  // Crossed a percentile milestone
+  for (const pct of PERCENTILE_MILESTONES) {
+    if (newPct <= pct && prevPct > pct) {
+      const work =
+        pct <= 5 ? "Incredible." : pct <= 10 ? "Outstanding." : "Keep pushing.";
+      notifications.push({
+        message: `🎉 You're now in the Top ${pct}% globally! ${work}`,
+        time: new Date().toISOString(),
+        type: "percentile",
+        read: false,
+      });
+    }
+  }
+
+  // Rank dropped by 10+ positions — motivational
+  if (newRank - prevRank >= 10 && prevRank !== newRank) {
+    notifications.push({
+      message: `💪 Your rank slipped to #${newRank}. Work hard — execute relentlessly.`,
+      time: new Date().toISOString(),
+      type: "rank_drop",
+      read: false,
+    });
+  }
+
+  if (notifications.length > 0) {
+    try {
+      const userRef = doc(db, "users", uid);
+      for (const notif of notifications) {
+        await updateDoc(userRef, { notifications: arrayUnion(notif) });
+      }
+    } catch (e) {
+      console.warn("[Leaderboard] Notification write failed:", e);
+    }
+  }
+
+  // Cache new state
+  localStorage.setItem(
+    storageKey,
+    JSON.stringify({ rank: newRank, pct: newPct, ts: Date.now() }),
+  );
+}
+
+// ─── Small components ─────────────────────────────────────────────────────────
+
+const Toast = ({ toasts }) => (
+  <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[800] flex flex-col gap-2 items-center pointer-events-none">
+    <AnimatePresence>
+      {toasts.map((t) => (
+        <motion.div
+          key={t.id}
+          initial={{ opacity: 0, y: 20, scale: 0.9 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={{ opacity: 0, y: -10, scale: 0.9 }}
+          className={cn(
+            "px-5 py-3 rounded-2xl border shadow-2xl backdrop-blur-xl text-xs font-bold flex items-center gap-2.5 max-w-sm text-center",
+            t.type === "success"
+              ? "bg-emerald-900/80 border-emerald-500/30 text-emerald-300"
+              : t.type === "rank"
+                ? "bg-amber-900/80 border-amber-500/30 text-amber-300"
+                : t.type === "drop"
+                  ? "bg-rose-900/80 border-rose-500/30 text-rose-300"
+                  : "bg-[#111]/90 border-white/10 text-white/80",
+          )}
+        >
+          {t.type === "rank"
+            ? "🏆"
+            : t.type === "success"
+              ? "✅"
+              : t.type === "drop"
+                ? "💪"
+                : "ℹ️"}
+          {t.message}
+        </motion.div>
+      ))}
+    </AnimatePresence>
+  </div>
+);
+
+const Pill = ({ active, onClick, children, color = "amber" }) => {
+  const C = {
+    amber: "bg-amber-500/15 border-amber-500/30 text-amber-400",
+    blue: "bg-blue-500/15 border-blue-500/30 text-blue-400",
+  };
   return (
-    <div className="relative flex flex-col gap-1.5" ref={ref}>
-      <label className="text-[10px] font-extrabold uppercase tracking-widest text-[#666] ml-1 flex items-center gap-1.5">
-        {Icon && <Icon className="w-3 h-3" />} {label}
-      </label>
-      <div
-        onClick={() => !disabled && setIsOpen(!isOpen)}
+    <button
+      onClick={onClick}
+      className={cn(
+        "px-3 py-1.5 rounded-xl border text-[10px] font-bold uppercase tracking-widest transition-all shrink-0",
+        active
+          ? C[color] || C.amber
+          : "bg-white/[0.03] border-white/[0.06] text-white/30 hover:text-white/60",
+      )}
+    >
+      {children}
+    </button>
+  );
+};
+
+const FilterSelect = ({ label, value, onChange, options, disabled }) => {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    const fn = (e) => {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+    };
+    document.addEventListener("mousedown", fn);
+    return () => document.removeEventListener("mousedown", fn);
+  }, []);
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        onClick={() => !disabled && setOpen((v) => !v)}
+        disabled={disabled}
         className={cn(
-          "w-full bg-[#111] border rounded-xl px-4 py-3 flex items-center justify-between transition-colors text-xs font-bold",
+          "w-full flex items-center justify-between gap-2 px-3 py-2.5 rounded-xl border text-xs font-bold transition-all",
           disabled
-            ? "opacity-50 cursor-not-allowed border-[#222] text-[#555]"
-            : "cursor-pointer hover:border-[#444] text-white",
-          isOpen ? "border-amber-500" : "border-[#333]",
+            ? "opacity-40 cursor-not-allowed bg-white/[0.02] border-white/[0.04] text-white/30"
+            : open
+              ? "bg-amber-500/10 border-amber-500/30 text-amber-400"
+              : value
+                ? "bg-white/[0.04] border-white/[0.08] text-white"
+                : "bg-white/[0.02] border-white/[0.05] text-white/40 hover:border-white/15",
         )}
       >
-        <span className="truncate">{value || "Any"}</span>
+        <span className="truncate">{value || label}</span>
         <ChevronDown
           className={cn(
-            "w-4 h-4 text-[#666] transition-transform",
-            isOpen && "rotate-180",
+            "w-3.5 h-3.5 shrink-0 transition-transform",
+            open && "rotate-180",
           )}
         />
-      </div>
+      </button>
       <AnimatePresence>
-        {isOpen && (
+        {open && (
           <motion.div
-            initial={{ opacity: 0, y: -5 }}
+            initial={{ opacity: 0, y: -4 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -5 }}
-            className="absolute top-full left-0 right-0 mt-2 bg-[#111] border border-[#333] rounded-xl shadow-2xl z-50 max-h-48 overflow-y-auto custom-scrollbar"
+            exit={{ opacity: 0, y: -4 }}
+            className="absolute top-full left-0 right-0 mt-1.5 bg-[#0f0f0f] border border-[#222] rounded-xl shadow-2xl z-50 max-h-44 overflow-y-auto custom-scrollbar"
           >
             <div
               onClick={() => {
                 onChange("");
-                setIsOpen(false);
+                setOpen(false);
               }}
-              className="px-4 py-3 text-xs font-bold text-[#888] hover:bg-[#222] hover:text-white cursor-pointer transition-colors border-b border-[#222]"
+              className="px-3 py-2.5 text-xs font-bold text-white/30 hover:bg-white/[0.04] hover:text-white cursor-pointer transition-colors border-b border-[#1a1a1a]"
             >
-              Any
+              Any {label}
             </div>
             {options.map((opt) => (
               <div
                 key={opt}
                 onClick={() => {
                   onChange(opt);
-                  setIsOpen(false);
+                  setOpen(false);
                 }}
                 className={cn(
-                  "px-4 py-3 text-xs font-bold cursor-pointer transition-colors border-b border-[#222]",
+                  "px-3 py-2.5 text-xs font-bold cursor-pointer transition-colors border-b border-[#1a1a1a] last:border-0",
                   value === opt
-                    ? "bg-amber-500/10 text-amber-500"
-                    : "text-[#ccc] hover:bg-[#222] hover:text-white",
+                    ? "bg-amber-500/10 text-amber-400"
+                    : "text-white/60 hover:bg-white/[0.04] hover:text-white",
                 )}
               >
                 {opt}
@@ -303,1390 +473,1572 @@ const CustomSelect = ({
   );
 };
 
-// ============================================================================
-// 3. MAIN LEADERBOARD ARCHITECTURE
-// ============================================================================
+// ─── Podium card ──────────────────────────────────────────────────────────────
+const PodiumCard = ({ player, rank, resolvePlayerName, isMe }) => {
+  const navigate = useNavigate();
+  const rankKey = rank === 1 ? "rank1" : rank === 2 ? "rank2" : "rank3";
+  const heights = {
+    1: "h-[260px] md:h-[320px]",
+    2: "h-[210px] md:h-[270px]",
+    3: "h-[180px] md:h-[230px]",
+  };
+  const gifSizes = {
+    1: "w-28 h-28 md:w-44 md:h-44",
+    2: "w-22 h-22 md:w-36 md:h-36",
+    3: "w-18 h-18 md:w-28 md:h-28",
+  };
+  const gradients = {
+    1: "from-[#231a05] to-[#16100200] border-amber-900/40 shadow-[0_-30px_60px_rgba(245,158,11,0.12)]",
+    2: "from-[#141822] to-[#0e111800] border-slate-700/25",
+    3: "from-[#1a1105] to-[#12090000] border-orange-900/25",
+  };
+  const textColors = {
+    1: "text-amber-400",
+    2: "text-slate-300",
+    3: "text-orange-400/70",
+  };
 
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: rank * 0.08 }}
+      onClick={() =>
+        navigate(`/@${player.identity?.username || player.username}`)
+      }
+      className={cn(
+        "flex flex-col items-center justify-end cursor-pointer group",
+        heights[rank],
+      )}
+    >
+      <div
+        className={cn(
+          "relative flex items-end justify-center mb-[-12px] z-10 drop-shadow-2xl transition-transform group-hover:scale-105",
+          gifSizes[rank],
+        )}
+      >
+        {rank === 1 && (
+          <Crown className="absolute -top-7 left-1/2 -translate-x-1/2 w-7 h-7 text-amber-500 animate-bounce drop-shadow-[0_0_12px_rgba(245,158,11,0.9)] z-20" />
+        )}
+        <img
+          src={getAvatar(rankKey, player.identity?.gender)}
+          alt={`Rank ${rank}`}
+          className={cn(
+            "w-full h-full object-contain select-none pointer-events-none",
+            isMe && "brightness-110",
+          )}
+          draggable={false}
+          onContextMenu={(e) => e.preventDefault()}
+        />
+      </div>
+
+      <div
+        className={cn(
+          "w-full bg-gradient-to-t rounded-t-2xl flex flex-col items-center border relative overflow-hidden px-2 py-3 flex-1",
+          gradients[rank],
+        )}
+      >
+        {/* Shimmer on rank 1 */}
+        {rank === 1 && (
+          <motion.div
+            animate={{ x: ["-100%", "200%"] }}
+            transition={{ duration: 3, repeat: Infinity, ease: "linear" }}
+            className="absolute inset-y-0 w-1/2 bg-gradient-to-r from-transparent via-amber-500/8 to-transparent pointer-events-none"
+          />
+        )}
+
+        <p
+          className={cn(
+            "text-[10px] md:text-xs font-black truncate w-full text-center",
+            textColors[rank],
+          )}
+        >
+          {resolvePlayerName(player, true)}
+        </p>
+        <p className="text-[8px] md:text-[9px] text-white/30 font-mono truncate w-full text-center">
+          @{player.identity?.username || "—"}
+        </p>
+
+        {/* Premium logo */}
+        {player.tier === "PRO" && (
+          <img
+            src="/logo-premium.png"
+            alt="Pro"
+            className="w-4 h-4 object-contain mt-0.5 opacity-80"
+          />
+        )}
+
+        <p className="text-[7px] md:text-[8px] font-bold uppercase tracking-widest text-white/20 truncate w-full text-center mt-0.5">
+          {player.identity?.niche || "General"}
+        </p>
+
+        <div
+          className={cn(
+            "mt-auto font-mono font-black text-sm md:text-base opacity-20",
+            textColors[rank],
+          )}
+        >
+          {String(rank).padStart(2, "0")}
+        </div>
+
+        <div
+          className={cn("text-[9px] font-black font-mono", textColors[rank])}
+        >
+          {(player.discotiveScore?.current || 0).toLocaleString()} pts
+        </div>
+      </div>
+    </motion.div>
+  );
+};
+
+// ─── Player row (desktop table row + mobile card) ─────────────────────────────
+const PlayerRow = ({
+  player,
+  rank,
+  isMe,
+  onClick,
+  resolvePlayerName,
+  myRank,
+}) => {
+  const score = player.discotiveScore?.current || 0;
+  const last24 = player.discotiveScore?.last24h || score;
+  const delta = score - last24;
+  const vault = player.vault?.length || 0;
+  const streak = player.discotiveScore?.streak || 0;
+  const levelStr = player.identity?.level || player.level || "L1";
+  const levelKey = getLevelKey(levelStr);
+  const aura = LEVEL_AURA[levelKey];
+  const levelCode = levelStr.split(" - ")[0] || "L1";
+  const isNextTarget = myRank && rank === myRank - 1;
+
+  const initials = (
+    player.identity?.firstName?.charAt(0) ||
+    player.identity?.fullName?.charAt(0) ||
+    player.identity?.username?.charAt(0) ||
+    "?"
+  ).toUpperCase();
+
+  const name = resolvePlayerName(player);
+  const username = player.identity?.username || player.username || "—";
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, x: -8 }}
+      animate={{ opacity: 1, x: 0 }}
+      exit={{ opacity: 0 }}
+      onClick={onClick}
+      className={cn(
+        "group cursor-pointer transition-all duration-200 border-b border-white/[0.03] relative overflow-hidden",
+        isMe
+          ? "bg-amber-500/[0.06] hover:bg-amber-500/[0.1]"
+          : isNextTarget
+            ? "bg-sky-500/[0.04] hover:bg-sky-500/[0.08]"
+            : "hover:bg-white/[0.025]",
+        aura.card.includes("L5") || aura.card.includes("L4") ? aura.glow : "",
+      )}
+    >
+      {/* DESKTOP ROW */}
+      <div className="hidden md:grid grid-cols-[52px_2fr_1.2fr_100px_70px_70px_100px] gap-3 items-center px-5 py-4">
+        {/* Rank # */}
+        <div
+          className={cn(
+            "text-center font-mono font-black text-sm",
+            rank === 1
+              ? "text-amber-400"
+              : rank <= 3
+                ? "text-white/60"
+                : "text-white/25",
+          )}
+        >
+          {rank <= 3 ? (
+            <span
+              className={cn(
+                "text-lg",
+                rank === 1
+                  ? "text-amber-500"
+                  : rank === 2
+                    ? "text-slate-400"
+                    : "text-orange-500/60",
+              )}
+            >
+              {rank === 1 ? "🥇" : rank === 2 ? "🥈" : "🥉"}
+            </span>
+          ) : (
+            rank
+          )}
+        </div>
+
+        {/* Operator */}
+        <div className="flex items-center gap-3 min-w-0">
+          <div
+            className={cn(
+              "w-9 h-9 rounded-xl border-2 shrink-0 flex items-center justify-center text-xs font-black transition-all group-hover:scale-110",
+              aura.ring,
+              aura.badge.split(" ").slice(-1)[0],
+            )}
+          >
+            {initials}
+          </div>
+          <div className="min-w-0">
+            <div className="flex items-center gap-1.5">
+              <span
+                className={cn(
+                  "text-sm font-bold truncate transition-colors",
+                  isMe
+                    ? "text-amber-400"
+                    : "text-white/90 group-hover:text-white",
+                )}
+              >
+                {name}
+              </span>
+              {player.tier === "PRO" && (
+                <img
+                  src="/logo-premium.png"
+                  alt="Pro"
+                  className="w-4 h-4 object-contain shrink-0"
+                />
+              )}
+              {isMe && (
+                <span className="text-[8px] font-black bg-amber-500/20 border border-amber-500/30 text-amber-400 px-1.5 py-0.5 rounded uppercase tracking-widest shrink-0">
+                  You
+                </span>
+              )}
+              {isNextTarget && (
+                <span className="text-[8px] font-black bg-sky-500/15 border border-sky-500/25 text-sky-400 px-1.5 py-0.5 rounded uppercase tracking-widest shrink-0">
+                  Target
+                </span>
+              )}
+            </div>
+            <span className="text-[10px] text-white/30 font-mono">
+              @{username}
+            </span>
+          </div>
+        </div>
+
+        {/* Domain/Niche */}
+        <div className="min-w-0">
+          <p className="text-xs text-white/60 truncate">
+            {player.identity?.domain || "—"}
+          </p>
+          <p className="text-[10px] text-white/25 truncate">
+            {player.identity?.niche || "General"}
+          </p>
+        </div>
+
+        {/* Level badge */}
+        <div>
+          <span
+            className={cn(
+              "px-2 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest border",
+              aura.badge,
+            )}
+          >
+            {levelCode}
+          </span>
+        </div>
+
+        {/* Vault */}
+        <div className="text-center">
+          <div className="flex items-center justify-center gap-1">
+            <Database className="w-3 h-3 text-emerald-500/50 shrink-0" />
+            <span className="text-xs font-mono text-white/50">{vault}</span>
+          </div>
+        </div>
+
+        {/* Streak */}
+        <div className="text-center">
+          <div className="flex items-center justify-center gap-1">
+            <Flame
+              className={cn(
+                "w-3 h-3 shrink-0",
+                streak >= 7 ? "text-orange-400" : "text-white/20",
+              )}
+            />
+            <span
+              className={cn(
+                "text-xs font-mono",
+                streak >= 7 ? "text-orange-400" : "text-white/30",
+              )}
+            >
+              {streak}d
+            </span>
+          </div>
+        </div>
+
+        {/* Score */}
+        <div className="text-right">
+          <div
+            className={cn(
+              "font-mono text-sm font-black",
+              rank <= 3 ? "text-amber-400" : "text-white/80",
+            )}
+          >
+            {score.toLocaleString()}
+          </div>
+          {delta !== 0 && (
+            <div
+              className={cn(
+                "flex items-center justify-end gap-0.5 text-[9px] font-bold mt-0.5",
+                delta > 0 ? "text-emerald-400" : "text-rose-400",
+              )}
+            >
+              {delta > 0 ? (
+                <TrendingUp className="w-2.5 h-2.5" />
+              ) : (
+                <TrendingDown className="w-2.5 h-2.5" />
+              )}
+              {delta > 0 ? `+${delta}` : delta}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* MOBILE CARD */}
+      <div className="flex md:hidden items-start gap-3 px-4 py-3.5">
+        {/* Rank */}
+        <div className="w-8 shrink-0 text-center pt-1">
+          {rank <= 3 ? (
+            <span className="text-lg">
+              {rank === 1 ? "🥇" : rank === 2 ? "🥈" : "🥉"}
+            </span>
+          ) : (
+            <span className="text-xs font-black font-mono text-white/25">
+              #{rank}
+            </span>
+          )}
+        </div>
+
+        {/* Avatar */}
+        <div
+          className={cn(
+            "w-10 h-10 rounded-xl border-2 shrink-0 flex items-center justify-center text-sm font-black",
+            aura.ring,
+            aura.badge.split(" ").slice(-1)[0],
+          )}
+        >
+          {initials}
+        </div>
+
+        {/* Info */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span
+              className={cn(
+                "text-sm font-bold",
+                isMe ? "text-amber-400" : "text-white/90",
+              )}
+            >
+              {name}
+            </span>
+            {player.tier === "PRO" && (
+              <img
+                src="/logo-premium.png"
+                alt="Pro"
+                className="w-3.5 h-3.5 object-contain shrink-0"
+              />
+            )}
+            {isMe && (
+              <span className="text-[7px] font-black bg-amber-500/20 border border-amber-500/30 text-amber-400 px-1.5 py-0.5 rounded uppercase tracking-widest">
+                You
+              </span>
+            )}
+            {isNextTarget && (
+              <span className="text-[7px] font-black bg-sky-500/15 border border-sky-500/25 text-sky-400 px-1.5 py-0.5 rounded uppercase tracking-widest">
+                Target
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+            <span className="text-[9px] text-white/30 font-mono">
+              @{username}
+            </span>
+            <span className="text-[9px] text-white/25">·</span>
+            <span
+              className={cn(
+                "text-[8px] font-black px-1.5 py-0.5 rounded border",
+                aura.badge,
+              )}
+            >
+              {levelCode}
+            </span>
+          </div>
+          <p className="text-[9px] text-white/20 mt-0.5 truncate">
+            {player.identity?.domain || "—"} ·{" "}
+            {player.identity?.niche || "General"}
+          </p>
+        </div>
+
+        {/* Score */}
+        <div className="shrink-0 text-right">
+          <div
+            className={cn(
+              "font-mono text-sm font-black",
+              rank <= 3 ? "text-amber-400" : "text-white/80",
+            )}
+          >
+            {score.toLocaleString()}
+          </div>
+          {delta !== 0 && (
+            <div
+              className={cn(
+                "flex items-center justify-end gap-0.5 text-[8px] font-bold",
+                delta > 0 ? "text-emerald-400" : "text-rose-400",
+              )}
+            >
+              {delta > 0 ? (
+                <TrendingUp className="w-2.5 h-2.5" />
+              ) : (
+                <TrendingDown className="w-2.5 h-2.5" />
+              )}
+              {delta > 0 ? `+${delta}` : delta}
+            </div>
+          )}
+        </div>
+      </div>
+    </motion.div>
+  );
+};
+
+// ─── Player detail sidebar ─────────────────────────────────────────────────────
+const PlayerSidebar = ({
+  player,
+  onClose,
+  onCompare,
+  resolvePlayerName,
+  navigate,
+}) => {
+  const score = player.discotiveScore?.current || 0;
+  const vault = player.vault || [];
+  const allies = player.allies || [];
+  const skills = player.skills?.alignedSkills || [];
+  const name = resolvePlayerName(player);
+  const level = player.identity?.level || "L1";
+  const lk = getLevelKey(level);
+  const aura = LEVEL_AURA[lk];
+
+  const radarData = [
+    { metric: "Execution", val: Math.min(100, score / 50) },
+    { metric: "Vault", val: Math.min(100, vault.length * 10) },
+    { metric: "Network", val: Math.min(100, allies.length * 5) },
+    { metric: "Skills", val: Math.min(100, skills.length * 10) },
+    {
+      metric: "Streak",
+      val: Math.min(100, (player.discotiveScore?.streak || 0) * 3),
+    },
+  ];
+
+  return (
+    <motion.aside
+      initial={{ opacity: 0, x: 40 }}
+      animate={{ opacity: 1, x: 0 }}
+      exit={{ opacity: 0, x: 40 }}
+      transition={{ type: "spring", damping: 25, stiffness: 200 }}
+      className="fixed md:relative inset-0 md:inset-auto z-[200] md:z-auto md:w-[340px] lg:w-[380px] shrink-0 bg-[#050505] border-l border-[#1a1a1a] flex flex-col overflow-hidden"
+    >
+      {/* Header */}
+      <div className="flex items-center justify-between p-5 border-b border-[#111] bg-[#080808] shrink-0">
+        <p className="text-[9px] font-black text-white/30 uppercase tracking-widest">
+          Operator Profile
+        </p>
+        <button
+          onClick={onClose}
+          className="p-1.5 bg-white/[0.04] border border-white/[0.06] rounded-lg hover:bg-white/10 transition-colors"
+        >
+          <X className="w-3.5 h-3.5 text-white/50" />
+        </button>
+      </div>
+
+      <div className="flex-1 overflow-y-auto custom-scrollbar p-5 space-y-5">
+        {/* Identity */}
+        <div className="flex items-start gap-4">
+          <div
+            className={cn(
+              "w-14 h-14 rounded-2xl border-2 shrink-0 flex items-center justify-center text-xl font-black",
+              aura.ring,
+              aura.badge.split(" ").slice(-1)[0],
+            )}
+          >
+            {(player.identity?.firstName?.charAt(0) || "?").toUpperCase()}
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h3 className="text-base font-black text-white">{name}</h3>
+              {player.tier === "PRO" && (
+                <img
+                  src="/logo-premium.png"
+                  alt="Pro"
+                  className="w-5 h-5 object-contain"
+                />
+              )}
+            </div>
+            <p className="text-xs text-white/30 font-mono">
+              @{player.identity?.username || "—"}
+            </p>
+            <span
+              className={cn(
+                "inline-flex mt-1.5 text-[8px] font-black px-2 py-0.5 rounded-md border uppercase tracking-widest",
+                aura.badge,
+              )}
+            >
+              {(player.identity?.level || "L1").split(" - ")[0]}
+            </span>
+          </div>
+        </div>
+
+        {/* Meta */}
+        <div className="space-y-2">
+          {player.identity?.domain && (
+            <div className="flex items-center gap-2 text-xs text-white/40">
+              <Target className="w-3.5 h-3.5 text-amber-500/50 shrink-0" />
+              {player.identity.domain}
+              {player.identity.niche ? ` · ${player.identity.niche}` : ""}
+            </div>
+          )}
+          {(player.footprint?.location || player.identity?.country) && (
+            <div className="flex items-center gap-2 text-xs text-white/40">
+              <MapPin className="w-3.5 h-3.5 shrink-0" />
+              {player.footprint?.location || player.identity?.country}
+            </div>
+          )}
+        </div>
+
+        {/* Stats grid */}
+        <div className="grid grid-cols-3 gap-2">
+          {[
+            {
+              label: "Score",
+              val: score.toLocaleString(),
+              icon: Zap,
+              color: "text-amber-400",
+            },
+            {
+              label: "Vault",
+              val: vault.length,
+              icon: Database,
+              color: "text-emerald-400",
+            },
+            {
+              label: "Allies",
+              val: allies.length,
+              icon: Users,
+              color: "text-violet-400",
+            },
+          ].map(({ label, val, icon: Icon, color }) => (
+            <div
+              key={label}
+              className="bg-white/[0.02] border border-white/[0.04] rounded-xl p-3 text-center"
+            >
+              <Icon className={cn("w-4 h-4 mx-auto mb-1.5", color)} />
+              <p className="text-xs font-mono font-black text-white">{val}</p>
+              <p className="text-[8px] text-white/25 uppercase tracking-widest mt-0.5">
+                {label}
+              </p>
+            </div>
+          ))}
+        </div>
+
+        {/* Radar */}
+        <div className="bg-white/[0.02] border border-white/[0.04] rounded-2xl p-4">
+          <p className="text-[8px] font-black text-white/30 uppercase tracking-widest text-center mb-3">
+            Execution Telemetry
+          </p>
+          <div className="h-[160px]">
+            <ResponsiveContainer width="100%" height="100%">
+              <RadarChart cx="50%" cy="50%" outerRadius="65%" data={radarData}>
+                <PolarGrid stroke="rgba(255,255,255,0.06)" />
+                <PolarAngleAxis
+                  dataKey="metric"
+                  tick={{ fill: "rgba(255,255,255,0.3)", fontSize: 8 }}
+                />
+                <Radar
+                  name="Operator"
+                  dataKey="val"
+                  stroke="#f59e0b"
+                  fill="#f59e0b"
+                  fillOpacity={0.15}
+                />
+              </RadarChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        {/* Skills */}
+        {skills.length > 0 && (
+          <div>
+            <p className="text-[8px] font-black text-white/25 uppercase tracking-widest mb-2">
+              Capabilities
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {skills.slice(0, 8).map((s, i) => (
+                <span
+                  key={i}
+                  className="px-2 py-1 bg-white/[0.03] border border-white/[0.05] rounded-lg text-[9px] font-bold text-white/50"
+                >
+                  {s}
+                </span>
+              ))}
+              {skills.length > 8 && (
+                <span className="text-[9px] text-white/20 self-center">
+                  +{skills.length - 8}
+                </span>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Bio */}
+        {player.footprint?.bio && (
+          <div>
+            <p className="text-[8px] font-black text-white/25 uppercase tracking-widest mb-2">
+              Bio
+            </p>
+            <p className="text-xs text-white/40 leading-relaxed">
+              {player.footprint.bio}
+            </p>
+          </div>
+        )}
+
+        {/* Vault assets */}
+        {vault.filter((v) => v.status === "VERIFIED").length > 0 && (
+          <div>
+            <p className="text-[8px] font-black text-white/25 uppercase tracking-widest mb-2">
+              Verified Assets
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {vault
+                .filter((v) => v.status === "VERIFIED")
+                .slice(0, 3)
+                .map((a, i) => (
+                  <span
+                    key={i}
+                    className="flex items-center gap-1 px-2 py-1 bg-emerald-500/8 border border-emerald-500/20 rounded-lg text-[8px] font-bold text-emerald-400"
+                  >
+                    <ShieldCheck className="w-2.5 h-2.5" />
+                    {a.category || "Asset"}
+                  </span>
+                ))}
+              {vault.filter((v) => v.status === "VERIFIED").length > 3 && (
+                <span className="text-[9px] text-white/25">
+                  +{vault.filter((v) => v.status === "VERIFIED").length - 3}
+                </span>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Actions */}
+      <div className="p-4 border-t border-[#111] bg-[#080808] shrink-0 flex flex-col gap-2">
+        <button
+          onClick={onCompare}
+          className="w-full py-2.5 bg-white/[0.04] border border-white/[0.08] hover:bg-white/[0.08] text-white text-xs font-black rounded-xl transition-colors flex items-center justify-center gap-2 uppercase tracking-widest"
+        >
+          <Crosshair className="w-4 h-4" /> X-Ray Analysis
+        </button>
+        <button
+          onClick={() =>
+            navigate(`/@${player.identity?.username || player.username}`)
+          }
+          className="w-full py-2.5 bg-white text-black text-xs font-black rounded-xl hover:bg-[#ddd] transition-colors flex items-center justify-center gap-2 uppercase tracking-widest shadow-[0_0_20px_rgba(255,255,255,0.1)]"
+        >
+          <Eye className="w-4 h-4" /> View Public Profile
+        </button>
+      </div>
+    </motion.aside>
+  );
+};
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// MAIN COMPONENT
+// ═══════════════════════════════════════════════════════════════════════════════
 const Leaderboard = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { userData, loading: userLoading } = useUserData();
 
-  // --- STATE MATRIX ---
+  // ── Data state ──────────────────────────────────────────────────────────
   const [players, setPlayers] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [isPaginating, setIsPaginating] = useState(false);
+  const [isPaging, setIsPaging] = useState(false);
+  const [fetchError, setFetchError] = useState(null);
 
-  const [firstVisibleDoc, setFirstVisibleDoc] = useState(null);
-  const [lastVisibleDoc, setLastVisibleDoc] = useState(null);
-  const [currentPage, setCurrentPage] = useState(1);
-  const [hasMoreNext, setHasMoreNext] = useState(false);
-  const [hasMorePrev, setHasMorePrev] = useState(false);
-  const [totalFilteredUsers, setTotalFilteredUsers] = useState(0);
+  // ── Pagination cursors ──────────────────────────────────────────────────
+  const [firstDoc, setFirstDoc] = useState(null);
+  const [lastDoc, setLastDoc] = useState(null);
+  const [page, setPage] = useState(1);
+  const [hasNext, setHasNext] = useState(false);
+  const [hasPrev, setHasPrev] = useState(false);
+  const [totalCount, setTotalCount] = useState(0);
 
-  // --- PSYCHOLOGY ENGINE ---
-  const [myExactRank, setMyExactRank] = useState(null);
+  // ── Rank telemetry ──────────────────────────────────────────────────────
+  const [myRank, setMyRank] = useState(null);
   const [nextTarget, setNextTarget] = useState(null);
+  const [percentile, setPercentile] = useState(null);
 
-  // --- UI & FILTERS ---
-  const [isFilterOpen, setIsFilterOpen] = useState(false);
-  const [selectedUserProfile, setSelectedUserProfile] = useState(null);
+  // ── UI ──────────────────────────────────────────────────────────────────
   const [filters, setFilters] = useState({
-    search: "",
+    search: searchParams.get("q") || "",
     domain: "",
     niche: "",
     level: "",
     country: "",
-    state: "",
-    sortBy: "desc",
+    sortBy: "score_desc",
     pageSize: 15,
   });
-
-  // --- COMPARE ENGINE ---
-  const [isUpsellOpen, setIsUpsellOpen] = useState(false);
+  const [selectedUser, setSelectedUser] = useState(null);
+  const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [compareTarget, setCompareTarget] = useState(null);
   const [isCompareOpen, setIsCompareOpen] = useState(false);
+  const [isUpsellOpen, setIsUpsellOpen] = useState(false);
+  const [toasts, setToasts] = useState([]);
+  const [searchInput, setSearchInput] = useState(filters.search);
 
-  // --- ERROR STATE ---
-  const [fetchError, setFetchError] = useState(null);
+  const searchDebounceRef = useRef(null);
+  const lastFetchFilterRef = useRef("");
 
-  /**
-   * @description
-   * Ghost user detection. Leaderboard is the ONE module ghost users
-   * can view in read-only mode. Their "WHERE AM I?" bar is locked
-   * with an onboarding CTA instead of rank data.
-   */
+  // ── Helpers ─────────────────────────────────────────────────────────────
   const isGhostUser = useMemo(
     () =>
       userData?.isGhostUser === true || userData?.onboardingComplete === false,
     [userData],
   );
 
-  // ============================================================================
-  // 4. FIREBASE TELEMETRY ENGINE
-  // ============================================================================
+  const isPro = userData?.tier === "PRO" || userData?.tier === "ENTERPRISE";
 
-  const applyFilterConstraints = useCallback(
-    (constraintsArray) => {
-      /**
-       * @description
-       * Only include fully-onboarded users in the leaderboard.
-       * Ghost users (onboardingComplete: false) should not appear
-       * in rankings — they have score: 0 and no identity data.
-       */
-      constraintsArray.push(where("onboardingComplete", "==", true));
+  const addToast = (message, type = "default") => {
+    const id = Date.now();
+    setToasts((t) => [...t, { id, message, type }]);
+    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 4000);
+  };
+
+  const resolvePlayerName = useCallback((player, firstOnly = false) => {
+    const id = player?.identity || {};
+    if (id.firstName) {
+      const full = `${id.firstName} ${id.lastName || ""}`.trim();
+      return firstOnly ? id.firstName : full;
+    }
+    if (id.fullName) return firstOnly ? id.fullName.split(" ")[0] : id.fullName;
+    if (id.username) return `@${id.username}`;
+    return "Operator";
+  }, []);
+
+  // ── Filter constraints builder ──────────────────────────────────────────
+  const buildConstraints = useCallback(
+    (extra = []) => {
+      const c = [where("onboardingComplete", "==", true), ...extra];
       if (filters.domain)
-        constraintsArray.push(where("identity.domain", "==", filters.domain));
-      if (filters.niche)
-        constraintsArray.push(where("identity.niche", "==", filters.niche));
-      if (filters.level)
-        constraintsArray.push(where("identity.level", "==", filters.level));
+        c.push(where("identity.domain", "==", filters.domain));
+      if (filters.niche) c.push(where("identity.niche", "==", filters.niche));
+      if (filters.level) c.push(where("identity.level", "==", filters.level));
       if (filters.country)
-        constraintsArray.push(where("identity.country", "==", filters.country));
-      if (filters.state)
-        constraintsArray.push(where("identity.state", "==", filters.state));
-      return constraintsArray;
+        c.push(where("identity.country", "==", filters.country));
+      return c;
     },
-    [
-      filters.domain,
-      filters.niche,
-      filters.level,
-      filters.country,
-      filters.state,
-    ],
+    [filters.domain, filters.niche, filters.level, filters.country],
   );
 
-  const fetchTelemetryAndTarget = useCallback(async () => {
-    // Ghost users don't participate — no rank to calculate
-    if (isGhostUser || !userData?.discotiveScore?.current) return;
-    try {
-      const baseConstraints = applyFilterConstraints([]);
-
-      const rankQuery = query(
-        collection(db, "users"),
-        ...baseConstraints,
-        where("discotiveScore.current", ">", userData.discotiveScore.current),
-      );
-      const rankSnap = await getCountFromServer(rankQuery);
-      setMyExactRank(rankSnap.data().count + 1);
-
-      const targetQuery = query(
-        collection(db, "users"),
-        ...baseConstraints,
-        where("discotiveScore.current", ">", userData.discotiveScore.current),
-        orderBy("discotiveScore.current", "asc"),
-        limit(1),
-      );
-      const targetSnap = await getDocs(targetQuery);
-      if (!targetSnap.empty) {
-        setNextTarget({
-          id: targetSnap.docs[0].id,
-          ...targetSnap.docs[0].data(),
-        });
-      } else {
-        setNextTarget(null);
-      }
-    } catch (err) {
-      console.error("[Leaderboard] Telemetry engine failed:", err);
+  // ── Order by ────────────────────────────────────────────────────────────
+  const getOrderBy = () => {
+    switch (filters.sortBy) {
+      case "score_asc":
+        return [orderBy("discotiveScore.current", "asc")];
+      case "vault_desc":
+        return [
+          orderBy("vault_count", "desc"),
+          orderBy("discotiveScore.current", "desc"),
+        ];
+      case "streak_desc":
+        return [orderBy("discotiveScore.streak", "desc")];
+      default:
+        return [orderBy("discotiveScore.current", "desc")];
     }
-  }, [isGhostUser, userData, applyFilterConstraints]);
+  };
 
+  // ── Main fetch ──────────────────────────────────────────────────────────
   const executeFetch = useCallback(
     async (direction = "initial") => {
       setFetchError(null);
-      if (direction === "initial") setIsLoading(true);
-      else setIsPaginating(true);
+      if (direction === "initial") {
+        setIsLoading(true);
+        setPage(1);
+      } else setIsPaging(true);
 
       try {
         let q;
 
-        // --- BRANCH A: THE SEARCH ENGINE ---
         if (filters.search) {
-          const searchTerm = filters.search; // Case sensitive prefix search
+          // Prefix search on username — no composite index needed
+          const term = filters.search.toLowerCase();
           q = query(
             collection(db, "users"),
-            where("identity.username", ">=", searchTerm),
-            where("identity.username", "<=", searchTerm + "\uf8ff"),
-            limit(20),
+            where("onboardingComplete", "==", true),
+            where("identity.username", ">=", term),
+            where("identity.username", "<=", term + "\uf8ff"),
+            limit(30),
           );
-        }
-        // --- BRANCH B: THE FILTERED MATRIX ---
-        else {
-          let constraints = [];
-          constraints = applyFilterConstraints(constraints);
-          constraints.push(orderBy("discotiveScore.current", filters.sortBy));
+        } else {
+          const constraints = buildConstraints();
+          const ordering = getOrderBy();
 
-          if (direction === "next" && lastVisibleDoc) {
-            constraints.push(
-              startAfter(lastVisibleDoc),
+          if (direction === "next" && lastDoc) {
+            q = query(
+              collection(db, "users"),
+              ...constraints,
+              ...ordering,
+              startAfter(lastDoc),
               limit(filters.pageSize),
             );
-          } else if (direction === "prev" && firstVisibleDoc) {
-            constraints.push(
-              endBefore(firstVisibleDoc),
+          } else if (direction === "prev" && firstDoc) {
+            q = query(
+              collection(db, "users"),
+              ...constraints,
+              ...ordering,
+              endBefore(firstDoc),
               limitToLast(filters.pageSize),
             );
           } else {
-            constraints.push(limit(filters.pageSize));
-          }
-          q = query(collection(db, "users"), ...constraints);
-        }
-
-        const snapshot = await getDocs(q);
-
-        if (!snapshot.empty) {
-          const docs = snapshot.docs;
-          setFirstVisibleDoc(docs[0]);
-          setLastVisibleDoc(docs[docs.length - 1]);
-
-          let fetchedPlayers = docs.map((doc) => ({
-            id: doc.id,
-            ...doc.data(),
-          }));
-
-          // If we used the Search Branch, we must sort them locally by score
-          // since Firebase only allows one inequality filter per query.
-          if (filters.search) {
-            fetchedPlayers.sort(
-              (a, b) =>
-                (b.discotiveScore?.current || 0) -
-                (a.discotiveScore?.current || 0),
+            q = query(
+              collection(db, "users"),
+              ...constraints,
+              ...ordering,
+              limit(filters.pageSize),
             );
           }
-
-          setPlayers(fetchedPlayers);
-
-          // Pagination State
-          if (direction === "initial") {
-            setCurrentPage(1);
-            setHasMorePrev(false);
-            setHasMoreNext(
-              docs.length === (filters.search ? 20 : filters.pageSize),
-            );
-          } else if (direction === "next") {
-            setCurrentPage((c) => c + 1);
-            setHasMorePrev(true);
-            setHasMoreNext(docs.length === filters.pageSize);
-          } else if (direction === "prev") {
-            setCurrentPage((c) => c - 1);
-            setHasMoreNext(true);
-            setHasMorePrev(currentPage - 1 > 1);
-          }
-        } else {
-          if (direction === "initial") setPlayers([]);
-          setHasMoreNext(false);
         }
+
+        const snap = await getDocs(q);
+        const docs = snap.docs;
+
+        let fetched = docs.map((d) => ({ id: d.id, ...d.data() }));
+
+        // Local sort for search (Firebase can't combine inequality + order on different field)
+        if (filters.search) {
+          fetched.sort(
+            (a, b) =>
+              (b.discotiveScore?.current || 0) -
+              (a.discotiveScore?.current || 0),
+          );
+        }
+
+        setPlayers(fetched);
+        if (docs.length > 0) {
+          setFirstDoc(docs[0]);
+          setLastDoc(docs[docs.length - 1]);
+        }
+
+        if (direction === "initial") {
+          setHasPrev(false);
+          setHasNext(docs.length === (filters.search ? 30 : filters.pageSize));
+          setPage(1);
+        } else if (direction === "next") {
+          setPage((p) => p + 1);
+          setHasPrev(true);
+          setHasNext(docs.length === filters.pageSize);
+        } else if (direction === "prev") {
+          setPage((p) => p - 1);
+          setHasNext(true);
+          setHasPrev(page - 1 > 1);
+        }
+
+        if (docs.length === 0 && direction === "initial") setPlayers([]);
       } catch (err) {
-        console.error("[Leaderboard] Firebase query failed:", err.message);
-        /**
-         * @description
-         * Replace alert() with inline error state. If this fires, a Firestore
-         * composite index is missing. The console will print the exact URL to
-         * create it. Do NOT use alert() in production — it blocks the thread.
-         */
+        console.error("[Leaderboard] Fetch failed:", err.message);
         setFetchError(
-          "Matrix index building in progress. Try a broader filter or check console for the index creation link.",
+          "Index building in progress or filter not yet supported. Try a broader filter, or check the console for an index creation link.",
         );
       } finally {
         setIsLoading(false);
-        setIsPaginating(false);
+        setIsPaging(false);
       }
     },
-    [
-      filters,
-      applyFilterConstraints,
-      lastVisibleDoc,
-      firstVisibleDoc,
-      currentPage,
-    ],
+    [filters, buildConstraints, lastDoc, firstDoc, page],
   ); // eslint-disable-line
 
+  // ── Rank + count (only on filter change, quota-safe) ────────────────────
+  const fetchRankAndCount = useCallback(async () => {
+    if (isGhostUser || !userData?.discotiveScore) return;
+
+    const cacheKey = JSON.stringify({
+      domain: filters.domain,
+      niche: filters.niche,
+      level: filters.level,
+      country: filters.country,
+    });
+    if (cacheKey === lastFetchFilterRef.current) return;
+    lastFetchFilterRef.current = cacheKey;
+
+    try {
+      const constraints = buildConstraints();
+
+      // Total count (1 Firestore read)
+      const totalSnap = await getCountFromServer(
+        query(collection(db, "users"), ...constraints),
+      );
+      const total = totalSnap.data().count;
+      setTotalCount(total);
+
+      // My rank (1 Firestore read)
+      const myScore = userData.discotiveScore.current;
+      const rankSnap = await getCountFromServer(
+        query(
+          collection(db, "users"),
+          ...constraints,
+          where("discotiveScore.current", ">", myScore),
+        ),
+      );
+      const newRank = rankSnap.data().count + 1;
+      setMyRank(newRank);
+      setPercentile(total > 0 ? Math.ceil((newRank / total) * 100) : 100);
+
+      // Next target (1 Firestore read — getDocs of 1 doc)
+      const targetSnap = await getDocs(
+        query(
+          collection(db, "users"),
+          ...constraints,
+          where("discotiveScore.current", ">", myScore),
+          orderBy("discotiveScore.current", "asc"),
+          limit(1),
+        ),
+      );
+      setNextTarget(
+        targetSnap.empty
+          ? null
+          : { id: targetSnap.docs[0].id, ...targetSnap.docs[0].data() },
+      );
+
+      // Notification logic (async, non-blocking)
+      const uid = userData.uid || userData.id;
+      if (uid) maybeWriteRankNotification(uid, newRank, total).catch(() => {});
+    } catch (e) {
+      console.error("[Leaderboard] Rank engine:", e);
+    }
+  }, [isGhostUser, userData, buildConstraints, filters]);
+
+  // ── Effects ──────────────────────────────────────────────────────────────
   useEffect(() => {
     if (userLoading) return;
     executeFetch("initial");
-    fetchTelemetryAndTarget();
-
-    const fetchCount = async () => {
-      try {
-        const constraints = applyFilterConstraints([]);
-        const countSnap = await getCountFromServer(
-          query(collection(db, "users"), ...constraints),
-        );
-        setTotalFilteredUsers(countSnap.data().count);
-      } catch (_) {}
-    };
-    fetchCount();
+    fetchRankAndCount();
   }, [
     filters.domain,
     filters.niche,
     filters.level,
     filters.country,
-    filters.state,
     filters.sortBy,
     filters.pageSize,
     userLoading,
-    // executeFetch and others are stable via useCallback
   ]); // eslint-disable-line
 
+  // Search debounce
   useEffect(() => {
-    if (userLoading) return;
-    const timer = setTimeout(() => executeFetch("initial"), 500);
-    return () => clearTimeout(timer);
-  }, [filters.search]); // eslint-disable-line
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    searchDebounceRef.current = setTimeout(() => {
+      setFilters((f) => ({ ...f, search: searchInput }));
+      if (!userLoading) executeFetch("initial");
+    }, 500);
+    return () => clearTimeout(searchDebounceRef.current);
+  }, [searchInput]); // eslint-disable-line
 
-  // ============================================================================
-  // 5. EVENT HANDLERS
-  // ============================================================================
+  // ── Derived ──────────────────────────────────────────────────────────────
+  const isFirstPage = page === 1;
+  const top3 = isFirstPage && !filters.search ? players.slice(0, 3) : [];
+  const listPlayers =
+    isFirstPage && !filters.search ? players.slice(3) : players;
 
-  const handleUserClick = (user) => {
-    setIsFilterOpen(false);
-    setSelectedUserProfile(user);
-  };
-
-  const triggerCompare = useCallback(
-    (e, targetUser) => {
-      e.stopPropagation();
-      if (!userData) return navigate("/auth");
-      if (targetUser.id === userData?.uid) return;
-
-      // Ghost users cannot use the compare engine
-      if (isGhostUser) {
-        setIsUpsellOpen(true);
-        return;
-      }
-
-      if (userData.tier !== "PRO" && userData.tier !== "ENTERPRISE") {
-        setIsUpsellOpen(true);
-        return;
-      }
-
-      setCompareTarget(targetUser);
-      setIsCompareOpen(true);
-    },
-    [userData, isGhostUser, navigate],
+  const myPlayerObj = players.find(
+    (p) =>
+      p.id === userData?.uid ||
+      p.id === userData?.id ||
+      p.identity?.username === userData?.identity?.username,
   );
 
-  const toggleFilters = () => {
-    setSelectedUserProfile(null);
-    setIsFilterOpen(!isFilterOpen);
+  const activeFilterCount = [
+    filters.domain,
+    filters.niche,
+    filters.level,
+    filters.country,
+  ].filter(Boolean).length;
+  const isFirstRender = isLoading && players.length === 0;
+
+  // ── Handlers ─────────────────────────────────────────────────────────────
+  const handleCompare = (player) => {
+    if (isGhostUser || !isPro) {
+      setIsUpsellOpen(true);
+      return;
+    }
+    if (player.id === (userData?.uid || userData?.id)) return;
+    setCompareTarget(player);
+    setIsCompareOpen(true);
   };
 
   const clearFilters = () => {
-    setFilters({
-      search: "",
+    setFilters((f) => ({
+      ...f,
       domain: "",
       niche: "",
       level: "",
       country: "",
-      state: "",
-      sortBy: "desc",
-      pageSize: 15,
-    });
+    }));
+    setSearchInput("");
+    lastFetchFilterRef.current = "";
   };
 
-  // ============================================================================
-  // 6. RENDER PIPELINE
-  // ============================================================================
-
-  /**
-   * @function resolvePlayerName
-   * @description
-   * Auth.jsx stores names as `identity.firstName` + `identity.lastName`.
-   * Older docs or social-auth ghost docs may have `identity.fullName`.
-   * This resolver handles all cases without crashing.
-   */
-  const resolvePlayerName = useCallback((player, firstOnly = false) => {
-    const identity = player?.identity || {};
-    if (identity.firstName) {
-      const full = `${identity.firstName} ${identity.lastName || ""}`.trim();
-      return firstOnly ? identity.firstName : full;
-    }
-    if (identity.fullName) {
-      return firstOnly ? identity.fullName.split(" ")[0] : identity.fullName;
-    }
-    if (identity.username) return `@${identity.username}`;
-    return "Operator";
-  }, []);
-
-  if (userLoading || (isLoading && players.length === 0 && !filters.search)) {
+  // ─────────────────────────────────────────────────────────────────────────
+  if (userLoading || isFirstRender)
     return (
-      <div className="min-h-screen bg-[#000000] flex items-center justify-center">
+      <div className="min-h-screen bg-[#030303] flex items-center justify-center">
         <div className="flex flex-col items-center gap-6">
-          <Activity className="w-8 h-8 text-white/20 animate-spin" />
-          <span className="text-[10px] font-medium text-white/50 uppercase tracking-[0.2em]">
-            Syncing Matrix...
-          </span>
+          <div className="flex gap-1.5">
+            {[0, 1, 2, 3, 4].map((i) => (
+              <motion.div
+                key={i}
+                animate={{ opacity: [0.2, 1, 0.2], scaleY: [0.5, 1, 0.5] }}
+                transition={{ duration: 1, repeat: Infinity, delay: i * 0.12 }}
+                className="w-1 h-7 bg-amber-500 rounded-full origin-bottom"
+              />
+            ))}
+          </div>
+          <p className="text-[9px] text-white/30 uppercase tracking-[0.25em] font-bold">
+            Syncing Arena Matrix
+          </p>
         </div>
       </div>
     );
-  }
 
-  const isFirstPage = currentPage === 1;
-  const top3 = isFirstPage ? players.slice(0, 3) : [];
-  const isMeInTop3 = top3.some(
-    (p) =>
-      p &&
-      (p.id === userData?.uid ||
-        p.id === userData?.id ||
-        p.identity?.username === userData?.identity?.username),
-  );
-  const isSidebarActive = isFilterOpen || selectedUserProfile !== null;
-
+  // ─────────────────────────────────────────────────────────────────────────
   return (
-    <div className="flex flex-col h-screen bg-[#000000] text-[#f5f5f7] font-sans overflow-hidden selection:bg-white/20">
-      <div className="fixed inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-[0.02] pointer-events-none z-0" />
+    <div className="flex flex-col h-screen bg-[#030303] text-white font-sans overflow-hidden selection:bg-amber-500/20">
+      <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-[0.02] pointer-events-none z-0" />
 
-      {/* ==================== HEADER ==================== */}
-      <header className="px-6 py-5 border-b border-white/[0.05] bg-[#000000]/80 backdrop-blur-2xl z-20 flex flex-col md:flex-row md:items-center justify-between gap-4 shrink-0">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight text-white flex items-center gap-3">
-            <Database className="w-5 h-5 text-white/40" />
-            Discotive Arena
-          </h1>
-          <p className="text-xs text-white/40 mt-1 font-medium tracking-wide">
-            Real-time telemetry of top operators.{" "}
-            {totalFilteredUsers > 0
-              ? `${totalFilteredUsers} records found.`
-              : "Indexing..."}
-          </p>
-        </div>
-
-        <div className="flex items-center gap-3 w-full md:w-auto">
-          <div className="relative group w-full md:w-72">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/30 group-focus-within:text-white transition-colors" />
-            <input
-              type="text"
-              placeholder="Search by operator..."
-              value={filters.search}
-              onChange={(e) =>
-                setFilters((prev) => ({ ...prev, search: e.target.value }))
-              }
-              className="w-full bg-white/[0.03] border border-white/[0.05] text-white pl-9 pr-4 py-2 rounded-xl focus:outline-none focus:border-white/20 focus:bg-white/[0.05] transition-all text-sm placeholder:text-white/30"
-            />
-            {filters.search && (
-              <button
-                onClick={() => setFilters((prev) => ({ ...prev, search: "" }))}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white"
-              >
-                <X className="w-3 h-3" />
-              </button>
-            )}
+      <header className="relative z-20 shrink-0 border-b border-white/[0.05] bg-[#030303]/90 backdrop-blur-2xl px-4 md:px-6 py-4">
+        <div className="max-w-[1600px] mx-auto flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+          {/* Title Section */}
+          <div className="shrink-0 flex items-center justify-between w-full lg:w-auto">
+            <div>
+              <div className="flex items-center gap-2.5 mb-0.5">
+                <Trophy className="w-5 h-5 text-amber-500" />
+                <h1 className="text-base md:text-lg font-black tracking-tight text-white">
+                  Discotive Arena
+                </h1>
+              </div>
+              <p className="text-[9px] text-white/30 font-bold uppercase tracking-widest ml-7">
+                {totalCount > 0
+                  ? `${totalCount.toLocaleString()} operators`
+                  : "Live rankings"}{" "}
+                · Page {page}
+              </p>
+            </div>
           </div>
-          <button
-            onClick={toggleFilters}
-            className={cn(
-              "px-4 py-2 rounded-xl text-sm font-medium transition-all flex items-center gap-2 shrink-0 border",
-              isFilterOpen
-                ? "bg-white text-black border-white"
-                : "bg-white/[0.03] border-white/[0.05] text-white/70 hover:bg-white/[0.08] hover:text-white",
-            )}
-          >
-            <SlidersHorizontal className="w-4 h-4" />
-            Filters
-          </button>
+
+          {/* Controls Section (Search, Sort, Filters) */}
+          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 w-full lg:w-auto lg:flex-1 justify-end">
+            {/* Search */}
+            <div className="flex-1 relative group w-full lg:max-w-md">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/25 group-focus-within:text-amber-400 transition-colors" />
+              <input
+                type="text"
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
+                placeholder="Search @username…"
+                className="w-full bg-white/[0.03] border border-white/[0.06] text-white pl-9 pr-9 py-2.5 rounded-xl focus:outline-none focus:border-amber-500/40 focus:bg-white/[0.05] transition-all text-sm placeholder:text-white/20"
+              />
+              {searchInput && (
+                <button
+                  onClick={() => setSearchInput("")}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white transition-colors"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+
+            {/* Sort & Filters Wrapper */}
+            <div className="flex items-center gap-2 w-full sm:w-auto shrink-0">
+              {/* Sort (Hidden on small mobile, visible on sm+) */}
+              <div className="hidden sm:flex items-center gap-1.5 bg-white/[0.03] border border-white/[0.05] rounded-xl p-1">
+                {SORT_OPTIONS.map((o) => (
+                  <button
+                    key={o.value}
+                    onClick={() =>
+                      setFilters((f) => ({ ...f, sortBy: o.value }))
+                    }
+                    className={cn(
+                      "px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all",
+                      filters.sortBy === o.value
+                        ? "bg-amber-500/15 text-amber-400"
+                        : "text-white/25 hover:text-white/60",
+                    )}
+                  >
+                    {o.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Filter toggle */}
+              <button
+                onClick={() => {
+                  setIsFilterOpen((v) => !v);
+                  setSelectedUser(null);
+                }}
+                className={cn(
+                  "flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl border text-xs font-black transition-all uppercase tracking-widest",
+                  isFilterOpen || activeFilterCount > 0
+                    ? "bg-amber-500/15 border-amber-500/30 text-amber-400"
+                    : "bg-white/[0.03] border-white/[0.05] text-white/40 hover:border-white/15 hover:text-white/70",
+                )}
+              >
+                <SlidersHorizontal className="w-4 h-4" />
+                <span>Filters</span>
+                {activeFilterCount > 0 && (
+                  <span className="w-4 h-4 rounded-full bg-amber-500 text-black text-[8px] font-black flex items-center justify-center">
+                    {activeFilterCount}
+                  </span>
+                )}
+              </button>
+            </div>
+          </div>
         </div>
+
+        {/* Active filter pills */}
+        {activeFilterCount > 0 && (
+          <div className="max-w-[1600px] mx-auto mt-2 flex items-center gap-2 flex-wrap">
+            {[
+              { key: "domain", label: filters.domain },
+              { key: "niche", label: filters.niche },
+              { key: "level", label: filters.level },
+              { key: "country", label: filters.country },
+            ]
+              .filter((f) => f.label)
+              .map((f) => (
+                <div
+                  key={f.key}
+                  className="flex items-center gap-1.5 px-2.5 py-1 bg-amber-500/10 border border-amber-500/20 rounded-full text-[9px] font-bold text-amber-400"
+                >
+                  {f.label}
+                  <button
+                    onClick={() =>
+                      setFilters((prev) => ({ ...prev, [f.key]: "" }))
+                    }
+                    className="hover:text-amber-200 transition-colors"
+                  >
+                    <X className="w-2.5 h-2.5" />
+                  </button>
+                </div>
+              ))}
+            <button
+              onClick={clearFilters}
+              className="text-[9px] font-bold text-white/25 hover:text-white/60 transition-colors uppercase tracking-widest"
+            >
+              Clear all
+            </button>
+          </div>
+        )}
       </header>
 
-      {/* Ghost user read-only banner */}
+      {/* Ghost banner */}
       {isGhostUser && (
-        <div className="shrink-0 px-6 py-3 bg-amber-500/8 border-b border-amber-500/20 flex flex-col md:flex-row items-start md:items-center gap-3">
-          <div className="flex items-center gap-2.5 flex-1">
+        <div className="shrink-0 px-4 py-2.5 bg-amber-500/8 border-b border-amber-500/20 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5">
             <Lock className="w-4 h-4 text-amber-500 shrink-0" />
             <p className="text-xs font-bold text-amber-400">
               Preview Mode —{" "}
-              <span className="text-[#888] font-medium">
-                You can browse the arena, but your name bar is locked until you
-                complete onboarding. Complete your profile to participate and
-                appear in the rankings.
+              <span className="text-[#777] font-medium">
+                Complete onboarding to appear in rankings and access X-Ray
+                analytics.
               </span>
             </p>
           </div>
           <button
             onClick={() => navigate("/")}
-            className="shrink-0 flex items-center gap-1.5 px-4 py-2 bg-amber-500 text-black font-extrabold text-[10px] uppercase tracking-widest rounded-xl hover:bg-amber-400 transition-all"
+            className="shrink-0 flex items-center gap-1.5 px-3.5 py-1.5 bg-amber-500 text-black font-black text-[9px] uppercase tracking-widest rounded-xl hover:bg-amber-400 transition-all"
           >
-            Complete Onboarding <ArrowRight className="w-3 h-3" />
+            Onboard <ArrowRight className="w-3 h-3" />
           </button>
         </div>
       )}
 
-      {/* Fetch error banner */}
+      {/* Error banner */}
       {fetchError && (
-        <div className="shrink-0 px-6 py-2.5 bg-red-500/8 border-b border-red-500/20 flex items-center gap-2.5">
-          <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
-          <p className="text-xs font-bold text-red-400">{fetchError}</p>
-          <button
-            onClick={() => setFetchError(null)}
-            className="ml-auto text-red-400 hover:text-white"
-          >
-            <X className="w-3.5 h-3.5" />
+        <div className="shrink-0 px-4 py-2.5 bg-rose-500/8 border-b border-rose-500/20 flex items-center gap-2.5">
+          <AlertTriangle className="w-4 h-4 text-rose-400 shrink-0" />
+          <p className="text-xs font-bold text-rose-400 flex-1">{fetchError}</p>
+          <button onClick={() => setFetchError(null)}>
+            <X className="w-3.5 h-3.5 text-rose-400 hover:text-white transition-colors" />
           </button>
         </div>
       )}
 
-      {/* ==================== MAIN WORKSPACE ==================== */}
-      <div className="flex flex-1 relative overflow-hidden">
-        {/* CENTER MATRIX (Adjusts width when sidebar opens) */}
-        <main className="flex-1 overflow-y-auto custom-scrollbar transition-all duration-500 ease-[cubic-bezier(0.16,1,0.3,1)] relative z-10">
-          <div className="max-w-[1200px] mx-auto p-4 md:p-8 relative min-h-full pb-48">
-            {/* --- GAMIFIED PODIUM --- */}
-            {top3.length > 0 && (
-              <div className="flex flex-col md:flex-row justify-center items-center md:items-end gap-6 md:gap-4 pt-4 md:pt-6 mb-12 px-2">
-                <div className="flex justify-center items-end gap-2 md:gap-4 h-[180px] md:h-[320px]">
-                  {/* Rank 2 */}
-                  {top3[1] && (
-                    <div className="flex flex-col items-center justify-end w-[85px] md:w-48 h-full shrink-0">
-                      <div className="w-16 h-16 md:w-32 md:h-32 mb-[-8px] md:mb-[-15px] z-10 flex items-end justify-center drop-shadow-[0_0_15px_rgba(255,255,255,0.1)]">
-                        <img
-                          src={getAvatar("rank2", top3[1].identity?.gender)}
-                          alt="Rank 2"
-                          className="w-full h-full object-contain select-none pointer-events-none"
-                          draggable={false}
-                          onContextMenu={(e) => e.preventDefault()}
-                        />
-                      </div>
-                      <div className="w-full bg-gradient-to-t from-[#1a1c23] to-[#12141a] border border-slate-700/30 rounded-t-xl h-24 md:h-44 flex flex-col items-center pt-3 md:pt-6 relative z-0 shadow-lg">
-                        <h3 className="font-extrabold text-white text-[10px] md:text-sm truncate w-full text-center px-1 md:px-2">
-                          {resolvePlayerName(top3[1], true)}
-                        </h3>
-                        <p className="text-[8px] text-white/50 truncate w-full text-center px-1 md:px-2 mt-0.5">
-                          @
-                          {top3[1].identity?.username ||
-                            top3[1].username ||
-                            "unknown"}
-                        </p>
-                        <p className="text-[6px] md:text-[8px] font-bold uppercase tracking-widest text-slate-400 truncate w-full text-center px-1 md:px-2 mt-0.5 md:mt-1">
-                          {top3[1].identity?.niche ||
-                            top3[1].niche ||
-                            "General"}
-                        </p>
-                        <div className="mt-auto pb-2 md:pb-4 font-black text-xl md:text-4xl text-slate-400/20">
-                          02
-                        </div>
-                      </div>
-                    </div>
-                  )}
+      {/* ════════════════════ WORKSPACE ════════════════════ */}
+      <div className="flex flex-1 min-h-0 relative z-10">
+        {/* ── FILTER SIDEBAR ───────────────────────────────────────────── */}
+        <AnimatePresence>
+          {isFilterOpen && (
+            <motion.div
+              initial={{ opacity: 0, x: -30 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: -30 }}
+              className="w-[260px] shrink-0 bg-[#050505] border-r border-[#111] overflow-y-auto custom-scrollbar p-5 space-y-4"
+            >
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-[9px] font-black text-white/30 uppercase tracking-widest">
+                  Filter Matrix
+                </p>
+                <button
+                  onClick={() => setIsFilterOpen(false)}
+                  className="p-1 hover:bg-white/[0.05] rounded-lg transition-colors"
+                >
+                  <X className="w-3.5 h-3.5 text-white/30" />
+                </button>
+              </div>
 
-                  {/* Rank 1 (Tallest) */}
-                  {top3[0] && (
-                    <div className="flex flex-col items-center justify-end w-[90px] md:w-56 h-full shrink-0">
-                      <div className="w-20 h-20 md:w-44 md:h-44 mb-[-10px] md:mb-[-20px] z-10 flex items-end justify-center drop-shadow-[0_0_20px_rgba(245,158,11,0.5)] relative">
-                        {/* Crown Icon */}
-                        <Crown className="absolute -top-6 text-amber-500 w-6 h-6 animate-bounce drop-shadow-[0_0_10px_rgba(245,158,11,0.8)]" />
-                        <img
-                          src={getAvatar("rank1", top3[0].identity?.gender)}
-                          alt="Rank 1"
-                          className="w-full h-full object-contain select-none pointer-events-none"
-                          draggable={false}
-                          onContextMenu={(e) => e.preventDefault()}
-                        />
-                      </div>
-                      <div className="w-full bg-gradient-to-t from-[#221705] to-[#1a1205] border border-amber-900/50 rounded-t-xl h-32 md:h-60 flex flex-col items-center pt-4 md:pt-8 shadow-[0_-20px_50px_rgba(245,158,11,0.15)] relative z-0">
-                        <h3 className="font-extrabold text-white text-[10px] md:text-base truncate w-full text-center px-1 md:px-2">
-                          {resolvePlayerName(top3[0], true)}
-                        </h3>
-                        <p className="text-[9px] text-white/50 truncate w-full text-center px-1 md:px-2 mt-0.5">
-                          @
-                          {top3[0].identity?.username ||
-                            top3[0].username ||
-                            "unknown"}
-                        </p>
-                        <p className="text-[6px] md:text-[9px] font-bold uppercase tracking-widest text-amber-500 truncate w-full text-center px-1 md:px-2 mt-0.5 md:mt-1">
-                          {top3[0].identity?.niche ||
-                            top3[0].niche ||
-                            "General"}
-                        </p>
-                        <div className="mt-auto pb-2 md:pb-4 font-black text-2xl md:text-5xl text-amber-500/20">
-                          01
-                        </div>
-                      </div>
-                    </div>
-                  )}
+              <FilterSelect
+                label="Domain"
+                value={filters.domain}
+                onChange={(v) =>
+                  setFilters((f) => ({ ...f, domain: v, niche: "" }))
+                }
+                options={DOMAINS}
+              />
+              <FilterSelect
+                label="Niche"
+                value={filters.niche}
+                onChange={(v) => setFilters((f) => ({ ...f, niche: v }))}
+                options={NICHES[filters.domain] || Object.values(NICHES).flat()}
+                disabled={!filters.domain}
+              />
+              <FilterSelect
+                label="Level"
+                value={filters.level}
+                onChange={(v) => setFilters((f) => ({ ...f, level: v }))}
+                options={LEVELS}
+              />
+              <FilterSelect
+                label="Country"
+                value={filters.country}
+                onChange={(v) => setFilters((f) => ({ ...f, country: v }))}
+                options={COUNTRIES}
+              />
 
-                  {/* Rank 3 */}
-                  {top3[2] && (
-                    <div className="flex flex-col items-center justify-end w-[85px] md:w-44 h-full shrink-0">
-                      <div className="w-14 h-14 md:w-28 md:h-28 mb-[-5px] md:mb-[-10px] z-10 flex items-end justify-center drop-shadow-[0_0_10px_rgba(234,88,12,0.3)]">
-                        <img
-                          src={getAvatar("rank3", top3[2].identity?.gender)}
-                          alt="Rank 3"
-                          className="w-full h-full object-contain select-none pointer-events-none"
-                          draggable={false}
-                          onContextMenu={(e) => e.preventDefault()}
-                        />
-                      </div>
-                      <div className="w-full bg-gradient-to-t from-[#1a0f05] to-[#120a02] border border-orange-900/30 rounded-t-xl h-20 md:h-36 flex flex-col items-center pt-2 md:pt-5 relative z-0 shadow-lg">
-                        <h3 className="font-extrabold text-[#ccc] text-[9px] md:text-sm truncate w-full text-center px-1 md:px-2">
-                          {resolvePlayerName(top3[2], true)}
-                        </h3>
-                        <p className="text-[8px] text-white/50 truncate w-full text-center px-1 md:px-2 mt-0.5">
-                          @
-                          {top3[2].identity?.username ||
-                            top3[2].username ||
-                            "unknown"}
-                        </p>
-                        <p className="text-[5px] md:text-[8px] font-bold uppercase tracking-widest text-orange-500/60 truncate w-full text-center px-1 md:px-2 mt-0.5 md:mt-1">
-                          {top3[2].identity?.niche ||
-                            top3[2].niche ||
-                            "General"}
-                        </p>
-                        <div className="mt-auto pb-1.5 md:pb-4 font-black text-lg md:text-3xl text-orange-500/10">
-                          03
-                        </div>
-                      </div>
-                    </div>
-                  )}
+              <div>
+                <p className="text-[9px] font-black text-white/20 uppercase tracking-widest mb-2">
+                  Page Size
+                </p>
+                <div className="flex gap-1.5">
+                  {PAGE_SIZES.map((s) => (
+                    <button
+                      key={s}
+                      onClick={() => setFilters((f) => ({ ...f, pageSize: s }))}
+                      className={cn(
+                        "flex-1 py-1.5 rounded-lg border text-[9px] font-black transition-all",
+                        filters.pageSize === s
+                          ? "bg-amber-500/15 border-amber-500/30 text-amber-400"
+                          : "bg-white/[0.03] border-white/[0.05] text-white/30 hover:text-white/60",
+                      )}
+                    >
+                      {s}
+                    </button>
+                  ))}
                 </div>
+              </div>
 
-                {/* Rank 4: THE OBSERVER */}
-                {!isMeInTop3 && userData && (
-                  <div className="flex flex-col items-center justify-end w-[100px] md:w-32 h-[100px] md:h-[320px] shrink-0 opacity-80 md:pl-6 md:border-l border-[#222]">
-                    <div className="w-12 h-12 md:w-20 md:h-20 mb-[-5px] z-10 flex items-end justify-center drop-shadow-[0_0_10px_rgba(255,255,255,0.05)]">
-                      <img
-                        src={getAvatar("observer", userData.identity?.gender)}
-                        alt="You"
-                        className="w-full h-full object-contain grayscale brightness-75 opacity-70 select-none pointer-events-none"
-                        draggable={false}
-                      />
-                    </div>
-                    <div className="w-full bg-gradient-to-t from-[#111] to-[#0a0a0a] border border-[#222] rounded-t-xl h-12 md:h-20 flex flex-col items-center pt-2 md:pt-3 relative z-0">
-                      <h3 className="font-bold text-[#888] text-[9px] md:text-xs truncate w-full text-center px-2">
-                        You
-                      </h3>
-                      <div className="mt-auto pb-1 md:pb-2 font-mono text-[8px] md:text-[10px] text-[#555]">
-                        #{myExactRank || "?"}
+              {/* Sort (mobile — shown here when hidden in header) */}
+              <div className="sm:hidden">
+                <p className="text-[9px] font-black text-white/20 uppercase tracking-widest mb-2">
+                  Sort By
+                </p>
+                <div className="flex flex-col gap-1.5">
+                  {SORT_OPTIONS.map((o) => (
+                    <button
+                      key={o.value}
+                      onClick={() =>
+                        setFilters((f) => ({ ...f, sortBy: o.value }))
+                      }
+                      className={cn(
+                        "w-full px-3 py-2 rounded-xl border text-xs font-bold text-left transition-all",
+                        filters.sortBy === o.value
+                          ? "bg-amber-500/10 border-amber-500/25 text-amber-400"
+                          : "bg-white/[0.02] border-white/[0.05] text-white/40",
+                      )}
+                    >
+                      {o.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {activeFilterCount > 0 && (
+                <button
+                  onClick={clearFilters}
+                  className="w-full py-2 border border-rose-500/20 bg-rose-500/8 text-rose-400 rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-rose-500/15 transition-all"
+                >
+                  Clear Filters
+                </button>
+              )}
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* ── MAIN LIST ─────────────────────────────────────────────────── */}
+        <main className="flex-1 overflow-y-auto custom-scrollbar min-w-0">
+          <div className="max-w-[1100px] mx-auto p-4 md:p-6 pb-40">
+            {/* ── PODIUM ─────────────────────────────────────────────────── */}
+            {top3.length > 0 && !isPaging && (
+              <div className="mb-6 mt-8 md:mt-4">
+                {/* FIX: Increased mobile height from 200px -> 280px to accommodate the 260px card 
+                  and the absolute positioned avatar/crown on top.
+                */}
+                <div className="flex items-end justify-center gap-2 md:gap-3 h-[280px] md:h-[340px]">
+                  {/* Order: 2, 1, 3 */}
+                  {[top3[1], top3[0], top3[2]].map((player, podiumIdx) => {
+                    if (!player)
+                      return (
+                        <div key={podiumIdx} className="flex-1 max-w-[140px]" />
+                      );
+                    const rank = podiumIdx === 0 ? 2 : podiumIdx === 1 ? 1 : 3;
+                    const isMe =
+                      player.id === (userData?.uid || userData?.id) ||
+                      player.identity?.username ===
+                        userData?.identity?.username;
+                    return (
+                      <div
+                        key={player.id}
+                        className="flex-1 max-w-[160px] md:max-w-[220px]"
+                      >
+                        <PodiumCard
+                          player={player}
+                          rank={rank}
+                          resolvePlayerName={resolvePlayerName}
+                          isMe={isMe}
+                        />
                       </div>
-                    </div>
-                  </div>
-                )}
+                    );
+                  })}
+                </div>
               </div>
             )}
 
-            {/* --- MATRIX LIST --- */}
-            <div className="bg-[#0a0a0c] border border-white/[0.05] rounded-3xl overflow-hidden shadow-2xl relative">
-              <div className="bg-[#0a0a0c] border border-white/[0.05] rounded-3xl shadow-2xl relative pb-24 overflow-x-auto custom-scrollbar">
-                <div className="min-w-[800px]">
-                  <div className="grid grid-cols-[50px_1.5fr_1fr_1fr_80px_100px] gap-4 p-5 border-b border-white/[0.05] bg-white/[0.02] text-[10px] font-semibold uppercase tracking-widest text-white/40">
-                    <div className="text-center">#</div>
-                    <div>Operator</div>
-                    <div>Domain / Niche</div>
-                    <div>Level</div>
-                    <div className="text-center" title="Vault Strength">
-                      Vault
-                    </div>
-                    <div className="text-right">Score</div>
-                  </div>
+            {/* ── MY RANK BAR ───────────────────────────────────────────── */}
+            {!isGhostUser && myRank && (
+              <motion.div
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="mb-6 p-3 sm:p-4 bg-[#0a0a0a] border border-[#1a1a1a] rounded-2xl relative overflow-hidden"
+              >
+                <div className="absolute inset-0 bg-gradient-to-r from-amber-500/[0.04] to-transparent pointer-events-none" />
 
-                  <div className="flex flex-col">
-                    <AnimatePresence>
-                      {players.length === 0 ? (
-                        <div className="p-12 text-center text-white/30 text-sm">
-                          No operators found matching the active parameters.
-                        </div>
-                      ) : (
-                        players.map((player, idx) => {
-                          const rank = isFirstPage
-                            ? idx + 1
-                            : (currentPage - 1) * filters.pageSize + idx + 1;
-                          const score = player.discotiveScore?.current || 0;
-                          const last24 =
-                            player.discotiveScore?.last24h || score;
-                          const delta = score - last24;
-                          const vaultCount = player.vault?.length || 0;
-
-                          // Check both root and identity object for real database compatibility
-                          const userDomain =
-                            player.domain || player.identity?.domain || "--";
-                          const userNiche =
-                            player.niche || player.identity?.niche || "--";
-                          const userLevel =
-                            player.level || player.identity?.level || "L1";
-
-                          const displayName = resolvePlayerName(player);
-                          const initial = (
-                            player.identity?.firstName ||
-                            player.identity?.fullName ||
-                            player.identity?.username ||
-                            "?"
-                          )
-                            .charAt(0)
-                            .toUpperCase();
-                          const auraClass = getLevelAura(userLevel);
-
-                          return (
-                            <motion.div
-                              initial={{ opacity: 0 }}
-                              animate={{ opacity: 1 }}
-                              exit={{ opacity: 0 }}
-                              key={player.id}
-                              onClick={() => handleUserClick(player)}
-                              className={cn(
-                                "grid grid-cols-[50px_1.5fr_1fr_1fr_80px_100px] gap-4 p-5 border-b border-white/[0.02] cursor-pointer transition-colors items-center group relative overflow-hidden",
-                                rank === 1
-                                  ? "bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-transparent hover:from-amber-500/20"
-                                  : "hover:bg-white/[0.02]",
-                              )}
-                            >
-                              {rank === 1 && (
-                                <motion.div
-                                  animate={{ x: ["-100%", "200%"] }}
-                                  transition={{
-                                    duration: 3,
-                                    repeat: Infinity,
-                                    ease: "linear",
-                                  }}
-                                  className="absolute inset-y-0 left-0 w-1/3 bg-gradient-to-r from-transparent via-amber-500/10 to-transparent pointer-events-none transform -skew-x-12"
-                                />
-                              )}
-
-                              <div
-                                className={cn(
-                                  "text-center text-xs font-mono group-hover:text-white/70 transition-colors",
-                                  rank === 1
-                                    ? "text-amber-500 font-bold"
-                                    : "text-white/30",
-                                )}
-                              >
-                                {rank}
-                              </div>
-
-                              {/* OPERATOR COLUMN: Name & Username */}
-                              <div className="flex items-center gap-3 min-w-0 z-10">
-                                <div
-                                  className={cn(
-                                    "w-8 h-8 rounded-full border shrink-0 flex items-center justify-center overflow-hidden font-bold text-xs transition-all",
-                                    auraClass,
-                                  )}
-                                >
-                                  {initial}
-                                </div>
-                                <div className="min-w-0 flex flex-col justify-center">
-                                  <div className="flex items-center gap-2">
-                                    <span
-                                      className={cn(
-                                        "text-sm font-bold truncate transition-colors",
-                                        rank === 1
-                                          ? "text-amber-400 group-hover:text-amber-300"
-                                          : "text-white/90 group-hover:text-white",
-                                      )}
-                                    >
-                                      {displayName}
-                                    </span>
-                                    {player.tier === "PRO" && (
-                                      <img
-                                        src="/discotive-pro.png"
-                                        alt="Pro"
-                                        className="w-3 h-3 object-contain"
-                                      />
-                                    )}
-                                  </div>
-                                  <span className="text-[10px] text-white/50 truncate">
-                                    @
-                                    {player.identity?.username ||
-                                      player.username ||
-                                      "unknown"}
-                                  </span>
-                                  <span className="text-[10px] text-white/40 truncate md:hidden mt-0.5">
-                                    {player.identity?.niche ||
-                                      player.niche ||
-                                      "General"}
-                                  </span>
-                                </div>
-                              </div>
-
-                              {/* DOMAIN / NICHE COLUMN */}
-                              <div className="hidden md:flex flex-col min-w-0 z-10">
-                                <span className="text-xs text-white/70 truncate">
-                                  {player.identity?.domain ||
-                                    player.domain ||
-                                    "Unassigned Sector"}
-                                </span>
-                                <span className="text-[10px] text-white/30 truncate">
-                                  {player.identity?.niche ||
-                                    player.niche ||
-                                    "General"}
-                                </span>
-                              </div>
-
-                              {/* LEVEL COLUMN */}
-                              <div className="hidden lg:flex items-center z-10">
-                                <span
-                                  className={cn(
-                                    "px-2 py-1 rounded text-[9px] font-medium truncate border",
-                                    auraClass,
-                                  )}
-                                >
-                                  {
-                                    (
-                                      player.identity?.level ||
-                                      player.level ||
-                                      "L1 - Initiate"
-                                    ).split(" - ")[0]
-                                  }
-                                </span>
-                              </div>
-
-                              <div className="text-center flex justify-center z-10">
-                                <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-white/[0.02] border border-white/5">
-                                  <Database className="w-3 h-3 text-emerald-500/70" />
-                                  <span className="text-xs font-mono text-white/60">
-                                    {vaultCount}
-                                  </span>
-                                </div>
-                              </div>
-
-                              <div className="text-right flex flex-col items-end justify-center z-10">
-                                <span
-                                  className={cn(
-                                    "font-mono text-sm font-semibold",
-                                    rank === 1
-                                      ? "text-amber-400"
-                                      : "text-white/90",
-                                  )}
-                                >
-                                  {score}
-                                </span>
-                                <div className="flex items-center justify-end gap-1 text-[10px] font-bold mt-0.5">
-                                  {delta > 0 ? (
-                                    <span className="text-green-400 flex items-center">
-                                      <TrendingUp className="w-3 h-3 mr-0.5" />
-                                      {delta}
-                                    </span>
-                                  ) : delta < 0 ? (
-                                    <span className="text-red-400 flex items-center">
-                                      <TrendingDown className="w-3 h-3 mr-0.5" />
-                                      {Math.abs(delta)}
-                                    </span>
-                                  ) : (
-                                    <span className="text-white/30 flex items-center">
-                                      <Minus className="w-3 h-3 mr-0.5" />0
-                                    </span>
-                                  )}
-                                </div>
-                              </div>
-
-                              <div className="absolute right-6 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity hidden md:block z-20">
-                                <button
-                                  onClick={(e) => triggerCompare(e, player)}
-                                  className="px-3 py-1.5 bg-white text-black text-[10px] font-bold rounded-full shadow-lg hover:scale-105 transition-transform flex items-center gap-1.5"
-                                >
-                                  <Crosshair className="w-3 h-3" /> Compare
-                                </button>
-                              </div>
-                            </motion.div>
-                          );
-                        })
-                      )}
-                    </AnimatePresence>
-                  </div>
-
-                  {/* Pagination... leave existing code alone */}
-                </div>
-              </div>
-
-              {/* Pagination Controls */}
-              <div className="p-4 border-t border-white/[0.05] bg-white/[0.01] flex items-center justify-between">
-                <div className="text-[10px] font-medium text-white/40 uppercase tracking-widest">
-                  Page {currentPage}{" "}
-                  {totalFilteredUsers > 0 &&
-                    `of ${Math.ceil(totalFilteredUsers / filters.pageSize)}`}
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => {
-                      if (hasMorePrev) executeFetch("prev");
-                    }}
-                    disabled={!hasMorePrev || isPaginating}
-                    className="p-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-white disabled:opacity-30 transition-colors"
-                  >
-                    <ChevronLeft className="w-4 h-4" />
-                  </button>
-                  <button
-                    onClick={() => {
-                      if (hasMoreNext) executeFetch("next");
-                    }}
-                    disabled={!hasMoreNext || isPaginating}
-                    className="p-2 bg-white/5 hover:bg-white/10 border border-white/10 rounded-lg text-white disabled:opacity-30 transition-colors"
-                  >
-                    <ChevronRight className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {/* ============================================================================
-                WHERE AM I? (Nested Sticky Container for Flawless Alignment)
-            ============================================================================ */}
-            <div className="sticky bottom-4 z-40 pointer-events-none mt-8">
-              {isGhostUser ? (
-                /**
-                 * @description
-                 * Ghost user "WHERE AM I?" locked state.
-                 * Shows a CTA to complete onboarding instead of rank data.
-                 * The bar still appears so ghost users know it exists and what
-                 * they're missing — classic psychology trigger.
-                 */
-                <div className="bg-[#111113]/95 backdrop-blur-2xl border border-amber-500/20 rounded-2xl p-4 shadow-[0_20px_60px_rgba(0,0,0,0.8)] pointer-events-auto flex flex-col md:flex-row items-center justify-between gap-4">
-                  <div className="flex items-center gap-4">
-                    <div className="w-12 h-12 bg-amber-500/10 border border-amber-500/20 rounded-xl flex items-center justify-center shrink-0">
-                      <Lock className="w-5 h-5 text-amber-500/60" />
+                {/* FIX: Changed to flex-col on mobile, flex-row on desktop with space-between */}
+                <div className="relative z-10 flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
+                  {/* Left: Avatar & Rank */}
+                  <div className="flex items-center gap-3 shrink-0">
+                    <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl bg-amber-500/15 border border-amber-500/25 flex items-center justify-center shrink-0">
+                      <img
+                        src={getAvatar("observer", userData?.identity?.gender)}
+                        alt="You"
+                        className="w-7 h-7 sm:w-8 sm:h-8 object-contain grayscale brightness-75"
+                      />
                     </div>
                     <div>
-                      <p className="text-[10px] font-black text-amber-500 uppercase tracking-widest mb-0.5 flex items-center gap-1">
-                        <Lock className="w-3 h-3" /> Arena Locked
+                      <p className="text-[8px] sm:text-[9px] font-black text-white/30 uppercase tracking-widest">
+                        Your Standing
                       </p>
-                      <p className="text-sm font-medium text-[#666]">
-                        Complete onboarding to enter the global rankings
+                      <p className="text-xl sm:text-2xl font-black text-amber-400 font-mono leading-none mt-0.5">
+                        #{myRank.toLocaleString()}
                       </p>
                     </div>
                   </div>
-                  <button
-                    onClick={() => navigate("/")}
-                    className="shrink-0 flex items-center gap-2 px-5 py-2.5 bg-amber-500 text-black font-extrabold text-[10px] uppercase tracking-widest rounded-xl hover:bg-amber-400 transition-all shadow-[0_0_20px_rgba(245,158,11,0.2)]"
-                  >
-                    Complete Onboarding <ArrowRight className="w-3.5 h-3.5" />
-                  </button>
+
+                  {/* Right: Badges */}
+                  <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 sm:gap-3">
+                    {percentile && (
+                      <div className="px-2.5 py-1.5 bg-amber-500/10 border border-amber-500/20 rounded-lg text-[9px] font-black text-amber-400 uppercase tracking-widest whitespace-nowrap">
+                        Top {percentile}%
+                      </div>
+                    )}
+
+                    {nextTarget ? (
+                      <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-sky-500/10 border border-sky-500/20 rounded-lg shrink-0">
+                        <Target className="w-3 h-3 text-sky-400 shrink-0" />
+                        <span className="text-[9px] font-bold text-sky-400 truncate max-w-[140px] sm:max-w-none">
+                          Next: {resolvePlayerName(nextTarget, true)}
+                          <span className="font-black ml-1">
+                            (+
+                            {(nextTarget.discotiveScore?.current || 0) -
+                              (userData?.discotiveScore?.current || 0)}
+                            )
+                          </span>
+                        </span>
+                      </div>
+                    ) : myRank === 1 ? (
+                      <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-amber-500/10 border border-amber-500/20 rounded-lg shrink-0">
+                        <Crown className="w-3.5 h-3.5 text-amber-400 animate-pulse shrink-0" />
+                        <span className="text-[9px] font-black text-amber-400 uppercase tracking-widest">
+                          Defend the throne
+                        </span>
+                      </div>
+                    ) : null}
+                  </div>
                 </div>
-              ) : (
-                <div className="bg-[#111113]/95 backdrop-blur-2xl border border-white/10 rounded-2xl p-4 shadow-[0_20px_60px_rgba(0,0,0,0.8)] pointer-events-auto flex flex-col md:flex-row items-center justify-between gap-4">
-                  <div className="flex items-center gap-4 w-full md:w-auto">
-                    <div className="w-12 h-12 bg-white/5 border border-white/10 rounded-xl flex items-center justify-center shrink-0">
-                      <span className="text-lg font-semibold text-white/90 font-mono">
-                        #{myExactRank ?? "?"}
-                      </span>
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-[10px] font-semibold text-white/40 uppercase tracking-widest mb-0.5 flex items-center gap-1">
-                        <User className="w-3 h-3" /> Current Identity
-                      </p>
-                      <p className="text-sm font-medium text-white truncate">
-                        {userData ? resolvePlayerName(userData) : "—"}
-                      </p>
-                    </div>
+              </motion.div>
+            )}
+
+            {/* ── PLAYER LIST ─────────────────────────────────────────────── */}
+            <div className="bg-[#070707] border border-[#111] rounded-2xl overflow-hidden shadow-2xl">
+              {/* Desktop header row */}
+              <div className="hidden md:grid grid-cols-[52px_2fr_1.2fr_100px_70px_70px_100px] gap-3 px-5 py-3 border-b border-white/[0.05] bg-white/[0.01]">
+                {[
+                  "#",
+                  "Operator",
+                  "Domain / Niche",
+                  "Level",
+                  "Vault",
+                  "Streak",
+                  "Score",
+                ].map((h, i) => (
+                  <div
+                    key={h}
+                    className={cn(
+                      "text-[9px] font-black text-white/25 uppercase tracking-widest",
+                      i === 0 ? "text-center" : i >= 5 ? "text-right" : "",
+                    )}
+                  >
+                    {h}
                   </div>
+                ))}
+              </div>
 
-                  <div className="flex items-center gap-6 w-full md:w-auto justify-between md:justify-end border-t border-white/5 md:border-none pt-4 md:pt-0">
-                    {/* THE PSYCHOLOGY ENGINE: NEXT TARGET */}
-                    <div className="text-left md:text-right flex items-center gap-3">
-                      <div className="hidden lg:flex items-center justify-center w-8 h-8 rounded-full bg-red-500/10 border border-red-500/30 text-red-500">
-                        <Target className="w-4 h-4 animate-pulse" />
-                      </div>
-                      <div>
-                        <p className="text-[10px] font-semibold text-red-400 uppercase tracking-widest mb-0.5">
-                          Next Target
-                        </p>
-                        <p className="text-xs font-medium text-white/70 truncate max-w-[150px]">
-                          {nextTarget
-                            ? `@${nextTarget.identity?.username} (+${(nextTarget.discotiveScore?.current || 0) - (userData?.discotiveScore?.current || 0)} pts away)`
-                            : "Rank #1 Secured"}
-                        </p>
-                      </div>
-                    </div>
-
-                    <div className="h-8 w-px bg-white/10 hidden md:block" />
-
-                    <div className="text-right">
-                      <p className="text-[10px] font-semibold text-white/40 uppercase tracking-widest mb-0.5">
-                        Your Score
-                      </p>
-                      <div className="flex items-center gap-2">
-                        <p className="text-lg font-semibold text-white font-mono leading-none">
-                          {userData?.discotiveScore?.current ?? 0}
-                        </p>
-                        {(() => {
-                          const gain =
-                            (userData?.discotiveScore?.current || 0) -
-                            (userData?.discotiveScore?.last24h || 0);
-                          return gain !== 0 ? (
-                            <span
-                              className={cn(
-                                "text-[10px] font-bold px-1.5 py-0.5 rounded flex items-center",
-                                gain > 0
-                                  ? "text-green-400 bg-green-500/10"
-                                  : "text-red-400 bg-red-500/10",
-                              )}
-                            >
-                              {gain > 0 ? (
-                                <TrendingUp className="w-3 h-3 mr-0.5" />
-                              ) : (
-                                <TrendingDown className="w-3 h-3 mr-0.5" />
-                              )}
-                              {gain > 0 ? "+" : ""}
-                              {gain}
-                            </span>
-                          ) : null;
-                        })()}
-                      </div>
-                    </div>
-                  </div>
+              {isPaging && (
+                <div className="p-6 flex items-center justify-center gap-3 text-white/30">
+                  <RefreshCw className="w-4 h-4 animate-spin" />
+                  <span className="text-xs font-bold uppercase tracking-widest">
+                    Loading…
+                  </span>
                 </div>
               )}
+
+              <AnimatePresence mode="popLayout">
+                {!isPaging &&
+                  (listPlayers.length === 0 ? (
+                    <div className="p-16 text-center">
+                      <Trophy className="w-10 h-10 text-white/10 mx-auto mb-4" />
+                      <p className="text-sm font-bold text-white/25">
+                        No operators match the current filters.
+                      </p>
+                      <button
+                        onClick={clearFilters}
+                        className="mt-4 text-xs font-bold text-amber-400/60 hover:text-amber-400 transition-colors"
+                      >
+                        Clear filters
+                      </button>
+                    </div>
+                  ) : (
+                    listPlayers.map((player, idx) => {
+                      const rank =
+                        isFirstPage && !filters.search
+                          ? idx + 4
+                          : (page - 1) * filters.pageSize + idx + 1;
+                      const isMe =
+                        player.id === (userData?.uid || userData?.id) ||
+                        player.identity?.username ===
+                          userData?.identity?.username;
+                      return (
+                        <PlayerRow
+                          key={player.id}
+                          player={player}
+                          rank={rank}
+                          isMe={isMe}
+                          onClick={() => {
+                            setSelectedUser(player);
+                            setIsFilterOpen(false);
+                          }}
+                          resolvePlayerName={resolvePlayerName}
+                          myRank={myRank}
+                        />
+                      );
+                    })
+                  ))}
+              </AnimatePresence>
             </div>
+
+            {/* ── PAGINATION ─────────────────────────────────────────────── */}
+            {!filters.search && (
+              <div className="flex items-center justify-between mt-5">
+                <button
+                  onClick={() => executeFetch("prev")}
+                  disabled={!hasPrev || isPaging}
+                  className={cn(
+                    "flex items-center gap-2 px-4 py-2 rounded-xl border text-xs font-bold transition-all",
+                    hasPrev && !isPaging
+                      ? "bg-white/[0.04] border-white/[0.08] text-white hover:bg-white/[0.08]"
+                      : "opacity-30 cursor-not-allowed bg-white/[0.02] border-white/[0.04] text-white/30",
+                  )}
+                >
+                  <ChevronLeft className="w-4 h-4" /> Prev
+                </button>
+
+                <div className="flex items-center gap-3 text-xs text-white/30">
+                  <span className="font-mono font-bold">Page {page}</span>
+                  {totalCount > 0 && (
+                    <span>of {Math.ceil(totalCount / filters.pageSize)}</span>
+                  )}
+                </div>
+
+                <button
+                  onClick={() => executeFetch("next")}
+                  disabled={!hasNext || isPaging}
+                  className={cn(
+                    "flex items-center gap-2 px-4 py-2 rounded-xl border text-xs font-bold transition-all",
+                    hasNext && !isPaging
+                      ? "bg-white/[0.04] border-white/[0.08] text-white hover:bg-white/[0.08]"
+                      : "opacity-30 cursor-not-allowed bg-white/[0.02] border-white/[0.04] text-white/30",
+                  )}
+                >
+                  Next <ChevronRight className="w-4 h-4" />
+                </button>
+              </div>
+            )}
           </div>
         </main>
 
-        {/* ==================== RIGHT SIDEBARS (Responsive Slide-in) ==================== */}
+        {/* ── PLAYER DETAIL SIDEBAR ─────────────────────────────────────── */}
         <AnimatePresence>
-          {/* FILTERS SIDEBAR */}
-          {isFilterOpen && (
-            <motion.aside
-              initial={{ x: "100%", opacity: 0 }}
-              animate={{ x: 0, opacity: 1 }}
-              exit={{ x: "100%", opacity: 0 }}
-              transition={{ type: "spring", damping: 25, stiffness: 200 }}
-              className="fixed right-0 top-[76px] bottom-0 w-full md:w-[450px] bg-[#050505] border-l border-white/[0.05] z-50 shadow-2xl flex flex-col"
-            >
-              <div className="p-6 border-b border-white/[0.05] flex justify-between items-center shrink-0 bg-white/[0.02]">
-                <h2 className="text-sm font-semibold text-white tracking-tight flex items-center gap-2">
-                  <SlidersHorizontal className="w-4 h-4 text-white/50" />{" "}
-                  Database Filters
-                </h2>
-                <button
-                  onClick={() => setIsFilterOpen(false)}
-                  className="p-1.5 rounded-full hover:bg-white/10 text-white/50 transition-colors"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-
-              <div className="flex-1 overflow-y-auto custom-scrollbar p-6 space-y-6">
-                <CustomSelect
-                  label="Macro Domain"
-                  icon={Network}
-                  value={filters.domain}
-                  options={TAXONOMY.DOMAINS}
-                  onChange={(val) =>
-                    setFilters((p) => ({ ...p, domain: val, niche: "" }))
-                  }
-                />
-                <CustomSelect
-                  label="Specific Niche"
-                  icon={Target}
-                  value={filters.niche}
-                  options={
-                    filters.domain ? TAXONOMY.NICHES[filters.domain] : []
-                  }
-                  onChange={(val) => setFilters((p) => ({ ...p, niche: val }))}
-                  disabled={!filters.domain}
-                />
-                <CustomSelect
-                  label="Experience Level"
-                  icon={GraduationCap}
-                  value={filters.level}
-                  options={TAXONOMY.LEVELS}
-                  onChange={(val) => setFilters((p) => ({ ...p, level: val }))}
-                />
-                <div className="h-px bg-white/[0.05] w-full" />
-                <CustomSelect
-                  label="Country"
-                  icon={MapPin}
-                  value={filters.country}
-                  options={TAXONOMY.COUNTRIES}
-                  onChange={(val) =>
-                    setFilters((p) => ({ ...p, country: val, state: "" }))
-                  }
-                />
-                <CustomSelect
-                  label="State/Region (India)"
-                  icon={MapPin}
-                  value={filters.state}
-                  options={TAXONOMY.STATES_INDIA}
-                  onChange={(val) => setFilters((p) => ({ ...p, state: val }))}
-                  disabled={filters.country !== "India"}
-                />
-                <div className="h-px bg-white/[0.05] w-full" />
-                <div className="flex gap-4">
-                  <div className="flex-1">
-                    <label className="text-[10px] font-extrabold uppercase tracking-widest text-[#666] ml-1 mb-1.5 block">
-                      Sort
-                    </label>
-                    <div className="flex bg-[#111] border border-[#222] p-1 rounded-xl">
-                      <button
-                        onClick={() =>
-                          setFilters((p) => ({ ...p, sortBy: "desc" }))
-                        }
-                        className={cn(
-                          "flex-1 py-2 text-xs font-bold rounded-lg transition-colors",
-                          filters.sortBy === "desc"
-                            ? "bg-white/10 text-white"
-                            : "text-[#666] hover:text-white",
-                        )}
-                      >
-                        Highest
-                      </button>
-                      <button
-                        onClick={() =>
-                          setFilters((p) => ({ ...p, sortBy: "asc" }))
-                        }
-                        className={cn(
-                          "flex-1 py-2 text-xs font-bold rounded-lg transition-colors",
-                          filters.sortBy === "asc"
-                            ? "bg-white/10 text-white"
-                            : "text-[#666] hover:text-white",
-                        )}
-                      >
-                        Lowest
-                      </button>
-                    </div>
-                  </div>
-                  <div className="w-24">
-                    <label className="text-[10px] font-extrabold uppercase tracking-widest text-[#666] ml-1 mb-1.5 block">
-                      Show
-                    </label>
-                    <select
-                      value={filters.pageSize}
-                      onChange={(e) =>
-                        setFilters((p) => ({
-                          ...p,
-                          pageSize: Number(e.target.value),
-                        }))
-                      }
-                      className="w-full bg-[#111] border border-[#222] text-white px-3 py-2.5 rounded-xl text-xs font-bold focus:outline-none focus:border-amber-500 appearance-none"
-                    >
-                      <option value={10}>10</option>
-                      <option value={15}>15</option>
-                      <option value={20}>20</option>
-                    </select>
-                  </div>
-                </div>
-              </div>
-
-              <div className="p-6 border-t border-white/[0.05] bg-[#000000] shrink-0">
-                <button
-                  onClick={clearFilters}
-                  className="w-full py-3 bg-white/5 hover:bg-white/10 text-white text-xs font-bold rounded-xl transition-colors"
-                >
-                  Reset Parameters
-                </button>
-              </div>
-            </motion.aside>
-          )}
-
-          {/* PUBLIC PROFILE SIDEBAR (Upgraded Aesthetic Preview) */}
-          {selectedUserProfile && !isFilterOpen && (
-            <motion.aside
-              initial={{ x: "100%", opacity: 0 }}
-              animate={{ x: 0, opacity: 1 }}
-              exit={{ x: "100%", opacity: 0 }}
-              transition={{ type: "spring", damping: 25, stiffness: 200 }}
-              className="absolute md:relative right-0 top-0 bottom-0 w-full md:w-[450px] bg-[#050505] border-l border-white/[0.05] z-50 shadow-2xl flex flex-col"
-            >
-              <div className="p-6 border-b border-white/[0.05] flex justify-between items-center shrink-0 bg-white/[0.02]">
-                <h2 className="text-sm font-semibold text-white tracking-tight flex items-center gap-2">
-                  <User className="w-4 h-4 text-white/50" /> Operator Preview
-                </h2>
-                <button
-                  onClick={() => setSelectedUserProfile(null)}
-                  className="p-1.5 rounded-full hover:bg-white/10 text-white/50 transition-colors"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-
-              <div className="flex-1 overflow-y-auto custom-scrollbar p-6">
-                {/* Profile Header */}
-                <div className="flex flex-col items-center text-center mb-8">
-                  <div
-                    className={cn(
-                      "w-20 h-20 rounded-full border-2 flex items-center justify-center mb-3 overflow-hidden relative text-2xl font-black shadow-[0_0_20px_rgba(255,255,255,0.05)]",
-                      getLevelAura(
-                        selectedUserProfile.identity?.level ||
-                          selectedUserProfile.level,
-                      ),
-                    )}
-                  >
-                    {selectedUserProfile.identity?.fullName
-                      ? selectedUserProfile.identity.fullName
-                          .charAt(0)
-                          .toUpperCase()
-                      : selectedUserProfile.fullName
-                        ? selectedUserProfile.fullName.charAt(0).toUpperCase()
-                        : "?"}
-                    {selectedUserProfile.tier === "PRO" && (
-                      <div className="absolute bottom-0 inset-x-0 bg-amber-500/90 backdrop-blur-md py-0.5 text-[7px] font-bold text-black uppercase tracking-widest">
-                        PRO
-                      </div>
-                    )}
-                  </div>
-                  <h2 className="text-lg font-bold text-white">
-                    {selectedUserProfile.identity?.fullName ||
-                      selectedUserProfile.fullName ||
-                      "Operator"}
-                  </h2>
-                  <p className="text-xs text-white/50 mb-3">
-                    @
-                    {selectedUserProfile.identity?.username ||
-                      selectedUserProfile.username ||
-                      "unknown"}
-                  </p>
-
-                  <div className="flex items-center justify-center gap-2 flex-wrap">
-                    <span className="px-3 py-1 bg-white/5 rounded-full text-[10px] font-medium text-white/70 border border-white/5">
-                      {selectedUserProfile.identity?.domain ||
-                        selectedUserProfile.domain ||
-                        "Unassigned Sector"}
-                    </span>
-                    <span className="px-3 py-1 bg-white/5 rounded-full text-[10px] font-medium text-white/70 border border-white/5">
-                      {selectedUserProfile.identity?.niche ||
-                        selectedUserProfile.niche ||
-                        "General"}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Verified asset count — only public/verified assets shown */}
-                {(() => {
-                  const verifiedAssets = (
-                    selectedUserProfile.vault || []
-                  ).filter(
-                    (v) => v.status === "VERIFIED" && v.isPublic !== false,
-                  );
-                  if (verifiedAssets.length > 0) {
-                    return (
-                      <div className="flex items-center gap-1.5 justify-center mb-4 flex-wrap">
-                        {verifiedAssets.slice(0, 3).map((asset, i) => (
-                          <span
-                            key={i}
-                            className="px-2 py-0.5 bg-green-500/10 border border-green-500/20 text-green-400 text-[8px] font-black uppercase tracking-widest rounded-full flex items-center gap-1"
-                          >
-                            <ShieldCheck className="w-2.5 h-2.5" />
-                            {asset.category || "Verified"}
-                          </span>
-                        ))}
-                        {verifiedAssets.length > 3 && (
-                          <span className="text-[8px] text-white/30 font-bold">
-                            +{verifiedAssets.length - 3} more
-                          </span>
-                        )}
-                      </div>
-                    );
-                  }
-                  return null;
-                })()}
-
-                {/* Score & Vault Mini-Stats */}
-                <div className="grid grid-cols-2 gap-3 mb-6">
-                  <div className="p-3 rounded-xl bg-white/[0.02] border border-white/5 flex flex-col items-center justify-center text-center">
-                    <Activity className="w-5 h-5 text-white/20 mb-1" />
-                    <p className="text-[9px] font-bold text-white/40 uppercase tracking-widest">
-                      Score
-                    </p>
-                    <p className="text-lg font-mono font-semibold text-white">
-                      {selectedUserProfile.discotiveScore?.current || 0}
-                    </p>
-                  </div>
-                  <div className="p-3 rounded-xl bg-white/[0.02] border border-white/5 flex flex-col items-center justify-center text-center">
-                    <Database className="w-5 h-5 text-emerald-500/30 mb-1" />
-                    <p className="text-[9px] font-bold text-white/40 uppercase tracking-widest">
-                      Assets
-                    </p>
-                    <p className="text-lg font-mono font-semibold text-emerald-400">
-                      {selectedUserProfile.vault?.length || 0}
-                    </p>
-                  </div>
-                </div>
-
-                {/* RADAR CHART: Competency Matrix */}
-                <div className="bg-white/[0.01] border border-white/[0.05] rounded-2xl p-4 mb-6">
-                  <h4 className="text-[10px] font-semibold text-white/40 uppercase tracking-widest mb-4 text-center">
-                    Execution Telemetry
-                  </h4>
-                  <div className="h-[180px] w-full">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <RadarChart
-                        cx="50%"
-                        cy="50%"
-                        outerRadius="70%"
-                        data={[
-                          {
-                            metric: "Execution",
-                            val: Math.min(
-                              100,
-                              (selectedUserProfile.discotiveScore?.current ||
-                                0) / 10,
-                            ),
-                          },
-                          {
-                            metric: "Vault",
-                            val: Math.min(
-                              100,
-                              (selectedUserProfile.vault?.length || 0) * 10,
-                            ),
-                          },
-                          {
-                            metric: "Network",
-                            val: Math.min(
-                              100,
-                              (selectedUserProfile.allies?.length || 0) * 5,
-                            ),
-                          },
-                          {
-                            metric: "Consistency",
-                            val:
-                              selectedUserProfile.discotiveScore?.last24h <
-                              selectedUserProfile.discotiveScore?.current
-                                ? 85
-                                : 40,
-                          },
-                          {
-                            metric: "Level",
-                            val:
-                              parseInt(
-                                selectedUserProfile.identity?.level?.match(
-                                  /\d+/,
-                                )?.[0] || 1,
-                              ) * 20,
-                          },
-                        ]}
-                      >
-                        <PolarGrid stroke="rgba(255,255,255,0.1)" />
-                        <PolarAngleAxis
-                          dataKey="metric"
-                          tick={{ fill: "rgba(255,255,255,0.4)", fontSize: 9 }}
-                        />
-                        <Radar
-                          name="Operator"
-                          dataKey="val"
-                          stroke="#f59e0b"
-                          fill="#f59e0b"
-                          fillOpacity={0.2}
-                        />
-                      </RadarChart>
-                    </ResponsiveContainer>
-                  </div>
-                </div>
-
-                {/* PIE CHART: Asset Distribution */}
-                <div className="bg-white/[0.01] border border-white/[0.05] rounded-2xl p-4 flex items-center justify-between">
-                  <div>
-                    <h4 className="text-[10px] font-semibold text-white/40 uppercase tracking-widest mb-1">
-                      Vault Matrix
-                    </h4>
-                    <p className="text-xs text-white/60">
-                      Asset classification breakdown.
-                    </p>
-                  </div>
-                  <div className="h-[60px] w-[60px]">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <PieChart>
-                        <Pie
-                          data={[
-                            {
-                              name: "Verified",
-                              value:
-                                selectedUserProfile.vault?.filter(
-                                  (v) => v.status === "VERIFIED",
-                                ).length || 1,
-                            },
-                            {
-                              name: "Pending",
-                              value:
-                                selectedUserProfile.vault?.filter(
-                                  (v) => v.status === "PENDING",
-                                ).length || 1,
-                            },
-                          ]}
-                          cx="50%"
-                          cy="50%"
-                          innerRadius={20}
-                          outerRadius={30}
-                          stroke="none"
-                          dataKey="value"
-                        >
-                          <Cell fill="#10b981" /> {/* Emerald for Verified */}
-                          <Cell fill="#f59e0b" /> {/* Amber for Pending */}
-                        </Pie>
-                      </PieChart>
-                    </ResponsiveContainer>
-                  </div>
-                </div>
-              </div>
-
-              {/* Action Footer */}
-              <div className="p-6 border-t border-white/[0.05] bg-[#000000] shrink-0 flex flex-col gap-3">
-                <button
-                  onClick={(e) => triggerCompare(e, selectedUserProfile)}
-                  className="w-full py-3 bg-[#111] border border-[#333] hover:bg-[#222] text-white text-xs font-bold rounded-xl transition-colors flex justify-center items-center gap-2"
-                >
-                  <Crosshair className="w-4 h-4" /> Initialize X-Ray
-                </button>
-                <button
-                  onClick={() =>
-                    navigate(`/${selectedUserProfile.identity?.username}`)
-                  }
-                  className="w-full py-3 bg-white text-black text-xs font-extrabold rounded-xl hover:bg-[#ccc] transition-transform active:scale-95 flex justify-center items-center gap-2 shadow-[0_0_20px_rgba(255,255,255,0.1)]"
-                >
-                  <User className="w-4 h-4" /> View Full Profile
-                </button>
-              </div>
-            </motion.aside>
+          {selectedUser && (
+            <PlayerSidebar
+              player={selectedUser}
+              onClose={() => setSelectedUser(null)}
+              onCompare={() => handleCompare(selectedUser)}
+              resolvePlayerName={resolvePlayerName}
+              navigate={navigate}
+            />
           )}
         </AnimatePresence>
       </div>
 
+      {/* ════ UPSELL MODAL ════ */}
       <AnimatePresence>
         {isUpsellOpen && (
-          <div className="fixed inset-0 z-[300] flex items-center justify-center p-4 bg-[#000000]/80 backdrop-blur-md">
+          <div className="fixed inset-0 z-[400] flex items-center justify-center p-4 bg-black/85 backdrop-blur-md">
             <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
+              initial={{ opacity: 0, scale: 0.94 }}
               animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="w-full max-w-md bg-[#0a0a0c] border border-[#222] rounded-[2rem] shadow-2xl p-8 text-center relative overflow-hidden"
+              exit={{ opacity: 0, scale: 0.94 }}
+              className="w-full max-w-sm bg-[#080808] border border-[#222] rounded-[2rem] p-7 text-center relative overflow-hidden"
             >
-              <div className="w-16 h-16 bg-amber-500/10 border border-amber-500/30 rounded-2xl flex items-center justify-center mx-auto mb-6">
-                <Crown className="w-8 h-8 text-amber-500" />
+              <div className="absolute -top-10 left-1/2 -translate-x-1/2 w-32 h-32 bg-amber-500 opacity-[0.06] blur-3xl rounded-full pointer-events-none" />
+              <div className="w-14 h-14 bg-amber-500/10 border border-amber-500/25 rounded-2xl flex items-center justify-center mx-auto mb-5">
+                <Crown className="w-7 h-7 text-amber-500" />
               </div>
-              <h3 className="text-2xl font-black text-white mb-2">
+              <h3 className="text-xl font-black text-white mb-2">
                 Protocol Locked
               </h3>
-              <p className="text-xs text-[#888] font-medium leading-relaxed mb-8">
+              <p className="text-xs text-[#666] leading-relaxed mb-6">
                 {isGhostUser
-                  ? "Complete your operator onboarding to unlock the Competitor X-Ray engine and participate in the Arena rankings."
-                  : "The Competitor X-Ray engine is classified telemetry. Upgrade to Discotive Pro to unlock deep-dive operator analytics."}
+                  ? "Complete onboarding to unlock Competitor X-Ray and arena ranking."
+                  : "X-Ray deep-dive analytics requires Discotive Pro clearance."}
               </p>
               <div className="flex gap-3">
                 <button
                   onClick={() => setIsUpsellOpen(false)}
-                  className="flex-1 py-3 bg-[#111] border border-[#333] text-white rounded-xl text-xs font-bold hover:bg-[#222]"
+                  className="flex-1 py-3 bg-white/[0.04] border border-white/[0.08] text-white rounded-xl text-xs font-bold hover:bg-white/10 transition-colors"
                 >
                   Cancel
                 </button>
@@ -1694,9 +2046,9 @@ const Leaderboard = () => {
                   onClick={() =>
                     isGhostUser ? navigate("/") : navigate("/premium")
                   }
-                  className="flex-1 py-3 bg-amber-500 text-black rounded-xl text-xs font-extrabold uppercase tracking-widest shadow-[0_0_20px_rgba(245,158,11,0.3)] hover:bg-amber-400"
+                  className="flex-1 py-3 bg-amber-500 text-black rounded-xl text-xs font-black uppercase tracking-widest hover:bg-amber-400 transition-colors"
                 >
-                  {isGhostUser ? "Complete Onboarding" : "Upgrade"}
+                  {isGhostUser ? "Onboard" : "Upgrade"}
                 </button>
               </div>
             </motion.div>
@@ -1704,13 +2056,16 @@ const Leaderboard = () => {
         )}
       </AnimatePresence>
 
-      {/* RENDER THE ISOLATED COMPARE ENGINE */}
+      {/* ════ COMPARE MODAL ════ */}
       <CompareModal
         isOpen={isCompareOpen}
         onClose={() => setIsCompareOpen(false)}
         currentUser={userData}
         targetUser={compareTarget}
       />
+
+      {/* ════ TOASTS ════ */}
+      <Toast toasts={toasts} />
     </div>
   );
 };
