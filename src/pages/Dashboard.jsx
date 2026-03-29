@@ -632,7 +632,7 @@ const Dashboard = () => {
               </div>
             </div>
             <h1 className="text-2xl sm:text-3xl md:text-4xl font-black tracking-tight text-white">
-              Command Center,{" "}
+              Hi,{" "}
               <span className="bg-gradient-to-r from-amber-400 to-amber-600 bg-clip-text text-transparent">
                 {operatorName}
               </span>
