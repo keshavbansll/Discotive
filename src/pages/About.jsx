@@ -28,7 +28,7 @@ import emailjs from "@emailjs/browser";
 const BOARD_MEMBERS = [
   {
     id: "kb",
-    name: "Keshav Bansal",
+    name: "Keshav Bansll",
     title: "Co-Founder & Chief Architect",
     image: "/Keshav-Bansal.jpeg",
     bio: "The visionary behind the Discotive protocol. Engineering the algorithmic death of the traditional resume.",
