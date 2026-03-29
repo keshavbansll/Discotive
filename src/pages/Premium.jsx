@@ -75,15 +75,42 @@ const Premium = () => {
 
     setIsCheckingOut(true);
     try {
-      // 1. Initialize Firebase Functions
-      const functions = getFunctions();
-      const createSub = httpsCallable(functions, "createProSubscription");
+      // 1. HARD VERIFICATION: Ensure the deep auth session exists
+      if (!auth.currentUser) {
+        alert(
+          "System Fault: Auth session desynchronized. Please log out and log back in.",
+        );
+        setIsCheckingOut(false);
+        return;
+      }
 
-      // 2. Call the backend to generate the secure Subscription ID
-      const result = await createSub();
-      const subscriptionId = result.data.subscriptionId;
+      // 2. EXTRACT RAW CRYPTOGRAPHIC TOKEN (Force refresh to ensure it's valid)
+      const token = await auth.currentUser.getIdToken(true);
 
-      // 3. Trigger the Razorpay overlay with the verified ID
+      // 3. DIRECT API STRIKE (Bypassing Firebase SDK routing bugs)
+      // We use your exact Cloud Run container URL, not the legacy .net proxy
+      const response = await fetch(
+        "https://createprosubscription-c4wsj73agq-uc.a.run.app",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`, // Manually inject the identity
+          },
+          body: JSON.stringify({ data: {} }), // Firebase onCall requires this exact payload structure
+        },
+      );
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error("Backend Rejection:", errorText);
+        throw new Error(`API Gateway Rejected: ${response.status}`);
+      }
+
+      // 4. PARSE THE CALLABLE PROTOCOL RESPONSE
+      const jsonResponse = await response.json();
+      const subscriptionId = jsonResponse.result.subscriptionId;
+
+      // 5. BOOT THE GATEWAY
       await initiateProUpgrade(userData, subscriptionId);
     } catch (error) {
       console.error("Checkout failed to initialize:", error);

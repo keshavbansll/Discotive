@@ -28,8 +28,6 @@ export const initiateProUpgrade = async (userData, subscriptionId) => {
     subscription_id: subscriptionId, // <-- The ID from your backend
     name: "Discotive OS",
     description: "Upgrade to Discotive Pro",
-    image: "/logo.png",
-    theme: { color: "#f59e0b" },
     prefill: {
       name: userData.username || "",
       email: userData.email || "",
