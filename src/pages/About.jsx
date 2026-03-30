@@ -112,7 +112,7 @@ const AboutNavbar = ({ setIsHoveringCard }) => {
           onMouseLeave={() => setIsHoveringCard(false)}
         >
           <img
-            src="/logox.png"
+            src="/logo.png"
             alt="Discotive Logo"
             className="w-10 h-10 object-contain group-hover:scale-105 transition-transform duration-300 drop-shadow-[0_0_15px_rgba(255,255,255,0.2)]"
           />
@@ -442,7 +442,7 @@ const About = () => {
               <div className="col-span-2 md:col-span-2 flex flex-col items-start text-left">
                 <Link to="/" className="flex items-center gap-3 mb-6">
                   <img
-                    src="/logox.png"
+                    src="/logo.png"
                     alt="Discotive Logo"
                     className="w-10 h-10 object-contain drop-shadow-[0_0_15px_rgba(255,255,255,0.2)]"
                   />

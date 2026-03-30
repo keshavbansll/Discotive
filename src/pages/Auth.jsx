@@ -1785,7 +1785,7 @@ const Auth = () => {
             className="flex items-center gap-3 mb-16 hover:opacity-80 transition-opacity w-fit focus-visible:outline-none focus-visible:ring-2 ring-white/50 rounded-lg"
           >
             <img
-              src="/logox.png"
+              src="/logo.png"
               alt="Discotive Logo"
               className="h-10 w-auto object-contain"
             />

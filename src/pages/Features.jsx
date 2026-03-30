@@ -98,7 +98,7 @@ const FeaturesNavbar = ({ setIsHoveringCard }) => {
           onMouseLeave={() => setIsHoveringCard(false)}
         >
           <img
-            src="/logox.png"
+            src="/logo.png"
             alt="Discotive Logo"
             className="w-10 h-10 object-contain group-hover:scale-105 transition-transform duration-300 drop-shadow-[0_0_15px_rgba(255,255,255,0.2)]"
           />
@@ -978,7 +978,7 @@ const Features = () => {
           >
             <div className="w-16 h-16 rounded-2xl bg-[#111] border border-[#333] flex items-center justify-center mb-8">
               <img
-                src="/logox.png"
+                src="/logo.png"
                 alt="Discotive"
                 className="w-8 h-8 opacity-80"
               />
@@ -1013,7 +1013,7 @@ const Features = () => {
               <div className="col-span-2 md:col-span-2 flex flex-col items-start text-left">
                 <Link to="/" className="flex items-center gap-3 mb-6">
                   <img
-                    src="/logox.png"
+                    src="/logo.png"
                     alt="Discotive Logo"
                     className="w-10 h-10 object-contain drop-shadow-[0_0_15px_rgba(255,255,255,0.2)]"
                   />
