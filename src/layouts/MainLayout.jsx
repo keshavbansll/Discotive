@@ -321,12 +321,15 @@ const MainLayout = () => {
         {/* Logo Section */}
         <div className="h-20 flex items-center justify-between px-6 shrink-0 border-b border-[#111]">
           <Link to="/app" className="flex items-center gap-3 overflow-hidden">
-            {/* Swapped the 'D' block for your custom PNG logo */}
             <div className="w-8 h-8 flex items-center justify-center shrink-0">
               <img
-                src="/logo-no-bg-white.png"
+                src={
+                  userData?.tier === "PRO" || userData?.tier === "ENTERPRISE"
+                    ? "/logo-premium.png"
+                    : "/logo-no-bg-white.png"
+                }
                 alt="Discotive Logo"
-                className="w-full h-full object-contain"
+                className="w-full h-full object-contain transition-all duration-300"
               />
             </div>
             <AnimatePresence>
