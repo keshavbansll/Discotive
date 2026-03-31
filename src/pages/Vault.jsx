@@ -794,7 +794,7 @@ const Vault = () => {
             </div>
           </div>
           <h1 className="text-4xl md:text-5xl font-black tracking-tighter">
-            Cryptographic Vault.
+            Asset Vault.
           </h1>
           <p className="text-[#666] mt-2 font-medium max-w-xl text-sm leading-relaxed">
             Immutable proof-of-work storage. Uploaded assets are audited by the
