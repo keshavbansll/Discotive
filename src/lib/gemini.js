@@ -20,7 +20,7 @@ export const generateCalibrationQuestions = async (userData) => {
       - Q2 (mcq): Ask to identify their most critical operational bottleneck (4 hyper-specific options).
       - Q3 (mcq): Ask about their resource allocation (time/capital) strategy (4 options).
 
-      Return ONLY a JSON array: [{"id": "q1", "type": "text", "question": "..."}, {"id": "q2", "type": "mcq", "question": "...", "options": ["A","B"]}]
+      Return ONLY a JSON array. Format: [{"id": "q1", "type": "text", "question": "..."}, {"id": "q2", "type": "mcq", "question": "...", "options": ["A","B"]}]
     `;
     const result = await model.generateContent({
       contents: [{ role: "user", parts: [{ text: prompt }] }],
@@ -28,6 +28,7 @@ export const generateCalibrationQuestions = async (userData) => {
     });
     return JSON.parse(result.response.text());
   } catch (error) {
+    console.error("[Gemini] Calibration Error:", error);
     throw new Error("Calibration failed.");
   }
 };
@@ -39,13 +40,13 @@ export const generateExecutionMap = async (
   learnInventory = { videos: [], certificates: [] },
 ) => {
   try {
-    const isPro = subscriptionTier.toLowerCase() === "pro";
+    const isPro = subscriptionTier?.toLowerCase() === "pro";
     const minExecutionNodes = isPro ? 30 : 15;
     const maxExecutionNodes = isPro ? 45 : 20;
 
     const prompt = `
-      SYSTEM DIRECTIVE: Act as a Graph Database Compiler for an Agentic AI Career Engine.
-      You output a visual execution DAG (Directed Acyclic Graph) — NO cycles, NO bidirectional edges.
+      SYSTEM DIRECTIVE: Act as a Graph Database Compiler for the Discotive Career Engine.
+      Output a visual execution DAG (Directed Acyclic Graph) — NO cycles, NO bidirectional edges.
 
       OPERATOR CONTEXT:
         Domain: ${userData?.vision?.passion || "General"}
@@ -54,45 +55,48 @@ export const generateExecutionMap = async (
 
       CALIBRATION DATA: ${JSON.stringify(qaAnswers)}
 
-      DISCOTIVE LEARN INVENTORY (STRICT USAGE):
+      DISCOTIVE LEARN INVENTORY (STRICT USAGE - USE THESE EXACT IDs):
       Videos: ${JSON.stringify(learnInventory.videos)}
       Certificates: ${JSON.stringify(learnInventory.certificates)}
 
       ═══════════════════════════════════════════════════════════
-      TOPOLOGY RULES (MANDATORY — VIOLATING THESE BREAKS THE UI)
+      TOPOLOGY RULES (MANDATORY)
       ═══════════════════════════════════════════════════════════
       1. Generate EXACTLY ${minExecutionNodes}–${maxExecutionNodes} "core" + "branch" nodes total.
-      2. ZERO floating nodes. Every node must have at least 1 incoming OR outgoing edge.
-      3. TREE STRUCTURE: Each core branches into 2–4 branch nodes max. 
-      4. CHRONOLOGICAL SPINE: Core nodes represent sequential milestones (n1→n2→n3).
-      5. CONNECTOR NODES: For external platforms, attach ONE connectorNode child.
-      6. DISCOTIVE LEARN ATTACHMENTS (CRITICAL):
-         - If a task requires learning a concept, you MUST attach a "videoWidget" and use a "learnId" and "youtubeId" from the provided Videos inventory.
-         - If a task requires proving a skill, you MUST attach an "assetWidget" and set "requiredLearnId" from the Certificates inventory. DO NOT makeup IDs. If no matching inventory exists, use generic assetWidget without requiredLearnId.
+      2. ZERO floating nodes.
+      3. CHRONOLOGICAL SPINE: Core nodes represent sequential milestones (n1→n2→n3).
+      4. DISCOTIVE LEARN ATTACHMENTS (CRITICAL):
+         - If a task requires learning a concept, attach a "videoWidget" using a "learnId" and "youtubeId" strictly from the Videos inventory provided.
+         - If a task requires proving a skill, attach an "assetWidget" and set "requiredLearnId" strictly from the Certificates inventory.
+         - NEVER hallucinate IDs. If no match exists, use generic nodes without IDs.
 
       ═══════════════════════════════════════════════════════════
       NODE TYPES
       ═══════════════════════════════════════════════════════════
       - "core"          → Main spine milestone.
       - "branch"        → Parallel task.
-      - "assetWidget"   → Document/proof. Format: { "id":"...", "type":"assetWidget", "label":"...", "requiredLearnId":"discotive_certificate_XXXXXX" }
-      - "videoWidget"   → Learning resource. Format: { "id":"...", "type":"videoWidget", "title":"...", "youtubeId":"...", "learnId":"discotive_video_XXXXXX", "baseScore": 10 }
-      - "connectorNode" → External app integration.
+      - "assetWidget"   → { "id":"...", "type":"assetWidget", "label":"...", "requiredLearnId":"discotive_certificate_XXXXXX" }
+      - "videoWidget"   → { "id":"...", "type":"videoWidget", "title":"...", "youtubeId":"...", "learnId":"discotive_video_XXXXXX", "baseScore": 10 }
       ${isPro ? `- "radarWidget"   → Skills radar. Exactly 1, attached to first core.` : ""}
 
-      OUTPUT FORMAT — RETURN ONLY RAW JSON. NO MARKDOWN.
+      RETURN ONLY RAW JSON. DO NOT WRAP IN MARKDOWN OR EXPLANATIONS.
     `;
 
     const result = await model.generateContent({
       contents: [{ role: "user", parts: [{ text: prompt }] }],
     });
-    const cleanJson = result.response
-      .text()
-      .replace(/```json/g, "")
-      .replace(/```/g, "")
-      .trim();
-    return JSON.parse(cleanJson);
+    
+    const textResponse = result.response.text();
+    // ROBUST EXTRACTION: Finds the first [ or { and parses to the end, ignoring AI conversational text
+    const jsonMatch = textResponse.match(/\[[\s\S]*\]|\{[\s\S]*\}/);
+    
+    if (!jsonMatch) {
+      throw new Error("AI returned malformed topology data.");
+    }
+    
+    return JSON.parse(jsonMatch[0]);
   } catch (error) {
-    throw new Error("Synthesis failed.");
+    console.error("[Gemini] Synthesis Error:", error);
+    throw new Error("Execution Map Synthesis failed.");
   }
 };

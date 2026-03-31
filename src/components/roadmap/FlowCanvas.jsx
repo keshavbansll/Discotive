@@ -542,7 +542,10 @@ export const FlowCanvas = ({
       <div className="absolute top-4 left-4 md:top-5 md:left-5 z-[70] flex flex-col gap-2">
         {/* Calibration trigger */}
         <button
-          onClick={handleStartCalibration}
+          onClick={(e) => {
+            e.preventDefault();
+            handleStartCalibration?.();
+          }}
           aria-label="Generate AI execution map"
           title="Generate AI execution map (Wand)"
           className="relative w-10 h-10 bg-[#080808]/95 backdrop-blur-xl border border-[#1a1a1a] rounded-full text-[#888] hover:text-white hover:border-amber-500/40 hover:bg-amber-500/8 transition-all shadow-2xl flex items-center justify-center focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:outline-none"
@@ -552,7 +555,10 @@ export const FlowCanvas = ({
 
         {/* Undo / Redo */}
         <button
-          onClick={undo}
+          onClick={(e) => {
+            e.preventDefault();
+            undo?.();
+          }}
           disabled={!canUndo}
           aria-label="Undo"
           title="Undo (Ctrl+Z)"
@@ -572,7 +578,10 @@ export const FlowCanvas = ({
           </svg>
         </button>
         <button
-          onClick={redo}
+          onClick={(e) => {
+            e.preventDefault();
+            redo?.();
+          }}
           disabled={!canRedo}
           aria-label="Redo"
           title="Redo (Ctrl+Shift+Z)"
@@ -616,7 +625,10 @@ export const FlowCanvas = ({
         </div>
 
         <button
-          onClick={handleCloudSave}
+          onClick={(e) => {
+            e.preventDefault();
+            handleCloudSave?.();
+          }}
           disabled={!hasUnsavedChanges || isSaving}
           aria-label="Save to cloud (Ctrl+S)"
           className="bg-white text-black px-4 py-1.5 rounded-full font-extrabold text-[9px] uppercase tracking-widest hover:bg-[#ddd] transition-colors disabled:opacity-40 shadow-[0_0_15px_rgba(255,255,255,0.1)] focus-visible:ring-2 focus-visible:ring-white focus-visible:outline-none"
@@ -1026,7 +1038,7 @@ const NodeContextMenu = ({
         }}
         className="w-full flex items-center gap-3 px-4 py-2.5 text-xs font-bold text-[#ccc] hover:bg-[#111] hover:text-white transition-colors text-left"
       >
-        <Cp className="w-4 h-4" /> Duplicate
+        <Copy className="w-4 h-4" /> Duplicate
       </button>
       <button
         onClick={() => {
@@ -1040,7 +1052,7 @@ const NodeContextMenu = ({
         }}
         className="w-full flex items-center gap-3 px-4 py-2.5 text-xs font-bold text-rose-400 hover:bg-rose-500/10 transition-colors text-left"
       >
-        <T2 className="w-4 h-4" /> Delete
+        <Trash2 className="w-4 h-4" /> Delete
       </button>
     </ContextMenuBase>
   );
@@ -1096,7 +1108,7 @@ const EdgeContextMenu = ({
         }}
         className="w-full flex items-center gap-3 px-4 py-2.5 text-xs font-bold text-rose-400 hover:bg-rose-500/10 transition-colors text-left border-t border-[#111]"
       >
-        <T2 className="w-4 h-4" /> Delete Edge
+        <Trash2 className="w-4 h-4" /> Delete Edge
       </button>
     </ContextMenuBase>
   );

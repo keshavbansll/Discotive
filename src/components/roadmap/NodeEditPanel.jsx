@@ -20,7 +20,6 @@ import {
   Zap,
   Settings2,
   Users,
-  CheckCircle2,
   Video,
   Database,
   Link2,
@@ -45,7 +44,6 @@ const NODE_TYPES = ["core", "branch", "sub", "milestone"];
 const fieldInput =
   "w-full bg-[#0d0d0d] border border-[#1e1e1e] rounded-xl px-4 py-3 text-sm text-white placeholder-[#333] focus:outline-none transition-colors";
 
-// ── Dynamic Tab Router ─────────────────────────────────────────────────────
 const getTabsForType = (type) => {
   switch (type) {
     case "videoWidget":
@@ -66,7 +64,7 @@ const getTabsForType = (type) => {
     case "radarWidget":
     case "groupNode":
       return [{ id: "color", label: "Theme", icon: Palette }];
-    default: // executionNode & milestoneNode
+    default:
       return [
         { id: "info", label: "Info", icon: Type },
         { id: "tasks", label: "Tasks", icon: Activity },
@@ -102,11 +100,8 @@ export const NodeEditPanel = memo(
     const totalTasks = tasks.length;
     const isCompleted = !!node.data?.isCompleted;
 
-    // Auto-focus title & reset tabs when node changes
     useEffect(() => {
-      if (!availableTabs.find((t) => t.id === tab)) {
-        setTab(availableTabs[0].id);
-      }
+      if (!availableTabs.find((t) => t.id === tab)) setTab(availableTabs[0].id);
       if (titleRef.current && isExecutionNode)
         setTimeout(() => titleRef.current?.focus(), 60);
     }, [node.id, node.type, availableTabs, tab, isExecutionNode]);
@@ -156,7 +151,6 @@ export const NodeEditPanel = memo(
         className="w-[340px] xl:w-[380px] bg-[#060606] border-l border-[#1a1a1a] flex flex-col overflow-hidden shrink-0 z-[50]"
         role="complementary"
       >
-        {/* ── Header ─────────────────────────────────────────────────────── */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-[#1a1a1a] bg-[#050505] shrink-0">
           <div className="flex items-center gap-2.5 min-w-0">
             <Settings2
@@ -181,7 +175,6 @@ export const NodeEditPanel = memo(
           </button>
         </div>
 
-        {/* ── Progress bar (Execution Nodes Only) ────────────────────────── */}
         {isExecutionNode && totalTasks > 0 && (
           <div className="h-1 bg-[#1a1a1a] shrink-0">
             <div
@@ -194,7 +187,6 @@ export const NodeEditPanel = memo(
           </div>
         )}
 
-        {/* ── Tab bar ────────────────────────────────────────────────────── */}
         <div
           className="flex border-b border-[#1a1a1a] shrink-0 overflow-x-auto"
           role="tablist"
@@ -226,9 +218,8 @@ export const NodeEditPanel = memo(
           })}
         </div>
 
-        {/* ── Tab content ────────────────────────────────────────────────── */}
         <div className="flex-1 overflow-y-auto custom-scrollbar p-5 space-y-6">
-          {/* ── VIDEO WIDGET ── */}
+          {/* ── INFO & WIDGET CONFIGS ── */}
           {tab === "video" && (
             <div className="space-y-5">
               <div className="p-5 bg-[#0d0d0d] border border-[#1a1a1a] rounded-[1.5rem] flex flex-col items-center justify-center gap-3 text-center">
@@ -245,8 +236,6 @@ export const NodeEditPanel = memo(
                         ID: {node.data.learnId?.split("_").pop()}
                       </p>
                     </div>
-
-                    {/* CHANGED: Disabled and restyled when node.data.isWatched is true */}
                     <button
                       onClick={() => openVideoModal(node.id)}
                       disabled={node.data?.isWatched}
@@ -288,7 +277,6 @@ export const NodeEditPanel = memo(
             </div>
           )}
 
-          {/* ── ASSET WIDGET ── */}
           {tab === "asset" && (
             <>
               <div>
@@ -344,7 +332,6 @@ export const NodeEditPanel = memo(
             </>
           )}
 
-          {/* ── CONNECTOR NODE ── */}
           {tab === "connector" && (
             <>
               <div>
@@ -406,7 +393,6 @@ export const NodeEditPanel = memo(
             </>
           )}
 
-          {/* ── EXECUTION: INFO ── */}
           {tab === "info" && isExecutionNode && (
             <>
               <div>
@@ -578,7 +564,10 @@ export const NodeEditPanel = memo(
                     onBlur={handleAccentBlur}
                   />
                   <button
-                    onClick={addDelegate}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      addDelegate();
+                    }}
                     className="px-3 bg-white/[0.06] border border-white/[0.08] rounded-xl text-white/60 hover:text-white hover:bg-white/10 transition-colors text-xs font-bold"
                   >
                     Add
@@ -622,7 +611,10 @@ export const NodeEditPanel = memo(
                   </span>
                 </label>
                 <button
-                  onClick={completeAll}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    completeAll();
+                  }}
                   disabled={isCompleted}
                   className="px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest disabled:opacity-25 transition-colors border bg-emerald-500/8 border-emerald-500/25 text-emerald-400 hover:bg-emerald-500/15"
                 >
@@ -680,7 +672,10 @@ export const NodeEditPanel = memo(
                 ))}
               </div>
               <button
-                onClick={addTask}
+                onClick={(e) => {
+                  e.preventDefault();
+                  addTask();
+                }}
                 className="w-full py-3 border border-dashed border-[#1e1e1e] rounded-xl text-[#555] text-xs font-bold uppercase tracking-widest hover:border-[#333] hover:text-white transition-all flex items-center justify-center gap-2 bg-[#0d0d0d]"
               >
                 <Plus className="w-3.5 h-3.5" /> Add Sub-Routine
@@ -827,7 +822,6 @@ export const NodeEditPanel = memo(
           )}
         </div>
 
-        {/* ── Footer ─────────────────────────────────────────────────────── */}
         <div className="border-t border-[#1a1a1a] p-5 space-y-3 shrink-0 bg-[#050505]">
           {pendingScoreDelta !== 0 && (
             <div
@@ -844,7 +838,10 @@ export const NodeEditPanel = memo(
             </div>
           )}
           <button
-            onClick={onDelete}
+            onClick={(e) => {
+              e.preventDefault();
+              onDelete?.();
+            }}
             className="w-full py-3 bg-rose-500/6 border border-rose-500/20 text-rose-500 text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-rose-500/12 transition-colors flex items-center justify-center gap-2"
           >
             <Trash2 className="w-3.5 h-3.5" /> Delete Protocol

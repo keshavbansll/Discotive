@@ -1,7 +1,3 @@
-/**
- * @fileoverview MediaExplorerModal — Mac OS Finder style dynamic vault explorer.
- * Prevents data exhaustion by only calling Firebase when folders are opened.
- */
 import React, { useState, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
@@ -13,21 +9,29 @@ import {
   Database,
   BookOpen,
   ChevronRight,
-  ChevronLeft,
   Search,
-  List,
   X,
   Loader2,
+  Link as LinkIcon,
+  AlertCircle,
 } from "lucide-react";
 import { fetchVideos } from "../../lib/discotiveLearn";
 import { cn } from "../ui/BentoCard";
 
 const CATEGORIES = [
-  { id: "assets", label: "Assets", icon: Database },
-  { id: "learn", label: "Learn", icon: BookOpen },
-  { id: "podcasts", label: "Podcasts", icon: Headphones },
-  { id: "assessments", label: "Assessments", icon: Target },
-  { id: "videos", label: "Videos", icon: Video },
+  {
+    id: "assets",
+    label: "My Vault",
+    icon: Database,
+    color: "text-emerald-400",
+  },
+  {
+    id: "learn",
+    label: "Certificates",
+    icon: BookOpen,
+    color: "text-fuchsia-400",
+  },
+  { id: "videos", label: "Video Hub", icon: Video, color: "text-sky-400" },
 ];
 
 const extractYouTubeId = (url) => {
@@ -38,15 +42,20 @@ const extractYouTubeId = (url) => {
   return match ? match[1] : url;
 };
 
-export const MediaExplorerModal = ({ isOpen, onClose, onSelect }) => {
-  const [path, setPath] = useState(["videos"]); // Start in videos
-  const [cache, setCache] = useState({ youtube: null });
+export const MediaExplorerModal = ({
+  isOpen,
+  onClose,
+  onSelect,
+  requiredLearnId,
+}) => {
+  const [path, setPath] = useState(["assets"]);
+  const [cache, setCache] = useState({ youtube: null, assets: null });
   const [isLoading, setIsLoading] = useState(false);
   const [selectedItem, setSelectedItem] = useState(null);
 
   useEffect(() => {
     if (!isOpen) {
-      setPath(["videos"]);
+      setPath(["assets"]);
       setSelectedItem(null);
     }
   }, [isOpen]);
@@ -55,82 +64,75 @@ export const MediaExplorerModal = ({ isOpen, onClose, onSelect }) => {
     setPath([...path, folderId]);
     if (folderId === "youtube" && !cache.youtube) {
       setIsLoading(true);
-      const res = await fetchVideos({ pageSize: 50 }); // Fetch once, no snapshot
+      const res = await fetchVideos({ pageSize: 50 });
       setCache((prev) => ({ ...prev, youtube: res.items }));
       setIsLoading(false);
     }
   };
 
   if (!isOpen) return null;
-
   const currentLevel = path[path.length - 1];
 
   return createPortal(
-    <div className="fixed inset-0 z-[800] flex items-center justify-center p-4">
-      {/* Backdrop */}
+    <div className="fixed inset-0 z-[800] flex items-center justify-center p-4 sm:p-6">
       <motion.div
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
         onClick={onClose}
-        className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+        className="absolute inset-0 bg-black/90 backdrop-blur-md"
       />
 
-      {/* Mac Window UI */}
       <motion.div
-        initial={{ opacity: 0, scale: 0.95, y: 10 }}
+        initial={{ opacity: 0, scale: 0.95, y: 20 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.95, y: 10 }}
-        className="relative w-[900px] h-[600px] max-w-full max-h-[90vh] bg-[#0f0f0f] border border-[#2a2a2a] rounded-[14px] shadow-2xl flex flex-col overflow-hidden"
+        exit={{ opacity: 0, scale: 0.95, y: 20 }}
+        className="relative w-full max-w-5xl h-[85vh] bg-[#0a0a0c] border border-white/[0.08] rounded-[2rem] shadow-[0_0_80px_rgba(0,0,0,0.8)] flex flex-col overflow-hidden ring-1 ring-white/[0.02]"
       >
-        {/* Top Bar (Traffic Lights & Breadcrumbs) */}
-        <div className="h-14 bg-[#1e1e1e]/80 border-b border-[#2a2a2a] flex items-center px-4 justify-between select-none">
+        {/* Header - Discotive Branded */}
+        <div className="h-16 flex items-center px-6 justify-between border-b border-white/[0.05] bg-[#0a0a0c]/50 backdrop-blur-xl z-10">
           <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2 mr-2">
-              <button
-                onClick={onClose}
-                className="w-3 h-3 rounded-full bg-[#ff5f56] hover:bg-[#ff5f56]/80 flex items-center justify-center group"
-              >
-                <X className="w-2 h-2 text-black opacity-0 group-hover:opacity-100" />
-              </button>
-              <div className="w-3 h-3 rounded-full bg-[#ffbd2e]" />
-              <div className="w-3 h-3 rounded-full bg-[#27c93f]" />
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-xl bg-[#111] border border-white/[0.05] flex items-center justify-center">
+                <Database className="w-4 h-4 text-white" />
+              </div>
+              <div>
+                <h3 className="text-sm font-black text-white tracking-tight">
+                  Discotive Explorer
+                </h3>
+                {requiredLearnId && (
+                  <p className="text-[9px] font-bold text-amber-500 uppercase tracking-widest flex items-center gap-1">
+                    <AlertCircle className="w-3 h-3" /> Matching constraint
+                    active
+                  </p>
+                )}
+              </div>
             </div>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => path.length > 1 && setPath(path.slice(0, -1))}
-                disabled={path.length <= 1}
-                className="p-1 text-[#888] disabled:opacity-30 hover:text-white"
-              >
-                <ChevronLeft className="w-4 h-4" />
-              </button>
-              <button disabled className="p-1 text-[#888] opacity-30">
-                <ChevronRight className="w-4 h-4" />
-              </button>
-            </div>
-            <h3 className="text-xs font-bold text-[#aaa] ml-2 flex items-center gap-1.5">
-              Discotive Vault <ChevronRight className="w-3 h-3 text-[#555]" />{" "}
-              {path
-                .map((p) => p.charAt(0).toUpperCase() + p.slice(1))
-                .join(" > ")}
-            </h3>
           </div>
-          <div className="relative">
-            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#666]" />
-            <input
-              type="text"
-              placeholder="Search"
-              className="bg-[#111] border border-[#2a2a2a] rounded-md pl-8 pr-3 py-1 text-xs text-white focus:outline-none focus:border-[#444] w-48"
-            />
+          <div className="flex items-center gap-4">
+            <div className="relative hidden sm:block">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/30" />
+              <input
+                type="text"
+                placeholder="Search database..."
+                className="bg-[#111] border border-white/[0.05] rounded-xl pl-9 pr-4 py-2 text-xs text-white focus:outline-none focus:border-emerald-500/50 transition-colors w-64"
+              />
+            </div>
+            <button
+              onClick={onClose}
+              className="w-8 h-8 rounded-full bg-[#111] hover:bg-white/10 flex items-center justify-center transition-colors"
+            >
+              <X className="w-4 h-4 text-white/60" />
+            </button>
           </div>
         </div>
 
-        {/* Main Interface Layout */}
-        <div className="flex flex-1 overflow-hidden">
+        {/* Content Body */}
+        <div className="flex flex-1 overflow-hidden flex-col sm:flex-row">
           {/* Sidebar */}
-          <div className="w-48 bg-[#1e1e1e]/40 border-r border-[#2a2a2a] p-3 flex flex-col gap-1 overflow-y-auto">
-            <p className="text-[10px] font-bold text-[#555] px-2 mb-1 mt-2">
-              Favorites
+          <div className="w-full sm:w-56 bg-[#0a0a0c] border-r border-white/[0.05] p-4 flex sm:flex-col gap-2 overflow-x-auto sm:overflow-y-auto hide-scrollbar">
+            <p className="hidden sm:block text-[9px] font-black text-white/30 uppercase tracking-widest px-2 mb-2 mt-2">
+              Databases
             </p>
             {CATEGORIES.map((cat) => {
               const Icon = cat.icon;
@@ -143,16 +145,18 @@ export const MediaExplorerModal = ({ isOpen, onClose, onSelect }) => {
                     setSelectedItem(null);
                   }}
                   className={cn(
-                    "w-full flex items-center gap-2.5 px-2 py-1.5 rounded-md text-xs font-medium transition-colors",
+                    "flex-shrink-0 sm:flex-shrink w-auto sm:w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all",
                     isActive
-                      ? "bg-[#0066cc] text-white"
-                      : "text-[#aaa] hover:bg-white/5",
+                      ? "bg-[#111] border border-white/[0.08] text-white shadow-lg"
+                      : "text-white/40 hover:bg-white/[0.02] hover:text-white",
                   )}
                 >
                   <Icon
-                    className="w-4 h-4"
-                    style={{ color: isActive ? "#fff" : "#38bdf8" }}
-                  />{" "}
+                    className={cn(
+                      "w-4 h-4",
+                      isActive ? cat.color : "text-white/40",
+                    )}
+                  />
                   {cat.label}
                 </button>
               );
@@ -161,50 +165,65 @@ export const MediaExplorerModal = ({ isOpen, onClose, onSelect }) => {
 
           {/* Main View Area */}
           <div
-            className="flex-1 bg-[#0f0f0f] p-6 overflow-y-auto"
+            className="flex-1 bg-[#050505] p-6 overflow-y-auto custom-scrollbar"
             onClick={() => setSelectedItem(null)}
           >
-            {/* Folder Level (e.g. Inside "Videos") */}
+            {/* Breadcrumb Trail */}
+            <div className="flex items-center gap-2 mb-6 text-[10px] font-bold uppercase tracking-widest text-white/30">
+              {path.map((p, i) => (
+                <React.Fragment key={p}>
+                  <span className={i === path.length - 1 ? "text-white" : ""}>
+                    {p}
+                  </span>
+                  {i < path.length - 1 && <ChevronRight className="w-3 h-3" />}
+                </React.Fragment>
+              ))}
+            </div>
+
+            {/* Empty State Logic */}
+            {["assets", "learn", "podcasts"].includes(currentLevel) && (
+              <div className="h-64 flex flex-col items-center justify-center text-center">
+                <div className="w-16 h-16 rounded-2xl bg-[#111] border border-white/[0.05] flex items-center justify-center mb-4">
+                  <Database className="w-6 h-6 text-white/20" />
+                </div>
+                <p className="text-sm font-black text-white">System Empty</p>
+                <p className="text-xs text-white/30 mt-1">
+                  No verified records found in this sector.
+                </p>
+              </div>
+            )}
+
+            {/* Folder Navigation */}
             {currentLevel === "videos" && (
-              <div className="flex gap-6">
+              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-4">
                 <div
                   onClick={(e) => {
                     e.stopPropagation();
                     handleOpenFolder("youtube");
                   }}
-                  className="flex flex-col items-center gap-2 p-3 rounded-lg hover:bg-white/5 cursor-pointer w-24"
+                  className="group flex flex-col items-center gap-3 p-6 rounded-2xl bg-[#0a0a0c] border border-white/[0.05] hover:border-sky-500/50 cursor-pointer transition-all hover:shadow-[0_0_30px_rgba(56,189,248,0.1)]"
                 >
-                  <Folder
-                    className="w-16 h-16 text-[#38bdf8]"
-                    fill="#38bdf8"
-                    fillOpacity={0.2}
-                    strokeWidth={1}
-                  />
-                  <span className="text-xs text-white select-none">
-                    YouTube
+                  <div className="w-12 h-12 rounded-xl bg-sky-500/10 flex items-center justify-center group-hover:scale-110 transition-transform">
+                    <Video className="w-6 h-6 text-sky-400" />
+                  </div>
+                  <span className="text-[11px] font-bold text-white uppercase tracking-widest">
+                    YouTube DB
                   </span>
                 </div>
               </div>
             )}
 
-            {/* Empty States for other root folders */}
-            {["assets", "learn", "podcasts", "assessments"].includes(
-              currentLevel,
-            ) && (
-              <div className="h-full flex flex-col items-center justify-center text-center opacity-40 select-none">
-                <Folder className="w-16 h-16 text-[#666] mb-3" />
-                <p className="text-sm font-bold text-white">Folder is empty</p>
-              </div>
-            )}
-
-            {/* Database Loaded Files (e.g. Inside "YouTube") */}
+            {/* YouTube DB Viewer */}
             {currentLevel === "youtube" &&
               (isLoading ? (
-                <div className="h-full flex items-center justify-center">
-                  <Loader2 className="w-6 h-6 text-[#555] animate-spin" />
+                <div className="h-64 flex flex-col items-center justify-center gap-4">
+                  <Loader2 className="w-8 h-8 text-sky-500 animate-spin" />
+                  <p className="text-[10px] font-bold text-sky-500 uppercase tracking-widest animate-pulse">
+                    Querying Database...
+                  </p>
                 </div>
               ) : (
-                <div className="grid grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                   {(cache.youtube || []).map((v) => (
                     <div
                       key={v.id}
@@ -214,26 +233,30 @@ export const MediaExplorerModal = ({ isOpen, onClose, onSelect }) => {
                       }}
                       onDoubleClick={() => onSelect(v)}
                       className={cn(
-                        "flex flex-col gap-2 p-2 rounded-xl cursor-pointer border transition-all",
+                        "flex flex-col gap-3 p-3 rounded-2xl cursor-pointer border transition-all duration-300",
                         selectedItem?.id === v.id
-                          ? "bg-white/10 border-white/20"
-                          : "border-transparent hover:bg-white/5",
+                          ? "bg-sky-500/10 border-sky-500/50 shadow-[0_0_30px_rgba(56,189,248,0.15)]"
+                          : "bg-[#0a0a0c] border-white/[0.05] hover:border-white/20",
                       )}
                     >
-                      <div className="w-full aspect-video bg-[#111] rounded-lg overflow-hidden relative border border-[#222]">
-                        {/* CHANGED: Auto-generates the thumbnail from the YouTube ID */}
+                      <div className="w-full aspect-video bg-[#000] rounded-xl overflow-hidden relative border border-white/[0.05]">
                         <img
                           src={
                             v.thumbnailUrl ||
-                            `https://img.youtube.com/vi/${extractYouTubeId(v.url || v.youtubeId)}/hqdefault.jpg`
+                            `https://img.youtube.com/vi/${extractYouTubeId(v.url || v.youtubeId)}/maxresdefault.jpg`
                           }
                           className="w-full h-full object-cover"
                           alt={v.title}
                         />
                       </div>
-                      <span className="text-xs text-white line-clamp-2 px-1">
-                        {v.title}
-                      </span>
+                      <div>
+                        <span className="text-xs font-bold text-white line-clamp-2 leading-tight">
+                          {v.title}
+                        </span>
+                        <span className="text-[9px] text-white/40 font-mono mt-1 block">
+                          ID: {v.learnId || "N/A"}
+                        </span>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -242,20 +265,27 @@ export const MediaExplorerModal = ({ isOpen, onClose, onSelect }) => {
         </div>
 
         {/* Footer Actions */}
-        <div className="h-14 bg-[#1e1e1e]/80 border-t border-[#2a2a2a] flex items-center px-4 justify-end gap-3">
-          <button
-            onClick={onClose}
-            className="px-5 py-1.5 text-xs font-bold text-white hover:bg-white/10 rounded-md transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={() => selectedItem && onSelect(selectedItem)}
-            disabled={!selectedItem}
-            className="px-5 py-1.5 text-xs font-bold text-white bg-[#0066cc] hover:bg-[#0077ed] disabled:opacity-30 disabled:bg-[#444] rounded-md transition-colors shadow-lg"
-          >
-            Link Media
-          </button>
+        <div className="h-20 bg-[#0a0a0c] border-t border-white/[0.05] flex items-center px-6 justify-between">
+          <div className="hidden sm:block text-[10px] font-mono text-white/30">
+            {selectedItem
+              ? `Selected: ${selectedItem.id}`
+              : "Awaiting selection..."}
+          </div>
+          <div className="flex items-center gap-3 w-full sm:w-auto">
+            <button
+              onClick={onClose}
+              className="flex-1 sm:flex-none px-6 py-2.5 text-[10px] font-black uppercase tracking-widest text-white/60 hover:text-white bg-[#111] hover:bg-white/10 rounded-xl transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => selectedItem && onSelect(selectedItem)}
+              disabled={!selectedItem}
+              className="flex-1 sm:flex-none px-8 py-2.5 text-[10px] font-black uppercase tracking-widest text-black bg-emerald-500 hover:bg-emerald-400 disabled:opacity-30 disabled:bg-[#333] disabled:text-white/30 rounded-xl transition-all shadow-[0_0_20px_rgba(16,185,129,0.3)] disabled:shadow-none flex items-center justify-center gap-2"
+            >
+              <LinkIcon className="w-3.5 h-3.5" /> Link Asset
+            </button>
+          </div>
         </div>
       </motion.div>
     </div>,
