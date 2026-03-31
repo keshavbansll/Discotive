@@ -25,7 +25,7 @@ import { db, auth } from "../firebase";
 
 import { useUserData } from "../hooks/useUserData";
 import { useMapHistory } from "../lib/roadmap/useMapHistory.js";
-import { idbPut, idbGet } from "../lib/roadmap/idb.js";
+import { idbPut, idbGet, idbClear } from "../lib/roadmap/idb.js";
 import { generateNeuralLayout } from "../lib/roadmap/layout.js";
 import { sanitize } from "../lib/roadmap/sanitize.js";
 import {
@@ -298,15 +298,25 @@ const Roadmap = () => {
         const cloudTs = mapSnap.exists() ? mapSnap.data().updatedAt || 0 : 0;
         const localTs = localCache?.localTs || 0;
 
+        // Read the cloud timestamp that the local cache is aware of
+        const idbCloudTs = localCache?.cloudTs;
+
         if (mapSnap.exists()) {
           const rm = mapSnap.data();
+
+          // // FIX: Only trigger conflict if timestamps are skewed AND data is actually different.
+          // // This prevents network latency race conditions from triggering ghost conflicts.
+          // const isLocalNewer = localTs > cloudTs + 5000;
+          // const isDataDifferent =
+          //   JSON.stringify(localCache?.nodes) !== JSON.stringify(rm.nodes);
 
           // CONFLICT CHECK: local IDB is newer than last cloud save
           // (only if both have meaningful data)
           if (
             localCache?.nodes?.length > 0 &&
             rm.nodes?.length > 0 &&
-            localTs > cloudTs + 5000
+            localTs > cloudTs + 5000 &&
+            idbCloudTs !== cloudTs // <-- THE MAGIC BULLET
           ) {
             setConflict({
               cloudNodes: rm.nodes.length,
@@ -367,10 +377,12 @@ const Roadmap = () => {
         setHasUnsavedChanges(true);
         addToast("Local version loaded. Save when ready.", "grey");
       } else {
+        // MAANG FIX: Completely nuke the stale cache so it stops fighting the cloud.
+        idbClear(uid);
         addToast("Cloud version restored.", "green");
       }
     },
-    [conflict, reset, addToast],
+    [conflict, reset, addToast, uid],
   );
 
   // ── Global keyboard shortcuts ─────────────────────────────────────────────

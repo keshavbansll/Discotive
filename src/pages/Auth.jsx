@@ -1146,11 +1146,33 @@ const Auth = () => {
             username: generatedUsername,
           },
         });
-
         // Check if a Firestore user document already exists for this UID
         const existingSnap = await getDoc(doc(db, "users", user.uid));
 
         if (existingSnap.exists()) {
+          const userData = existingSnap.data();
+
+          // SECURITY FIX: Prevent ghost users from bypassing the locked protocol
+          if (
+            userData?.onboardingComplete === false ||
+            userData?.isGhostUser === true
+          ) {
+            const wlSnap = await getDocs(
+              query(
+                collection(db, "whitelisted_emails"),
+                where("email", "==", safeEmail),
+              ),
+            );
+
+            setIsLogin(false);
+            setSystemStatus((prev) => ({ ...prev, loading: false }));
+
+            if (wlSnap.empty) setStep("locked");
+            else setStep(2);
+
+            return;
+          }
+
           // Fully onboarded user — route to app
           setSystemStatus((prev) => ({ ...prev, loading: false }));
           navigate("/app", { replace: true });
@@ -1868,6 +1890,8 @@ const Auth = () => {
                     onClick={handleSocialAuth}
                     disabled={systemStatus.loading}
                   />
+                  {/* Facebook and Apple Auth temporarily disabled for future implementation */}
+                  {/*
                   <div className="flex gap-3">
                     <OAuthButton
                       provider="facebook"
@@ -1884,6 +1908,7 @@ const Auth = () => {
                       disabled={systemStatus.loading}
                     />
                   </div>
+                  */}
                 </div>
 
                 <div className="flex items-center gap-4 my-6 opacity-60">
@@ -2019,6 +2044,8 @@ const Auth = () => {
                     onClick={handleSocialAuth}
                     disabled={systemStatus.loading}
                   />
+                  {/* Facebook and Apple Auth temporarily disabled for future implementation */}
+                  {/*
                   <div className="flex gap-3">
                     <OAuthButton
                       provider="facebook"
@@ -2035,6 +2062,7 @@ const Auth = () => {
                       disabled={systemStatus.loading}
                     />
                   </div>
+                  */}
                 </div>
 
                 <div className="flex items-center gap-4 my-6 opacity-60">
