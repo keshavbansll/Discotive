@@ -707,14 +707,14 @@ const Settings = () => {
                           Your public profile URL
                         </p>
                         <p className="text-[10px] text-[#555] font-mono truncate">
-                          discotive.com/@
+                          discotive.in/@
                           {userData.identity?.username || "handle"}
                         </p>
                       </div>
                       <button
                         onClick={() => {
                           navigator.clipboard.writeText(
-                            `https://discotive.com/@${userData.identity?.username}`,
+                            `https://discotive.in/@${userData.identity?.username}`,
                           );
                           showToast("Link copied!", "green");
                         }}
