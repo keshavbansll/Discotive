@@ -1,13 +1,10 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  Folder,
   Video,
-  Headphones,
-  Target,
   Database,
-  BookOpen,
+  Award,
   ChevronRight,
   Search,
   X,
@@ -18,22 +15,6 @@ import {
 import { fetchVideos } from "../../lib/discotiveLearn";
 import { cn } from "../ui/BentoCard";
 
-const CATEGORIES = [
-  {
-    id: "assets",
-    label: "My Vault",
-    icon: Database,
-    color: "text-emerald-400",
-  },
-  {
-    id: "learn",
-    label: "Certificates",
-    icon: BookOpen,
-    color: "text-fuchsia-400",
-  },
-  { id: "videos", label: "Video Hub", icon: Video, color: "text-sky-400" },
-];
-
 const extractYouTubeId = (url) => {
   if (!url) return null;
   const match = url.match(
@@ -42,23 +23,27 @@ const extractYouTubeId = (url) => {
   return match ? match[1] : url;
 };
 
-export const MediaExplorerModal = ({
+export const ExplorerModal = ({
   isOpen,
   onClose,
   onSelect,
   requiredLearnId,
+  vault = [], // User's vault assets passed in
+  defaultTab = "vault_certificate", // Determines which tab opens first
 }) => {
-  const [path, setPath] = useState(["assets"]);
-  const [cache, setCache] = useState({ youtube: null, assets: null });
+  const [path, setPath] = useState([defaultTab]);
+  const [cache, setCache] = useState({ youtube: null });
   const [isLoading, setIsLoading] = useState(false);
   const [selectedItem, setSelectedItem] = useState(null);
 
   useEffect(() => {
     if (!isOpen) {
-      setPath(["assets"]);
+      setPath([defaultTab]);
       setSelectedItem(null);
+    } else {
+      setPath([defaultTab]);
     }
-  }, [isOpen]);
+  }, [isOpen, defaultTab]);
 
   const handleOpenFolder = async (folderId) => {
     setPath([...path, folderId]);
@@ -70,8 +55,17 @@ export const MediaExplorerModal = ({
     }
   };
 
-  if (!isOpen) return null;
   const currentLevel = path[path.length - 1];
+
+  // Filter vault for only verified certificates
+  const verifiedCertificates = useMemo(() => {
+    return vault.filter(
+      (asset) =>
+        asset.status === "VERIFIED" && asset.category === "Certificate",
+    );
+  }, [vault]);
+
+  if (!isOpen) return null;
 
   return createPortal(
     <div className="fixed inset-0 z-[800] flex items-center justify-center p-4 sm:p-6">
@@ -101,7 +95,7 @@ export const MediaExplorerModal = ({
                   Discotive Explorer
                 </h3>
                 {requiredLearnId && (
-                  <p className="text-[9px] font-bold text-amber-500 uppercase tracking-widest flex items-center gap-1">
+                  <p className="text-[9px] font-bold text-amber-500 uppercase tracking-widest flex items-center gap-1 mt-0.5">
                     <AlertCircle className="w-3 h-3" /> Matching constraint
                     active
                   </p>
@@ -130,37 +124,68 @@ export const MediaExplorerModal = ({
         {/* Content Body */}
         <div className="flex flex-1 overflow-hidden flex-col sm:flex-row">
           {/* Sidebar */}
-          <div className="w-full sm:w-56 bg-[#0a0a0c] border-r border-white/[0.05] p-4 flex sm:flex-col gap-2 overflow-x-auto sm:overflow-y-auto hide-scrollbar">
-            <p className="hidden sm:block text-[9px] font-black text-white/30 uppercase tracking-widest px-2 mb-2 mt-2">
-              Databases
-            </p>
-            {CATEGORIES.map((cat) => {
-              const Icon = cat.icon;
-              const isActive = path[0] === cat.id;
-              return (
-                <button
-                  key={cat.id}
-                  onClick={() => {
-                    setPath([cat.id]);
-                    setSelectedItem(null);
-                  }}
-                  className={cn(
-                    "flex-shrink-0 sm:flex-shrink w-auto sm:w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all",
-                    isActive
-                      ? "bg-[#111] border border-white/[0.08] text-white shadow-lg"
-                      : "text-white/40 hover:bg-white/[0.02] hover:text-white",
-                  )}
-                >
-                  <Icon
+          <div className="w-full sm:w-56 bg-[#0a0a0c] border-r border-white/[0.05] p-4 flex sm:flex-col gap-6 overflow-x-auto sm:overflow-y-auto hide-scrollbar">
+            {/* Section 1: My Vault */}
+            <div className="flex flex-col gap-2">
+              <p className="text-[9px] font-black text-white/30 uppercase tracking-widest px-2">
+                My Vault
+              </p>
+              <button
+                onClick={() => {
+                  setPath(["vault_certificate"]);
+                  setSelectedItem(null);
+                }}
+                className={cn(
+                  "flex-shrink-0 sm:flex-shrink w-auto sm:w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-bold transition-all",
+                  path[0] === "vault_certificate"
+                    ? "bg-[#111] border border-white/[0.08] text-white shadow-lg"
+                    : "text-white/40 hover:bg-white/[0.02] hover:text-white",
+                )}
+              >
+                <span className="flex items-center gap-3">
+                  <Award
                     className={cn(
                       "w-4 h-4",
-                      isActive ? cat.color : "text-white/40",
+                      path[0] === "vault_certificate"
+                        ? "text-amber-400"
+                        : "text-white/40",
                     )}
                   />
-                  {cat.label}
-                </button>
-              );
-            })}
+                  Certificates
+                </span>
+                <span className="text-[9px] font-mono opacity-50">
+                  {verifiedCertificates.length}
+                </span>
+              </button>
+              {/* Future vault tabs go here */}
+            </div>
+
+            {/* Section 2: Verified External Sources */}
+            <div className="flex flex-col gap-2">
+              <p className="text-[9px] font-black text-white/30 uppercase tracking-widest px-2">
+                Verified External Sources
+              </p>
+              <button
+                onClick={() => {
+                  setPath(["videos"]);
+                  setSelectedItem(null);
+                }}
+                className={cn(
+                  "flex-shrink-0 sm:flex-shrink w-auto sm:w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all",
+                  path[0] === "videos"
+                    ? "bg-[#111] border border-white/[0.08] text-white shadow-lg"
+                    : "text-white/40 hover:bg-white/[0.02] hover:text-white",
+                )}
+              >
+                <Video
+                  className={cn(
+                    "w-4 h-4",
+                    path[0] === "videos" ? "text-sky-400" : "text-white/40",
+                  )}
+                />
+                Video Hub
+              </button>
+            </div>
           </div>
 
           {/* Main View Area */}
@@ -173,27 +198,83 @@ export const MediaExplorerModal = ({
               {path.map((p, i) => (
                 <React.Fragment key={p}>
                   <span className={i === path.length - 1 ? "text-white" : ""}>
-                    {p}
+                    {p === "vault_certificate" ? "My Vault (Certificates)" : p}
                   </span>
                   {i < path.length - 1 && <ChevronRight className="w-3 h-3" />}
                 </React.Fragment>
               ))}
             </div>
 
-            {/* Empty State Logic */}
-            {["assets", "learn", "podcasts"].includes(currentLevel) && (
-              <div className="h-64 flex flex-col items-center justify-center text-center">
-                <div className="w-16 h-16 rounded-2xl bg-[#111] border border-white/[0.05] flex items-center justify-center mb-4">
-                  <Database className="w-6 h-6 text-white/20" />
+            {/* ─── Vault Certificates View ─── */}
+            {currentLevel === "vault_certificate" &&
+              (verifiedCertificates.length === 0 ? (
+                <div className="h-64 flex flex-col items-center justify-center text-center">
+                  <div className="w-16 h-16 rounded-2xl bg-[#111] border border-white/[0.05] flex items-center justify-center mb-4">
+                    <Award className="w-6 h-6 text-white/20" />
+                  </div>
+                  <p className="text-sm font-black text-white">
+                    No Verified Certificates
+                  </p>
+                  <p className="text-xs text-white/30 mt-1 max-w-sm">
+                    You haven't uploaded any certificates to your vault, or they
+                    are still pending audit by the admin.
+                  </p>
                 </div>
-                <p className="text-sm font-black text-white">System Empty</p>
-                <p className="text-xs text-white/30 mt-1">
-                  No verified records found in this sector.
-                </p>
-              </div>
-            )}
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {verifiedCertificates.map((cert) => (
+                    <div
+                      key={cert.id}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setSelectedItem(cert);
+                      }}
+                      onDoubleClick={() => onSelect(cert)}
+                      className={cn(
+                        "flex flex-col gap-3 p-4 rounded-2xl cursor-pointer border transition-all duration-300",
+                        selectedItem?.id === cert.id
+                          ? "bg-amber-500/10 border-amber-500/50 shadow-[0_0_30px_rgba(245,158,11,0.15)]"
+                          : "bg-[#0a0a0c] border-white/[0.05] hover:border-white/20",
+                      )}
+                    >
+                      <div className="flex items-start gap-3">
+                        <div className="w-10 h-10 rounded-xl bg-[#111] border border-white/[0.05] flex items-center justify-center shrink-0">
+                          <Award
+                            className={cn(
+                              "w-5 h-5",
+                              selectedItem?.id === cert.id
+                                ? "text-amber-400"
+                                : "text-white/60",
+                            )}
+                          />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <h4
+                            className="text-xs font-bold text-white truncate"
+                            title={cert.title}
+                          >
+                            {cert.title}
+                          </h4>
+                          {(cert.credentials?.issuer ||
+                            cert.credentials?.company) && (
+                            <p className="text-[10px] text-white/50 truncate mt-0.5">
+                              {cert.credentials.issuer ||
+                                cert.credentials.company}
+                            </p>
+                          )}
+                          {cert.discotiveLearnId && (
+                            <div className="mt-1.5 flex items-center gap-1 text-[8px] font-mono text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded w-fit border border-emerald-500/20">
+                              ID: {cert.discotiveLearnId}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ))}
 
-            {/* Folder Navigation */}
+            {/* ─── Video Hub Folder Navigation ─── */}
             {currentLevel === "videos" && (
               <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-5 gap-4">
                 <div
@@ -213,7 +294,7 @@ export const MediaExplorerModal = ({
               </div>
             )}
 
-            {/* YouTube DB Viewer */}
+            {/* ─── YouTube DB Viewer ─── */}
             {currentLevel === "youtube" &&
               (isLoading ? (
                 <div className="h-64 flex flex-col items-center justify-center gap-4">
@@ -254,7 +335,7 @@ export const MediaExplorerModal = ({
                           {v.title}
                         </span>
                         <span className="text-[9px] text-white/40 font-mono mt-1 block">
-                          ID: {v.learnId || "N/A"}
+                          ID: {v.learnId || v.discotiveLearnId || "N/A"}
                         </span>
                       </div>
                     </div>
@@ -265,10 +346,10 @@ export const MediaExplorerModal = ({
         </div>
 
         {/* Footer Actions */}
-        <div className="h-20 bg-[#0a0a0c] border-t border-white/[0.05] flex items-center px-6 justify-between">
+        <div className="h-20 bg-[#0a0a0c] border-t border-white/[0.05] flex items-center px-6 justify-between shrink-0">
           <div className="hidden sm:block text-[10px] font-mono text-white/30">
             {selectedItem
-              ? `Selected: ${selectedItem.id}`
+              ? `Selected: ${selectedItem.title || selectedItem.id}`
               : "Awaiting selection..."}
           </div>
           <div className="flex items-center gap-3 w-full sm:w-auto">

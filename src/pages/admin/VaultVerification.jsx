@@ -25,7 +25,6 @@ import {
   doc,
   updateDoc,
   addDoc,
-  orderBy,
   limit,
   startAfter,
 } from "firebase/firestore";
@@ -59,6 +58,7 @@ import {
   Ban,
 } from "lucide-react";
 import { cn } from "../../components/ui/BentoCard";
+import CertificateExplorerModal from "./CertificateExplorerModal";
 
 // ============================================================================
 // CONSTANTS
@@ -717,6 +717,9 @@ const VaultVerification = () => {
   const [searchParams] = useSearchParams();
   const initialFilter = searchParams.get("filter") || "PENDING";
 
+  // ── Pending Verification State (MOVED INSIDE HOOK BODY) ──
+  const [pendingVerification, setPendingVerification] = useState(null);
+
   // ── Data State ──
   const [allAssets, setAllAssets] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -799,8 +802,19 @@ const VaultVerification = () => {
   }, []); // eslint-disable-line
 
   // ── MARK AS ──────────────────────────────────────────────────────────────
-  const handleMarkAs = useCallback(
-    async (asset, strength) => {
+  // 1. Intercepts the click. Opens modal if verified, bypasses if Fake.
+  const handleMarkAsInitiate = useCallback((asset, strength) => {
+    const isVerified = ["Weak", "Medium", "Strong"].includes(strength);
+    if (isVerified) {
+      setPendingVerification({ asset, strength });
+    } else {
+      handleMarkAsConfirm(asset, strength, null); // Fake doesn't need a certificate
+    }
+  }, []);
+
+  // 2. The actual database mutation logic
+  const handleMarkAsConfirm = useCallback(
+    async (asset, strength, learnId) => {
       const isVerified = ["Weak", "Medium", "Strong"].includes(strength);
       const pts = strength === "Strong" ? 30 : strength === "Medium" ? 20 : 10;
 
@@ -823,18 +837,17 @@ const VaultVerification = () => {
                 verifiedBy: auth.currentUser?.email,
                 isPublic: isVerified,
                 scoreYield: isVerified ? pts : 0,
+                ...(learnId && { discotiveLearnId: learnId }), // Inject Learn ID invisibly
               }
             : a,
         );
 
         await updateDoc(userRef, { vault: updatedVault });
 
-        // Award score to user (only for genuine verifications)
         if (isVerified) {
           awardVaultVerification(asset.userId, strength).catch(console.warn);
         }
 
-        // Optimistic local update
         setAllAssets((prev) =>
           prev.map((a) =>
             a._key === asset._key
@@ -851,13 +864,15 @@ const VaultVerification = () => {
 
         addToast(
           isVerified
-            ? `Asset marked as ${strength}. +${pts} pts awarded to @${asset.userUsername}.`
+            ? `Asset marked ${strength} & Aligned. +${pts} pts to @${asset.userUsername}.`
             : `Asset marked as Fake/Rejected.`,
           isVerified ? "green" : "grey",
         );
       } catch (err) {
         console.error("[VaultVerification] Mark As failed:", err);
         addToast("Failed to update asset. Try again.", "red");
+      } finally {
+        setPendingVerification(null); // Cleanup
       }
     },
     [addToast],
@@ -1133,7 +1148,7 @@ const VaultVerification = () => {
                 <AssetCard
                   key={asset._key}
                   asset={asset}
-                  onMarkAs={handleMarkAs}
+                  onMarkAs={handleMarkAsInitiate}
                   onReport={(a) => setReportTarget(a)}
                 />
               ))}
@@ -1165,6 +1180,22 @@ const VaultVerification = () => {
             asset={reportTarget}
             onClose={() => setReportTarget(null)}
             onSubmit={handleReport}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {pendingVerification && (
+          <CertificateExplorerModal
+            isOpen={!!pendingVerification}
+            onClose={() => setPendingVerification(null)}
+            onSelect={(selectedCert) => {
+              handleMarkAsConfirm(
+                pendingVerification.asset,
+                pendingVerification.strength,
+                selectedCert.discotiveLearnId,
+              );
+            }}
           />
         )}
       </AnimatePresence>

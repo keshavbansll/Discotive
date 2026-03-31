@@ -3,12 +3,12 @@
  * @module Pages/Roadmap
  *
  * This file is intentionally thin. It owns:
- *  - Top-level state (nodes, edges, persistence, AI phase)
- *  - Firebase load/save with IDB fallback and conflict detection
- *  - beforeunload guard (prevents silent data loss on tab close)
- *  - RoadmapContext.Provider wiring
- *  - Toast system
- *  - Keyboard shortcuts that affect the full page (Ctrl+S, Escape, F, J, ?)
+ * - Top-level state (nodes, edges, persistence, AI phase)
+ * - Firebase load/save with IDB fallback and conflict detection
+ * - beforeunload guard (prevents silent data loss on tab close)
+ * - RoadmapContext.Provider wiring
+ * - Toast system
+ * - Keyboard shortcuts that affect the full page (Ctrl+S, Escape, F, J, ?)
  *
  * All rendering is delegated to FlowCanvas, NodeEditPanel, and modal components.
  *
@@ -47,7 +47,7 @@ import { MobileEditSheet } from "../components/roadmap/MobileEditSheet.jsx";
 import { ShortcutsPanel } from "../components/roadmap/ShortcutsPanel.jsx";
 import { ConflictDialog } from "../components/roadmap/ConflictDialog.jsx";
 import { JournalModal } from "../components/roadmap/JournalModal.jsx";
-import { MediaExplorerModal } from "../components/roadmap/MediaExplorerModal.jsx";
+import { ExplorerModal } from "../components/roadmap/ExplorerModal.jsx";
 
 import {
   Activity,
@@ -114,14 +114,13 @@ const Roadmap = () => {
   const [aiQuestions, setAiQuestions] = useState([]);
   const [aiAnswers, setAiAnswers] = useState({});
   const [aiQIdx, setAiQIdx] = useState(0);
-  const [vaultModal, setVaultModal] = useState({
-    isOpen: false,
-    targetNodeId: null,
-  });
 
-  const [videoModal, setVideoModal] = useState({
+  // ── Unified Explorer Modal State ───────────────────────────────────────────
+  const [explorerModal, setExplorerModal] = useState({
     isOpen: false,
     targetNodeId: null,
+    defaultTab: "vault_certificate",
+    requiredLearnId: null,
   });
 
   const saveTimerRef = useRef(null);
@@ -178,17 +177,33 @@ const Roadmap = () => {
     setHasUnsavedChanges(true);
   }, []);
 
-  const openVaultModal = useCallback((nodeId, mode) => {
-    setVaultModal({
-      isOpen: true,
-      targetNodeId: nodeId,
-      openNewUpload: mode === "new",
-    });
-  }, []);
+  // New Unified Modal Accessor
+  const openExplorerModal = useCallback(
+    (nodeId, defaultTab = "vault_certificate", requiredLearnId = null) => {
+      setExplorerModal({
+        isOpen: true,
+        targetNodeId: nodeId,
+        defaultTab,
+        requiredLearnId,
+      });
+    },
+    [],
+  );
 
-  const openVideoModal = useCallback((nodeId) => {
-    setVideoModal({ isOpen: true, targetNodeId: nodeId });
-  }, []);
+  // Legacy mappings for backwards compatibility if some nodes haven't been updated yet
+  const openVaultModal = useCallback(
+    (nodeId, mode, requiredLearnId) => {
+      openExplorerModal(nodeId, "vault_certificate", requiredLearnId);
+    },
+    [openExplorerModal],
+  );
+
+  const openVideoModal = useCallback(
+    (nodeId) => {
+      openExplorerModal(nodeId, "videos");
+    },
+    [openExplorerModal],
+  );
 
   const markVideoWatched = useCallback(
     (nodeId, scoreData) => {
@@ -221,29 +236,51 @@ const Roadmap = () => {
     return match ? match[1] : url; // Extracts ID, or falls back to string if it's already an ID
   };
 
-  // --- UPDATE handleMediaSync ---
-  const handleMediaSync = useCallback(
-    (nodeId, media) => {
+  // Unified sync handler for both videos and assets
+  const handleExplorerSelect = useCallback(
+    (nodeId, item) => {
       setNodes2((nds) =>
-        nds.map((n) =>
-          n.id === nodeId
-            ? {
-                ...n,
-                data: {
-                  ...n.data,
-                  // CHANGED: Run the URL through the parser
-                  youtubeId: extractYouTubeId(media.url || media.youtubeId),
-                  title: media.title,
-                  learnId: media.learnId,
-                  platform: "YouTube",
-                },
-              }
-            : n,
-        ),
+        nds.map((n) => {
+          if (n.id !== nodeId) return n;
+
+          // Differentiate between Vault Asset and Video Media
+          if (item.youtubeId || item.url?.includes("youtu")) {
+            // It's a Video
+            return {
+              ...n,
+              data: {
+                ...n.data,
+                youtubeId: extractYouTubeId(item.url || item.youtubeId),
+                title: item.title,
+                learnId: item.learnId || item.discotiveLearnId,
+                platform: "YouTube",
+              },
+            };
+          } else {
+            // It's a Vault Asset
+            return {
+              ...n,
+              data: {
+                ...n.data,
+                assetId: item.id,
+                assetTitle: item.title,
+                learnId: item.discotiveLearnId,
+                status: item.status,
+                url: item.url,
+              },
+            };
+          }
+        }),
       );
-      setVideoModal({ isOpen: false, targetNodeId: null });
+
+      setExplorerModal({
+        isOpen: false,
+        targetNodeId: null,
+        defaultTab: "vault_certificate",
+        requiredLearnId: null,
+      });
       setHasUnsavedChanges(true);
-      addToast("Media Vault payload attached.", "green");
+      addToast("Payload successfully linked to execution node.", "green");
     },
     [addToast],
   );
@@ -349,12 +386,6 @@ const Roadmap = () => {
 
         if (mapSnap.exists()) {
           const rm = mapSnap.data();
-
-          // // FIX: Only trigger conflict if timestamps are skewed AND data is actually different.
-          // // This prevents network latency race conditions from triggering ghost conflicts.
-          // const isLocalNewer = localTs > cloudTs + 5000;
-          // const isDataDifferent =
-          //   JSON.stringify(localCache?.nodes) !== JSON.stringify(rm.nodes);
 
           // CONFLICT CHECK: local IDB is newer than last cloud save
           // (only if both have meaningful data)
@@ -593,6 +624,7 @@ const Roadmap = () => {
     toggleNodeCollapse,
     openVaultModal,
     openVideoModal,
+    openExplorerModal, // <-- INJECTED INTO CONTEXT
     markVideoWatched,
   };
 
@@ -845,10 +877,23 @@ const Roadmap = () => {
           />
         )}
 
-        <MediaExplorerModal
-          isOpen={videoModal.isOpen}
-          onClose={() => setVideoModal({ isOpen: false, targetNodeId: null })}
-          onSelect={(media) => handleMediaSync(videoModal.targetNodeId, media)}
+        {/* Unified Explorer Modal */}
+        <ExplorerModal
+          isOpen={explorerModal.isOpen}
+          onClose={() =>
+            setExplorerModal({
+              isOpen: false,
+              targetNodeId: null,
+              defaultTab: "vault_certificate",
+              requiredLearnId: null,
+            })
+          }
+          onSelect={(item) =>
+            handleExplorerSelect(explorerModal.targetNodeId, item)
+          }
+          defaultTab={explorerModal.defaultTab}
+          requiredLearnId={explorerModal.requiredLearnId}
+          vault={userData?.vault || []}
         />
 
         {/* Pro gate modal */}

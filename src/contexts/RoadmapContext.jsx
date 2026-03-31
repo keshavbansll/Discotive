@@ -6,13 +6,14 @@
  * consume this context instead of polluting the global event bus.
  *
  * Actions provided:
- *  - openVaultModal(nodeId, mode?)      → replaces OPEN_VAULT_MODAL event
- *  - openVideoModal(nodeId)             → replaces OPEN_VIDEO_MODAL event
- *  - markVideoWatched(nodeId)           → replaces VIDEO_WATCHED event
- *  - toggleNodeCollapse(nodeId, state)  → replaces NODE_COLLAPSE_TOGGLE event
- *  - setActiveEditNodeId(id)            → direct state lift
- *  - addToast(msg, type)                → direct state lift
- *  - addPendingScore(delta)             → direct state lift
+ * - openExplorerModal(nodeId, defaultTab, requiredLearnId) → Unified modal for Vault & Video Hubs
+ * - openVaultModal(nodeId, mode?)      → Legacy alias
+ * - openVideoModal(nodeId)             → Legacy alias
+ * - markVideoWatched(nodeId)           → replaces VIDEO_WATCHED event
+ * - toggleNodeCollapse(nodeId, state)  → replaces NODE_COLLAPSE_TOGGLE event
+ * - setActiveEditNodeId(id)            → direct state lift
+ * - addToast(msg, type)                → direct state lift
+ * - addPendingScore(delta)             → direct state lift
  */
 
 import React, { createContext, useContext } from "react";
