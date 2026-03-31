@@ -9,7 +9,7 @@
 ![Vite](https://img.shields.io/badge/vite-%23646CFF.svg?style=for-the-badge&logo=vite&logoColor=white)
 
 ### 🌐 Live Deployment
-**Experience the Command Center:** [Launch Discotive OS Live](https://discotive.vercel.app)
+**Experience the Command Center:** [Launch Discotive OS Live](https://www.discotive.in)
 
 ---
 
@@ -53,31 +53,6 @@ We are actively transitioning this frontend into a full-stack startup applicatio
 - [ ] **Database:** Migrating mock data to a scalable Firebase Firestore/Supabase architecture.
 - [ ] **RESTful APIs:** Building custom endpoints for real-time Discotive Score calculation and algorithmic matchmaking.
 - [ ] **Global State:** Implementing Zustand/Redux for centralized user data management.
-
----
-
-## 💻 Local Setup Instructions
-
-Want to run the Discotive OS locally? Follow these steps:
-
-1. **Clone the repository:**
-   ```bash
-   git clone [https://github.com/keshavbansll/discotive.git](https://github.com/keshavbansll/discotive.git)
-   
-2. **Navigate to the project directory:**
-   ```bash
-   cd discotive
-
-3. **Install dependencies:**
-   ```bash
-   npm install
-
-4. **Start the development server:**
-   ```bash
-   npm run dev
-
-4. **Open your browser:**
-   Navigate to [http://localhost:5173](url) to see the Landing Page, or [http://localhost:5173/app](url) to enter the Command Center.
 
 Designed and engineered for the next generation of builders.
 
