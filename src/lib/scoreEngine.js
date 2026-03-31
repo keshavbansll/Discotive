@@ -93,46 +93,36 @@ export const processDailyConsistency = async (userId) => {
         newStreak = 1;
       }
     }
-    const currentScore = (data.discotiveScore?.current || 0) + pointChange;
-    /**
-     * @description
-     * Atomic payload written to Firestore on each daily login.
-     * Multi-source activity arrays power the Dashboard heatmap:
-     *  - score_history: { date, score } objects for the sparkline chart
-     *  - consistency_log: ISO date strings for heatmap source 2
-     *  - login_history: ISO date strings for heatmap source 3
-     *
-     * score_history is bounded to 365 entries client-side via a
-     * pre-read slice to prevent unbounded array growth on the document.
-     * arrayUnion naturally deduplicates on the Firebase side for the
-     * string arrays; for the object array we check before writing.
-     */
+
+    // FIX: Calculate the target score and clamp to 0 to prevent negative database states
+    let targetScore = (data.discotiveScore?.current || 0) + pointChange;
+    targetScore = Math.max(0, targetScore);
+
+    // FIX: Calculate the actual delta to use with increment() for atomic safety
+    const actualChange = targetScore - (data.discotiveScore?.current || 0);
+
     const existingHistory = data.score_history || [];
-    // Only add a new score_history entry if this date doesn't already exist
     const alreadyHasToday = existingHistory.some((e) => e?.date === todayStr);
 
     const payload = {
-      "discotiveScore.current": currentScore,
+      // Use increment to prevent race conditions with mutateScore events firing on login
+      "discotiveScore.current": increment(actualChange),
       "discotiveScore.lastLoginDate": todayStr,
       "discotiveScore.streak": newStreak,
-      "discotiveScore.lastAmount": pointChange,
+      "discotiveScore.lastAmount": actualChange, // Record the clamped delta
       "discotiveScore.lastReason": reason,
       "discotiveScore.lastUpdatedAt": new Date().toISOString(),
-      // Source 2: ISO date string array — used by Dashboard heatmap
       consistency_log: arrayUnion(todayStr),
-      // Source 3: ISO date string array — used by Dashboard heatmap
       login_history: arrayUnion(todayStr),
     };
 
-    // Only append score_history if this date is new (prevents duplicate sparkline points)
     if (!alreadyHasToday) {
       payload.score_history = arrayUnion({
         date: todayStr,
-        score: currentScore,
+        score: targetScore, // Record the clamped absolute value for the chart
       });
     }
 
-    // Snapshot last24h only when transitioning to a new day
     if (lastLogin !== todayStr) {
       payload["discotiveScore.last24h"] = data.discotiveScore?.current || 0;
     }

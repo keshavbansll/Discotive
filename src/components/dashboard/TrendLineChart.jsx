@@ -1,10 +1,3 @@
-/**
- * @fileoverview Execution Velocity Trend Line
- * @description
- * Maps the 30-day momentum output. Accepts dynamic colors (Green for positive delta,
- * Amber for negative/neutral). Deep dark-mode architecture.
- */
-
 import React, { useMemo } from "react";
 import {
   LineChart,
@@ -16,7 +9,6 @@ import {
   ResponsiveContainer,
 } from "recharts";
 
-// Custom OS-Themed Tooltip
 const VelocityTooltip = ({ active, payload, label }) => {
   if (active && payload && payload.length) {
     const color = payload[0].stroke || "#fff";
@@ -36,11 +28,49 @@ const TrendLineChart = ({
   xKey = "name",
   yKey = "value",
 }) => {
-  // Format data to ensure charting engine doesn't crash on malformed payloads
   const chartData = useMemo(() => {
-    return data.map((item) => ({
-      name: item[xKey] || item.date || item.month || "...",
-      value: Number(item[yKey] || item.score || item.velocity || 0),
+    if (!Array.isArray(data)) return [];
+
+    const sanitizedData = [];
+
+    data.forEach((item) => {
+      if (!item) return;
+
+      // 1. Safely extract date
+      const rawDate = item[xKey] || item.date || item.month;
+      if (!rawDate) return;
+
+      const timestamp = new Date(rawDate).getTime();
+      if (isNaN(timestamp)) return; // Drop entries with unparseable dates
+
+      // 2. Safely extract value
+      const rawVal =
+        item[yKey] !== undefined
+          ? item[yKey]
+          : item.score !== undefined
+            ? item.score
+            : item.velocity;
+      const numVal = Number(rawVal);
+
+      // 3. CRITICAL: Drop NaN entries completely so the line doesn't break
+      if (isNaN(numVal)) return;
+
+      sanitizedData.push({
+        timestamp,
+        value: Math.max(0, numVal), // Ensure we don't chart negative values visually
+      });
+    });
+
+    // 4. Sort chronologically to prevent zig-zags
+    sanitizedData.sort((a, b) => a.timestamp - b.timestamp);
+
+    // 5. Format X-Axis for clean UI presentation
+    return sanitizedData.map((item) => ({
+      name: new Date(item.timestamp).toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+      }),
+      value: item.value,
     }));
   }, [data, xKey, yKey]);
 
@@ -51,7 +81,6 @@ const TrendLineChart = ({
           data={chartData}
           margin={{ top: 5, right: 5, bottom: 5, left: -20 }}
         >
-          {/* Minimalist Brutalist Grid */}
           <CartesianGrid
             strokeDasharray="2 4"
             vertical={false}
