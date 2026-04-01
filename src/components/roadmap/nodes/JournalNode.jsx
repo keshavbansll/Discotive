@@ -1,6 +1,10 @@
-import { BookOpen, PenLine } from "lucide-react";
+import { Handle, Position } from "reactflow";
+import { HANDLE_S } from "../../../lib/roadmap/layout";
 
-export const JournalNode = memo(({ id, data, selected }) => {
+import { BookOpen, PenLine } from "lucide-react";
+import React, { memo } from "react";
+
+export const JournalNode = memo(({ data, selected }) => {
   const borderColor = selected
     ? "rgba(139,92,246,0.5)"
     : "rgba(255,255,255,0.07)";

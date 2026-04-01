@@ -797,14 +797,14 @@ export const FlowCanvas = ({
         onlyRenderVisibleElements
         proOptions={{ hideAttribution: true }}
         defaultEdgeOptions={{ type: "neuralEdge", animated: false }}
-        className="bg-[#030303]"
+        className="bg-[#101010]"
       >
         <Background
-          variant="lines"
-          color="rgba(255,255,255,0.04)"
-          gap={32}
-          lineWidth={0.5}
-          style={{ backgroundColor: "#07070b" }}
+          variant="dots"
+          color="rgba(255,255,255,0.15)"
+          gap={24}
+          size={1.5}
+          style={{ backgroundColor: "#070707" }}
         />
         <Controls
           showInteractive={false}

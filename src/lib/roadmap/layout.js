@@ -26,6 +26,13 @@ export const NODE_DIM = {
 };
 export const DEFAULT_DIM = { w: 300, h: 180 };
 
+export const HANDLE_S = {
+  width: 10,
+  height: 10,
+  background: "#0d0d12",
+  borderWidth: 2,
+};
+
 /**
  * @function generateNeuralLayout
  * @param {object[]} nodes — ReactFlow node array

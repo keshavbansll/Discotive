@@ -1,5 +1,10 @@
+import { Handle, Position } from "reactflow";
+import { HANDLE_S } from "../../../lib/roadmap/layout";
+
 import { Trophy, Lock as LockIcon } from "lucide-react";
+// eslint-disable-next-line no-unused-vars
 import { motion } from "framer-motion";
+import React, { memo } from "react";
 
 export const MilestoneNode = memo(({ data, selected }) => {
   const isUnlocked = !!data.isUnlocked;

@@ -92,6 +92,7 @@ export const ExecutionNode = memo(
 
     // ── Node dimensions ────────────────────────────────────────────────────────
     const nodeWidth = nodeStyle?.width ?? 300;
+    const nodeHeight = nodeStyle?.height ?? "auto";
 
     // ── Border & shadow ────────────────────────────────────────────────────────
     const borderColor = selected
@@ -115,7 +116,9 @@ export const ExecutionNode = memo(
         )}
         style={{
           width: nodeWidth,
+          height: nodeHeight,
           minWidth: 220,
+          minHeight: 100,
           borderRadius: 12,
           background: "#0d0d12",
           border: `1px solid ${borderColor}`,

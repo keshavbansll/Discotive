@@ -1,8 +1,15 @@
+import { useRoadmap } from "../../../contexts/RoadmapContext";
+import { Handle, Position } from "reactflow";
+import { HANDLE_S } from "../../../lib/roadmap/layout";
+
 import {
   Database,
   ShieldAlert as ShieldAlertIcon,
   ShieldCheck as ShieldCheckIcon,
+  Eye,
+  Link as LinkIcon,
 } from "lucide-react";
+import React, { memo } from "react";
 export { Database, ShieldAlertIcon, ShieldCheckIcon };
 
 export const AssetWidgetNode = memo(({ id, data, selected }) => {
