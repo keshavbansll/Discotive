@@ -212,6 +212,9 @@ export const EDGE_KEYFRAMES = `
 `;
 
 export const KEYBOARD_SHORTCUTS = [
+  { keys: ["?"], description: "Toggle shortcuts panel" },
+  { keys: ["⌘", "K"], description: "Global search" },
+  { keys: ["Ctrl", "Z"], description: "Undo action" },
   { keys: ["Ctrl", "S"], description: "Save to cloud" },
   { keys: ["+", "="], description: "Add new node at viewport center" },
   { keys: ["Delete"], description: "Delete selected nodes / edges" },

@@ -71,7 +71,7 @@ const Premium = () => {
   // --- CHECKOUT ROUTING ---
   const handleProAction = async () => {
     if (!userData) return navigate("/auth");
-    if (userData.tier === "PRO") return navigate("/dashboard");
+    if (userData.tier === "PRO") return navigate("/app");
 
     setIsCheckingOut(true);
     try {
@@ -122,7 +122,7 @@ const Premium = () => {
 
   const handleEssentialAction = () => {
     if (!userData) return navigate("/auth");
-    navigate("/dashboard");
+    navigate("/app");
   };
 
   if (loading || isLocating) {
@@ -345,7 +345,7 @@ const Premium = () => {
 
             <button
               onClick={handleProAction}
-              disabled={isPro || isCheckingOut}
+              disabled={isCheckingOut}
               className={cn(
                 "w-full py-4 mt-8 rounded-xl font-extrabold text-xs uppercase tracking-[0.2em] transition-all flex items-center justify-center gap-2 shadow-2xl",
                 isPro

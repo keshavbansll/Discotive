@@ -457,31 +457,80 @@ const Dashboard = () => {
     if (!userLoading) fetchWidgetRank();
   }, [fetchWidgetRank, userLoading]);
 
-  // ── Score chart data (ALL mutations, not 1/day) ──────────────────────────
-  const chartData = useMemo(() => {
-    const history = (userData?.score_history || [])
-      .filter((e) => e?.date && typeof e.score === "number")
-      .sort((a, b) => new Date(a.date) - new Date(b.date));
+  // ── Score chart data (3-Tier Aggregation Architecture) ──────────────────────────
+  const [chartData, setChartData] = useState([]);
+  const [isChartLoading, setIsChartLoading] = useState(false);
 
-    if (history.length === 0) return [];
+  useEffect(() => {
+    const buildChartData = async () => {
+      if (!userData?.uid) return;
+      setIsChartLoading(true);
 
-    const now = new Date();
-    const cutoff = new Date(now);
-    if (tf === "24H") cutoff.setHours(now.getHours() - 24);
-    else if (tf === "1W") cutoff.setDate(now.getDate() - 7);
-    else if (tf === "1M") cutoff.setMonth(now.getMonth() - 1);
-    else cutoff.setFullYear(2000); // ALL
+      try {
+        let sourceData = [];
 
-    const filtered = history.filter((e) => new Date(e.date) >= cutoff);
-    // If filter leaves us with <2 points, fall back to last 5 all-time points
-    const source = filtered.length >= 2 ? filtered : history.slice(-5);
+        if (tf === "24H") {
+          // 1. Fetch from the 24H granular subcollection
+          const { getDocs, orderBy } = await import("firebase/firestore");
+          const logRef = collection(db, "users", userData.uid, "score_log");
+          const q = query(logRef, orderBy("timestamp", "asc"));
+          const snap = await getDocs(q);
+          sourceData = snap.docs.map((d) => ({
+            date: d.data().date,
+            score: d.data().score,
+          }));
+        } else if (tf === "1W" || tf === "1M") {
+          // 2. Read from the daily map on the user doc
+          const daily = userData.daily_scores || {};
+          sourceData = Object.keys(daily).map((date) => ({
+            date,
+            score: daily[date],
+          }));
+        } else if (tf === "ALL") {
+          // 3. Read from the monthly map on the user doc
+          const monthly = userData.monthly_scores || {};
+          sourceData = Object.keys(monthly).map((month) => ({
+            date: `${month}-01`, // Append day for safe Date parsing
+            score: monthly[month],
+          }));
+        }
 
-    return source.map((e, i) => ({
-      day: fmtLabel(e.date, tf),
-      score: e.score,
-      prev: i > 0 ? source[i - 1].score : null,
-    }));
-  }, [userData?.score_history, tf]);
+        // Sort chronologically
+        sourceData.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+        // Apply specific cutoffs for map data
+        const now = new Date();
+        const cutoff = new Date(now);
+        if (tf === "1W") cutoff.setDate(now.getDate() - 7);
+        if (tf === "1M") cutoff.setMonth(now.getMonth() - 1);
+
+        if (tf === "1W" || tf === "1M") {
+          sourceData = sourceData.filter((e) => new Date(e.date) >= cutoff);
+        }
+
+        // Fallback to last known points if data is entirely empty to prevent crashing
+        if (sourceData.length < 2 && tf !== "24H") {
+          const historyFallback = userData.score_history || [];
+          sourceData = historyFallback.slice(-5);
+        }
+
+        // Map to Recharts format
+        const formatted = sourceData.map((e, i) => ({
+          day: fmtLabel(e.date, tf),
+          score: e.score,
+          prev: i > 0 ? sourceData[i - 1].score : null,
+        }));
+
+        setChartData(formatted);
+      } catch (err) {
+        console.error("[Dashboard] Chart rendering failed:", err);
+      } finally {
+        setIsChartLoading(false);
+      }
+    };
+
+    buildChartData();
+  }, [userData, tf]);
 
   // ── Score chart range ────────────────────────────────────────────────────
   const chartMin = useMemo(() => {

@@ -307,20 +307,40 @@ const Profile = () => {
 
   const activeDates = useMemo(() => {
     const s = new Set();
-
-    // GUARD CLAUSE: Return the empty set immediately if data is pending
     if (!userData) return s;
 
+    // Aggregate from all valid chronological sources
     (userData.journal_ledger || []).forEach(
       (e) => e?.date && s.add(e.date.split("T")[0]),
     );
-    (userData.score_history || []).forEach(
-      (e) => e?.date && s.add(e.date.split("T")[0]),
-    );
+    (userData.consistency_log || []).forEach((d) => s.add(d));
+    Object.keys(userData.daily_scores || {}).forEach((d) => s.add(d));
+
     const last = userData.discotiveScore?.lastLoginDate;
     if (last) s.add(last.split("T")[0]);
 
     return s;
+  }, [userData]);
+
+  const history = useMemo(() => {
+    if (!userData) return [];
+
+    const daily = userData.daily_scores || {};
+    let mapped = Object.keys(daily).map((date) => ({
+      date,
+      score: daily[date],
+    }));
+
+    // Fallback to legacy array only if the new map hasn't populated enough points yet
+    if (mapped.length < 2) {
+      mapped = (userData.score_history || []).filter(
+        (e) => e?.date && typeof e.score === "number",
+      );
+    }
+
+    return mapped
+      .sort((a, b) => new Date(a.date) - new Date(b.date))
+      .slice(-30);
   }, [userData]);
 
   const showToast = (msg, type = "green") => {
@@ -387,10 +407,6 @@ const Profile = () => {
   const views = userData.profileViews || 0;
   const skills = userData.skills?.alignedSkills || [];
   const journals = userData.journal_ledger || [];
-  const history = (userData.score_history || [])
-    .filter((e) => e?.date && typeof e.score === "number")
-    .sort((a, b) => new Date(a.date) - new Date(b.date))
-    .slice(-30);
 
   const initials =
     `${userData.identity?.firstName?.charAt(0) || ""}${userData.identity?.lastName?.charAt(0) || ""}`.toUpperCase();

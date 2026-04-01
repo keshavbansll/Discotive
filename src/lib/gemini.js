@@ -6,7 +6,8 @@ const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 export const generateCalibrationQuestions = async (userData) => {
   try {
     const prompt = `
-      SYSTEM DIRECTIVE: Act as an elite Agentic Workflow Architect.
+      SYSTEM DIRECTIVE: Act as a helpful, expert career guide.
+      
       OPERATOR CONTEXT:
       - Domain: ${userData?.vision?.passion || "General"}
       - Niche: ${userData?.vision?.niche || "Career Growth"}
@@ -14,18 +15,31 @@ export const generateCalibrationQuestions = async (userData) => {
       - Location: ${userData?.footprint?.location || "Global"}
       - Skills: ${JSON.stringify(userData?.skills?.alignedSkills || [])}
       
-      Generate 3 highly probing, personalized calibration questions to map their neural execution graph.
-      DO NOT ask generic questions. Use their specific niche and skills.
-      - Q1 (text): Ask for a highly specific, measurable 90-day objective.
-      - Q2 (mcq): Ask to identify their most critical operational bottleneck (4 hyper-specific options).
-      - Q3 (mcq): Ask about their resource allocation (time/capital) strategy (4 options).
+      Generate exactly 3 important, personalized multiple-choice questions (MCQs) to help map their learning journey.
+      
+      CRITICAL INSTRUCTIONS:
+      - Use simple, everyday language that is easy for anyone to understand.
+      - Avoid complex jargon or overly technical terms.
+      - Make the questions and options highly relevant to their specific niche and skills.
+      
+      QUESTIONS TO GENERATE:
+      - Q1 (mcq): Ask about their main, practical goal for the next 90 days (Provide 4 realistic, actionable options).
+      - Q2 (mcq): Ask about the biggest challenge or roadblock they are currently facing (Provide 4 relatable options).
+      - Q3 (mcq): Ask about how much time they can commit or their preferred way to learn (Provide 4 realistic options).
 
-      Return ONLY a JSON array. Format: [{"id": "q1", "type": "text", "question": "..."}, {"id": "q2", "type": "mcq", "question": "...", "options": ["A","B"]}]
+      Return ONLY a JSON array. Format exactly like this: 
+      [
+        {"id": "q1", "type": "mcq", "question": "...", "options": ["Option A", "Option B", "Option C", "Option D"]}, 
+        {"id": "q2", "type": "mcq", "question": "...", "options": ["Option A", "Option B", "Option C", "Option D"]},
+        {"id": "q3", "type": "mcq", "question": "...", "options": ["Option A", "Option B", "Option C", "Option D"]}
+      ]
     `;
+
     const result = await model.generateContent({
       contents: [{ role: "user", parts: [{ text: prompt }] }],
       generationConfig: { responseMimeType: "application/json" },
     });
+
     return JSON.parse(result.response.text());
   } catch (error) {
     console.error("[Gemini] Calibration Error:", error);
@@ -85,15 +99,15 @@ export const generateExecutionMap = async (
     const result = await model.generateContent({
       contents: [{ role: "user", parts: [{ text: prompt }] }],
     });
-    
+
     const textResponse = result.response.text();
     // ROBUST EXTRACTION: Finds the first [ or { and parses to the end, ignoring AI conversational text
     const jsonMatch = textResponse.match(/\[[\s\S]*\]|\{[\s\S]*\}/);
-    
+
     if (!jsonMatch) {
       throw new Error("AI returned malformed topology data.");
     }
-    
+
     return JSON.parse(jsonMatch[0]);
   } catch (error) {
     console.error("[Gemini] Synthesis Error:", error);

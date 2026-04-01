@@ -5,6 +5,8 @@ import { auth, db } from "../firebase";
 import { signOut } from "firebase/auth";
 import { collection, query, where, getDocs } from "firebase/firestore";
 import { useUserData } from "../hooks/useUserData";
+import { ShortcutsPanel } from "../components/ShortcutsPanel";
+import Grace from "../components/Grace";
 import {
   LayoutDashboard,
   Target,
@@ -99,6 +101,7 @@ const GHOST_LOCKED_ROUTES = [
 const MainLayout = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [showShortcuts, setShowShortcuts] = useState(false);
 
   const [deferredPrompt, setDeferredPrompt] = useState(null);
   const [isInstallable, setIsInstallable] = useState(false);
@@ -138,6 +141,16 @@ const MainLayout = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const { userData, loading } = useUserData();
+
+  // Performant render-phase state update (avoids cascading renders)
+  const [prevPath, setPrevPath] = useState(location.pathname);
+  if (location.pathname !== prevPath) {
+    setPrevPath(location.pathname);
+    setIsMobileMenuOpen(false);
+    // You can also safely close other menus here if needed:
+    // setShowProfileMenu(false);
+    // setShowNotifMenu(false);
+  }
 
   /**
    * @description
@@ -202,11 +215,6 @@ const MainLayout = () => {
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
-
-  // Close mobile menu on route change
-  useEffect(() => {
-    setIsMobileMenuOpen(false);
-  }, [location.pathname]);
 
   const handleLogout = async () => {
     try {
@@ -307,6 +315,28 @@ const MainLayout = () => {
       </Link>
     );
   };
+
+  useEffect(() => {
+    const handleGlobalKeyDown = (e) => {
+      // Guard: Do not trigger shortcuts if the user is actively typing in an input
+      const activeElement = document.activeElement;
+      const isTyping =
+        activeElement.tagName === "INPUT" ||
+        activeElement.tagName === "TEXTAREA" ||
+        activeElement.isContentEditable;
+
+      if (isTyping) return;
+
+      // Toggle shortcuts panel on "?"
+      if (e.key === "?" && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault();
+        setShowShortcuts((prev) => !prev);
+      }
+    };
+
+    window.addEventListener("keydown", handleGlobalKeyDown);
+    return () => window.removeEventListener("keydown", handleGlobalKeyDown);
+  }, []);
 
   return (
     <div className="flex h-screen bg-[#030303] overflow-hidden text-white selection:bg-white selection:text-black">
@@ -1222,6 +1252,15 @@ const MainLayout = () => {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* GLOBAL GRACE AI */}
+      {!isGhostUser && <Grace userData={userData} />}
+
+      {/* GLOBAL SHORTCUTS MODAL */}
+      <ShortcutsPanel
+        isOpen={showShortcuts}
+        onClose={() => setShowShortcuts(false)}
+      />
     </div>
   );
 };

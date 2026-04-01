@@ -50,12 +50,11 @@ import {
   fetchVideosForGemini,
 } from "../lib/discotiveLearn";
 import AILoader from "../components/AILoader";
-import Grace from "../components/Grace";
 
 import { FlowCanvas } from "../components/roadmap/FlowCanvas.jsx";
 import { NodeEditPanel } from "../components/roadmap/NodeEditPanel.jsx";
 import { MobileEditSheet } from "../components/roadmap/MobileEditSheet.jsx";
-import { ShortcutsPanel } from "../components/roadmap/ShortcutsPanel.jsx";
+import { ShortcutsPanel } from "../components/ShortcutsPanel.jsx";
 import { ConflictDialog } from "../components/roadmap/ConflictDialog.jsx";
 import { JournalModal } from "../components/roadmap/JournalModal.jsx";
 import { ExplorerModal } from "../components/roadmap/ExplorerModal.jsx";
@@ -1048,9 +1047,6 @@ const Roadmap = () => {
         >
           <span className="text-xs font-black font-mono">?</span>
         </button>
-
-        {/* ── Grace AI floating assistant ── */}
-        <Grace userData={userData} />
 
         {/* ── All modals ── */}
         <ShortcutsPanel

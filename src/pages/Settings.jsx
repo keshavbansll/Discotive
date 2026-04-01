@@ -405,6 +405,8 @@ const Settings = () => {
       vault: userData?.vault,
       allies: userData?.allies,
       links: userData?.links,
+      daily_scores: userData?.daily_scores,
+      monthly_scores: userData?.monthly_scores,
     };
     const blob = new Blob([JSON.stringify(exportable, null, 2)], {
       type: "application/json",

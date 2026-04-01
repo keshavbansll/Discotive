@@ -23,7 +23,7 @@ export const TIER_LIMITS = Object.freeze({
     maxVaultAssets: 50,
     maxStorageBytes: 100 * 1024 * 1024, // 100MB
     canUseJournal: true,
-    canXRayLeaderboard: true,
+    canXRayLeaderboard: true, 
     hasProBadge: true,
   },
   [TIERS.ENTERPRISE]: {

@@ -4,6 +4,9 @@ import {
   updateDoc,
   increment,
   arrayUnion,
+  collection,
+  runTransaction,
+  serverTimestamp,
 } from "firebase/firestore";
 import { db } from "../firebase";
 
@@ -20,40 +23,57 @@ import { db } from "../firebase";
  * daily login snapshots. Reads current score for the history entry
  * via the post-increment value approximation (increment + last known).
  */
-export const mutateScore = async (userId, amount, reason, silent = false) => {
+export const mutateScore = async (userId, amount, reason = "Task Update") => {
   if (!userId || amount === 0) return;
+
+  const userRef = doc(db, "users", userId);
+  // Separate subcollection for the 24H granular log
+  const logRef = doc(collection(userRef, "score_log"));
+
   try {
-    const userRef = doc(db, "users", userId);
-    const todayStr = new Date().toISOString().split("T")[0];
-    const nowIso = new Date().toISOString();
+    await runTransaction(db, async (transaction) => {
+      const userDoc = await transaction.get(userRef);
+      if (!userDoc.exists()) throw new Error("User document does not exist!");
 
-    const updatePayload = {
-      "discotiveScore.current": increment(amount),
-      "discotiveScore.lastAmount": amount,
-      "discotiveScore.lastReason": reason,
-      "discotiveScore.lastUpdatedAt": nowIso,
-    };
+      const userData = userDoc.data();
+      const currentScore = userData.discotiveScore?.current || 0;
 
-    // Append to score_history so the sparkline reflects real-time mutations.
-    if (!silent) {
-      const snap = await getDoc(userRef);
-      if (snap.exists()) {
-        const currentScore =
-          (snap.data()?.discotiveScore?.current || 0) + amount;
-        updatePayload.score_history = arrayUnion({
-          // REPLACE `todayStr` with `nowIso` for absolute time precision
-          date: nowIso,
-          score: Math.max(0, currentScore),
-        });
+      const newScore = Math.max(0, currentScore + amount);
+      const actualChange = newScore - currentScore;
 
-        // Keep consistency_log active using the daily string
-        updatePayload.consistency_log = arrayUnion(todayStr);
-      }
-    }
+      if (actualChange === 0 && amount < 0) return;
 
-    await updateDoc(userRef, updatePayload);
+      // Calculate time keys
+      const now = new Date();
+      const todayStr = now.toISOString().split("T")[0]; // YYYY-MM-DD
+      const monthStr = todayStr.substring(0, 7); // YYYY-MM
+
+      // Calculate Expiration for TTL (24 hours from now)
+      const expireAt = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+
+      // 1. Update primary doc with current score AND aggregate maps
+      transaction.update(userRef, {
+        "discotiveScore.current": newScore,
+        [`daily_scores.${todayStr}`]: newScore, // Overwrites with latest today
+        [`monthly_scores.${monthStr}`]: newScore, // Overwrites with latest this month
+      });
+
+      // 2. Append granular log with an expireAt timestamp
+      transaction.set(logRef, {
+        score: newScore,
+        change: actualChange,
+        rawAttempt: amount,
+        reason: reason,
+        date: now.toISOString(),
+        timestamp: serverTimestamp(),
+        expireAt: expireAt, // TTL Policy will read this
+      });
+    });
+
+    console.log("Score transaction committed.");
   } catch (error) {
-    console.error("[ScoreEngine] Mutation Failed:", error);
+    console.error("Score transaction failed: ", error);
+    throw error;
   }
 };
 
@@ -64,7 +84,9 @@ export const processDailyConsistency = async (userId) => {
     const snap = await getDoc(userRef);
     if (!snap.exists()) return;
     const data = snap.data();
+
     const todayStr = new Date().toISOString().split("T")[0];
+    const monthStr = todayStr.substring(0, 7);
     const lastLogin = data.discotiveScore?.lastLoginDate;
 
     if (lastLogin === todayStr) return;
@@ -87,41 +109,50 @@ export const processDailyConsistency = async (userId) => {
         reason = "Daily Execution";
         newStreak += 1;
       } else if (daysMissed > 0) {
-        const penalty = daysMissed * -15; // Brutal penalty
+        const penalty = daysMissed * -15;
         pointChange = penalty + 10;
         reason = `Missed ${daysMissed} Days (${penalty}) + Login (+10)`;
         newStreak = 1;
       }
     }
 
-    // FIX: Calculate the target score and clamp to 0 to prevent negative database states
-    let targetScore = (data.discotiveScore?.current || 0) + pointChange;
-    targetScore = Math.max(0, targetScore);
-
-    // FIX: Calculate the actual delta to use with increment() for atomic safety
+    let targetScore = Math.max(
+      0,
+      (data.discotiveScore?.current || 0) + pointChange,
+    );
     const actualChange = targetScore - (data.discotiveScore?.current || 0);
 
-    const existingHistory = data.score_history || [];
-    const alreadyHasToday = existingHistory.some((e) => e?.date === todayStr);
+    // Prune the daily_scores map so it doesn't grow past ~30 days
+    const existingDailyScores = data.daily_scores || {};
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    const thirtyDaysAgoStr = thirtyDaysAgo.toISOString().split("T")[0];
+
+    const updatedDailyScores = {
+      ...existingDailyScores,
+      [todayStr]: targetScore,
+    };
+
+    // Clean up old daily records locally
+    Object.keys(updatedDailyScores).forEach((dateStr) => {
+      if (dateStr < thirtyDaysAgoStr) {
+        delete updatedDailyScores[dateStr];
+      }
+    });
 
     const payload = {
-      // Use increment to prevent race conditions with mutateScore events firing on login
       "discotiveScore.current": increment(actualChange),
       "discotiveScore.lastLoginDate": todayStr,
       "discotiveScore.streak": newStreak,
-      "discotiveScore.lastAmount": actualChange, // Record the clamped delta
+      "discotiveScore.lastAmount": actualChange,
       "discotiveScore.lastReason": reason,
       "discotiveScore.lastUpdatedAt": new Date().toISOString(),
       consistency_log: arrayUnion(todayStr),
       login_history: arrayUnion(todayStr),
+      // Set the newly pruned map and the new monthly score
+      daily_scores: updatedDailyScores,
+      [`monthly_scores.${monthStr}`]: targetScore,
     };
-
-    if (!alreadyHasToday) {
-      payload.score_history = arrayUnion({
-        date: todayStr,
-        score: targetScore, // Record the clamped absolute value for the chart
-      });
-    }
 
     if (lastLogin !== todayStr) {
       payload["discotiveScore.last24h"] = data.discotiveScore?.current || 0;
