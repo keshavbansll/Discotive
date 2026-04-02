@@ -28,6 +28,8 @@ import {
   limit,
   addDoc,
   serverTimestamp,
+  doc,
+  deleteDoc,
 } from "firebase/firestore";
 import { db, auth } from "../../firebase";
 import {
@@ -666,6 +668,23 @@ const AdminDashboard = () => {
     { name: "Essential", value: stats.essential, color: "#2a2a2a" },
     { name: "Pro", value: stats.pro, color: "#f59e0b" },
   ];
+
+  const handleDeleteResource = async (collectionName, docId) => {
+    if (
+      !window.confirm(
+        "Are you sure you want to permanently delete this resource?",
+      )
+    )
+      return;
+
+    try {
+      await deleteDoc(doc(db, collectionName, docId));
+      handleRefresh(); // Sync UI after successful deletion
+    } catch (err) {
+      console.error(`[AdminDashboard] Deletion failed:`, err);
+      setError("Failed to delete resource. Check Firestore permissions.");
+    }
+  };
 
   // ============================================================================
   // MODALS COMPONENTS
@@ -1605,8 +1624,17 @@ const AdminDashboard = () => {
                     learnVideos.map((v) => (
                       <div
                         key={v.id}
-                        className="flex flex-col gap-3 p-3 rounded-2xl bg-[#0a0a0c] border border-white/[0.05] hover:border-white/20 transition-all"
+                        className="flex flex-col gap-3 p-3 rounded-2xl bg-[#0a0a0c] border border-white/[0.05] hover:border-white/20 transition-all relative group"
                       >
+                        <button
+                          onClick={() =>
+                            handleDeleteResource("discotive_videos", v.id)
+                          }
+                          className="absolute top-5 right-5 z-20 p-2 bg-red-500/90 hover:bg-red-500 text-white rounded-lg opacity-0 group-hover:opacity-100 transition-all shadow-xl backdrop-blur-md"
+                          title="Delete Video"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
                         <div className="w-full aspect-video bg-[#000] rounded-xl overflow-hidden relative border border-white/[0.05]">
                           <img
                             src={
@@ -1642,9 +1670,21 @@ const AdminDashboard = () => {
                     learnCerts.map((cert) => (
                       <div
                         key={cert.id}
-                        className="flex flex-col gap-3 p-4 rounded-2xl bg-[#0a0a0c] border border-white/[0.05] hover:border-white/20 transition-all"
+                        className="flex flex-col gap-3 p-4 rounded-2xl bg-[#0a0a0c] border border-white/[0.05] hover:border-white/20 transition-all relative group"
                       >
-                        <div className="flex items-start gap-3">
+                        <button
+                          onClick={() =>
+                            handleDeleteResource(
+                              "discotive_certificates",
+                              cert.id,
+                            )
+                          }
+                          className="absolute top-4 right-4 z-10 p-2 bg-red-500/10 hover:bg-red-500/20 text-red-500 rounded-lg opacity-0 group-hover:opacity-100 transition-all"
+                          title="Delete Certificate"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                        <div className="flex items-start gap-3 pr-8">
                           <div className="w-10 h-10 rounded-xl bg-[#111] border border-white/[0.05] flex items-center justify-center shrink-0">
                             <Award className="w-5 h-5 text-amber-400" />
                           </div>

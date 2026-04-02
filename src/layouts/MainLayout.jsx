@@ -3,7 +3,14 @@ import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { auth, db } from "../firebase";
 import { signOut } from "firebase/auth";
-import { collection, query, where, getDocs } from "firebase/firestore";
+import {
+  collection,
+  query,
+  where,
+  getDocs,
+  doc,
+  updateDoc,
+} from "firebase/firestore";
 import { useUserData } from "../hooks/useUserData";
 import { ShortcutsPanel } from "../components/ShortcutsPanel";
 import Grace from "../components/Grace";
@@ -52,27 +59,31 @@ import { cn } from "../components/ui/BentoCard";
 import { processDailyConsistency } from "../lib/scoreEngine";
 
 // --- NAVIGATION GROUPS ---
+
 const topNavItems = [
   { icon: LayoutDashboard, label: "Command Center", path: "/app" },
-  { icon: Target, label: "Execution Timeline", path: "/app/roadmap" },
-  { icon: Trophy, label: "Leaderboard", path: "/app/leaderboard" },
-  { icon: Briefcase, label: "Opportunities", path: "/app/opportunities" },
 ];
 
-const middleNavItems = [
+const upperMiddleNavItems = [
+  { icon: Target, label: "Execution Timeline", path: "/app/roadmap" },
+  { icon: Trophy, label: "Leaderboard", path: "/app/leaderboard" },
+  // { icon: Briefcase, label: "Opportunities", path: "/app/opportunities" },
+];
+
+const lowerMiddleNavItems = [
   { icon: FolderOpen, label: "Asset Vault", path: "/app/vault" },
-  { icon: Users, label: "Networking", path: "/app/network" },
-  { icon: Compass, label: "Discover Hubs", path: "/app/hubs" },
+  // { icon: Users, label: "Networking", path: "/app/network" },
+  // { icon: Compass, label: "Discover Hubs", path: "/app/hubs" },
 ];
 
 const contentNavItems = [
-  { icon: BookOpen, label: "Learn", path: "/app/learn" },
-  { icon: Mic, label: "Podcasts", path: "/app/podcasts" },
-  { icon: FileText, label: "Assessments", path: "/app/assessments" },
+  // { icon: BookOpen, label: "Learn", path: "/app/learn" },
+  // { icon: Mic, label: "Podcasts", path: "/app/podcasts" },
+  // { icon: FileText, label: "Assessments", path: "/app/assessments" },
 ];
 
 const bottomNavItems = [
-  { icon: LineChart, label: "Financial Ledger", path: "/app/finance" },
+  // { icon: LineChart, label: "Financial Ledger", path: "/app/finance" },
   { icon: Settings, label: "Settings", path: "/app/settings" },
 ];
 
@@ -140,7 +151,7 @@ const MainLayout = () => {
 
   const location = useLocation();
   const navigate = useNavigate();
-  const { userData, loading } = useUserData();
+  const { userData, loading, patchLocalData } = useUserData();
 
   // Performant render-phase state update (avoids cascading renders)
   const [prevPath, setPrevPath] = useState(location.pathname);
@@ -215,6 +226,41 @@ const MainLayout = () => {
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
+
+  // --- NOTIFICATION HANDLERS ---
+  const handleDeleteNotification = async (index, e) => {
+    e.stopPropagation(); // Prevent the dropdown from closing
+    if (!userData?.uid) return;
+
+    // 1. Optimistic UI Update (Instant)
+    const newNotifs = [...(userData.notifications || [])];
+    newNotifs.splice(index, 1);
+    patchLocalData({ notifications: newNotifs });
+
+    // 2. Persist to Firestore
+    try {
+      const userRef = doc(db, "users", userData.uid);
+      await updateDoc(userRef, { notifications: newNotifs });
+    } catch (error) {
+      console.error("Failed to delete notification:", error);
+    }
+  };
+
+  const handleClearAllNotifications = async (e) => {
+    e.stopPropagation();
+    if (!userData?.uid) return;
+
+    // 1. Optimistic UI Update
+    patchLocalData({ notifications: [] });
+
+    // 2. Persist to Firestore
+    try {
+      const userRef = doc(db, "users", userData.uid);
+      await updateDoc(userRef, { notifications: [] });
+    } catch (error) {
+      console.error("Failed to clear notifications:", error);
+    }
+  };
 
   const handleLogout = async () => {
     try {
@@ -416,7 +462,7 @@ const MainLayout = () => {
           <div className="space-y-1">
             {isSidebarOpen && (
               <p className="px-3 text-[10px] font-bold text-[#555] uppercase tracking-[0.2em] mb-2">
-                Primary
+                Home
               </p>
             )}
             {topNavItems.map((item) => (
@@ -430,10 +476,10 @@ const MainLayout = () => {
           <div className="space-y-1">
             {isSidebarOpen && (
               <p className="px-3 text-[10px] font-bold text-[#555] uppercase tracking-[0.2em] mb-2">
-                Career Hub
+                Execution
               </p>
             )}
-            {middleNavItems.map((item) => (
+            {upperMiddleNavItems.map((item) => (
               <NavItem
                 key={item.path}
                 item={item}
@@ -442,6 +488,20 @@ const MainLayout = () => {
             ))}
           </div>
           <div className="space-y-1">
+            {isSidebarOpen && (
+              <p className="px-3 text-[10px] font-bold text-[#555] uppercase tracking-[0.2em] mb-2">
+                Transparency
+              </p>
+            )}
+            {lowerMiddleNavItems.map((item) => (
+              <NavItem
+                key={item.path}
+                item={item}
+                isCollapsed={!isSidebarOpen}
+              />
+            ))}
+          </div>
+          {/* <div className="space-y-1">
             {isSidebarOpen && (
               <p className="px-3 text-[10px] font-bold text-[#555] uppercase tracking-[0.2em] mb-2">
                 Media & Tests
@@ -454,7 +514,7 @@ const MainLayout = () => {
                 isCollapsed={!isSidebarOpen}
               />
             ))}
-          </div>
+          </div> */}
         </div>
 
         {/* Bottom Section (Settings & Toggle) */}
@@ -542,16 +602,27 @@ const MainLayout = () => {
                       <h3 className="font-extrabold text-white text-sm md:text-base">
                         Notifications
                       </h3>
-                      <button
-                        className="p-1.5 hover:bg-[#111] rounded-lg transition-colors"
-                        title="Settings"
-                      >
-                        <Settings className="w-4 h-4 text-[#888]" />
-                      </button>
+                      <div className="flex items-center gap-2">
+                        {userData?.notifications?.length > 0 && (
+                          <button
+                            onClick={handleClearAllNotifications}
+                            className="text-[10px] font-bold text-[#888] hover:text-red-400 transition-colors uppercase tracking-widest px-2"
+                            title="Clear All"
+                          >
+                            Clear All
+                          </button>
+                        )}
+                        <button
+                          className="p-1.5 hover:bg-[#111] rounded-lg transition-colors"
+                          title="Settings"
+                        >
+                          <Settings className="w-4 h-4 text-[#888]" />
+                        </button>
+                      </div>
                     </div>
 
                     <div className="flex-1 overflow-y-auto custom-scrollbar">
-                      {/* Using real data: if no notifications exist in DB, show this premium empty state */}
+                      {/* Empty State */}
                       {!userData?.notifications ||
                       userData.notifications.length === 0 ? (
                         <div className="flex flex-col items-center justify-center py-12 px-6 text-center">
@@ -569,17 +640,29 @@ const MainLayout = () => {
                           {userData.notifications.map((notif, i) => (
                             <div
                               key={i}
-                              className="p-4 hover:bg-[#111] transition-colors cursor-pointer flex gap-3"
+                              className="p-4 hover:bg-[#111] transition-colors flex gap-3 relative group"
                             >
                               <div className="w-2 h-2 mt-1.5 rounded-full bg-blue-500 shrink-0" />
-                              <div>
-                                <p className="text-xs md:text-sm text-[#ccc] leading-relaxed">
-                                  {notif.message}
-                                </p>
+                              <div className="flex-1 min-w-0 pr-6">
+                                {/* Scrollable container for long messages */}
+                                <div className="max-h-[80px] overflow-y-auto custom-scrollbar pr-2">
+                                  <p className="text-xs md:text-sm text-[#ccc] leading-relaxed whitespace-pre-wrap">
+                                    {notif.message}
+                                  </p>
+                                </div>
                                 <p className="text-[10px] text-[#666] font-mono mt-2 uppercase">
                                   {notif.time || "Just now"}
                                 </p>
                               </div>
+
+                              {/* Hover Delete Button */}
+                              <button
+                                onClick={(e) => handleDeleteNotification(i, e)}
+                                className="absolute right-3 top-3 p-1.5 text-[#555] hover:text-red-500 hover:bg-[#222] rounded-md transition-all opacity-0 group-hover:opacity-100"
+                                title="Delete notification"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
                             </div>
                           ))}
                         </div>
