@@ -143,6 +143,11 @@ export const ExecutionNode = memo(
       statusLabel = "Overdue";
     }
 
+    if (data._computed?.lockReason === "CYCLE_DETECTED") {
+      statusColor = "#ef4444";
+      statusLabel = "Cycle Error";
+    }
+
     // ── Node dimensions & UI Computation ───────────────────────────────────────
     const nodeWidth = nodeStyle?.width ?? 300;
     const nodeHeight = nodeStyle?.height ?? "auto";

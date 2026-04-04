@@ -265,11 +265,21 @@ const EXPONENTIAL_BACKOFF_MINUTES = [0, 30, 240, 1440]; // 0m, 30m, 4h, 24h
 /**
  * @function submitNodeVerification
  * @description Secure HTTP Callable to process Proof-of-Work.
- * Prevents client-side manipulation of verification states.
+ * Replaces the placeholder random-number verification with a structured
+ * Gemini AI evaluation. The AI receives the node's title, description,
+ * and declared tasks, then evaluates whether the submitted payload
+ * (e.g., a GitHub URL, a written reflection, a deployed link) constitutes
+ * credible evidence of completion.
+ *
+ * State Machine:
+ *   ACTIVE → VERIFYING (immediate)
+ *   VERIFYING → VERIFIED | VERIFIED_GHOST (on AI pass)
+ *   VERIFYING → FAILED_BACKOFF (on AI fail)
  */
-exports.submitNodeVerification = functions.https.onCall(
-  async (data, context) => {
-    // 1. Identity & Auth Check
+exports.submitNodeVerification = functions
+  .runWith({ secrets: ["GEMINI_API_KEY"] })
+  .https.onCall(async (data, context) => {
+    // ── 1. Identity Enforcement ──────────────────────────────────────────
     if (!context.auth) {
       throw new functions.https.HttpsError(
         "unauthenticated",
@@ -280,99 +290,184 @@ exports.submitNodeVerification = functions.https.onCall(
     const uid = context.auth.uid;
     const { nodeId, payload, mapId } = data;
 
-    if (!nodeId || !payload) {
+    if (
+      !nodeId ||
+      !payload ||
+      typeof payload !== "string" ||
+      payload.trim().length < 5
+    ) {
       throw new functions.https.HttpsError(
         "invalid-argument",
-        "Missing payload or node identifier.",
+        "Invalid or insufficient payload. A minimum of 5 characters is required.",
       );
     }
 
+    // ── 2. Fetch User Tier and Node Definition ───────────────────────────
     const userRef = db.collection("users").doc(uid);
     const userDoc = await userRef.get();
-    const userData = userDoc.data();
-    const tier = userData?.tier || "ESSENTIAL"; // Default to free
 
-    // 2. Fetch Verification History for this specific node (To calculate Backoff)
-    const reqsRef = userRef.collection("verification_requests");
-    const previousAttempts = await reqsRef
-      .where("nodeId", "==", nodeId)
-      .where("status", "==", "FAILED")
-      .get();
-
-    const failCount = previousAttempts.size;
-
-    // 3. AI Verification Simulation (Replace with actual Gemini API call later)
-    // For now, we simulate a lightweight regex/syntax check + deep check
-    const isSyntaxValid = payload.length > 10; // Simple fail-fast check
-    let isAiVerified = false;
-
-    if (isSyntaxValid) {
-      // Simulate AI processing delay (e.g., 2-3 seconds)
-      await new Promise((resolve) => setTimeout(resolve, 2000));
-      // Simulate 85% pass rate for valid payloads
-      isAiVerified = Math.random() > 0.15;
+    if (!userDoc.exists) {
+      throw new functions.https.HttpsError("not-found", "User ledger missing.");
     }
 
-    // 4. Record the Attempt
+    const userData = userDoc.data();
+    const tier = userData?.tier || "ESSENTIAL";
+    const isPro = tier === "PRO" || tier === "ENTERPRISE";
+
+    // Fetch the node definition from the user's execution map to give the AI
+    // the correct evaluation context.
+    const nodeDoc = await userRef.collection("execution_map").doc(nodeId).get();
+    const nodeData = nodeDoc.exists ? nodeDoc.data() : null;
+
+    // ── 3. Backoff Enforcement (Before Expensive AI Call) ────────────────
+    const reqsRef = userRef.collection("verification_requests");
+    const previousFailures = await reqsRef
+      .where("nodeId", "==", nodeId)
+      .where("status", "==", "FAILED")
+      .orderBy("submittedAt", "desc")
+      .get();
+
+    const failCount = previousFailures.size;
+
+    if (failCount > 0) {
+      const lastFail = previousFailures.docs[0].data();
+      const lastFailMs = lastFail.penaltyExpiresAt?.toMillis?.() || 0;
+      if (Date.now() < lastFailMs) {
+        const minutesLeft = Math.ceil((lastFailMs - Date.now()) / 60000);
+        throw new functions.https.HttpsError(
+          "resource-exhausted",
+          `Backoff active. ${minutesLeft} minutes remaining before resubmission.`,
+        );
+      }
+    }
+
+    // ── 4. Mark as VERIFYING in the database immediately ────────────────
+    // This allows the frontend's real-time listener to show the VERIFYING
+    // state while the Gemini call is in flight. The UI is now always in sync.
     const attemptDoc = reqsRef.doc();
     const serverTime = admin.firestore.FieldValue.serverTimestamp();
 
-    if (!isAiVerified) {
-      // SCENARIO A: FAILURE & EXPONENTIAL BACKOFF
-      const backoffIndex = Math.min(
-        failCount,
-        EXPONENTIAL_BACKOFF_MINUTES.length - 1,
-      );
-      const penaltyMinutes = EXPONENTIAL_BACKOFF_MINUTES[backoffIndex];
-      const penaltyMs = penaltyMinutes * 60000;
+    await attemptDoc.set({
+      nodeId,
+      mapId: mapId || null,
+      payload: payload.trim(),
+      status: "VERIFYING",
+      submittedAt: serverTime,
+    });
 
-      await attemptDoc.set({
-        nodeId,
-        mapId,
-        payload,
+    // ── 5. The Actual AI Verification Call ───────────────────────────────
+    let isAiVerified = false;
+    let aiReasoning = "";
+
+    try {
+      const { GoogleGenerativeAI } = require("@google/generative-ai");
+      const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+      const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+
+      // Build an evaluation context from the node definition.
+      // If the node is not found, the AI evaluates in a general context.
+      const nodeContext = nodeData
+        ? `
+Node Title: "${nodeData.data?.title || "Unknown"}"
+Node Description: "${nodeData.data?.desc || "No description provided."}"
+Declared Tasks: ${JSON.stringify((nodeData.data?.tasks || []).map((t) => t.text))}
+      `.trim()
+        : "No specific node context available.";
+
+      const evaluationPrompt = `
+You are a strict, impartial technical evaluator for a career execution platform called Discotive.
+Your job is to determine if a user's submitted proof of work is credible evidence that they have completed a specific node.
+
+${nodeContext}
+
+User's Submitted Proof:
+"${payload.trim()}"
+
+Evaluate strictly. Accept: GitHub repository URLs with relevant code, deployed application URLs, published article links, credential verification links, or a written reflection that demonstrates genuine effort (minimum 50 words with specific details).
+
+Reject: Placeholder text, lorem ipsum, single words, irrelevant links, empty effort, or submissions that clearly do not relate to the node's declared purpose.
+
+Respond with ONLY a valid JSON object in this exact format:
+{
+  "verified": true | false,
+  "reasoning": "One concise sentence explaining the decision."
+}
+      `.trim();
+
+      const result = await model.generateContent({
+        contents: [{ role: "user", parts: [{ text: evaluationPrompt }] }],
+        generationConfig: { responseMimeType: "application/json" },
+      });
+
+      const responseText = result.response.text();
+      const parsed = JSON.parse(responseText);
+      isAiVerified = parsed.verified === true;
+      aiReasoning = parsed.reasoning || "";
+    } catch (aiError) {
+      // If Gemini fails, we fail-safe to REJECTED so the system does not
+      // accidentally verify incorrect work. Log and surface.
+      console.error("[VERIFICATION_AI_FAULT]", aiError);
+      await attemptDoc.update({
         status: "FAILED",
+        aiError: aiError.message,
+        penaltyExpiresAt: null,
+      });
+      throw new functions.https.HttpsError(
+        "internal",
+        "AI verification engine unavailable. Please try again in a few minutes.",
+      );
+    }
+
+    // ── 6. Apply Verdict ─────────────────────────────────────────────────
+    if (!isAiVerified) {
+      // Exponential backoff calculation.
+      const BACKOFF_MINUTES = [0, 30, 240, 1440];
+      const backoffIndex = Math.min(failCount, BACKOFF_MINUTES.length - 1);
+      const penaltyMinutes = BACKOFF_MINUTES[backoffIndex];
+      const penaltyExpiresAt =
+        penaltyMinutes > 0
+          ? admin.firestore.Timestamp.fromMillis(
+              Date.now() + penaltyMinutes * 60000,
+            )
+          : null;
+
+      await attemptDoc.update({
+        status: "FAILED",
+        reasoning: aiReasoning,
         penaltyMinutes,
-        submittedAt: serverTime,
+        penaltyExpiresAt,
       });
 
       return {
         status: "FAILED_BACKOFF",
         penaltyMinutes,
+        reasoning: aiReasoning,
         message:
           penaltyMinutes > 0
-            ? `Verification failed. Strict backoff active for ${penaltyMinutes} minutes.`
-            : "Verification failed. Please review your payload and try again.",
+            ? `Verification failed. Penalty lock active for ${penaltyMinutes} minutes. ${aiReasoning}`
+            : `Verification failed. Review your submission and try again. ${aiReasoning}`,
       };
     }
 
-    // SCENARIO B: SUCCESS & MONETIZATION DELAY
-    const isPro = tier === "PRO" || tier === "ENTERPRISE";
-    let finalStatus = isPro ? "VERIFIED" : "VERIFIED_GHOST";
-    let unlockTimeMs = 0;
+    // ── 7. Success: Apply Ghost State for Free Tier ──────────────────────
+    const finalStatus = isPro ? "VERIFIED" : "VERIFIED_GHOST";
+    const ghostUnlockTimeMs = isPro ? 0 : Date.now() + 86400000;
 
-    if (!isPro) {
-      // Free users suffer a 24-hour (86,400,000 ms) ghost lock
-      unlockTimeMs = Date.now() + 86400000;
-    }
-
-    await attemptDoc.set({
-      nodeId,
-      mapId,
-      payload,
+    await attemptDoc.update({
       status: finalStatus,
-      ghostUnlockTimeMs: unlockTimeMs,
-      submittedAt: serverTime,
+      reasoning: aiReasoning,
+      ghostUnlockTimeMs,
     });
 
     return {
       status: finalStatus,
-      ghostUnlockTimeMs: unlockTimeMs,
+      ghostUnlockTimeMs,
+      reasoning: aiReasoning,
       message: isPro
-        ? "AI Verification Complete. Node unlocked instantly (PRO)."
-        : "AI Verification Complete. Propagating through system (24h delay).",
+        ? `Verification complete. ${aiReasoning}`
+        : `Verification complete. Propagating through the network (24h delay for free tier). ${aiReasoning}`,
     };
-  },
-);
+  });
 
 /**
  * @function resolveGhostStates
@@ -443,155 +538,149 @@ const getMapLimits = (tier = "free") => {
  * @description Secure HTTP Callable to generate an execution map via Gemini.
  * Strictly enforces Tier limits, Cooldowns, and Node Caps.
  */
-exports.generateNeuralMap = functions
-  .runWith({ secrets: ["GEMINI_API_KEY"] })
-  .https.onCall(async (data, context) => {
-    // 1. Absolute Authentication Check
-    if (!context.auth) {
+exports.generateNeuralMap = functions.https.onCall(async (data, context) => {
+  // 1. Absolute Authentication Check
+  if (!context.auth) {
+    throw new functions.https.HttpsError(
+      "unauthenticated",
+      "System lock: Unauthorized access.",
+    );
+  }
+
+  const uid = context.auth.uid;
+  const { userPrompt, generationType } = data; // "NEW" or "EXPAND"
+
+  if (!userPrompt || userPrompt.length < 10) {
+    throw new functions.https.HttpsError(
+      "invalid-argument",
+      "Insufficient prompt data.",
+    );
+  }
+
+  const userRef = db.collection("users").doc(uid);
+
+  // 2. Transactional Ledger Check
+  return await db.runTransaction(async (transaction) => {
+    const userDoc = await transaction.get(userRef);
+    if (!userDoc.exists) {
+      throw new functions.https.HttpsError("not-found", "User ledger missing.");
+    }
+
+    const userData = userDoc.data();
+    const tier = userData.tier || "ESSENTIAL";
+    const limits = getMapLimits(tier);
+
+    // 3. Enforce Cryptographic Cooldowns
+    const mapInfo = userData.execution_map_info || {};
+    const lastGeneratedMs = mapInfo.lastGeneratedAt?.toMillis() || 0;
+    const cooldownMs = limits.regen_cooldown_days * 24 * 60 * 60 * 1000;
+    const nowMs = Date.now();
+
+    if (generationType === "NEW" && nowMs - lastGeneratedMs < cooldownMs) {
+      const daysLeft = Math.ceil(
+        (cooldownMs - (nowMs - lastGeneratedMs)) / (1000 * 60 * 60 * 24),
+      );
       throw new functions.https.HttpsError(
-        "unauthenticated",
-        "System lock: Unauthorized access.",
+        "resource-exhausted",
+        `Cooldown active. Wait ${daysLeft} days before generating a new map, or upgrade your tier.`,
       );
     }
 
-    const uid = context.auth.uid;
-    const { userPrompt, generationType } = data; // "NEW" or "EXPAND"
+    // 4. Enforce Node Generation Caps
+    const nodesSnap = await transaction.get(
+      userRef.collection("execution_map"),
+    );
+    const currentAutoNodes = nodesSnap.docs.filter(
+      (d) =>
+        ![
+          "assetWidget",
+          "videoWidget",
+          "computeNode",
+          "logicGate",
+          "telemetryNode",
+        ].includes(d.data().type),
+    ).length;
 
-    if (!userPrompt || userPrompt.length < 10) {
+    // Determine how many nodes the AI should generate based on their remaining capacity
+    const availableNodes =
+      limits.auto_nodes - (generationType === "EXPAND" ? currentAutoNodes : 0);
+
+    if (availableNodes <= 0) {
       throw new functions.https.HttpsError(
-        "invalid-argument",
-        "Insufficient prompt data.",
+        "resource-exhausted",
+        `Map limit reached (${limits.auto_nodes} nodes). Complete existing nodes or upgrade tier.`,
       );
     }
 
-    const userRef = db.collection("users").doc(uid);
+    // ════════════════════════════════════════════════════════════════════
+    // 5. THE AI COMPUTE (GEMINI INVOCATION)
+    // ════════════════════════════════════════════════════════════════════
+    console.log(
+      `[AI_GATEWAY] Generating map for ${uid} (Tier: ${tier}). Prompt: ${userPrompt}`,
+    );
 
-    // 2. Transactional Ledger Check
-    return await db.runTransaction(async (transaction) => {
-      const userDoc = await transaction.get(userRef);
-      if (!userDoc.exists) {
-        throw new functions.https.HttpsError(
-          "not-found",
-          "User ledger missing.",
-        );
-      }
+    let generatedNodes = [];
+    try {
+      const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-      const userData = userDoc.data();
-      const tier = userData.tier || "ESSENTIAL";
-      const limits = getMapLimits(tier);
-
-      // 3. Enforce Cryptographic Cooldowns
-      const mapInfo = userData.execution_map_info || {};
-      const lastGeneratedMs = mapInfo.lastGeneratedAt?.toMillis() || 0;
-      const cooldownMs = limits.regen_cooldown_days * 24 * 60 * 60 * 1000;
-      const nowMs = Date.now();
-
-      if (generationType === "NEW" && nowMs - lastGeneratedMs < cooldownMs) {
-        const daysLeft = Math.ceil(
-          (cooldownMs - (nowMs - lastGeneratedMs)) / (1000 * 60 * 60 * 24),
-        );
-        throw new functions.https.HttpsError(
-          "resource-exhausted",
-          `Cooldown active. Wait ${daysLeft} days before generating a new map, or upgrade your tier.`,
-        );
-      }
-
-      // 4. Enforce Node Generation Caps
-      const nodesSnap = await transaction.get(
-        userRef.collection("execution_map"),
-      );
-      const currentAutoNodes = nodesSnap.docs.filter(
-        (d) =>
-          ![
-            "assetWidget",
-            "videoWidget",
-            "computeNode",
-            "logicGate",
-            "telemetryNode",
-          ].includes(d.data().type),
-      ).length;
-
-      // Determine how many nodes the AI should generate based on their remaining capacity
-      const availableNodes =
-        limits.auto_nodes -
-        (generationType === "EXPAND" ? currentAutoNodes : 0);
-
-      if (availableNodes <= 0) {
-        throw new functions.https.HttpsError(
-          "resource-exhausted",
-          `Map limit reached (${limits.auto_nodes} nodes). Complete existing nodes or upgrade tier.`,
-        );
-      }
-
-      // ════════════════════════════════════════════════════════════════════
-      // 5. THE AI COMPUTE (GEMINI INVOCATION)
-      // ════════════════════════════════════════════════════════════════════
-      console.log(
-        `[AI_GATEWAY] Generating map for ${uid} (Tier: ${tier}). Prompt: ${userPrompt}`,
-      );
-
-      let generatedNodes = [];
-      try {
-        const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-
-        // We use gemini-1.5-flash for maximum speed and reliable JSON output
-        const model = genAI.getGenerativeModel({
-          model: "gemini-1.5-flash",
-          generationConfig: {
-            responseMimeType: "application/json",
-            // Force Gemini to adhere to our React Flow structure
-            responseSchema: {
-              type: SchemaType.ARRAY,
-              items: {
-                type: SchemaType.OBJECT,
-                properties: {
-                  id: {
-                    type: SchemaType.STRING,
-                    description: "Unique snake_case ID (e.g., phase_1_react)",
-                  },
-                  type: {
-                    type: SchemaType.STRING,
-                    description:
-                      "Must be 'milestoneNode', 'executionNode', or 'logicGate'",
-                  },
-                  dependsOn: {
-                    type: SchemaType.ARRAY,
-                    items: { type: SchemaType.STRING },
-                    description:
-                      "Array of parent node IDs that must be completed before this node unlocks.",
-                  },
-                  data: {
-                    type: SchemaType.OBJECT,
-                    properties: {
-                      title: { type: SchemaType.STRING },
-                      subtitle: { type: SchemaType.STRING },
-                      desc: { type: SchemaType.STRING },
-                      nodeType: {
-                        type: SchemaType.STRING,
-                        description: "Must be 'core' or 'branch'",
-                      },
-                      minimumTimeMinutes: {
-                        type: SchemaType.NUMBER,
-                        description:
-                          "Realistic minimum time in minutes to complete this task (e.g., 30, 120).",
-                      },
-                      xpReward: { type: SchemaType.NUMBER },
-                      logicType: {
-                        type: SchemaType.STRING,
-                        description:
-                          "Only required if type is logicGate. Either 'AND' or 'OR'.",
-                      },
-                    },
-                    required: ["title", "nodeType"],
-                  },
+      // We use gemini-1.5-flash for maximum speed and reliable JSON output
+      const model = genAI.getGenerativeModel({
+        model: "gemini-1.5-flash",
+        generationConfig: {
+          responseMimeType: "application/json",
+          // Force Gemini to adhere to our React Flow structure
+          responseSchema: {
+            type: SchemaType.ARRAY,
+            items: {
+              type: SchemaType.OBJECT,
+              properties: {
+                id: {
+                  type: SchemaType.STRING,
+                  description: "Unique snake_case ID (e.g., phase_1_react)",
                 },
-                required: ["id", "type", "dependsOn", "data"],
+                type: {
+                  type: SchemaType.STRING,
+                  description:
+                    "Must be 'milestoneNode', 'executionNode', or 'logicGate'",
+                },
+                dependsOn: {
+                  type: SchemaType.ARRAY,
+                  items: { type: SchemaType.STRING },
+                  description:
+                    "Array of parent node IDs that must be completed before this node unlocks.",
+                },
+                data: {
+                  type: SchemaType.OBJECT,
+                  properties: {
+                    title: { type: SchemaType.STRING },
+                    subtitle: { type: SchemaType.STRING },
+                    desc: { type: SchemaType.STRING },
+                    nodeType: {
+                      type: SchemaType.STRING,
+                      description: "Must be 'core' or 'branch'",
+                    },
+                    minimumTimeMinutes: {
+                      type: SchemaType.NUMBER,
+                      description:
+                        "Realistic minimum time in minutes to complete this task (e.g., 30, 120).",
+                    },
+                    xpReward: { type: SchemaType.NUMBER },
+                    logicType: {
+                      type: SchemaType.STRING,
+                      description:
+                        "Only required if type is logicGate. Either 'AND' or 'OR'.",
+                    },
+                  },
+                  required: ["title", "nodeType"],
+                },
               },
+              required: ["id", "type", "dependsOn", "data"],
             },
           },
-        });
+        },
+      });
 
-        const systemPrompt = `You are an elite, MAANG-level Career Architect and CTO building a highly technical Directed Acyclic Graph (DAG) execution map. 
+      const systemPrompt = `You are an elite, MAANG-level Career Architect and CTO building a highly technical Directed Acyclic Graph (DAG) execution map. 
       The user prompt is: "${userPrompt}".
       Generate a maximum of ${Math.min(availableNodes, 10)} nodes. 
       Rules:
@@ -602,65 +691,117 @@ exports.generateNeuralMap = functions
       5. DO NOT create circular dependencies.
       6. Be ruthlessly professional and technical.`;
 
-        const result = await model.generateContent(systemPrompt);
-        const responseText = result.response.text();
-        generatedNodes = JSON.parse(responseText);
-      } catch (aiError) {
-        console.error("[AI_COMPUTE_FAULT]", aiError);
-        throw new functions.https.HttpsError(
-          "internal",
-          "Neural compilation failed. The AI engine timed out or produced an invalid sequence.",
-        );
-      }
+      const result = await model.generateContent(systemPrompt);
+      const responseText = result.response.text();
+      generatedNodes = JSON.parse(responseText);
+    } catch (aiError) {
+      console.error("[AI_COMPUTE_FAULT]", aiError);
+      throw new functions.https.HttpsError(
+        "internal",
+        "Neural compilation failed. The AI engine timed out or produced an invalid sequence.",
+      );
+    }
 
-      if (!generatedNodes || generatedNodes.length === 0) {
-        throw new functions.https.HttpsError(
-          "internal",
-          "AI generated an empty roadmap. Try a more descriptive prompt.",
-        );
-      }
+    if (!generatedNodes || generatedNodes.length === 0) {
+      throw new functions.https.HttpsError(
+        "internal",
+        "AI generated an empty roadmap. Try a more descriptive prompt.",
+      );
+    }
 
-      // 6. Write the Generated Map to Firestore (Strictly using the transaction lock)
+    // 6. Write the Generated Map to Firestore (Strictly using the transaction lock)
 
-      // If it's a NEW map, clear the old execution_map subcollection first
-      if (generationType === "NEW") {
-        nodesSnap.docs.forEach((doc) => {
-          transaction.delete(doc.ref); // ✅ CORRECT
-        });
-      }
-
-      generatedNodes.forEach((nodeObj) => {
-        // Ensure Dagre layout default coordinates are injected
-        const finalNode = {
-          ...nodeObj,
-          position: { x: 0, y: 0 },
-          data: {
-            ...nodeObj.data,
-            stateData: { isVerifiedPublic: false, isVerifying: false }, // Enforce locked states
-          },
-        };
-
-        const docRef = userRef.collection("execution_map").doc(finalNode.id);
-        transaction.set(docRef, finalNode); // ✅ CORRECT
+    // If it's a NEW map, clear the old execution_map subcollection first
+    if (generationType === "NEW") {
+      nodesSnap.docs.forEach((doc) => {
+        transaction.delete(doc.ref); // ✅ CORRECT
       });
+    }
 
-      // 7. Update User Telemetry (already correct, but keep it here)
-      transaction.update(userRef, {
-        "execution_map_info.lastGeneratedAt":
-          admin.firestore.FieldValue.serverTimestamp(),
-        "execution_map_info.totalNodes":
-          generationType === "NEW"
-            ? generatedNodes.length
-            : currentAutoNodes + generatedNodes.length,
-        "execution_map_info.activePrompt": userPrompt,
-      });
-
-      // 7. Return the payload to the frontend to handle layout and saving
-      return {
-        status: "SUCCESS",
-        message: "Neural map compiled securely.",
-        nodes: generatedNodes,
-        edges: [], // Empty for now; frontend routing can handle edge generation if needed
+    generatedNodes.forEach((nodeObj) => {
+      // Ensure Dagre layout default coordinates are injected
+      const finalNode = {
+        ...nodeObj,
+        position: { x: 0, y: 0 },
+        data: {
+          ...nodeObj.data,
+          stateData: { isVerifiedPublic: false, isVerifying: false }, // Enforce locked states
+        },
       };
+
+      const docRef = userRef.collection("execution_map").doc(finalNode.id);
+      transaction.set(docRef, finalNode); // ✅ CORRECT
     });
+
+    // 7. Update User Telemetry (already correct, but keep it here)
+    transaction.update(userRef, {
+      "execution_map_info.lastGeneratedAt":
+        admin.firestore.FieldValue.serverTimestamp(),
+      "execution_map_info.totalNodes":
+        generationType === "NEW"
+          ? generatedNodes.length
+          : currentAutoNodes + generatedNodes.length,
+      "execution_map_info.activePrompt": userPrompt,
+    });
+
+    // 7. Return the payload to the frontend to handle layout and saving
+    return {
+      status: "SUCCESS",
+      message: "Neural map compiled securely.",
+      nodes: generatedNodes,
+      edges: [], // Empty for now; frontend routing can handle edge generation if needed
+    };
   });
+});
+
+/**
+ * @function beginNodeExecution
+ * @description Sets the startedAtMs timestamp on a node's stateData,
+ * transitioning it from ACTIVE → IN_PROGRESS. This is the authoritative
+ * server-side timestamp that the graph engine uses to compute the
+ * minimum time lock. Using server time prevents client-side clock manipulation.
+ */
+exports.beginNodeExecution = functions.https.onCall(async (data, context) => {
+  if (!context.auth) {
+    throw new functions.https.HttpsError("unauthenticated", "Unauthorized.");
+  }
+
+  const { nodeId } = data;
+  if (!nodeId) {
+    throw new functions.https.HttpsError(
+      "invalid-argument",
+      "Node ID required.",
+    );
+  }
+
+  const uid = context.auth.uid;
+  const nodeRef = db
+    .collection("users")
+    .doc(uid)
+    .collection("execution_map")
+    .doc(nodeId);
+
+  const nodeSnap = await nodeRef.get();
+  if (!nodeSnap.exists) {
+    throw new functions.https.HttpsError("not-found", "Node not found.");
+  }
+
+  const nodeData = nodeSnap.data();
+
+  // Prevent re-starting a node that is already in progress or completed.
+  if (nodeData?.data?.stateData?.startedAtMs) {
+    throw new functions.https.HttpsError(
+      "already-exists",
+      "Node execution has already been initiated.",
+    );
+  }
+
+  await nodeRef.update({
+    "data.stateData.startedAtMs": Date.now(),
+    "data.stateData.isVerifying": false,
+    "data.stateData.isVerifiedPublic": false,
+    "data.stateData.isVerifiedGhost": false,
+  });
+
+  return { status: "IN_PROGRESS", startedAtMs: Date.now() };
+});

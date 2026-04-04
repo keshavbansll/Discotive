@@ -714,6 +714,47 @@ export const NodeEditPanel = memo(
 
               <hr className="border-[#1a1a1a] my-6" />
 
+              {/* ── EXECUTION INITIATION ── */}
+              {computedState === NODE_STATES.ACTIVE && (
+                <div className="mb-5">
+                  <label className="block text-[9px] font-bold text-[#444] uppercase tracking-widest mb-3 flex items-center gap-1.5">
+                    <Zap className="w-3 h-3 text-amber-500" /> Initiate
+                    Execution
+                  </label>
+                  <p className="text-[10px] text-[#555] mb-3 leading-relaxed">
+                    Starting execution locks this node's minimum time
+                    requirement. The timer begins server-side and cannot be
+                    manipulated.
+                  </p>
+                  <button
+                    onClick={async () => {
+                      try {
+                        const { getFunctions, httpsCallable } =
+                          await import("firebase/functions");
+                        const { app } = await import("../../firebase");
+                        const beginFn = httpsCallable(
+                          getFunctions(app),
+                          "beginNodeExecution",
+                        );
+                        await beginFn({ nodeId: node.id });
+                        addToast?.(
+                          "Execution initiated. Timer is running.",
+                          "green",
+                        );
+                      } catch (err) {
+                        addToast?.(
+                          err.message || "Failed to begin execution.",
+                          "red",
+                        );
+                      }
+                    }}
+                    className="w-full py-3 bg-amber-500 hover:bg-amber-400 text-black text-[10px] font-black uppercase tracking-widest rounded-xl transition-all flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(245,158,11,0.2)]"
+                  >
+                    <Zap className="w-3.5 h-3.5" /> Begin Execution
+                  </button>
+                </div>
+              )}
+
               {/* ── VERIFICATION: PROOF OF WORK ── */}
               <div>
                 <label className="block text-[9px] font-bold text-[#444] uppercase tracking-widest mb-3 flex items-center gap-1.5">

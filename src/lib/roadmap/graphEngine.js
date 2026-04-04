@@ -95,10 +95,17 @@ export const compileExecutionGraph = (
     console.error(
       "[GraphEngine] FATAL: Cyclic dependency detected. Graph evaluation aborted.",
     );
-    // Fallback: return nodes safely locked to prevent cascading failures
+    // Return nodes with a specific CYCLE_ERROR state rather than silently
+    // locking everything. The UI can then render a targeted error message
+    // directing the user to remove the circular connection.
     return rawNodes.map((n) => ({
       ...n,
-      _computed: { state: NODE_STATES.LOCKED },
+      _computed: {
+        state: NODE_STATES.LOCKED,
+        lockReason: "CYCLE_DETECTED",
+        lockMessage:
+          "A circular dependency exists in your map. Remove the conflicting connection to restore your execution graph.",
+      },
     }));
   }
 
@@ -117,87 +124,101 @@ export const compileExecutionGraph = (
   // We process nodes in topological order to ensure parents are evaluated before children
   // (Simplified here via iterative resolution for resilience)
 
-  let resolving = true;
-  const maxIterations = rawNodes.length;
-  let iterations = 0;
+  const inDegree = new Map(rawNodes.map((n) => [n.id, 0]));
+  const adjList = new Map(rawNodes.map((n) => [n.id, []]));
 
-  while (resolving && iterations < maxIterations) {
-    resolving = false;
-    iterations++;
+  rawEdges.forEach(({ source, target }) => {
+    if (adjList.has(source) && inDegree.has(target)) {
+      adjList.get(source).push(target);
+      inDegree.set(target, inDegree.get(target) + 1);
+    }
+  });
 
-    for (const node of rawNodes) {
-      if (computedStates.has(node.id)) continue;
+  // Initialize queue with all root nodes (in-degree === 0)
+  const queue = [];
+  for (const [id, degree] of inDegree.entries()) {
+    if (degree === 0) queue.push(id);
+  }
 
-      const incoming = incomingEdgesMap.get(node.id);
+  // Process in topological order — guaranteed O(V+E), no iteration limit needed
+  const nodeMap = new Map(rawNodes.map((n) => [n.id, n]));
 
-      // Check if all parents are evaluated
-      const parentsEvaluated = incoming.every((edge) =>
-        computedStates.has(edge.source),
-      );
+  while (queue.length > 0) {
+    const currentId = queue.shift();
+    const node = nodeMap.get(currentId);
+    if (!node) continue;
 
-      if (parentsEvaluated || incoming.length === 0) {
-        let finalState = NODE_STATES.LOCKED;
-        let timeRemaining = 0;
-        let lockReason = null;
+    const incoming = incomingEdgesMap.get(currentId) || [];
+    let finalState = NODE_STATES.LOCKED;
+    let timeRemaining = 0;
+    let lockReason = null;
 
-        const depsMet = evaluateDependencies(node, incoming, computedStates);
+    const depsMet = evaluateDependencies(node, incoming, computedStates);
 
-        if (depsMet) {
-          const dbState = node.data?.stateData || {};
+    if (depsMet) {
+      const dbState = node.data?.stateData || {};
 
-          // State Machine Resolution
-          if (dbState.isVerifiedPublic) {
-            finalState = NODE_STATES.VERIFIED;
-          } else if (dbState.isVerifiedGhost) {
-            const unlockTime = dbState.ghostUnlockTimeMs || 0;
-            if (serverTimeMs >= unlockTime) {
-              finalState = NODE_STATES.VERIFIED; // 24h passed, automatically convert to public
-            } else {
-              finalState = NODE_STATES.VERIFIED_GHOST;
-              timeRemaining = unlockTime - serverTimeMs;
-            }
-          } else if (dbState.isVerifying) {
-            finalState = NODE_STATES.VERIFYING;
-          } else if (
-            dbState.failedBackoffUntilMs &&
-            dbState.failedBackoffUntilMs > serverTimeMs
-          ) {
-            finalState = NODE_STATES.FAILED_BACKOFF;
-            timeRemaining = dbState.failedBackoffUntilMs - serverTimeMs;
-            lockReason = "AI Verification Failed. Strict Backoff Active.";
-          } else if (dbState.startedAtMs) {
-            const minTimeMs = (node.data?.minimumTimeMinutes || 0) * 60000;
-            const elapsedTime = serverTimeMs - dbState.startedAtMs;
-
-            if (elapsedTime < minTimeMs) {
-              finalState = NODE_STATES.IN_PROGRESS;
-              timeRemaining = minTimeMs - elapsedTime;
-            } else {
-              finalState = NODE_STATES.ACTIVE; // Timer done, ready for payload submission
-            }
-          } else {
-            finalState = NODE_STATES.ACTIVE; // Dependencies met, hasn't clicked 'Begin'
-          }
+      if (dbState.isVerifiedPublic) {
+        finalState = NODE_STATES.VERIFIED;
+      } else if (dbState.isVerifiedGhost) {
+        const unlockTime = dbState.ghostUnlockTimeMs || 0;
+        if (serverTimeMs >= unlockTime) {
+          finalState = NODE_STATES.VERIFIED;
+        } else {
+          finalState = NODE_STATES.VERIFIED_GHOST;
+          timeRemaining = unlockTime - serverTimeMs;
         }
-
-        computedStates.set(node.id, finalState);
-
-        // Attach computed metadata strictly isolated from DB data
-        hydratedNodes.push({
-          ...node,
-          _computed: {
-            state: finalState,
-            timeRemaining,
-            lockReason,
-            isInteractable: [
-              NODE_STATES.ACTIVE,
-              NODE_STATES.IN_PROGRESS,
-            ].includes(finalState),
-          },
-        });
-
-        resolving = true;
+      } else if (dbState.isVerifying) {
+        finalState = NODE_STATES.VERIFYING;
+      } else if (
+        dbState.failedBackoffUntilMs &&
+        dbState.failedBackoffUntilMs > serverTimeMs
+      ) {
+        finalState = NODE_STATES.FAILED_BACKOFF;
+        timeRemaining = dbState.failedBackoffUntilMs - serverTimeMs;
+        lockReason = "Verification failed. Exponential backoff active.";
+      } else if (dbState.startedAtMs) {
+        const minTimeMs = (node.data?.minimumTimeMinutes || 0) * 60000;
+        const elapsed = serverTimeMs - dbState.startedAtMs;
+        if (elapsed < minTimeMs) {
+          finalState = NODE_STATES.IN_PROGRESS;
+          timeRemaining = minTimeMs - elapsed;
+        } else {
+          finalState = NODE_STATES.ACTIVE;
+        }
+      } else {
+        finalState = NODE_STATES.ACTIVE;
       }
+    }
+
+    computedStates.set(currentId, finalState);
+    hydratedNodes.push({
+      ...node,
+      _computed: {
+        state: finalState,
+        timeRemaining,
+        lockReason,
+        isInteractable: [NODE_STATES.ACTIVE, NODE_STATES.IN_PROGRESS].includes(
+          finalState,
+        ),
+      },
+    });
+
+    // Decrement in-degree for neighbors and enqueue if they become ready
+    for (const neighborId of adjList.get(currentId) || []) {
+      const newDegree = inDegree.get(neighborId) - 1;
+      inDegree.set(neighborId, newDegree);
+      if (newDegree === 0) queue.push(neighborId);
+    }
+  }
+
+  // Any nodes not processed (due to cycles already caught above) default to LOCKED
+  for (const node of rawNodes) {
+    if (!computedStates.has(node.id)) {
+      hydratedNodes.push({
+        ...node,
+        _computed: { state: NODE_STATES.LOCKED, lockReason: "CYCLE_DETECTED" },
+      });
     }
   }
 

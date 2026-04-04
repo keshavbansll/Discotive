@@ -675,7 +675,6 @@ const MainLayout = () => {
 
             {/* --- PROFILE DROPDOWN ENGINE --- */}
             <div className="relative" ref={profileMenuRef}>
-              {/* ✅ THE MISSING TRIGGER BUTTON */}
               <button
                 onClick={() => {
                   setShowProfileMenu(!showProfileMenu);
@@ -683,21 +682,23 @@ const MainLayout = () => {
                   setShowLanguageMenu(false);
                 }}
                 className={cn(
-                  "flex items-center gap-2 p-1 pl-1 pr-3 rounded-full border transition-all duration-200",
+                  "group flex items-center transition-all duration-200 outline-none",
+                  // Mobile: tightly hugs the circle. Desktop: Pill styling with padding and borders.
+                  "gap-0 lg:gap-2 lg:p-1 lg:pr-3 lg:rounded-full lg:border",
                   showProfileMenu
-                    ? "bg-white text-black border-white shadow-[0_0_20px_rgba(255,255,255,0.15)]"
-                    : "bg-[#0a0a0a] border-[#222] hover:border-[#444] text-[#888] hover:text-white",
+                    ? "lg:bg-[#1a1a1a] lg:border-[#444] shadow-none lg:shadow-[0_4px_12px_rgba(0,0,0,0.3)]"
+                    : "lg:bg-[#0a0a0a] lg:border-[#222] hover:lg:border-[#444]",
                 )}
               >
                 {/* Avatar circle */}
                 <div
                   className={cn(
-                    "w-8 h-8 rounded-full flex items-center justify-center text-xs font-extrabold tracking-wide shrink-0 transition-all",
+                    "w-8 h-8 rounded-full flex items-center justify-center text-xs font-extrabold tracking-wide shrink-0 transition-all border",
                     isGhostUser
-                      ? "bg-amber-500/15 text-amber-400 border border-amber-500/30"
+                      ? "bg-amber-500/15 text-amber-400 border-amber-500/30"
                       : showProfileMenu
-                        ? "bg-black text-white border border-[#333]"
-                        : "bg-[#111] text-white border border-[#333]",
+                        ? "bg-[#2a2a2a] text-white border-[#555] shadow-[0_0_10px_rgba(255,255,255,0.03)]"
+                        : "bg-[#111] text-[#ccc] border-[#333] group-hover:border-[#555] group-hover:text-white",
                   )}
                 >
                   {isGhostUser
@@ -705,12 +706,21 @@ const MainLayout = () => {
                     : `${userData?.identity?.firstName?.charAt(0) || ""}${userData?.identity?.lastName?.charAt(0) || ""}` ||
                       "U"}
                 </div>
+
                 {/* Name — desktop only */}
-                <span className="hidden lg:block text-xs font-bold tracking-wide max-w-[80px] truncate">
+                <span
+                  className={cn(
+                    "hidden lg:block text-xs font-bold tracking-wide max-w-[80px] truncate transition-colors",
+                    showProfileMenu
+                      ? "text-white"
+                      : "text-[#888] group-hover:text-white",
+                  )}
+                >
                   {isGhostUser
                     ? "Setup"
                     : userData?.identity?.firstName || "Operator"}
                 </span>
+
                 {/* Tier badge */}
                 {userData?.tier === "PRO" && !isGhostUser && (
                   <div className="hidden lg:flex items-center">

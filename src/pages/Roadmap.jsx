@@ -131,6 +131,17 @@ const Roadmap = () => {
   const [pendingScoreDelta, setPendingScoreDelta] = useState(0);
   const [toasts, setToasts] = useState([]);
 
+  // ── Fullscreen Layout Lock ─────────────────────────────────────────────────
+  // Dynamically breaks out of the MainLayout stacking context
+  useEffect(() => {
+    if (isMapFullscreen) {
+      document.body.classList.add("map-fullscreen-active");
+    } else {
+      document.body.classList.remove("map-fullscreen-active");
+    }
+    return () => document.body.classList.remove("map-fullscreen-active");
+  }, [isMapFullscreen]);
+
   // ── Modal / overlay state ──────────────────────────────────────────────────
   const [isJournalOpen, setIsJournalOpen] = useState(false);
   const [isShortcutsOpen, setIsShortcutsOpen] = useState(false);
@@ -636,7 +647,7 @@ const Roadmap = () => {
       <div
         className={cn(
           "flex bg-[#030303] text-white font-sans overflow-hidden selection:bg-amber-500/20",
-          isMapFullscreen ? "fixed inset-0 z-[500]" : "h-screen",
+          isMapFullscreen ? "fixed inset-0 z-[9999]" : "h-screen",
         )}
       >
         <ReactFlowProvider>

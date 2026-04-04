@@ -119,3 +119,22 @@
     padding-right: env(safe-area-inset-right);
   }
 }
+
+/* ── Discotive Fullscreen Map Overrides ── */
+/* Hides standard layout UI */
+body.map-fullscreen-active aside,
+body.map-fullscreen-active nav,
+body.map-fullscreen-active header,
+body.map-fullscreen-active [data-sidebar] {
+  display: none !important;
+}
+
+/* Forces parent layout containers to release fixed children to the viewport level */
+body.map-fullscreen-active main,
+body.map-fullscreen-active .layout-wrapper,
+body.map-fullscreen-active #root > div {
+  position: static !important;
+  transform: none !important;
+  filter: none !important;
+  z-index: auto !important;
+}
