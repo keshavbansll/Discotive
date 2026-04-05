@@ -79,24 +79,24 @@ import { cn } from "../components/ui/BentoCard";
 // ─── Character assets ────────────────────────────────────────────────────────
 const CHARACTERS = {
   rank1: {
-    Male: "/Characters/Boy-1.gif",
-    Female: "/Characters/Girl-1.gif",
-    Other: "/Characters/Others-1.gif",
+    Male: "/Characters/Boy-1.webp",
+    Female: "/Characters/Girl-1.webp",
+    Other: "/Characters/Others-1.webp",
   },
   rank2: {
-    Male: "/Characters/Boy-2.gif",
-    Female: "/Characters/Girl-2.gif",
-    Other: "/Characters/Others-1.gif",
+    Male: "/Characters/Boy-2.webp",
+    Female: "/Characters/Girl-2.webp",
+    Other: "/Characters/Others-1.webp",
   },
   rank3: {
-    Male: "/Characters/Boy-3.gif",
-    Female: "/Characters/Boy-1.gif",
-    Other: "/Characters/Boy-1.gif",
+    Male: "/Characters/Boy-3.webp",
+    Female: "/Characters/Boy-1.webp",
+    Other: "/Characters/Boy-1.webp",
   },
   observer: {
-    Male: "/Characters/Observer.gif",
-    Female: "/Characters/Observer.gif",
-    Other: "/Characters/Observer.gif",
+    Male: "/Characters/Observer.webp",
+    Female: "/Characters/Observer.webp",
+    Other: "/Characters/Observer.webp",
   },
 };
 const getAvatar = (key, gender) =>
