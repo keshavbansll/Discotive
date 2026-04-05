@@ -33,6 +33,10 @@ import AdminRoute from "./components/AdminRoute";
 const AdminDashboard = lazy(() => import("./pages/admin/AdminDashboard"));
 const VaultVerification = lazy(() => import("./pages/admin/VaultVerification"));
 
+const TicketManager = lazy(() => import("./pages/admin/TicketManager"));
+const ReportManager = lazy(() => import("./pages/admin/ReportManager"));
+const FeedbackManager = lazy(() => import("./pages/admin/FeedbackManager"));
+
 import SystemFailure from "./components/SystemFailure";
 
 const ProtectedRoute = ({ children }) => {
@@ -130,6 +134,11 @@ function App() {
                   path="users/verifyvault"
                   element={<VaultVerification />}
                 />
+                <Route path="tickets" element={<TicketManager />} />
+                <Route path="reports" element={<ReportManager />} />
+                <Route path="tickets" element={<TicketManager />} />
+                <Route path="reports" element={<ReportManager />} />
+                <Route path="feedback" element={<FeedbackManager />} />
               </Route>
             </Route>
             <Route

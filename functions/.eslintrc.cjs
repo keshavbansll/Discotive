@@ -9,6 +9,7 @@ module.exports = {
   },
   extends: ["eslint:recommended", "google"],
   rules: {
+    "max-len": ["error", { code: 120 }], // or "off"
     "no-restricted-globals": ["error", "name", "length"],
     "prefer-arrow-callback": "error",
     quotes: ["error", "double", { allowTemplateLiterals: true }],

@@ -59,6 +59,9 @@ import { cn } from "../components/ui/BentoCard";
 import { processDailyConsistency } from "../lib/scoreEngine";
 import FeedbackModal from "../components/FeedbackModal";
 
+import SupportTicketModal from "../components/SupportTicketModal";
+import UserReportModal from "../components/UserReportModal";
+
 // --- NAVIGATION GROUPS ---
 
 const topNavItems = [
@@ -115,6 +118,9 @@ const MainLayout = () => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
+
+  const [isSupportTicketOpen, setIsSupportTicketOpen] = useState(false);
+  const [isReportOpen, setIsReportOpen] = useState(false);
 
   const [deferredPrompt, setDeferredPrompt] = useState(null);
   const [isInstallable, setIsInstallable] = useState(false);
@@ -866,14 +872,16 @@ const MainLayout = () => {
 
                     {/* Section 3: Support */}
                     <div className="py-2 border-b border-[#222]">
-                      <Link
-                        to="/support"
-                        onClick={() => setShowProfileMenu(false)}
-                        className="px-4 py-2.5 flex items-center gap-3 text-[#ccc] hover:bg-[#111] transition-colors text-xs md:text-sm"
+                      <button
+                        onClick={() => {
+                          setShowProfileMenu(false);
+                          setIsSupportTicketOpen(true);
+                        }}
+                        className="w-full px-4 py-2.5 flex items-center gap-3 text-[#ccc] hover:bg-[#111] transition-colors text-xs md:text-sm text-left"
                       >
-                        <HelpCircle className="w-4 h-4 text-[#888]" /> Help &
-                        Support
-                      </Link>
+                        <Ticket className="w-4 h-4 text-[#888]" /> Raise a
+                        Support Ticket
+                      </button>
                       <Link
                         onClick={() => setIsFeedbackOpen(true)}
                         className="px-4 py-2.5 flex items-center gap-3 text-[#ccc] hover:bg-[#111] transition-colors text-xs md:text-sm"
@@ -1360,6 +1368,13 @@ const MainLayout = () => {
         isOpen={isFeedbackOpen}
         onClose={() => setIsFeedbackOpen(false)}
         user={auth.currentUser} // Pass user object if you need uid for Firestore
+      />
+
+      <SupportTicketModal
+        isOpen={isSupportTicketOpen}
+        onClose={() => setIsSupportTicketOpen(false)}
+        user={auth.currentUser}
+        userData={userData}
       />
     </div>
   );

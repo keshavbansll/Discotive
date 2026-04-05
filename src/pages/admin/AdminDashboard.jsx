@@ -1171,7 +1171,6 @@ const AdminDashboard = () => {
             </button>
           </div>
         </motion.header>
-
         {/* ── ERROR BANNER ── */}
         <AnimatePresence>
           {error && (
@@ -1186,43 +1185,52 @@ const AdminDashboard = () => {
             </motion.div>
           )}
         </AnimatePresence>
-
         {/* ── STATS ROW ── */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-          <StatCard
-            label="Total Operators"
-            value={stats.total}
-            icon={Users}
-            color="text-white"
-            subtext="All registered users"
-            delay={0.05}
-          />
-          <StatCard
-            label="Pro Tier"
-            value={stats.pro}
-            icon={Crown}
-            color="text-amber-500"
-            subtext={`${stats.total > 0 ? ((stats.pro / stats.total) * 100).toFixed(1) : 0}% of all users`}
-            delay={0.1}
-          />
-          <StatCard
-            label="Essential Tier"
-            value={stats.essential}
-            icon={Zap}
-            color="text-sky-400"
-            subtext={`${stats.total > 0 ? ((stats.essential / stats.total) * 100).toFixed(1) : 0}% of all users`}
-            delay={0.15}
-          />
-          <StatCard
-            label="New This Week"
-            value={stats.newThisWeek}
-            icon={UserPlus}
-            color="text-emerald-400"
-            subtext="User growth (7 days)"
-            delay={0.2}
-          />
-        </div>
-
+        {refreshing ? (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6 animate-pulse">
+            {[1, 2, 3, 4].map((i) => (
+              <div
+                key={i}
+                className="h-[120px] bg-white/[0.02] rounded-[1.5rem]"
+              />
+            ))}
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+            <StatCard
+              label="Total Operators"
+              value={stats.total}
+              icon={Users}
+              color="text-white"
+              subtext="All registered users"
+              delay={0.05}
+            />
+            <StatCard
+              label="Pro Tier"
+              value={stats.pro}
+              icon={Crown}
+              color="text-amber-500"
+              subtext={`${stats.total > 0 ? ((stats.pro / stats.total) * 100).toFixed(1) : 0}% of all users`}
+              delay={0.1}
+            />
+            <StatCard
+              label="Essential Tier"
+              value={stats.essential}
+              icon={Zap}
+              color="text-sky-400"
+              subtext={`${stats.total > 0 ? ((stats.essential / stats.total) * 100).toFixed(1) : 0}% of all users`}
+              delay={0.15}
+            />
+            <StatCard
+              label="New This Week"
+              value={stats.newThisWeek}
+              icon={UserPlus}
+              color="text-emerald-400"
+              subtext="User growth (7 days)"
+              delay={0.2}
+            />
+          </div>
+        )}
         {/* ── MAIN GRID: PIE CHART + ACTIVITY FEED ── */}
         <div className="grid grid-cols-1 md:grid-cols-12 gap-4 mb-4">
           <motion.div
@@ -1380,7 +1388,6 @@ const AdminDashboard = () => {
             )}
           </motion.div>
         </div>
-
         {/* ── VAULT VERIFICATION WIDGET ── */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -1513,7 +1520,6 @@ const AdminDashboard = () => {
             </div>
           </div>
         </motion.div>
-
         {/* ── HORIZONTAL LEARN ENGINE EXPLORER WIDGET ── */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -1699,11 +1705,11 @@ const AdminDashboard = () => {
             </div>
           </div>
         </motion.div>
-
-        {/* ── BOTTOM ROW: FEEDBACK, TICKETS, REPORTS ── */}
+        {/* ── BOTTOM ROW ── */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <EfficiencyMeterWidget />
 
+          {/* TICKETS CARD */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -1714,11 +1720,23 @@ const AdminDashboard = () => {
               <h2 className="text-[10px] font-bold text-white/40 uppercase tracking-widest flex items-center gap-2">
                 <Ticket className="w-4 h-4 text-sky-400" /> Support Tickets
               </h2>
-              <span className="text-[9px] font-bold text-white/20 uppercase">
-                {tickets.length} open
-              </span>
+              {/* ← ADD THIS REDIRECT BUTTON */}
+              <Link
+                to="/app/admin/tickets"
+                className="flex items-center gap-1.5 text-[9px] font-black text-sky-400/60 hover:text-sky-400 uppercase tracking-widest transition-colors"
+              >
+                Manage All <ArrowUpRight className="w-3 h-3" />
+              </Link>
             </div>
-            {tickets.length === 0 ? (
+
+            {/* ← ADD SKELETON WHEN REFRESHING */}
+            {refreshing ? (
+              <div className="space-y-2 animate-pulse">
+                {[1, 2, 3].map((i) => (
+                  <div key={i} className="h-16 bg-white/[0.02] rounded-xl" />
+                ))}
+              </div>
+            ) : tickets.length === 0 ? (
               <EmptyState icon={Ticket} message="No open support tickets" />
             ) : (
               <div className="space-y-2 flex-1">
@@ -1727,22 +1745,27 @@ const AdminDashboard = () => {
                     key={ticket.id}
                     className="p-3 bg-white/[0.02] border border-white/[0.03] rounded-xl"
                   >
-                    <p className="text-[11px] font-bold text-white truncate">
-                      {ticket.subject || "No subject"}
-                    </p>
-                    <p className="text-[10px] text-white/40 mt-0.5 line-clamp-1">
-                      {ticket.message || "No message"}
-                    </p>
-                    <div className="flex items-center justify-between mt-2">
+                    <div className="flex items-center justify-between mb-1">
+                      <p className="text-[11px] font-bold text-white truncate">
+                        {ticket.subject || "No subject"}
+                      </p>
                       <span
                         className={cn(
-                          "text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded",
+                          "text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded ml-2 shrink-0",
                           ticket.status === "open"
-                            ? "bg-sky-500/10 text-sky-400"
+                            ? "bg-emerald-500/10 text-emerald-400"
                             : "bg-white/5 text-white/30",
                         )}
                       >
                         {ticket.status || "open"}
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-white/40 mt-0.5 line-clamp-1">
+                      {ticket.message || "No message"}
+                    </p>
+                    <div className="flex items-center justify-between mt-2">
+                      <span className="text-[8px] text-white/20 uppercase tracking-widest">
+                        {ticket.category || "—"}
                       </span>
                       <span className="text-[8px] text-white/20">
                         {timeAgo(ticket.createdAt)}
@@ -1754,6 +1777,7 @@ const AdminDashboard = () => {
             )}
           </motion.div>
 
+          {/* REPORTS CARD — same pattern */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -1765,11 +1789,22 @@ const AdminDashboard = () => {
                 <AlertTriangle className="w-4 h-4 text-orange-400" /> User
                 Reports
               </h2>
-              <span className="text-[9px] font-bold text-white/20 uppercase">
-                {reports.length} reports
-              </span>
+              {/* ← ADD THIS REDIRECT BUTTON */}
+              <Link
+                to="/app/admin/reports"
+                className="flex items-center gap-1.5 text-[9px] font-black text-orange-400/60 hover:text-orange-400 uppercase tracking-widest transition-colors"
+              >
+                Manage All <ArrowUpRight className="w-3 h-3" />
+              </Link>
             </div>
-            {reports.length === 0 ? (
+
+            {refreshing ? (
+              <div className="space-y-2 animate-pulse">
+                {[1, 2, 3].map((i) => (
+                  <div key={i} className="h-16 bg-white/[0.02] rounded-xl" />
+                ))}
+              </div>
+            ) : reports.length === 0 ? (
               <EmptyState icon={Shield} message="No user reports on file" />
             ) : (
               <div className="space-y-2 flex-1">
@@ -1779,7 +1814,7 @@ const AdminDashboard = () => {
                     className="p-3 bg-white/[0.02] border border-white/[0.03] rounded-xl"
                   >
                     <p className="text-[11px] font-bold text-white truncate">
-                      {report.reason || "No reason specified"}
+                      {report.reason || "No reason"}
                     </p>
                     <p className="text-[10px] text-white/40 mt-0.5 line-clamp-1">
                       {report.description || "No description"}

@@ -59,8 +59,11 @@
         setTimeout(function () {
           const root = document.getElementById("root");
           if (!root || root.innerHTML.trim() === "") {
-            document.getElementById("native-crash-screen").style.display =
-              "flex";
+            const crashScreen = document.getElementById("native-crash-screen");
+            if (crashScreen) {
+              // Add this check
+              crashScreen.style.display = "flex";
+            }
           }
         }, 4000);
       };
