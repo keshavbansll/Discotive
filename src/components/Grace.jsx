@@ -11,6 +11,9 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Link } from "react-router-dom";
+import FeedbackModal from "../components/FeedbackModal";
+import { auth } from "../firebase";
+
 import {
   Sparkles,
   X,
@@ -193,22 +196,22 @@ const FLOWS = {
     ans: {
       report: {
         text: "Please include: what you were doing, what happened, and what you expected. Note your browser (Chrome/Safari) and device type. Our team triages daily.",
-        links: [{ label: "Report Bug →", href: "/feedback" }],
+        links: [{ label: "Report Bug →", action: "OPEN_FEEDBACK" }],
       },
       feedback: {
         text: "We read every piece of feedback — your input directly shapes Discotive's product roadmap. Be as specific as possible for maximum impact.",
-        links: [{ label: "Send Feedback →", href: "/feedback" }],
+        links: [{ label: "Send Feedback →", action: "OPEN_FEEDBACK" }],
       },
       contact: {
         text: "For urgent issues: discotive@gmail.com. For non-urgent queries, the feedback form is checked daily by our team. Average response time is 24–48 hours during beta.",
         links: [
-          { label: "Feedback Form", href: "/feedback" },
+          { label: "Feedback Form", action: "OPEN_FEEDBACK" },
           { label: "Email Us", href: "mailto:discotive@gmail.com" },
         ],
       },
       feature: {
         text: "Feature requests go directly to our product backlog. The most-requested ideas get built first. Describe your use case clearly — not just the feature, but why you need it.",
-        links: [{ label: "Request Feature →", href: "/feedback" }],
+        links: [{ label: "Request Feature →", action: "OPEN_FEEDBACK" }],
       },
     },
   },
@@ -268,6 +271,8 @@ const Grace = ({ userData }) => {
   const [step, setStep] = useState("topics"); // topics | flow | answer | freeform
   const [activeTopic, setActiveTopic] = useState(null);
   const [activeAnswer, setActiveAnswer] = useState(null);
+
+  const [isFeedbackModalOpen, setIsFeedbackModalOpen] = useState(false);
 
   // Free-form AI state
   const [freeInput, setFreeInput] = useState("");
@@ -513,23 +518,48 @@ Answer concisely (max 3 sentences). Be direct, helpful, and encouraging. Don't m
             {/* CTA Links */}
             {activeAnswer.links && activeAnswer.links.length > 0 && (
               <div className="flex flex-wrap gap-2 pl-11">
-                {activeAnswer.links.map((link, i) =>
-                  link.to ? (
-                    <Link
-                      key={i}
-                      to={link.to}
-                      onClick={close}
-                      className={cn(
-                        "flex items-center gap-1.5 px-3 py-2 rounded-xl border text-[10px] font-black uppercase tracking-widest transition-all",
-                        c.bg,
-                        c.border,
-                        c.text,
-                      )}
-                    >
-                      {link.label}
-                      <ChevronRight className="w-3 h-3" />
-                    </Link>
-                  ) : (
+                {activeAnswer.links.map((link, i) => {
+                  const linkClasses = cn(
+                    "flex items-center gap-1.5 px-3 py-2 rounded-xl border text-[10px] font-black uppercase tracking-widest transition-all",
+                    c.bg,
+                    c.border,
+                    c.text,
+                  );
+
+                  // 1. Intercept Action Triggers
+                  if (link.action === "OPEN_FEEDBACK") {
+                    return (
+                      <button
+                        key={i}
+                        onClick={() => {
+                          setIsFeedbackModalOpen(true);
+                          close(); // Dismiss Grace gracefully
+                        }}
+                        className={linkClasses}
+                      >
+                        {link.label}
+                        <ChevronRight className="w-3 h-3" />
+                      </button>
+                    );
+                  }
+
+                  // 2. Standard Internal Route
+                  if (link.to) {
+                    return (
+                      <Link
+                        key={i}
+                        to={link.to}
+                        onClick={close}
+                        className={linkClasses}
+                      >
+                        {link.label}
+                        <ChevronRight className="w-3 h-3" />
+                      </Link>
+                    );
+                  }
+
+                  // 3. Standard External Link
+                  return (
                     <a
                       key={i}
                       href={link.href}
@@ -537,18 +567,13 @@ Answer concisely (max 3 sentences). Be direct, helpful, and encouraging. Don't m
                         link.href?.startsWith("mailto") ? "_self" : "_blank"
                       }
                       rel="noreferrer"
-                      className={cn(
-                        "flex items-center gap-1.5 px-3 py-2 rounded-xl border text-[10px] font-black uppercase tracking-widest transition-all",
-                        c.bg,
-                        c.border,
-                        c.text,
-                      )}
+                      className={linkClasses}
                     >
                       {link.label}
                       <ExternalLink className="w-3 h-3" />
                     </a>
-                  ),
-                )}
+                  );
+                })}
               </div>
             )}
 
@@ -699,6 +724,12 @@ Answer concisely (max 3 sentences). Be direct, helpful, and encouraging. Don't m
 
   return (
     <>
+      {/* ── Feedback Modal ── */}
+      <FeedbackModal
+        isOpen={isFeedbackModalOpen}
+        onClose={() => setIsFeedbackModalOpen(false)}
+        user={auth.currentUser}
+      />
       {/* ── Panel ── */}
       <AnimatePresence>
         {isOpen && (

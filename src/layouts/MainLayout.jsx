@@ -57,6 +57,7 @@ import {
 } from "lucide-react";
 import { cn } from "../components/ui/BentoCard";
 import { processDailyConsistency } from "../lib/scoreEngine";
+import FeedbackModal from "../components/FeedbackModal";
 
 // --- NAVIGATION GROUPS ---
 
@@ -113,6 +114,7 @@ const MainLayout = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
+  const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
 
   const [deferredPrompt, setDeferredPrompt] = useState(null);
   const [isInstallable, setIsInstallable] = useState(false);
@@ -873,8 +875,7 @@ const MainLayout = () => {
                         Support
                       </Link>
                       <Link
-                        to="/feedback"
-                        onClick={() => setShowProfileMenu(false)}
+                        onClick={() => setIsFeedbackOpen(true)}
                         className="px-4 py-2.5 flex items-center gap-3 text-[#ccc] hover:bg-[#111] transition-colors text-xs md:text-sm"
                       >
                         <MessageSquare className="w-4 h-4 text-[#888]" /> Send
@@ -1353,6 +1354,12 @@ const MainLayout = () => {
       <ShortcutsPanel
         isOpen={showShortcuts}
         onClose={() => setShowShortcuts(false)}
+      />
+
+      <FeedbackModal
+        isOpen={isFeedbackOpen}
+        onClose={() => setIsFeedbackOpen(false)}
+        user={auth.currentUser} // Pass user object if you need uid for Firestore
       />
     </div>
   );

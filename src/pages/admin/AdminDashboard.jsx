@@ -68,6 +68,8 @@ import {
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
 import { cn } from "../../components/ui/BentoCard";
 
+import EfficiencyMeterWidget from "./EfficiencyMeterWidget";
+
 // ============================================================================
 // TAXONOMY DICTIONARIES (Synced from Auth)
 // ============================================================================
@@ -500,7 +502,6 @@ const AdminDashboard = () => {
   });
   const [pendingVault, setPendingVault] = useState([]);
   const [reportedVault, setReportedVault] = useState([]);
-  const [feedback, setFeedback] = useState([]);
   const [tickets, setTickets] = useState([]);
   const [reports, setReports] = useState([]);
   const [recentUsers, setRecentUsers] = useState([]);
@@ -570,19 +571,6 @@ const AdminDashboard = () => {
       });
       setPendingVault(pending);
       setReportedVault(reported);
-
-      try {
-        const fbSnap = await getDocs(
-          query(
-            collection(db, "feedback"),
-            orderBy("createdAt", "desc"),
-            limit(5),
-          ),
-        );
-        setFeedback(fbSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
-      } catch (_) {
-        setFeedback([]);
-      }
 
       try {
         const tkSnap = await getDocs(
@@ -1714,49 +1702,7 @@ const AdminDashboard = () => {
 
         {/* ── BOTTOM ROW: FEEDBACK, TICKETS, REPORTS ── */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.4 }}
-            className="bg-[#0a0a0c] border border-white/[0.05] rounded-[2rem] p-6 flex flex-col"
-          >
-            <div className="flex items-center justify-between mb-5">
-              <h2 className="text-[10px] font-bold text-white/40 uppercase tracking-widest flex items-center gap-2">
-                <MessageSquare className="w-4 h-4 text-violet-400" /> Recent
-                Feedback
-              </h2>
-              <span className="text-[9px] font-bold text-white/20 uppercase">
-                {feedback.length} entries
-              </span>
-            </div>
-            {feedback.length === 0 ? (
-              <EmptyState
-                icon={MessageSquare}
-                message="No feedback submitted yet"
-              />
-            ) : (
-              <div className="space-y-2 flex-1">
-                {feedback.map((fb) => (
-                  <div
-                    key={fb.id}
-                    className="p-3 bg-white/[0.02] border border-white/[0.03] rounded-xl"
-                  >
-                    <p className="text-[11px] text-white/70 leading-relaxed line-clamp-2">
-                      {fb.message || "No message"}
-                    </p>
-                    <div className="flex items-center justify-between mt-2">
-                      <span className="text-[8px] font-bold text-white/20 uppercase tracking-widest">
-                        {fb.category || "General"}
-                      </span>
-                      <span className="text-[8px] text-white/20">
-                        {timeAgo(fb.createdAt)}
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </motion.div>
+          <EfficiencyMeterWidget />
 
           <motion.div
             initial={{ opacity: 0, y: 20 }}
