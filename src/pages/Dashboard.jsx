@@ -1173,7 +1173,7 @@ const Dashboard = () => {
                   alt="Rank"
                   width={80} // 20 * 4 (Tailwind w-20)
                   height={80}
-                  fetchpriority="high" // This is highly visible above the fold
+                  fetchPriority="high" // This is highly visible above the fold
                   decoding="async"
                   className={cn(
                     "w-full h-full object-contain pointer-events-none select-none",

@@ -528,7 +528,7 @@ const PodiumCard = ({ player, rank, resolvePlayerName, isMe }) => {
           // -------------------------------------------------------
           width={176}
           height={176}
-          fetchpriority={rank === 1 ? "high" : "auto"}
+          fetchPriority={rank === 1 ? "high" : "auto"}
           decoding="async"
           className={cn(
             "w-full h-full object-contain select-none pointer-events-none",

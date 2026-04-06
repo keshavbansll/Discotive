@@ -25,7 +25,7 @@ import {
   Link2,
   Lock,
 } from "lucide-react";
-import { cn } from "../lib/cn";
+import { cn } from "../../lib/cn";
 import {
   NODE_ACCENT_PALETTE,
   NODE_TAGS,

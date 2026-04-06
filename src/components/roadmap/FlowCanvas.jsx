@@ -70,7 +70,7 @@ import {
 } from "lucide-react";
 import { toPng } from "html-to-image";
 import { jsPDF } from "jspdf";
-import { cn } from "../lib/cn";
+import { cn } from "../../lib/cn";
 
 import { ExecutionNode } from "./ExecutionNode.jsx";
 import { NeuralEdge, edgeTypes } from "./NeuralEdge.jsx";

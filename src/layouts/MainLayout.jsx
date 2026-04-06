@@ -436,7 +436,7 @@ const MainLayout = () => {
                 alt="Discotive Logo"
                 width={32}
                 height={32}
-                fetchpriority="high"
+                fetchPriority="high"
                 decoding="async"
                 className="w-full h-full object-contain transition-all duration-300"
               />

@@ -13,7 +13,7 @@ import {
   AlertCircle,
 } from "lucide-react";
 import { fetchVideos } from "../../lib/discotiveLearn";
-import { cn } from "../lib/cn";
+import { cn } from "../../lib/cn";
 
 const extractYouTubeId = (url) => {
   if (!url) return null;
