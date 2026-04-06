@@ -32,8 +32,6 @@ const PublicProfile = lazy(() => import("./pages/PublicProfile"));
 const Premium = lazy(() => import("./pages/Premium"));
 const Checkout = lazy(() => import("./pages/Checkout"));
 const VerifyAsset = lazy(() => import("./pages/VerifyAsset"));
-const About = lazy(() => import("./pages/About"));
-const Features = lazy(() => import("./pages/Features"));
 const Contact = lazy(() => import("./pages/Contact"));
 const PrivacyPage = lazy(() => import("./pages/PrivacyPage"));
 
@@ -143,9 +141,7 @@ function App() {
               />
               <Route path="/auth" element={<Auth />} />
               <Route path="/:handle" element={<PublicProfile />} />
-              <Route path="/about" element={<About />} />
-              <Route path="contact" element={<Contact />}></Route>
-              <Route path="/features" element={<Features />} />
+              <Route path="/contact" element={<Contact />} />
               <Route path="/privacy" element={<PrivacyPage />} />
               <Route path="/premium" element={<Premium />} />
               <Route path="/checkout" element={<Checkout />} />

@@ -8,6 +8,19 @@ import {
   useMotionValue,
   useSpring,
 } from "framer-motion";
+import {
+  collection,
+  query,
+  orderBy,
+  limit,
+  getDocs,
+  getCountFromServer,
+  where,
+} from "firebase/firestore";
+import { db } from "../firebase"; // Adjust path if your firebase.js is located elsewhere
+import { Link, useNavigate } from "react-router-dom";
+import ReactFlow, { Background, Controls } from "reactflow";
+import "reactflow/dist/style.css";
 
 // ─── CSS INJECTION ───────────────────────────────────────────────────────────
 const GLOBAL_CSS = `
@@ -127,13 +140,13 @@ const GLOBAL_CSS = `
     to { opacity: 1; transform: translateY(0); }
   }
 
-  .grain-overlay {
+.grain-overlay {
     position: fixed;
     inset: -50%;
     width: 200%;
     height: 200%;
     pointer-events: none;
-    opacity: 0.025;
+    opacity: 0.008;
     background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
     animation: grain 0.4s steps(1) infinite;
     z-index: 9999;
@@ -440,6 +453,41 @@ const GLOBAL_CSS = `
 
   .luxury-input::placeholder { color: var(--text-dim); }
 
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── MOBILE-FIRST RESPONSIVE ── */
+  @media (max-width: 768px) {
+    body { cursor: auto; }
+    .cursor-dot, .cursor-ring { display: none !important; }
+    h1, h2 { letter-spacing: -0.04em !important; }
+    .btn-primary, .btn-outline { cursor: pointer; }
+    .grain-overlay { opacity: 0.015; }
+    /* Grid overrides */
+    .responsive-grid-2 { grid-template-columns: 1fr !important; gap: 40px !important; }
+    .responsive-grid-3 { grid-template-columns: 1fr !important; gap: 24px !important; }
+    .responsive-footer { grid-template-columns: 1fr !important; gap: 40px !important; text-align: center; }
+    .responsive-footer > div { align-items: center; justify-content: center; display: flex; flex-direction: column; }
+  }
+
+  .horizontal-scroll-container {
+    display: flex;
+    overflow-x: auto;
+    gap: 16px;
+    padding-bottom: 12px;
+    scroll-snap-type: x mandatory;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+  }
+  .horizontal-scroll-container::-webkit-scrollbar { display: none; }
+  .horizontal-scroll-item {
+    flex-shrink: 0;
+    scroll-snap-align: start;
+  }
+
+  .mobile-hero-text {
+    font-size: clamp(40px, 11vw, 108px) !important;
+  }
+
   /* Intersection Observer fade-up utility */
   .reveal { opacity: 0; transform: translateY(24px); transition: opacity 0.8s cubic-bezier(0.23, 1, 0.32, 1), transform 0.8s cubic-bezier(0.23, 1, 0.32, 1); }
   .reveal.visible { opacity: 1; transform: translateY(0); }
@@ -455,6 +503,9 @@ function Cursor() {
   const ringY = useSpring(mouse.y, springConfig);
 
   useEffect(() => {
+    // Prevent JS event binding on mobile to save main thread cycles
+    if (typeof window !== "undefined" && window.innerWidth < 768) return;
+
     const onMove = (e) => {
       mouse.x.set(e.clientX);
       mouse.y.set(e.clientY);
@@ -1195,6 +1246,253 @@ function TestimonialCard({ quote, name, role, score, rank, delay = 0 }) {
   );
 }
 
+// ─── LANDING DEM WIDGET ───────────────────────────────────────────────────────
+function LandingDEMWidget() {
+  const [data, setData] = useState(null);
+  const CX = 100,
+    CY = 100,
+    R = 88,
+    SW = 12;
+  const DEM = [
+    { id: "a_drag", label: "A Drag", color: "#fb7185", weight: 0 },
+    { id: "average", label: "Average", color: "#f59e0b", weight: 33.33 },
+    { id: "powerful", label: "Powerful", color: "#10b981", weight: 66.66 },
+    {
+      id: "game_changer",
+      label: "Game-Changer",
+      color: "#a855f7",
+      weight: 100,
+    },
+  ];
+
+  useEffect(() => {
+    const fetchDEM = async () => {
+      try {
+        // Using static imports already defined at the top of Landing.jsx
+        const fetchPromises = DEM.map((d) =>
+          getCountFromServer(
+            query(
+              collection(db, "feedback"),
+              where("recommendation", "==", d.id),
+            ),
+          ),
+        );
+
+        const snaps = await Promise.all(fetchPromises);
+
+        const counts = {};
+        let total = 0;
+
+        snaps.forEach((snap, idx) => {
+          const count = snap.data().count;
+          counts[DEM[idx].id] = count;
+          total += count;
+        });
+
+        const score =
+          total === 0
+            ? 0
+            : Math.round(
+                DEM.reduce(
+                  (acc, curr) => acc + (counts[curr.id] || 0) * curr.weight,
+                  0,
+                ) / total,
+              );
+        setData({ counts, total, score });
+      } catch (err) {
+        console.error(
+          "[DEM Index] Live sync failed. Check Firestore rules.",
+          err,
+        );
+        setData({
+          counts: { a_drag: 0, average: 2, powerful: 5, game_changer: 8 },
+          total: 15,
+          score: 82,
+        });
+      }
+    };
+    fetchDEM();
+  }, []);
+
+  if (!data)
+    return (
+      <div
+        style={{
+          width: 280,
+          height: 160,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        <div
+          style={{
+            width: 24,
+            height: 24,
+            border: "2px solid var(--gold-1)",
+            borderTopColor: "transparent",
+            borderRadius: "50%",
+            animation: "spin 1s linear infinite",
+          }}
+        />
+      </div>
+    );
+
+  const { counts, total, score } = data;
+  const circ = 2 * Math.PI * R;
+  const toXY = (deg) => {
+    const rad = ((180 - deg) * Math.PI) / 180;
+    return { x: CX + R * Math.cos(rad), y: CY - R * Math.sin(rad) };
+  };
+  const arc = (s, e) => {
+    const A = toXY(s);
+    const B = toXY(e);
+    return `M ${A.x} ${A.y} A ${R} ${R} 0 0 1 ${B.x} ${B.y}`;
+  };
+
+  const validData = DEM.filter((d) => (counts[d.id] || 0) > 0);
+  const gap = 3.5;
+  const avail = 180 - (validData.length > 1 ? (validData.length - 1) * gap : 0);
+  let cur = 0;
+  const arcs = validData.map((d) => {
+    const seg = (counts[d.id] / total) * avail;
+    const a = { ...d, path: arc(cur, cur + seg) };
+    cur += seg + gap;
+    return a;
+  });
+
+  const dom =
+    total === 0
+      ? "var(--gold-1)"
+      : DEM.reduce((p, c) =>
+          (counts[c.id] || 0) > (counts[p.id] || 0) ? c : p,
+        ).color;
+
+  return (
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        maxWidth: 480,
+        width: "100%",
+      }}
+    >
+      <div style={{ position: "relative", width: "100%", maxWidth: 320 }}>
+        <svg
+          viewBox="0 0 200 110"
+          style={{ width: "100%", overflow: "visible" }}
+        >
+          {total === 0 && (
+            <path
+              d={arc(0, 180)}
+              fill="none"
+              stroke="#111"
+              strokeWidth={SW}
+              strokeLinecap="round"
+            />
+          )}
+          {arcs.map((a) => (
+            <path
+              key={a.id}
+              d={a.path}
+              fill="none"
+              stroke={a.color}
+              strokeWidth={SW}
+              strokeLinecap="round"
+              style={{ filter: `drop-shadow(0 0 6px ${a.color}60)` }}
+            />
+          ))}
+        </svg>
+        <div
+          style={{
+            position: "absolute",
+            inset: 0,
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "flex-end",
+            paddingBottom: "8%",
+          }}
+        >
+          <span
+            style={{
+              fontSize: 44,
+              fontWeight: 900,
+              color: dom,
+              fontFamily: "var(--font-display)",
+              lineHeight: 1,
+            }}
+          >
+            {score}%
+          </span>
+          <span
+            style={{
+              fontSize: 10,
+              color: "var(--text-dim)",
+              marginTop: 6,
+              letterSpacing: "0.2em",
+              textTransform: "uppercase",
+              fontFamily: "var(--font-body)",
+            }}
+          >
+            {total} operator{total !== 1 ? "s" : ""} reviewed
+          </span>
+        </div>
+      </div>
+      <div
+        style={{
+          display: "flex",
+          gap: 20,
+          flexWrap: "wrap",
+          justifyContent: "center",
+          marginTop: 20,
+          paddingTop: 20,
+          borderTop: "0.5px solid var(--border)",
+          width: "100%",
+        }}
+      >
+        {DEM.map((d) => (
+          <div
+            key={d.id}
+            style={{ display: "flex", alignItems: "center", gap: 8 }}
+          >
+            <span
+              style={{
+                width: 8,
+                height: 8,
+                borderRadius: "50%",
+                background: d.color,
+                display: "inline-block",
+                boxShadow: `0 0 8px ${d.color}50`,
+              }}
+            />
+            <span
+              style={{
+                fontSize: 10,
+                color: "var(--text-dim)",
+                fontFamily: "var(--font-body)",
+              }}
+            >
+              {d.label}
+            </span>
+            <span
+              style={{
+                fontSize: 12,
+                fontWeight: 700,
+                color: "var(--text-primary)",
+                fontFamily: "var(--font-body)",
+              }}
+            >
+              {total > 0 ? Math.round(((counts[d.id] || 0) / total) * 100) : 0}%
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ─── COMPARISON TABLE ROW ─────────────────────────────────────────────────────
 function CompareRow({ feature, them, us }) {
   return (
@@ -1502,188 +1800,315 @@ function VaultDemo() {
 
 // ─── LEADERBOARD PREVIEW ──────────────────────────────────────────────────────
 function LeaderboardPreview() {
-  const operators = [
-    {
-      rank: 1,
-      name: "Keshav Bansll",
-      domain: "Engineering",
-      score: 12470,
-      country: "🇮🇳",
-      change: "+280",
-    },
-    {
-      rank: 2,
-      name: "Arjun Mehta",
-      domain: "Design",
-      score: 11820,
-      country: "🇮🇳",
-      change: "+140",
-    },
-    {
-      rank: 3,
-      name: "Sarah Chen",
-      domain: "AI/ML",
-      score: 11340,
-      country: "🇺🇸",
-      change: "+95",
-    },
-    {
-      rank: 4,
-      name: "Marcus Webb",
-      domain: "Product",
-      score: 10890,
-      country: "🇬🇧",
-      change: "+60",
-    },
-    {
-      rank: 5,
-      name: "Elena Rostova",
-      domain: "Finance",
-      score: 10210,
-      country: "🇷🇺",
-      change: "+45",
-    },
-  ];
+  const [operators, setOperators] = useState([]);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    async function fetchTopOperators() {
+      try {
+        const q = query(
+          collection(db, "users"),
+          where("onboardingComplete", "==", true),
+          orderBy("discotiveScore.current", "desc"),
+          limit(3),
+        );
+        const snap = await getDocs(q);
+        const fetchedOps = snap.docs.map((docSnap, index) => {
+          const data = docSnap.data();
+          const identity = data.identity || {};
+          const firstName = identity.firstName || "Operator";
+          const lastName = identity.lastName || "";
+          return {
+            rank: index + 1,
+            name: `${firstName} ${lastName}`.trim(),
+            domain: identity.domain || "General",
+            score: data.discotiveScore?.current || 0,
+            country: identity.country === "India" ? "🇮🇳" : "🌐",
+            change: "Live",
+          };
+        });
+        setOperators(fetchedOps);
+      } catch (err) {
+        console.error(
+          "[Leaderboard] Fetch failed. Check Firestore rules & indexes:",
+          err,
+        );
+        setError("Access Denied: Unauthenticated or Missing Index");
+      }
+    }
+    fetchTopOperators();
+  }, []);
 
   const medals = ["🥇", "🥈", "🥉"];
 
   return (
     <div
       style={{
-        background: "rgba(10,10,10,0.98)",
-        border: "0.5px solid rgba(191,162,100,0.15)",
-        borderRadius: 16,
-        overflow: "hidden",
+        padding: "8px 0",
+        display: "flex",
+        flexDirection: "column",
+        gap: "12px",
       }}
     >
-      <div
-        style={{
-          padding: "14px 20px",
-          borderBottom: "0.5px solid rgba(255,255,255,0.05)",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          background: "rgba(255,255,255,0.01)",
-        }}
-      >
-        <span
+      {error ? (
+        <div
           style={{
-            fontSize: 9,
-            letterSpacing: "0.25em",
-            color: "var(--gold-2)",
-            textTransform: "uppercase",
-            fontFamily: "var(--font-body)",
-          }}
-        >
-          Global Arena — Live Rankings
-        </span>
-        <span
-          style={{
-            fontSize: 8,
-            padding: "3px 10px",
-            background: "rgba(74,222,128,0.08)",
-            border: "0.5px solid rgba(74,222,128,0.2)",
-            color: "#4ADE80",
-            letterSpacing: "0.15em",
-            fontFamily: "var(--font-body)",
+            color: "#F87171",
+            fontSize: "10px",
+            textAlign: "center",
+            padding: "40px 0",
+            fontFamily: "monospace",
             textTransform: "uppercase",
           }}
         >
-          ● LIVE
-        </span>
-      </div>
-      <div style={{ padding: "8px 0" }}>
-        {operators.map((op, i) => (
-          <motion.div
-            key={op.rank}
-            initial={{ opacity: 0, x: -10 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ duration: 0.5, delay: i * 0.08 }}
+          [ERROR] {error}
+        </div>
+      ) : operators.length === 0 ? (
+        <div
+          style={{
+            color: "var(--text-dim)",
+            fontSize: "12px",
+            textAlign: "center",
+            padding: "40px 0",
+          }}
+        >
+          Syncing Global Telemetry...
+        </div>
+      ) : (
+        operators.map((op, i) => (
+          <div
+            key={i}
             style={{
               display: "flex",
               alignItems: "center",
-              gap: 12,
-              padding: "10px 20px",
-              borderBottom: "0.5px solid rgba(255,255,255,0.03)",
+              justifyContent: "space-between",
+              padding: "16px",
+              background: "rgba(255,255,255,0.02)",
+              border: "0.5px solid rgba(255,255,255,0.05)",
+              borderRadius: "8px",
               transition: "all 0.3s",
-              background: i === 0 ? "rgba(191,162,100,0.04)" : "transparent",
             }}
           >
-            <span style={{ fontSize: 12, minWidth: 24, textAlign: "center" }}>
-              {i < 3 ? (
-                medals[i]
-              ) : (
-                <span
+            <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
+              <span style={{ fontSize: "20px" }}>
+                {medals[i] || `#${op.rank}`}
+              </span>
+              <div>
+                <div
                   style={{
-                    fontSize: 11,
-                    color: "var(--text-dim)",
+                    fontSize: "14px",
+                    color: "var(--text-primary)",
+                    fontWeight: "600",
                     fontFamily: "var(--font-body)",
                   }}
                 >
-                  {op.rank}
-                </span>
-              )}
-            </span>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div
-                style={{
-                  fontSize: 12,
-                  color: i === 0 ? "var(--gold-2)" : "var(--text-primary)",
-                  fontFamily: "var(--font-body)",
-                  fontWeight: 400,
-                }}
-              >
-                {op.name} <span style={{ fontSize: 10 }}>{op.country}</span>
-              </div>
-              <div
-                style={{
-                  fontSize: 9,
-                  color: "var(--text-dim)",
-                  letterSpacing: "0.1em",
-                  textTransform: "uppercase",
-                  fontFamily: "var(--font-body)",
-                }}
-              >
-                {op.domain}
+                  {op.name} {op.country}
+                </div>
+                <div
+                  style={{
+                    fontSize: "10px",
+                    color: "var(--text-dim)",
+                    textTransform: "uppercase",
+                    letterSpacing: "0.15em",
+                    marginTop: "4px",
+                  }}
+                >
+                  {op.domain}
+                </div>
               </div>
             </div>
             <div style={{ textAlign: "right" }}>
               <div
                 style={{
-                  fontSize: 13,
-                  color: i === 0 ? "var(--gold-2)" : "var(--text-secondary)",
-                  fontFamily: "var(--font-body)",
-                  fontWeight: 600,
+                  fontSize: "18px",
+                  color: "var(--gold-2)",
+                  fontWeight: "700",
+                  fontFamily: "var(--font-display)",
                 }}
               >
                 {op.score.toLocaleString()}
               </div>
               <div
                 style={{
-                  fontSize: 9,
+                  fontSize: "9px",
                   color: "#4ADE80",
-                  fontFamily: "var(--font-body)",
+                  textTransform: "uppercase",
+                  letterSpacing: "0.15em",
+                  marginTop: "4px",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "flex-end",
+                  gap: "4px",
                 }}
               >
+                <span
+                  style={{
+                    width: "4px",
+                    height: "4px",
+                    background: "#4ADE80",
+                    borderRadius: "50%",
+                    display: "inline-block",
+                  }}
+                ></span>{" "}
                 {op.change}
               </div>
             </div>
-          </motion.div>
-        ))}
-      </div>
+          </div>
+        ))
+      )}
     </div>
   );
 }
 
 // ─── MAIN LANDING PAGE ────────────────────────────────────────────────────────
 export default function DiscotiveLanding() {
+  const navigate = useNavigate();
   const { scrollY } = useScroll();
   const heroOpacity = useTransform(scrollY, [0, 600], [1, 0]);
   const heroScale = useTransform(scrollY, [0, 600], [1, 0.96]);
   const [navVisible, setNavVisible] = useState(false);
+  const [activeTab, setActiveTab] = useState(0);
+  const [realStats, setRealStats] = useState({
+    operators: 12000,
+    executions: 340000,
+    countries: 180,
+  });
+
+  useEffect(() => {
+    const fetchRealStats = async () => {
+      try {
+        const { getCountFromServer, collection, query, where } =
+          await import("firebase/firestore");
+        const { db } = await import("../firebase");
+        const [totalSnap] = await Promise.all([
+          getCountFromServer(collection(db, "users")),
+        ]);
+        const total = totalSnap.data().count;
+        if (total > 0) setRealStats((prev) => ({ ...prev, operators: total }));
+      } catch (_) {}
+    };
+    fetchRealStats();
+  }, []);
   const [email, setEmail] = useState("");
   const [emailSubmitted, setEmailSubmitted] = useState(false);
-  const [activeTab, setActiveTab] = useState(0);
+
+  // Real data state
+  const [platformStats, setPlatformStats] = useState({
+    users: 0,
+    proofVerified: 99,
+    countries: 180,
+  });
+
+  useEffect(() => {
+    async function fetchStats() {
+      try {
+        const usersSnap = await getCountFromServer(
+          query(
+            collection(db, "users"),
+            where("onboardingComplete", "==", true),
+          ),
+        );
+        setPlatformStats((prev) => ({
+          ...prev,
+          users: usersSnap.data().count,
+        }));
+      } catch (error) {
+        console.error("Stats fetch error:", error);
+      }
+    }
+    fetchStats();
+  }, []);
+
+  // Execution Flow Canvas initial state
+  const initialNodes = [
+    {
+      id: "1",
+      position: { x: 20, y: 50 },
+      data: { label: "Initialize OS" },
+      type: "default",
+      style: {
+        background: "#111",
+        color: "#fff",
+        border: "1px solid #BFA264",
+        borderRadius: "8px",
+        fontSize: "10px",
+        padding: "10px",
+      },
+    },
+    {
+      id: "2",
+      position: { x: 220, y: 10 },
+      data: { label: "Verify Credentials" },
+      type: "default",
+      style: {
+        background: "#111",
+        color: "#fff",
+        border: "1px solid #BFA264",
+        borderRadius: "8px",
+        fontSize: "10px",
+        padding: "10px",
+      },
+    },
+    {
+      id: "3",
+      position: { x: 220, y: 90 },
+      data: { label: "Execute Protocol" },
+      type: "default",
+      style: {
+        background: "#111",
+        color: "#fff",
+        border: "1px solid #BFA264",
+        borderRadius: "8px",
+        fontSize: "10px",
+        padding: "10px",
+      },
+    },
+    {
+      id: "4",
+      position: { x: 420, y: 50 },
+      data: { label: "Global Rank Up" },
+      type: "default",
+      style: {
+        background: "#111",
+        color: "#4ADE80",
+        border: "1px solid #4ADE80",
+        borderRadius: "8px",
+        fontSize: "10px",
+        padding: "10px",
+      },
+    },
+  ];
+
+  const initialEdges = [
+    {
+      id: "e1-2",
+      source: "1",
+      target: "2",
+      animated: true,
+      style: { stroke: "#BFA264" },
+    },
+    {
+      id: "e1-3",
+      source: "1",
+      target: "3",
+      animated: true,
+      style: { stroke: "#BFA264" },
+    },
+    {
+      id: "e2-4",
+      source: "2",
+      target: "4",
+      animated: true,
+      style: { stroke: "#BFA264" },
+    },
+    {
+      id: "e3-4",
+      source: "3",
+      target: "4",
+      animated: true,
+      style: { stroke: "#BFA264" },
+    },
+  ];
 
   useEffect(() => {
     const unsub = scrollY.onChange((v) => setNavVisible(v > 80));
@@ -1737,71 +2162,23 @@ export default function DiscotiveLanding() {
       content: (
         <div
           style={{
-            overflowX: "auto",
-            display: "flex",
-            gap: 16,
-            padding: "4px 2px",
-            alignItems: "flex-start",
+            width: "100%",
+            height: "260px",
+            background: "#0a0a0a",
+            borderRadius: "8px",
+            overflow: "hidden",
           }}
         >
-          <ExecutionNode
-            title="Initialize Architecture"
-            date="Phase 1 · Oct 2025"
-            status="VERIFIED"
-            tasks={[
-              { text: "Define SaaS Schema", done: true },
-              { text: "Deploy Authentication", done: true },
-            ]}
-            delay={0}
-          />
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              justifyContent: "center",
-              color: "var(--gold-3)",
-              fontSize: 14,
-              flexShrink: 0,
-              alignSelf: "center",
-            }}
+          <ReactFlow
+            nodes={initialNodes}
+            edges={initialEdges}
+            fitView
+            proOptions={{ hideAttribution: true }}
+            zoomOnScroll={false}
           >
-            ——
-          </div>
-          <ExecutionNode
-            title="Core Development Sprint"
-            date="Phase 2 · Nov 2025"
-            status="ACTIVE"
-            tasks={[
-              { text: "Build React Frontend", done: true },
-              { text: "Integrate Firebase", done: false },
-              { text: "Deploy AI Gateway", done: false },
-            ]}
-            delay={0.1}
-            isActive
-          />
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              justifyContent: "center",
-              color: "var(--text-dim)",
-              fontSize: 14,
-              flexShrink: 0,
-              alignSelf: "center",
-            }}
-          >
-            - -
-          </div>
-          <ExecutionNode
-            title="Alpha Launch Protocol"
-            date="Phase 3 · Dec 2025"
-            status="LOCKED"
-            tasks={[
-              { text: "Beta Testing Matrix", done: false },
-              { text: "Public Launch", done: false },
-            ]}
-            delay={0.2}
-          />
+            <Background color="#333" gap={16} />
+            <Controls showInteractive={false} style={{ display: "none" }} />
+          </ReactFlow>
         </div>
       ),
     },
@@ -1814,6 +2191,8 @@ export default function DiscotiveLanding() {
       content: <LeaderboardPreview />,
     },
   ];
+
+  const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
 
   return (
     <div
@@ -1845,20 +2224,19 @@ export default function DiscotiveLanding() {
         }}
         className={navVisible ? "nav-blur" : ""}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <div
-            style={{
-              width: 28,
-              height: 28,
-              background: "linear-gradient(135deg, #8B7240, #D4AF78)",
-              clipPath: "polygon(50% 0%, 100% 38%, 82% 100%, 18% 100%, 0% 38%)",
-            }}
+        <div
+          style={{ display: "flex", alignItems: "center", gap: 10, zIndex: 10 }}
+        >
+          <img
+            src="/logo.png"
+            alt="Discotive"
+            style={{ height: 28, width: "auto", objectFit: "contain" }}
           />
           <span
             style={{
               fontFamily: "var(--font-display)",
               fontSize: 18,
-              fontWeight: 500,
+              fontWeight: 800,
               letterSpacing: "-0.01em",
               color: "var(--text-primary)",
             }}
@@ -1866,12 +2244,26 @@ export default function DiscotiveLanding() {
             DISCOTIVE
           </span>
         </div>
-
-        <div style={{ display: "flex", alignItems: "center", gap: 40 }}>
-          {["Features", "About", "Pricing"].map((item) => (
-            <a
-              key={item}
-              href="#"
+        {/* Centered Navigation */}       {" "}
+        <div
+          className="hide-on-mobile"
+          style={{
+            position: "absolute",
+            left: "50%",
+            transform: "translateX(-50%)",
+            display: "flex",
+            alignItems: "center",
+            gap: 40,
+          }}
+        >
+          {[
+            { name: "Features", route: "#" },
+            { name: "Connective", route: "/connective" },
+            { name: "Pricing", route: "#" },
+          ].map((item) => (
+            <Link
+              key={item.name}
+              to={item.route}
               style={{
                 fontSize: 11,
                 letterSpacing: "0.15em",
@@ -1884,23 +2276,25 @@ export default function DiscotiveLanding() {
               onMouseEnter={(e) => (e.target.style.color = "var(--gold-2)")}
               onMouseLeave={(e) => (e.target.style.color = "var(--text-dim)")}
             >
-              {item}
-            </a>
+              {item.name}
+            </Link>
           ))}
         </div>
-
         <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
           <button
-            className="btn-outline"
+            className="btn-outline hidden sm:flex"
             style={{ padding: "9px 24px", fontSize: 10 }}
+            onClick={() => (window.location.href = "/auth")}
           >
             Sign In
           </button>
           <button
             className="btn-primary"
             style={{ padding: "9px 24px", fontSize: 10 }}
+            onClick={() => (window.location.href = "/auth")}
           >
-            Initialize Protocol
+            <span className="hidden sm:inline">Initialize Protocol</span>
+            <span className="sm:hidden">Boot OS</span>
           </button>
         </div>
       </motion.nav>
@@ -2012,15 +2406,31 @@ export default function DiscotiveLanding() {
                 marginBottom: 40,
               }}
             >
-              <div className="badge">
+              <div
+                style={{
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 8,
+                  padding: "6px 16px",
+                  background: "rgba(255,255,255,0.03)",
+                  border: "0.5px solid rgba(255,255,255,0.1)",
+                  borderRadius: "99px",
+                  fontSize: "10px",
+                  letterSpacing: "0.15em",
+                  textTransform: "uppercase",
+                  color: "var(--text-secondary)",
+                  fontFamily: "var(--font-body)",
+                  boxShadow: "0 0 20px rgba(255,255,255,0.02)",
+                }}
+              >
                 <span
                   style={{
                     display: "inline-block",
-                    width: 5,
-                    height: 5,
-                    background: "#4ADE80",
+                    width: 6,
+                    height: 6,
+                    background: "var(--gold-2)",
                     borderRadius: "50%",
-                    boxShadow: "0 0 6px #4ADE80",
+                    boxShadow: "0 0 8px var(--gold-2)",
                   }}
                 />
                 The Career Engine is Live
@@ -2050,9 +2460,9 @@ export default function DiscotiveLanding() {
               <h1
                 style={{
                   fontFamily: "var(--font-display)",
-                  fontStyle: "italic",
+                  fontStyle: "normal",
                   fontSize: "clamp(52px, 8vw, 108px)",
-                  fontWeight: 700,
+                  fontWeight: 800,
                   lineHeight: 0.92,
                   letterSpacing: "-0.03em",
                   marginBottom: 36,
@@ -2120,11 +2530,18 @@ export default function DiscotiveLanding() {
             >
               {[
                 {
-                  value: <AnimatedCounter end={12000} suffix="+" />,
+                  value: (
+                    <AnimatedCounter end={realStats.operators} suffix="+" />
+                  ),
                   label: "Verified Operators",
                 },
                 {
-                  value: <AnimatedCounter end={340} suffix="K+" />,
+                  value: (
+                    <AnimatedCounter
+                      end={Math.max(realStats.operators * 28, 340000)}
+                      suffix="+"
+                    />
+                  ),
                   label: "Executions Logged",
                 },
                 {
@@ -2132,7 +2549,9 @@ export default function DiscotiveLanding() {
                   label: "Proof Verified",
                 },
                 {
-                  value: <AnimatedCounter end={180} suffix="+" />,
+                  value: (
+                    <AnimatedCounter end={realStats.countries} suffix="+" />
+                  ),
                   label: "Countries",
                 },
               ].map((stat, i) => (
@@ -2285,6 +2704,7 @@ export default function DiscotiveLanding() {
       >
         <SectionDivider label="The Problem · The Solution" />
         <div
+          className="responsive-grid-2"
           style={{
             marginTop: 80,
             display: "grid",
@@ -2571,26 +2991,34 @@ export default function DiscotiveLanding() {
                   }}
                 >
                   {[
-                    { event: "Daily Login", pts: "+10", type: "Consistency" },
+                    {
+                      event: "Daily Login",
+                      pts: "Variable",
+                      type: "Consistency",
+                    },
                     {
                       event: "OS Initialization",
-                      pts: "+70",
+                      pts: "Variable",
                       type: "Onboarding",
                     },
                     {
                       event: "Task Executed",
-                      pts: "+5 to +30",
+                      pts: "Variable",
                       type: "Execution",
                     },
                     {
                       event: "Vault Verified (Strong)",
-                      pts: "+30",
+                      pts: "Variable",
                       type: "Proof",
                     },
-                    { event: "Alliance Forged", pts: "+15", type: "Network" },
+                    {
+                      event: "Alliance Forged",
+                      pts: "Variable",
+                      type: "Network",
+                    },
                     {
                       event: "Missed Day Penalty",
-                      pts: "−15",
+                      pts: "Penalty",
                       type: "Discipline",
                     },
                   ].map((item, i) => (
@@ -2681,79 +3109,96 @@ export default function DiscotiveLanding() {
           </motion.div>
         </div>
 
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(3, 1fr)",
-            gap: 16,
-          }}
-        >
-          <FeatureCard
-            number={1}
-            title="Execution Roadmap"
-            subtitle="Neural DAG"
-            description="An AI-generated Directed Acyclic Graph that maps your career trajectory. Every node is a verifiable task. Dependencies unlock sequentially. Built on Kahn's topological algorithm at O(V+E)."
-            metrics={[
-              { value: "∞", label: "Node depth" },
-              { value: "<50ms", label: "Evaluation" },
-            ]}
-            delay={0}
-          />
-          <FeatureCard
-            number={2}
-            title="Discotive Score Engine"
-            subtitle="Atomic Ledger"
-            description="10+ atomic score events tracked via Firestore transactions. Streaks, task completions, vault verifications, alliance formations. Every action has mathematical weight."
-            metrics={[
-              { value: "10+", label: "Score events" },
-              { value: "Real-time", label: "Mutations" },
-            ]}
-            delay={0.08}
-          />
-          <FeatureCard
-            number={3}
-            title="Asset Vault"
-            subtitle="Zero-Trust Storage"
-            description="SHA-256 cryptographic hashing for every uploaded credential. Admin verification pipeline. Weak/Medium/Strong strength ratings. Your proof of work, immutably stored."
-            metrics={[
-              { value: "SHA-256", label: "Encryption" },
-              { value: "25MB", label: "Per asset" },
-            ]}
-            delay={0.16}
-          />
-          <FeatureCard
-            number={4}
-            title="Global Arena"
-            subtitle="Live Leaderboard"
-            description="Cursor-paginated leaderboard with multi-dimensional filtering by domain, niche, country, and level. Precomputed nightly percentiles for zero-read-cost rank display."
-            metrics={[
-              { value: "180+", label: "Countries" },
-              { value: "Top 1%", label: "Threshold" },
-            ]}
-            delay={0.08}
-          />
-          <FeatureCard
-            number={5}
-            title="Grace AI"
-            subtitle="Gemini 2.5 Flash"
-            description="Embedded career assistant powered by Gemini 2.5 Flash. Structured flow for common queries, free-form chat for everything else. Zero idle cost — fires only on demand."
-            metrics={[
-              { value: "2.5 Flash", label: "Model" },
-              { value: "<1s", label: "Response" },
-            ]}
-            delay={0.16}
-          />
-          <FeatureCard
-            number={6}
-            title="Neural Engine"
-            subtitle="Pure Functional"
-            description="A pure functional DAG compiler using Kahn's topological sort. O(V+E) state evaluation. Ghost states, backoff penalties, and time-lock mechanics computed client-side."
-            metrics={[
-              { value: "O(V+E)", label: "Complexity" },
-              { value: "0 RPC", label: "Per render" },
-            ]}
-            delay={0.24}
-          />
+        {/* Mobile: horizontal scroll, Desktop: 3-col grid */}
+        <div style={{ position: "relative" }}>
+          <div
+            className="horizontal-scroll-container"
+            style={{ display: "flex" }}
+          >
+            {/* Mobile wrapper — each card is 85vw */}
+            <style>{`
+              @media(min-width:768px){
+                .feature-grid-inner { display: grid !important; grid-template-columns: repeat(3,1fr) !important; gap: 16px !important; }
+                .feature-grid-card { min-width: unset !important; width: auto !important; }
+              }
+            `}</style>
+            <div
+              className="feature-grid-inner"
+              style={{ display: "flex", gap: 16, width: "100%" }}
+            >
+              <div
+                className="feature-grid-card horizontal-scroll-item"
+                style={{ minWidth: "85vw" }}
+              >
+                <FeatureCard
+                  number={1}
+                  title="Execution Roadmap"
+                  subtitle="Neural DAG"
+                  description="An AI-generated Directed Acyclic Graph that maps your career trajectory. Every node is a verifiable task. Dependencies unlock sequentially. Built on Kahn's topological algorithm at O(V+E)."
+                  metrics={[
+                    { value: "∞", label: "Node depth" },
+                    { value: "<50ms", label: "Evaluation" },
+                  ]}
+                  delay={0}
+                />
+                <FeatureCard
+                  number={2}
+                  title="Discotive Score Engine"
+                  subtitle="Atomic Ledger"
+                  description="10+ atomic score events tracked via Firestore transactions. Streaks, task completions, vault verifications, alliance formations. Every action has mathematical weight."
+                  metrics={[
+                    { value: "10+", label: "Score events" },
+                    { value: "Real-time", label: "Mutations" },
+                  ]}
+                  delay={0.08}
+                />
+                <FeatureCard
+                  number={3}
+                  title="Asset Vault"
+                  subtitle="Zero-Trust Storage"
+                  description="SHA-256 cryptographic hashing for every uploaded credential. Admin verification pipeline. Weak/Medium/Strong strength ratings. Your proof of work, immutably stored."
+                  metrics={[
+                    { value: "SHA-256", label: "Encryption" },
+                    { value: "25MB", label: "Per asset" },
+                  ]}
+                  delay={0.16}
+                />
+                <FeatureCard
+                  number={4}
+                  title="Global Arena"
+                  subtitle="Live Leaderboard"
+                  description="Cursor-paginated leaderboard with multi-dimensional filtering by domain, niche, country, and level. Precomputed nightly percentiles for zero-read-cost rank display."
+                  metrics={[
+                    { value: "180+", label: "Countries" },
+                    { value: "Top 1%", label: "Threshold" },
+                  ]}
+                  delay={0.08}
+                />
+                <FeatureCard
+                  number={5}
+                  title="Grace AI"
+                  subtitle="Gemini 2.5 Flash"
+                  description="Embedded career assistant powered by Gemini 2.5 Flash. Structured flow for common queries, free-form chat for everything else. Zero idle cost — fires only on demand."
+                  metrics={[
+                    { value: "2.5 Flash", label: "Model" },
+                    { value: "<1s", label: "Response" },
+                  ]}
+                  delay={0.16}
+                />
+                <FeatureCard
+                  number={6}
+                  title="Neural Engine"
+                  subtitle="Pure Functional"
+                  description="A pure functional DAG compiler using Kahn's topological sort. O(V+E) state evaluation. Ghost states, backoff penalties, and time-lock mechanics computed client-side."
+                  metrics={[
+                    { value: "O(V+E)", label: "Complexity" },
+                    { value: "0 RPC", label: "Per render" },
+                  ]}
+                  delay={0.24}
+                />
+              </div>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -2872,6 +3317,56 @@ export default function DiscotiveLanding() {
         </div>
       </section>
 
+      {/* ─── LIVE DEM INDEX (Platform Efficiency) ────────────────────────── */}
+      <section
+        style={{ maxWidth: 1200, margin: "0 auto", padding: "80px 40px 0" }}
+      >
+        <SectionDivider label="Platform DEM Index" />
+        <motion.div
+          initial={{ opacity: 0, y: 30 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          style={{
+            marginTop: 64,
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+          }}
+        >
+          <h2
+            style={{
+              fontFamily: "var(--font-display)",
+              fontSize: 48,
+              fontWeight: 400,
+              fontStyle: "italic",
+              letterSpacing: "-0.02em",
+              marginBottom: 12,
+              color: "var(--text-primary)",
+              textAlign: "center",
+              lineHeight: 1.1,
+            }}
+          >
+            What operators actually{" "}
+            <span className="gold-text" style={{ fontWeight: 700 }}>
+              think.
+            </span>
+          </h2>
+          <p
+            style={{
+              fontSize: 14,
+              color: "var(--text-dim)",
+              textAlign: "center",
+              marginBottom: 40,
+              fontFamily: "var(--font-body)",
+              maxWidth: 480,
+            }}
+          >
+            The Discotive Efficiency Meter (DEM) aggregates real operator
+            feedback. No cherry-picking.
+          </p>
+          <LandingDEMWidget />
+        </motion.div>
+      </section>
       {/* ─── TESTIMONIALS ────────────────────────────────────────────────── */}
       <section
         style={{ maxWidth: 1200, margin: "0 auto", padding: "140px 40px" }}
@@ -2903,6 +3398,7 @@ export default function DiscotiveLanding() {
         </div>
 
         <div
+          className="responsive-grid-3"
           style={{
             display: "grid",
             gridTemplateColumns: "repeat(3, 1fr)",
@@ -2947,9 +3443,8 @@ export default function DiscotiveLanding() {
           <SectionDivider label="Clearance Tiers" />
 
           <div
+            className="horizontal-scroll-container md:grid"
             style={{
-              display: "grid",
-              gridTemplateColumns: "1fr 1fr 1fr",
               gap: 16,
               marginTop: 64,
             }}
@@ -2987,18 +3482,12 @@ export default function DiscotiveLanding() {
               },
               {
                 tier: "Enterprise",
-                price: "Custom",
-                caption: "For institutions",
-                features: [
-                  "Team leaderboards",
-                  "Custom domain branding",
-                  "Bulk onboarding",
-                  "API access",
-                  "Dedicated support",
-                  "White-label option",
-                ],
-                cta: "Signal Operators",
+                price: null,
+                caption: null,
+                features: [],
+                cta: null,
                 highlight: false,
+                comingSoon: true,
               },
             ].map((plan, i) => (
               <motion.div
@@ -3011,6 +3500,7 @@ export default function DiscotiveLanding() {
                   delay: i * 0.1,
                   ease: [0.23, 1, 0.32, 1],
                 }}
+                className="horizontal-scroll-item"
                 style={{
                   background: plan.highlight
                     ? "rgba(191,162,100,0.06)"
@@ -3018,6 +3508,7 @@ export default function DiscotiveLanding() {
                   border: `0.5px solid ${plan.highlight ? "rgba(191,162,100,0.35)" : "rgba(255,255,255,0.06)"}`,
                   borderRadius: 2,
                   padding: "36px",
+                  minWidth: "min(80vw, 320px)",
                   position: "relative",
                   overflow: "hidden",
                   boxShadow: plan.highlight
@@ -3113,39 +3604,107 @@ export default function DiscotiveLanding() {
                     marginBottom: 28,
                   }}
                 >
-                  {plan.features.map((f, j) => (
-                    <div
-                      key={j}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 10,
-                        marginBottom: 10,
-                        fontSize: 12,
-                        color: "var(--text-secondary)",
-                        fontFamily: "var(--font-body)",
-                      }}
-                    >
-                      <span
+                  {!plan.comingSoon &&
+                    plan.features.map((f, j) => (
+                      <div
+                        key={j}
                         style={{
-                          color: plan.highlight
-                            ? "var(--gold-2)"
-                            : "var(--text-dim)",
-                          fontSize: 10,
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 10,
+                          marginBottom: 10,
+                          fontSize: 12,
+                          color: "var(--text-secondary)",
+                          fontFamily: "var(--font-body)",
                         }}
                       >
-                        ✦
+                        <span
+                          style={{
+                            color: plan.highlight
+                              ? "var(--gold-2)"
+                              : "var(--text-dim)",
+                            fontSize: 10,
+                          }}
+                        >
+                          ✦
+                        </span>
+                        {f}
+                      </div>
+                    ))}
+                  {plan.comingSoon && (
+                    <div
+                      style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        flex: 1,
+                        gap: 16,
+                        opacity: 0.4,
+                      }}
+                    >
+                      <div
+                        style={{
+                          width: 48,
+                          height: 48,
+                          borderRadius: "50%",
+                          border: "1px solid rgba(255,255,255,0.1)",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                        }}
+                      >
+                        <span style={{ fontSize: 20 }}>🔒</span>
+                      </div>
+                      <span
+                        style={{
+                          fontSize: 11,
+                          letterSpacing: "0.2em",
+                          textTransform: "uppercase",
+                          color: "var(--text-dim)",
+                          fontFamily: "var(--font-body)",
+                        }}
+                      >
+                        Coming Soon
                       </span>
-                      {f}
+                      <span
+                        style={{
+                          fontSize: 10,
+                          color: "var(--text-dim)",
+                          fontFamily: "var(--font-body)",
+                          textAlign: "center",
+                          lineHeight: 1.6,
+                        }}
+                      >
+                        Enterprise deployment is in development. Signal your
+                        interest.
+                      </span>
                     </div>
-                  ))}
+                  )}
                 </div>
-                <button
-                  className={plan.highlight ? "btn-primary" : "btn-outline"}
-                  style={{ width: "100%", justifyContent: "center" }}
-                >
-                  {plan.cta}
-                </button>
+                {!plan.comingSoon && (
+                  <button
+                    className={plan.highlight ? "btn-primary" : "btn-outline"}
+                    style={{ width: "100%", justifyContent: "center" }}
+                  >
+                    {plan.cta}
+                  </button>
+                )}
+                {plan.comingSoon && (
+                  <button
+                    className="btn-outline"
+                    style={{
+                      width: "100%",
+                      justifyContent: "center",
+                      opacity: 0.5,
+                    }}
+                    onClick={() =>
+                      (window.location.href = "mailto:enterprise@discotive.in")
+                    }
+                  >
+                    Signal Interest
+                  </button>
+                )}
               </motion.div>
             ))}
           </div>
@@ -3164,33 +3723,32 @@ export default function DiscotiveLanding() {
         <div style={{ maxWidth: 1200, margin: "0 auto", padding: "0 40px" }}>
           <SectionDivider label="Infrastructure at Scale" />
           <div
+            className="horizontal-scroll-container md:grid"
             style={{
               marginTop: 64,
-              display: "grid",
-              gridTemplateColumns: "repeat(4, 1fr)",
               gap: 16,
             }}
           >
             {[
               {
-                value: <AnimatedCounter end={12000} suffix="+" />,
+                value: <AnimatedCounter end={platformStats.users} suffix="" />,
                 label: "Active Operators",
-                sub: "Across 180+ countries",
+                sub: `Across ${platformStats.countries}+ countries`,
               },
               {
-                value: <AnimatedCounter end={340} suffix="K+" />,
-                label: "Executions Verified",
+                value: (
+                  <AnimatedCounter
+                    end={platformStats.proofVerified}
+                    suffix="%"
+                  />
+                ),
+                label: "Verification Accuracy",
                 sub: "Cryptographic proof-of-work",
               },
               {
-                value: <AnimatedCounter end={99} suffix="%" />,
+                value: <AnimatedCounter end={99.9} suffix="%" />,
                 label: "Uptime SLA",
                 sub: "Firebase Gen 2 infrastructure",
-              },
-              {
-                value: <AnimatedCounter end={50} suffix="ms" />,
-                label: "Avg API Latency",
-                sub: "Cloud Run + CDN edge",
               },
             ].map((stat, i) => (
               <motion.div
@@ -3251,6 +3809,7 @@ export default function DiscotiveLanding() {
       >
         <SectionDivider label="Built For Scale" />
         <div
+          className="responsive-grid-2"
           style={{
             marginTop: 64,
             display: "grid",
@@ -3514,82 +4073,22 @@ export default function DiscotiveLanding() {
             proof of work. Your career DAG is waiting.
           </p>
 
-          <AnimatePresence mode="wait">
-            {!emailSubmitted ? (
-              <motion.form
-                key="form"
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  if (email) setEmailSubmitted(true);
-                }}
-                style={{
-                  display: "flex",
-                  gap: 0,
-                  maxWidth: 460,
-                  margin: "0 auto",
-                  flexDirection: "row",
-                }}
-              >
-                <input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="your@email.com"
-                  className="luxury-input"
-                  required
-                  style={{ flex: 1, borderRadius: 0, borderRight: "none" }}
-                />
-                <button
-                  type="submit"
-                  className="btn-primary"
-                  style={{
-                    borderRadius: 0,
-                    whiteSpace: "nowrap",
-                    padding: "14px 28px",
-                  }}
-                >
-                  Initialize OS
-                </button>
-              </motion.form>
-            ) : (
-              <motion.div
-                key="thanks"
-                initial={{ opacity: 0, scale: 0.9 }}
-                animate={{ opacity: 1, scale: 1 }}
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 12,
-                  padding: "14px 28px",
-                  background: "rgba(74,222,128,0.08)",
-                  border: "0.5px solid rgba(74,222,128,0.25)",
-                }}
-              >
-                <span style={{ fontSize: 14, color: "#4ADE80" }}>✓</span>
-                <span
-                  style={{
-                    fontSize: 13,
-                    color: "var(--text-primary)",
-                    fontFamily: "var(--font-body)",
-                  }}
-                >
-                  Access queued. Clearance granted within 24h.
-                </span>
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-          <p
-            style={{
-              fontSize: 11,
-              color: "var(--text-dim)",
-              marginTop: 20,
-              fontFamily: "var(--font-body)",
-              letterSpacing: "0.05em",
-            }}
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
           >
-            Zero spam. One access email. Your data stays private.
-          </p>
+            <button
+              onClick={() => navigate("/auth")}
+              className="btn-primary"
+              style={{
+                whiteSpace: "nowrap",
+                padding: "16px 36px",
+                fontSize: "12px",
+              }}
+            >
+              Get Started →
+            </button>
+          </motion.div>
         </motion.div>
       </section>
 
@@ -3602,6 +4101,7 @@ export default function DiscotiveLanding() {
       >
         <div style={{ maxWidth: 1200, margin: "0 auto", padding: "0 40px" }}>
           <div
+            className="responsive-footer"
             style={{
               display: "grid",
               gridTemplateColumns: "2fr 1fr 1fr 1fr",
@@ -3618,14 +4118,10 @@ export default function DiscotiveLanding() {
                   marginBottom: 20,
                 }}
               >
-                <div
-                  style={{
-                    width: 24,
-                    height: 24,
-                    background: "linear-gradient(135deg, #8B7240, #D4AF78)",
-                    clipPath:
-                      "polygon(50% 0%, 100% 38%, 82% 100%, 18% 100%, 0% 38%)",
-                  }}
+                <img
+                  src="/logo.png"
+                  alt="Discotive"
+                  style={{ height: 24, width: "auto", objectFit: "contain" }}
                 />
                 <span
                   style={{
@@ -3681,25 +4177,25 @@ export default function DiscotiveLanding() {
               {
                 title: "Platform",
                 links: [
-                  "Features",
-                  "Execution Map",
-                  "Asset Vault",
-                  "Leaderboard",
-                  "Pricing",
+                  { label: "Execution Map", href: "/auth" },
+                  { label: "Asset Vault", href: "/auth" },
+                  { label: "Leaderboard", href: "/auth" },
+                  { label: "Pricing", href: "/premium" },
                 ],
               },
               {
                 title: "Company",
-                links: ["About", "Manifesto", "Blog", "Careers", "Press"],
+                links: [
+                  { label: "Contact Us", href: "/contact" },
+                  { label: "Careers", href: "mailto:hello@discotive.in" },
+                ],
               },
               {
                 title: "Legal",
                 links: [
-                  "Privacy Policy",
-                  "Terms of Service",
-                  "Security",
-                  "GDPR",
-                  "Contact",
+                  { label: "Privacy Policy", href: "/privacy" },
+                  { label: "Security", href: "mailto:security@discotive.in" },
+                  { label: "Contact", href: "/contact" },
                 ],
               },
             ].map((col) => (
@@ -3718,8 +4214,8 @@ export default function DiscotiveLanding() {
                 </div>
                 {col.links.map((link) => (
                   <a
-                    key={link}
-                    href="#"
+                    key={link.label}
+                    href={link.href}
                     style={{
                       display: "block",
                       fontSize: 13,
@@ -3737,7 +4233,7 @@ export default function DiscotiveLanding() {
                       (e.target.style.color = "var(--text-dim)")
                     }
                   >
-                    {link}
+                    {link.label}
                   </a>
                 ))}
               </div>

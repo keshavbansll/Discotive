@@ -1427,3 +1427,147 @@ exports.exportUserData = onCall(
     }
   },
 );
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 15. EMAIL VERIFICATION SYSTEM (Resend)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const { Resend } = require("resend");
+
+exports.sendVerificationEmail = onCall(
+  { secrets: ["RESEND_API_KEY"], timeoutSeconds: 30 },
+  async (request) => {
+    if (!request.auth) throw new HttpsError("unauthenticated", "Unauthorized.");
+    const { email, firstName } = request.data;
+    if (!email) throw new HttpsError("invalid-argument", "Email required.");
+
+    const uid = request.auth.uid;
+    // Generate a 6-digit OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const expiresAt = Date.now() + 10 * 60 * 1000; // 10 minutes
+
+    // Store OTP in Firestore
+    await db.collection("email_verifications").doc(uid).set({
+      otp,
+      email,
+      expiresAt,
+      verified: false,
+      attempts: 0,
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+
+    const resend = new Resend(process.env.RESEND_API_KEY);
+
+    await resend.emails.send({
+      from: "Discotive <noreply@discotive.in>",
+      to: email,
+      subject: "Your Discotive Verification Code",
+      html: `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body style="margin:0;padding:0;background:#030303;font-family:'Helvetica Neue',Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#030303;min-height:100vh;">
+    <tr>
+      <td align="center" style="padding:60px 20px;">
+        <table width="560" cellpadding="0" cellspacing="0" style="background:#0a0a0a;border:1px solid #1a1a1a;border-radius:24px;overflow:hidden;max-width:100%;">
+          <tr>
+            <td style="padding:40px 40px 0;text-align:center;">
+              <div style="width:48px;height:48px;background:linear-gradient(135deg,#8B7240,#D4AF78);clip-path:polygon(50% 0%,100% 38%,82% 100%,18% 100%,0% 38%);margin:0 auto 16px;"></div>
+              <p style="margin:0;font-size:10px;letter-spacing:0.3em;text-transform:uppercase;color:#888;font-weight:700;">DISCOTIVE OS</p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:32px 40px 0;text-align:center;">
+              <h1 style="margin:0 0 8px;font-size:28px;font-weight:900;color:#ffffff;letter-spacing:-0.02em;">Verify your email.</h1>
+              <p style="margin:0;font-size:14px;color:#666;line-height:1.6;">Hi ${firstName || "Operator"}, enter this code to complete your Discotive OS initialization.</p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:32px 40px;">
+              <div style="background:#111;border:1px solid #222;border-radius:16px;padding:24px;text-align:center;">
+                <p style="margin:0 0 8px;font-size:9px;letter-spacing:0.25em;text-transform:uppercase;color:#555;font-weight:700;">Your verification code</p>
+                <p style="margin:0;font-size:48px;font-weight:900;color:#f59e0b;letter-spacing:0.15em;font-family:'Courier New',monospace;">${otp}</p>
+                <p style="margin:8px 0 0;font-size:10px;color:#444;">Expires in 10 minutes</p>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:0 40px 40px;text-align:center;">
+              <p style="margin:0;font-size:11px;color:#444;line-height:1.6;">If you didn't create a Discotive account, you can safely ignore this email. This code will expire automatically.</p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:20px 40px;border-top:1px solid #1a1a1a;text-align:center;">
+              <p style="margin:0;font-size:10px;color:#333;letter-spacing:0.1em;text-transform:uppercase;">Built by operators. For operators. &mdash; discotive.in</p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>
+      `,
+    });
+
+    return { status: "SENT" };
+  },
+);
+
+exports.verifyEmailOTP = onCall(async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Unauthorized.");
+  const { otp } = request.data;
+  if (!otp) throw new HttpsError("invalid-argument", "OTP required.");
+
+  const uid = request.auth.uid;
+  const verRef = db.collection("email_verifications").doc(uid);
+  const verDoc = await verRef.get();
+
+  if (!verDoc.exists) {
+    throw new HttpsError(
+      "not-found",
+      "No verification request found. Request a new code.",
+    );
+  }
+
+  const data = verDoc.data();
+
+  // Check attempts (max 5)
+  if (data.attempts >= 5) {
+    throw new HttpsError(
+      "resource-exhausted",
+      "Too many attempts. Request a new code.",
+    );
+  }
+
+  // Check expiry
+  if (Date.now() > data.expiresAt) {
+    throw new HttpsError(
+      "deadline-exceeded",
+      "Code expired. Request a new one.",
+    );
+  }
+
+  // Increment attempts first (anti-brute-force)
+  await verRef.update({ attempts: admin.firestore.FieldValue.increment(1) });
+
+  if (data.otp !== otp) {
+    throw new HttpsError(
+      "unauthenticated",
+      "Invalid code. Check and try again.",
+    );
+  }
+
+  // Mark verified
+  await verRef.update({ verified: true });
+  await db
+    .collection("users")
+    .doc(uid)
+    .set({ emailVerified: true }, { merge: true });
+
+  return { status: "VERIFIED" };
+});

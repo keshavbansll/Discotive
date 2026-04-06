@@ -18,8 +18,12 @@ service cloud.firestore {
     }
 
     // =========================================================================
-    // 1. SYSTEM WHITELISTS & ADMINS
+    // 0. EMAIL VERIFICATION
     // =========================================================================
+    match /email_verifications/{uid} {
+      allow read: if isOwner(uid);
+      allow write: if false; // Only Cloud Functions write here
+    }
     match /whitelisted_emails/{document=**} {
       allow read, write: if false; 
     }

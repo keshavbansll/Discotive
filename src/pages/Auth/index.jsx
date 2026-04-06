@@ -22,9 +22,11 @@ import {
   signInWithPopup,
   GoogleAuthProvider,
 } from "firebase/auth";
-import emailjs from "@emailjs/browser";
+// emailjs removed
 import { auth, db } from "../../firebase";
 import { awardOnboardingComplete } from "../../lib/scoreEngine";
+import { httpsCallable } from "firebase/functions";
+import { functions } from "../../firebase";
 import AuthLoader from "../../components/AuthLoader";
 
 // ── Correctly wired components ──
@@ -32,13 +34,15 @@ import SetupSequence from "./components/SetupSequence";
 import Step0Login from "./steps/Step0Login";
 import Step1InitProfile from "./steps/Step1InitProfile";
 import Step2Coordinates from "./steps/Step2Coordinates";
-import { LockedProtocol, RequestedProtocol } from "./steps/StepLocked"; // Make sure these are exported correctly in your file!
+// LockedProtocol removed — site is public
 import Step3Baseline from "./steps/Step3Baseline";
 import Step4Vision from "./steps/Step4Vision";
 import Step5Arsenal from "./steps/Step5Arsenal";
 import Step6Resources from "./steps/Step6Resources";
 import Step7Footprint from "./steps/Step7Footprint";
 import Step8FinalCanvas from "./steps/Step8FinalCanvas";
+import StepEmailVerify from "./steps/StepEmailVerify";
+import StepPremiumPrompt from "./steps/StepPremiumPrompt";
 
 // ── State Machine ──
 const initialProfileState = {
@@ -134,7 +138,7 @@ export default function AuthOrchestrator() {
   const location = useLocation();
 
   const [isLogin, setIsLogin] = useState(location.state?.isLogin !== false);
-  const [step, setStep] = useState(1);
+  const [step, setStep] = useState(1); // 1-8, "verify_email", "premium_prompt"
   const [systemStatus, setSystemStatus] = useState({
     loading: false,
     error: "",
@@ -148,6 +152,8 @@ export default function AuthOrchestrator() {
     initialProfileState,
   );
   const [usernameAvailable, setUsernameAvailable] = useState(null);
+  const [emailVerified, setEmailVerified] = useState(false);
+  const [isGoogleUser, setIsGoogleUser] = useState(false);
 
   const debouncedUsername = useDebounce(profileData.username, 600);
   const setField = useCallback(
@@ -194,7 +200,13 @@ export default function AuthOrchestrator() {
 
   useEffect(() => {
     const unsubscribe = auth.onAuthStateChanged(async (user) => {
-      if (!user || systemStatus.isBooting || systemStatus.showSetupSequence)
+      // Don't interfere during active onboarding flows
+      if (
+        !user ||
+        systemStatus.isBooting ||
+        systemStatus.showSetupSequence ||
+        step === "premium_prompt"
+      )
         return;
       try {
         const docRef = doc(db, "users", user.uid);
@@ -205,7 +217,11 @@ export default function AuthOrchestrator() {
             data?.onboardingComplete === false ||
             data?.isGhostUser === true
           ) {
+            // Incomplete onboarding — resume from where they left off
             setIsLogin(false);
+            setIsGoogleUser(
+              !!user.providerData?.find((p) => p.providerId === "google.com"),
+            );
             dispatch({
               type: "HYDRATE_OAUTH",
               payload: {
@@ -215,32 +231,23 @@ export default function AuthOrchestrator() {
                 username: data?.identity?.username || "",
               },
             });
-            const wlSnap = await getDocs(
-              query(
-                collection(db, "whitelisted_emails"),
-                where("email", "==", user.email || data?.identity?.email),
-              ),
-            );
-            if (wlSnap.empty) setStep("locked");
-            else setStep(2);
+            setStep(2); // Resume at coordinates
             return;
           }
+          // Fully onboarded — go to app
           navigate("/app", { replace: true });
         } else {
-          const wlSnap = await getDocs(
-            query(
-              collection(db, "whitelisted_emails"),
-              where("email", "==", user.email),
-            ),
-          );
+          // New OAuth user with no Firestore doc yet — handled by handleSocialAuth
+          // This case shouldn't occur since we create the doc in handleSocialAuth
           setIsLogin(false);
-          if (wlSnap.empty) setStep("locked");
-          else setStep(2);
+          setStep(2);
         }
-      } catch (err) {}
+      } catch (err) {
+        console.error("[Auth] State listener error:", err);
+      }
     });
     return unsubscribe;
-  }, [navigate, systemStatus.isBooting, systemStatus.showSetupSequence]);
+  }, [navigate, systemStatus.isBooting, systemStatus.showSetupSequence, step]);
 
   const handleLogin = async (email, password) => {
     setSystemStatus((prev) => ({
@@ -281,16 +288,10 @@ export default function AuthOrchestrator() {
           userData?.onboardingComplete === false ||
           userData?.isGhostUser === true
         ) {
-          const wlSnap = await getDocs(
-            query(
-              collection(db, "whitelisted_emails"),
-              where("email", "==", safeEmail),
-            ),
-          );
+          setIsGoogleUser(true);
           setIsLogin(false);
           setSystemStatus((prev) => ({ ...prev, loading: false }));
-          if (wlSnap.empty) setStep("locked");
-          else setStep(2);
+          setStep(2); // Google users skip step 1 (no password needed), go to coordinates
           return;
         }
         setSystemStatus((prev) => ({ ...prev, loading: false }));
@@ -337,16 +338,10 @@ export default function AuthOrchestrator() {
         login_history: [todayStr],
       });
 
-      const wlSnap = await getDocs(
-        query(
-          collection(db, "whitelisted_emails"),
-          where("email", "==", safeEmail),
-        ),
-      );
+      setIsGoogleUser(true);
       setIsLogin(false);
       setSystemStatus((prev) => ({ ...prev, loading: false }));
-      if (wlSnap.empty) setStep("locked");
-      else setStep(2);
+      setStep(2);
     } catch (error) {
       setSystemStatus((prev) => ({
         ...prev,
@@ -366,40 +361,43 @@ export default function AuthOrchestrator() {
     )
       return setSystemStatus((prev) => ({
         ...prev,
-        error: "Identity fields are mandatory.",
+        error: "All identity fields are required.",
       }));
     if (pwScore < 2)
       return setSystemStatus((prev) => ({
         ...prev,
-        error: "Security insufficient. Enhance password entropy.",
+        error: "Password too weak. Add numbers and special characters.",
       }));
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(profileData.email))
+      return setSystemStatus((prev) => ({
+        ...prev,
+        error: "Invalid email format.",
+      }));
+
     setSystemStatus((prev) => ({ ...prev, loading: true, error: "" }));
     try {
-      const userSnap = await getDocs(
-        query(
-          collection(db, "users"),
-          where("identity.email", "==", profileData.email),
-        ),
+      // Check if email already registered
+      const methods = await import("firebase/auth").then((m) =>
+        m.fetchSignInMethodsForEmail(auth, profileData.email),
       );
-      if (!userSnap.empty)
+      if (methods && methods.length > 0) {
         return setSystemStatus((prev) => ({
           ...prev,
           loading: false,
-          error: "Email already provisioned.",
+          error: "An account with this email already exists. Sign in instead.",
         }));
-      const wlSnap = await getDocs(
-        query(
-          collection(db, "whitelisted_emails"),
-          where("email", "==", profileData.email),
-        ),
-      );
-      if (wlSnap.empty) setStep("locked");
-      else setStep(2);
+      }
+      setStep(2);
     } catch (err) {
-      console.error("Verification failed:", err);
+      console.error("Step 1 verification failed:", err);
       setSystemStatus((prev) => ({
         ...prev,
-        error: "Failed to verify credentials: " + err.message,
+        error:
+          err.code === "auth/invalid-email"
+            ? "Invalid email format."
+            : "Verification failed. Try again.",
       }));
     } finally {
       setSystemStatus((prev) => ({ ...prev, loading: false }));
@@ -563,6 +561,21 @@ export default function AuthOrchestrator() {
 
       await setDoc(doc(db, "users", uid), systemPayload, { merge: true });
       await awardOnboardingComplete(uid);
+
+      // Send verification email (non-blocking)
+      try {
+        const sendVerification = httpsCallable(
+          functions,
+          "sendVerificationEmail",
+        );
+        await sendVerification({
+          email: profileData.email,
+          firstName: profileData.firstName,
+        });
+      } catch (verErr) {
+        console.warn("[Auth] Verification email failed:", verErr);
+      }
+
       setSystemStatus((prev) => ({
         ...prev,
         isBooting: false,
@@ -577,28 +590,7 @@ export default function AuthOrchestrator() {
     }
   };
 
-  const handleAccessRequest = async (e) => {
-    e.preventDefault();
-    if (profileData.mobileNumber.length !== 10)
-      return setSystemStatus((p) => ({
-        ...p,
-        error: "Mobile must be 10 digits.",
-      }));
-    try {
-      await emailjs.send(
-        "discotive",
-        "requestaccess",
-        {
-          name: profileData.firstName,
-          email: profileData.email,
-          contact: profileData.mobileNumber,
-          message: profileData.requestMessage,
-        },
-        "tNizhqFNon4v2m6OC",
-      );
-      setStep("requested");
-    } catch (error) {}
-  };
+  // handleAccessRequest removed — site is now public
 
   if (systemStatus.isBooting)
     return <AuthLoader taskComplete={systemStatus.authTaskComplete} />;
@@ -628,8 +620,8 @@ export default function AuthOrchestrator() {
         </div>
       </div>
 
-      <div className="w-full md:w-7/12 flex items-center justify-center p-6 md:p-12 relative overflow-y-auto custom-scrollbar bg-[#0a0a0a]">
-        <div className="w-full max-w-lg py-10">
+      <div className="w-full md:w-7/12 flex items-center justify-center p-4 md:p-12 relative overflow-y-auto custom-scrollbar bg-[#0a0a0a]">
+        <div className="w-full max-w-lg py-6 md:py-10">
           <AnimatePresence mode="wait">
             {isLogin && (
               <Step0Login
@@ -668,17 +660,29 @@ export default function AuthOrchestrator() {
                 debouncedUsername={debouncedUsername}
               />
             )}
-            {!isLogin && step === "locked" && (
-              <LockedProtocol
-                key="locked"
-                profileData={profileData}
-                setField={setField}
-                handleAccessRequest={handleAccessRequest}
-                setStep={setStep}
+            {step === "verify_email" && (
+              <StepEmailVerify
+                key="verify_email"
+                email={profileData.email}
+                firstName={profileData.firstName}
+                onVerified={() => {
+                  setEmailVerified(true);
+                  setStep(3);
+                }}
+                onSkip={() => setStep(3)}
               />
             )}
-            {!isLogin && step === "requested" && (
-              <RequestedProtocol key="req" />
+            {step === "premium_prompt" && (
+              <StepPremiumPrompt
+                key="premium_prompt"
+                firstName={
+                  profileData.firstName ||
+                  auth.currentUser?.displayName?.split(" ")[0] ||
+                  "Operator"
+                }
+                onUpgrade={() => navigate("/premium")}
+                onContinue={() => navigate("/app", { replace: true })}
+              />
             )}
             {!isLogin && step === 3 && (
               <Step3Baseline
@@ -744,7 +748,13 @@ export default function AuthOrchestrator() {
       </div>
 
       {systemStatus.showSetupSequence && (
-        <SetupSequence onComplete={() => navigate("/app", { replace: true })} />
+        <SetupSequence
+          onComplete={() => {
+            // After setup, show premium prompt for new users
+            setSystemStatus((prev) => ({ ...prev, showSetupSequence: false }));
+            setStep("premium_prompt");
+          }}
+        />
       )}
     </div>
   );
