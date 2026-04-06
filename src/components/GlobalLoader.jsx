@@ -1,20 +1,14 @@
 import { useEffect } from "react";
 import { motion } from "framer-motion";
 
-const GlobalLoader = ({ onComplete }) => {
+const GlobalLoader = ({ isReady, onComplete }) => {
   useEffect(() => {
-    // 1. If the app isn't ready (Auth/Data still fetching), do absolutely nothing.
     if (!isReady) return;
 
-    // 2. The app IS ready. Now we calculate if we need to pad the time.
-    // We want a minimum display time of 500ms so the loader doesn't look like a glitch.
     const MIN_DISPLAY_MS = 500;
-
-    // performance.now() tracks time since the page started loading
     const timeElapsed = performance.now();
     const remainingTime = Math.max(0, MIN_DISPLAY_MS - timeElapsed);
 
-    // 3. Fire onComplete after the remaining time (often 0ms on slow networks, ~300ms on fast ones)
     const timer = setTimeout(() => {
       onComplete();
     }, remainingTime);
@@ -34,7 +28,6 @@ const GlobalLoader = ({ onComplete }) => {
     >
       <div className="flex flex-col items-center gap-8">
         <h1 className="text-3xl font-extrabold tracking-tighter">DISCOTIVE</h1>
-
         <motion.div
           animate={{ rotate: 360 }}
           transition={{ repeat: Infinity, duration: 1, ease: "linear" }}
@@ -45,7 +38,7 @@ const GlobalLoader = ({ onComplete }) => {
               cx="25"
               cy="25"
               r="20"
-              stroke="rgba(255, 255, 255, 0.05)"
+              stroke="rgba(255,255,255,0.05)"
               strokeWidth="4"
               fill="none"
             />
@@ -63,7 +56,6 @@ const GlobalLoader = ({ onComplete }) => {
             />
           </svg>
         </motion.div>
-
         <p className="text-[10px] text-slate-500 font-bold tracking-widest uppercase mt-[-10px]">
           Booting Core OS
         </p>

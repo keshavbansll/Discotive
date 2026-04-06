@@ -10,6 +10,8 @@
  */
 import { initiateProUpgrade } from "../lib/razorpay";
 import { getFunctions, httpsCallable } from "firebase/functions";
+import { app } from "../firebase";
+
 import { auth } from "../firebase";
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
@@ -75,46 +77,30 @@ const Premium = () => {
 
     setIsCheckingOut(true);
     try {
-      // 1. HARD VERIFICATION: Ensure the deep auth session exists
-      if (!auth.currentUser) {
-        alert(
-          "System Fault: Auth session desynchronized. Please log out and log back in.",
-        );
-        setIsCheckingOut(false);
-        return;
-      }
-
-      // 2. EXTRACT RAW CRYPTOGRAPHIC TOKEN (Force refresh to ensure it's valid)
-      const token = await auth.currentUser.getIdToken(true);
-
-      // 3. DIRECT API STRIKE (Bypassing Firebase SDK routing bugs)
-      // We use your exact Cloud Run container URL, not the legacy .net proxy
-      const response = await fetch(
-        "https://createprosubscription-c4wsj73agq-uc.a.run.app",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`, // Manually inject the identity
-          },
-          body: JSON.stringify({ data: {} }), // Firebase onCall requires this exact payload structure
-        },
+      // Use Firebase Functions SDK — handles App Check automatically
+      const functions = getFunctions(app, "us-central1");
+      const createSubscription = httpsCallable(
+        functions,
+        "createProSubscription",
       );
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error("Backend Rejection:", errorText);
-        throw new Error(`API Gateway Rejected: ${response.status}`);
+
+      const result = await createSubscription({});
+      const subscriptionId = result.data.result?.subscriptionId;
+
+      if (!subscriptionId) {
+        throw new Error("No subscription ID returned from server.");
       }
 
-      // 4. PARSE THE CALLABLE PROTOCOL RESPONSE
-      const jsonResponse = await response.json();
-      const subscriptionId = jsonResponse.result.subscriptionId;
-
-      // 5. BOOT THE GATEWAY
       await initiateProUpgrade(userData, subscriptionId);
     } catch (error) {
-      console.error("Checkout failed to initialize:", error);
-      alert("Failed to connect to the payment gateway. Please try again.");
+      console.error("[Premium] Checkout failed:", error);
+      const msg =
+        error.code === "functions/unauthenticated"
+          ? "Session expired. Please sign in again."
+          : error.code === "functions/unavailable"
+            ? "Payment gateway temporarily unavailable. Try again in 30 seconds."
+            : "Failed to connect to payment gateway. Please try again.";
+      alert(msg);
     } finally {
       setIsCheckingOut(false);
     }

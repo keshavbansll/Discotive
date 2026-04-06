@@ -1,0 +1,133 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // =========================================================================
+    // SECURITY UTILS
+    // =========================================================================
+    function isAdmin() {
+      return request.auth != null && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+    }
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // =========================================================================
+    // 1. SYSTEM WHITELISTS & ADMINS
+    // =========================================================================
+    match /whitelisted_emails/{document=**} {
+      allow read, write: if false; 
+    }
+
+    match /admins/{adminId} {
+      allow read: if isOwner(adminId) || isAdmin(); 
+      allow write: if false; 
+    }
+
+    // =========================================================================
+    // 2. DISCOTIVE LEARN ENGINE
+    // =========================================================================
+    match /discotive_videos/{document=**} {
+      allow read: if isAuthenticated(); 
+      allow write: if isAdmin();        
+    }
+
+    match /discotive_certificates/{document=**} {
+      allow read: if isAuthenticated(); 
+      allow write: if isAdmin();        
+    }
+
+    // =========================================================================
+    // 3. TELEMETRY (TICKETS/REPORTS/FEEDBACK)
+    // =========================================================================
+    match /support_tickets/{ticketId} {
+      allow read: if isAdmin() || (isAuthenticated() && resource.data.uid == request.auth.uid);
+      // REFINEMENT: Safely allow client-side creation if the UID matches the creator
+      allow create: if isAuthenticated() && request.resource.data.uid == request.auth.uid; 
+      allow update: if isAdmin() || 
+        (isAuthenticated() && 
+         resource.data.uid == request.auth.uid &&
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']));
+      allow delete: if isAdmin();
+    }
+    
+    match /reports/{reportId} {
+      allow read: if isAdmin() || (isAuthenticated() && resource.data.reporterUid == request.auth.uid);
+      allow create: if isAuthenticated() && request.resource.data.reporterUid == request.auth.uid;
+      allow update, delete: if isAdmin();
+    }
+
+    match /feedback/{userId} {
+      allow read: if isAdmin() || isOwner(userId);
+      allow write: if isOwner(userId);
+    }
+  
+    // =========================================================================
+    // 4. CORE USER LEDGER (FIELD-LEVEL SECURITY)
+    // =========================================================================
+    match /users/{userId} {
+      allow read: if isAuthenticated(); 
+      allow create: if isOwner(userId);
+      allow delete: if isOwner(userId);
+      
+      allow update: if 
+        // 1. Owner updates (Blocks Tier & Score Escalation)
+        (isOwner(userId) && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['tier', 'isGhostUser']))
+        || 
+        // 2. Alliance feature cross-writes
+        (isAuthenticated() && 
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['inboundRequests', 'outboundRequests', 'allies'])) 
+        ||
+        // 3. Public Profile Views increment
+        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['profileViews']) &&
+         request.resource.data.profileViews == resource.data.profileViews + 1)
+        ||
+        // 4. Admins override
+        isAdmin();
+    }
+    
+    // =========================================================================
+    // 5. USER NESTED SUBCOLLECTIONS
+    // =========================================================================
+    match /users/{userId}/execution_map/{document=**} {
+      allow read, write: if isOwner(userId);
+    }
+    
+    match /users/{userId}/verification_requests/{reqId} {
+      allow read: if isOwner(userId);
+      allow create: if isOwner(userId) 
+                    && request.resource.data.status == "PENDING"
+                    && !("ai_grade" in request.resource.data);
+      allow update, delete: if isAdmin(); 
+    }
+    
+    match /users/{userId}/subscription/{document=**} {
+      allow read: if isOwner(userId);
+      allow write: if false;
+    }
+    
+    match /users/{userId}/journal_entries/{document=**} {
+      allow read, write: if isOwner(userId) && 
+                         get(/databases/$(database)/documents/users/$(userId)).data.tier in ["PRO", "ENTERPRISE"];
+    }
+    
+    match /users/{userId}/score_log/{document=**} {
+      allow read: if isOwner(userId);
+      allow create: if isOwner(userId); 
+      allow update, delete: if isAdmin(); 
+    }
+
+    // =========================================================================
+    // 6. ASSET VAULT
+    // =========================================================================
+    match /users/{userId}/vault/{assetId} {
+      allow read: if (resource.data.isPublic == true) || isOwner(userId) || isAdmin();
+      allow write: if isOwner(userId) || isAdmin();
+    }
+  }
+}

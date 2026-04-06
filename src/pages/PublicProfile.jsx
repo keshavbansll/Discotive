@@ -403,17 +403,24 @@ const PublicProfile = () => {
         const isOwner = auth.currentUser?.uid === data.id;
 
         if (!localStorage.getItem(viewKey) && !isOwner) {
-          // It's safe to fire this increment directly because our firestore.rules
-          // allow users to increment profileViews by exactly +1
-          await updateDoc(doc(db, "users", data.id), {
-            profileViews: increment(1),
-          });
-          mutateScore(data.id, 1, "Public Profile View");
-          localStorage.setItem(viewKey, "true");
-          setProfileData((prev) => ({
-            ...prev,
-            profileViews: (prev?.profileViews || 0) + 1,
-          }));
+          try {
+            // Safe increment: Protected by the +1 mathematical constraint in firestore.rules
+            await updateDoc(doc(db, "users", data.id), {
+              profileViews: increment(1),
+            });
+
+            // MAANG FIX: Removed client-side mutateScore.
+            // Score awards for views must be handled server-side inside getPublicProfileData.
+
+            localStorage.setItem(viewKey, "true");
+            setProfileData((prev) => ({
+              ...prev,
+              profileViews: (prev?.profileViews || 0) + 1,
+            }));
+          } catch (telemetryErr) {
+            // Fails gracefully if rules block rapid spamming
+            console.warn("[Telemetry] View count rejected by security gate.");
+          }
         }
       } catch (err) {
         console.error("[PublicProfile] fetch failed:", err);

@@ -292,17 +292,26 @@ export const awardAllianceAction = async (userId, actionType) => {
 /**
  * @function awardOnboardingComplete
  * @description One-time bonus for completing the full 8-step onboarding.
- * Guards against double-award via a `onboardingScoreAwarded` flag on the user doc.
+ * Uses a transaction as a lock to guarantee no double-spends on concurrent requests.
  */
 export const awardOnboardingComplete = async (userId) => {
   if (!userId) return;
   try {
     const userRef = doc(db, "users", userId);
-    const snap = await getDoc(userRef);
-    if (!snap.exists() || snap.data()?.onboardingScoreAwarded) return;
 
-    await updateDoc(userRef, { onboardingScoreAwarded: true });
-    await mutateScore(userId, 50, "Onboarding Complete — OS Initialized");
+    // 1. ATOMIC LOCK: Only returns true if this specific thread flips the flag
+    const isFirstCompletion = await runTransaction(db, async (tx) => {
+      const snap = await tx.get(userRef);
+      if (!snap.exists() || snap.data()?.onboardingScoreAwarded) return false;
+
+      tx.update(userRef, { onboardingScoreAwarded: true });
+      return true;
+    });
+
+    // 2. MUTATION: Safe to execute outside the lock because the lock prevents duplicates
+    if (isFirstCompletion) {
+      await mutateScore(userId, 50, "Onboarding Complete — OS Initialized");
+    }
   } catch (err) {
     console.error("[ScoreEngine] Onboarding award failed:", err);
   }
@@ -311,35 +320,36 @@ export const awardOnboardingComplete = async (userId) => {
 /**
  * @function initGhostUserScore
  * @description Called when a Google/OAuth user lands on the platform without
- * completing onboarding. Sets a minimal score scaffold so the user document
- * exists and percentile queries don't crash.
+ * completing onboarding. Wrapped in a transaction to prevent race-condition overwrites.
  */
 export const initGhostUserScore = async (userId, displayName, email) => {
   if (!userId) return;
   try {
     const userRef = doc(db, "users", userId);
-
-    // CRITICAL: Prevent overriding an existing user's ledger
-    const snap = await getDoc(userRef);
-    if (snap.exists()) return;
-
     const { todayStr } = getISTDateStrings();
 
-    await setDoc(
-      userRef,
-      {
-        "discotiveScore.current": 0,
-        "discotiveScore.streak": 0,
-        "discotiveScore.lastLoginDate": todayStr,
-        "discotiveScore.lastAmount": 0,
-        "discotiveScore.lastReason": "Ghost Account — Onboarding Pending",
-        "discotiveScore.lastUpdatedAt": new Date().toISOString(),
-        onboardingComplete: false,
-        isGhostUser: true,
-        login_history: arrayUnion(todayStr),
-      },
-      { merge: true },
-    );
+    await runTransaction(db, async (tx) => {
+      const snap = await tx.get(userRef);
+
+      // CRITICAL: Atomic check. If Thread A creates it, Thread B aborts here.
+      if (snap.exists()) return;
+
+      tx.set(
+        userRef,
+        {
+          "discotiveScore.current": 0,
+          "discotiveScore.streak": 0,
+          "discotiveScore.lastLoginDate": todayStr,
+          "discotiveScore.lastAmount": 0,
+          "discotiveScore.lastReason": "Ghost Account — Onboarding Pending",
+          "discotiveScore.lastUpdatedAt": new Date().toISOString(),
+          onboardingComplete: false,
+          isGhostUser: true,
+          login_history: arrayUnion(todayStr),
+        },
+        { merge: true },
+      );
+    });
   } catch (err) {
     console.warn("[ScoreEngine] Ghost init failed:", err);
   }

@@ -674,31 +674,39 @@ const Vault = () => {
     }
   };
 
-  // --- 🔴 REAL FIREBASE DELETION ENGINE ---
+  // --- 🔴 REAL FIREBASE DELETION ENGINE (REFACTORED) ---
   const handleDeleteAsset = async (assetToDelete) => {
     if (!userData?.uid) return;
     setIsProcessing(true);
 
+    // Step 1: Attempt Storage deletion FIRST (reversible if it fails)
+    if (assetToDelete.type !== "link" && assetToDelete.storagePath) {
+      try {
+        const fileRef = ref(storage, assetToDelete.storagePath);
+        await deleteObject(fileRef);
+      } catch (storageError) {
+        // File may already be deleted or not found — log but continue
+        // We still remove the Firestore record to keep UI consistent
+        if (storageError.code !== "storage/object-not-found") {
+          console.error("[Vault] Storage deletion failed:", storageError);
+          // Non-fatal: Inform user but still remove from their vault UI
+        }
+      }
+    }
+
+    // Step 2: Remove from Firestore only after Storage attempt
     try {
-      // 1. Delete from Firestore Ledger
       await updateDoc(doc(db, "users", userData.uid), {
         vault: arrayRemove(assetToDelete),
       });
 
-      // 2. If it's a physical file, purge it from Firebase Storage
-      if (assetToDelete.type !== "link" && assetToDelete.storagePath) {
-        const fileRef = ref(storage, assetToDelete.storagePath);
-        await deleteObject(fileRef);
-      }
-
-      // NEW: Instantly remove the asset from the UI
       setLocalAssets((prev) =>
         prev.filter((asset) => asset.id !== assetToDelete.id),
       );
-
       setSelectedAsset(null);
-    } catch (err) {
-      console.error("Asset obliteration failed:", err);
+    } catch (firestoreError) {
+      console.error("[Vault] Firestore deletion failed:", firestoreError);
+      alert("Failed to remove asset. Please try again.");
     } finally {
       setIsProcessing(false);
     }

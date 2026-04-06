@@ -16,9 +16,10 @@ export const AuthProvider = ({ children }) => {
     return unsubscribe;
   }, []);
 
+  // CRITICAL FIX: Export loading in context value
   return (
-    <AuthContext.Provider value={{ currentUser }}>
-      {!loading && children}
+    <AuthContext.Provider value={{ currentUser, loading }}>
+      {children}
     </AuthContext.Provider>
   );
 };

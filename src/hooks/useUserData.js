@@ -1,72 +1,76 @@
-// src/hooks/useUserData.js
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { doc, getDoc } from "firebase/firestore";
 import { db } from "../firebase";
 import { useAuth } from "../contexts/AuthContext";
 
-// ── MAANG-GRADE FIX: Module-Level Cache ──
-// Prevents 10 components from firing 10 identical reads on mount.
-// It stores the data in memory for the duration of the session.
-let cachedUserData = null;
-let fetchPromise = null;
+// Session-scoped cache keyed by UID — safe
+const SESSION_CACHE = new Map();
 
 export const useUserData = () => {
   const { currentUser } = useAuth();
+  const uid = currentUser?.uid;
 
-  // Initialize state with cache if available to prevent skeleton flashing
-  const [userData, setUserData] = useState(cachedUserData);
-  const [loading, setLoading] = useState(!cachedUserData);
+  const [userData, setUserData] = useState(() => {
+    return uid ? (SESSION_CACHE.get(uid) ?? null) : null;
+  });
+  const [loading, setLoading] = useState(!SESSION_CACHE.has(uid));
+
+  const fetchUserData = useCallback(async () => {
+    if (!uid) {
+      setLoading(false);
+      return;
+    }
+
+    if (SESSION_CACHE.has(uid)) {
+      setUserData(SESSION_CACHE.get(uid));
+      setLoading(false);
+      return;
+    }
+
+    try {
+      const docRef = doc(db, "users", uid);
+      const docSnap = await getDoc(docRef);
+
+      if (docSnap.exists()) {
+        const data = { uid: docSnap.id, ...docSnap.data() };
+        SESSION_CACHE.set(uid, data);
+        setUserData(data);
+      }
+    } catch (error) {
+      console.error("[useUserData] Fetch failed:", error);
+    } finally {
+      setLoading(false);
+    }
+  }, [uid]);
 
   useEffect(() => {
-    const fetchUserData = async () => {
-      if (!currentUser) {
-        setLoading(false);
-        return;
-      }
-
-      // 1. If we already have the data in memory, skip the database entirely
-      if (cachedUserData?.uid === currentUser.uid) {
-        setLoading(false);
-        return;
-      }
-
-      try {
-        // 2. If multiple components mount simultaneously, only the first one
-        // triggers the network request. The rest wait for this single promise.
-        if (!fetchPromise) {
-          const docRef = doc(db, "users", currentUser.uid);
-          fetchPromise = getDoc(docRef);
-        }
-
-        const docSnap = await fetchPromise;
-
-        if (docSnap.exists()) {
-          const data = { uid: docSnap.id, ...docSnap.data() };
-          cachedUserData = data; // Save to memory cache
-          setUserData(data);
-        } else {
-          console.log("No user data found in database!");
-        }
-      } catch (error) {
-        console.error("Error fetching user data:", error);
-      } finally {
-        // 3. THE FIX: Artificial 800ms delay eradicated.
-        setLoading(false);
-        fetchPromise = null; // Clear the flight tracker
-      }
-    };
-
+    // Clear cache on user change (logout/login switch)
+    if (!uid) {
+      SESSION_CACHE.clear();
+      setUserData(null);
+      setLoading(false);
+      return;
+    }
     fetchUserData();
-  }, [currentUser]);
+  }, [uid, fetchUserData]);
 
-  // Manual state patcher for optimistic UI updates
-  const patchLocalData = (newFields) => {
-    setUserData((prev) => {
-      const updated = { ...prev, ...newFields };
-      cachedUserData = updated; // Keep the cache perfectly synced
-      return updated;
-    });
-  };
+  const patchLocalData = useCallback(
+    (newFields) => {
+      setUserData((prev) => {
+        const updated = { ...prev, ...newFields };
+        if (uid) SESSION_CACHE.set(uid, updated);
+        return updated;
+      });
+    },
+    [uid],
+  );
 
-  return { userData, loading, patchLocalData };
+  const refreshUserData = useCallback(async () => {
+    if (!uid) return;
+    SESSION_CACHE.delete(uid); // Force fresh fetch
+    setLoading(true);
+    await fetchUserData();
+  }, [uid, fetchUserData]);
+
+  return { userData, loading, patchLocalData, refreshUserData };
 };

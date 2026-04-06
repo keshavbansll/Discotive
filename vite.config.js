@@ -28,7 +28,6 @@ export default defineConfig({
         description: "The ultimate career engine and execution protocol.",
         theme_color: "#030303",
         background_color: "#030303",
-        display: "standalone",
         orientation: "portrait",
         icons: [
           {

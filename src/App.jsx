@@ -7,6 +7,7 @@ import {
 } from "react-router-dom";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import { useEffect, useState } from "react";
+import { AnimatePresence } from "framer-motion";
 
 // ── EAGER IMPORTS (The Critical Path) ──
 // These MUST load immediately. Landing is the entry point. MainLayout is the shell.
@@ -82,16 +83,14 @@ const AppInitializer = ({ children }) => {
 
   return (
     <>
-      {/* Pass the actual Firebase loading state. 
-        The GlobalLoader will handle its own 500ms minimum display logic 
-        and then call setShowBootScreen(false) 
-      */}
-      {showBootScreen && (
-        <GlobalLoader
-          isReady={!loading}
-          onComplete={() => setShowBootScreen(false)}
-        />
-      )}
+      <AnimatePresence>
+        {showBootScreen && (
+          <GlobalLoader
+            isReady={!loading}
+            onComplete={() => setShowBootScreen(false)}
+          />
+        )}
+      </AnimatePresence>
 
       {/* Only render the actual router paths once the boot screen is gone */}
       {!showBootScreen && children}
@@ -127,92 +126,97 @@ function App() {
 
   return (
     <AuthProvider>
-      <Router>
-        <PageTracker />
-        <Suspense fallback={<RouteChunkLoader />}>
-          <Routes>
-            <Route
-              path="/"
-              element={
-                <PublicRoute>
-                  <Landing />
-                </PublicRoute>
-              }
-            />
-            <Route path="/auth" element={<Auth />} />
-            <Route path="/:handle" element={<PublicProfile />} />
-            <Route path="/about" element={<About />} />
-            <Route path="/features" element={<Features />} />
-            <Route path="/premium" element={<Premium />} />
-            <Route path="/checkout" element={<Checkout />} />
-            <Route path="/verify-asset" element={<VerifyAsset />} />
+      <AppInitializer>
+        <Router>
+          <PageTracker />
+          <Suspense fallback={<RouteChunkLoader />}>
+            <Routes>
+              <Route
+                path="/"
+                element={
+                  <PublicRoute>
+                    <Landing />
+                  </PublicRoute>
+                }
+              />
+              <Route path="/auth" element={<Auth />} />
+              <Route path="/:handle" element={<PublicProfile />} />
+              <Route path="/about" element={<About />} />
+              <Route path="/features" element={<Features />} />
+              <Route path="/premium" element={<Premium />} />
+              <Route path="/checkout" element={<Checkout />} />
+              <Route path="/verify-asset" element={<VerifyAsset />} />
 
-            <Route
-              path="/app"
-              element={
-                <ProtectedRoute>
-                  <MainLayout />
-                </ProtectedRoute>
-              }
-            >
-              <Route index element={<Dashboard />} />
-              <Route path="roadmap" element={<Roadmap />} />
-              <Route path="leaderboard" element={<Leaderboard />} />
               <Route
-                path="opportunities"
-                element={<ComingSoon title="Opportunities" />}
-              />
-              <Route path="vault" element={<Vault />} />
-              <Route path="hubs" element={<ComingSoon title="Hubs" />} />
-              {/* PROFILE ROUTES */}
-              <Route path="profile" element={<Profile />} />
-              <Route path="profile/edit" element={<EditProfile />} />
-              <Route path="settings" element={<Settings />} />
-              <Route
-                path="finance"
-                element={<ComingSoon title="Financial Ledger" />}
-              />
-              <Route path="network" element={<ComingSoon title="Network" />} />
-              <Route path="learn" element={<ComingSoon title="learn" />} />
-              <Route
-                path="podcasts"
-                element={<ComingSoon title="Podcasts & Media" />}
-              />
-              <Route
-                path="assessments"
-                element={<ComingSoon title="Workshops & Assessments" />}
-              />
-              <Route
-                path="discover"
-                element={<ComingSoon title="Discover" />}
-              />
-
-              {/* ── ADMIN ROUTES (protected by AdminRoute — checks `admins` Firestore collection) ── */}
-              <Route path="admin" element={<AdminRoute />}>
-                <Route index element={<AdminDashboard />} />
+                path="/app"
+                element={
+                  <ProtectedRoute>
+                    <MainLayout />
+                  </ProtectedRoute>
+                }
+              >
+                <Route index element={<Dashboard />} />
+                <Route path="roadmap" element={<Roadmap />} />
+                <Route path="leaderboard" element={<Leaderboard />} />
                 <Route
-                  path="users/verifyvault"
-                  element={<VaultVerification />}
+                  path="opportunities"
+                  element={<ComingSoon title="Opportunities" />}
                 />
-                <Route path="tickets" element={<TicketManager />} />
-                <Route path="reports" element={<ReportManager />} />
-                <Route path="tickets" element={<TicketManager />} />
-                <Route path="reports" element={<ReportManager />} />
-                <Route path="feedback" element={<FeedbackManager />} />
+                <Route path="vault" element={<Vault />} />
+                <Route path="hubs" element={<ComingSoon title="Hubs" />} />
+                {/* PROFILE ROUTES */}
+                <Route path="profile" element={<Profile />} />
+                <Route path="profile/edit" element={<EditProfile />} />
+                <Route path="settings" element={<Settings />} />
+                <Route
+                  path="finance"
+                  element={<ComingSoon title="Financial Ledger" />}
+                />
+                <Route
+                  path="network"
+                  element={<ComingSoon title="Network" />}
+                />
+                <Route path="learn" element={<ComingSoon title="learn" />} />
+                <Route
+                  path="podcasts"
+                  element={<ComingSoon title="Podcasts & Media" />}
+                />
+                <Route
+                  path="assessments"
+                  element={<ComingSoon title="Workshops & Assessments" />}
+                />
+                <Route
+                  path="discover"
+                  element={<ComingSoon title="Discover" />}
+                />
+
+                {/* ── ADMIN ROUTES (protected by AdminRoute — checks `admins` Firestore collection) ── */}
+                <Route path="admin" element={<AdminRoute />}>
+                  <Route index element={<AdminDashboard />} />
+                  <Route
+                    path="users/verifyvault"
+                    element={<VaultVerification />}
+                  />
+                  <Route path="tickets" element={<TicketManager />} />
+                  <Route path="reports" element={<ReportManager />} />
+                  <Route path="tickets" element={<TicketManager />} />
+                  <Route path="reports" element={<ReportManager />} />
+                  <Route path="feedback" element={<FeedbackManager />} />
+                </Route>
               </Route>
-            </Route>
-            <Route
-              path="*"
-              element={
-                <SystemFailure
-                  errorType="404_SECTOR_NOT_FOUND"
-                  errorMessage="The requested routing directory does not exist in the current execution map."
-                />
-              }
-            />
-          </Routes>
-        </Suspense>
-      </Router>
+              <Route
+                path="*"
+                element={
+                  <SystemFailure
+                    errorType="404_SECTOR_NOT_FOUND"
+                    errorMessage="The requested routing directory does not exist in the current execution map."
+                  />
+                }
+              />
+            </Routes>
+          </Suspense>
+        </Router>
+      </AppInitializer>
     </AuthProvider>
   );
 }

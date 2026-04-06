@@ -5,6 +5,8 @@ import { db } from "../firebase";
 import { useAuth } from "../contexts/AuthContext";
 import { motion, AnimatePresence } from "framer-motion";
 import { ArrowLeft, Terminal, ShieldAlert } from "lucide-react";
+// src/components/AdminRoute.jsx
+import { doc, getDoc } from "firebase/firestore";
 
 // ============================================================================
 // ADMIN ROUTE GUARD
@@ -16,17 +18,18 @@ const AdminRoute = () => {
 
   useEffect(() => {
     const checkAdmin = async () => {
-      if (!currentUser?.email) {
+      // 1. HARD SECURITY: Reject immediately if there is no UID
+      if (!currentUser?.uid) {
         setStatus("denied");
         return;
       }
       try {
-        const q = query(
-          collection(db, "admins"),
-          where("email", "==", currentUser.email),
-        );
-        const snap = await getDocs(q);
-        setStatus(snap.empty ? "denied" : "admin");
+        // 2. O(1) POINT-READ: Target the specific UID document
+        const adminRef = doc(db, "admins", currentUser.uid);
+        const adminSnap = await getDoc(adminRef);
+
+        // 3. VERIFICATION: If the document exists, they are a verified admin
+        setStatus(adminSnap.exists() ? "admin" : "denied");
       } catch (err) {
         console.error("[AdminRoute] Clearance verification failed:", err);
         setStatus("denied");
