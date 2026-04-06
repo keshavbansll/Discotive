@@ -17,7 +17,7 @@ import {
   getCountFromServer,
   where,
 } from "firebase/firestore";
-import { db } from "../firebase"; // Adjust path if your firebase.js is located elsewhere
+import { db } from "../firebase";
 import { Link, useNavigate } from "react-router-dom";
 import ReactFlow, { Background, Controls } from "reactflow";
 import "reactflow/dist/style.css";
@@ -45,10 +45,13 @@ const GLOBAL_CSS = `
     --text-dim: rgba(245,240,232,0.25);
     --font-display: 'Montserrat', sans-serif;
     --font-body: 'Poppins', sans-serif;
+    --px: 16px;
+    --px-md: 24px;
+    --px-lg: 40px;
   }
 
   h1, h2, h3, .font-display {
-    letter-spacing: -0.05em !important; /* Forces the tight, packed look */
+    letter-spacing: -0.05em !important;
   }
 
   html { scroll-behavior: smooth; overflow-x: hidden; }
@@ -59,7 +62,10 @@ const GLOBAL_CSS = `
     font-family: var(--font-body);
     -webkit-font-smoothing: antialiased;
     overflow-x: hidden;
-    cursor: none;
+  }
+
+  @media (min-width: 768px) {
+    body { cursor: none; }
   }
 
   ::selection { background: rgba(191,162,100,0.2); color: var(--text-primary); }
@@ -125,22 +131,19 @@ const GLOBAL_CSS = `
     50% { opacity: 1; }
   }
 
-  @keyframes scanline {
-    0% { transform: translateY(-100%); }
-    100% { transform: translateY(100vh); }
-  }
-
   @keyframes ticker {
     0% { transform: translateX(0); }
     100% { transform: translateX(-50%); }
   }
 
-  @keyframes counter {
-    from { opacity: 0; transform: translateY(8px); }
-    to { opacity: 1; transform: translateY(0); }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  @keyframes shimmerPulse {
+    0% { background-position: -200% 0; }
+    100% { background-position: 200% 0; }
   }
 
-.grain-overlay {
+  .grain-overlay {
     position: fixed;
     inset: -50%;
     width: 200%;
@@ -173,6 +176,45 @@ const GLOBAL_CSS = `
     border-bottom: 0.5px solid var(--border);
   }
 
+  /* ── CURSOR (desktop only) ── */
+  .custom-cursor {
+    position: fixed;
+    pointer-events: none;
+    z-index: 99999;
+    display: none;
+  }
+
+  @media (min-width: 768px) {
+    .custom-cursor { display: block; }
+  }
+
+  .cursor-dot {
+    width: 5px;
+    height: 5px;
+    background: var(--gold-4);
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+    box-shadow: 0 0 8px var(--gold-2), 0 0 16px rgba(191,162,100,0.4);
+  }
+
+  .cursor-ring {
+    width: 32px;
+    height: 32px;
+    border: 1.5px solid var(--gold-2);
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+    transition: width 0.25s ease, height 0.25s ease, border-color 0.25s ease, background 0.25s ease;
+    background: rgba(191,162,100,0.04);
+  }
+
+  .cursor-ring.active {
+    width: 48px;
+    height: 48px;
+    background: rgba(191,162,100,0.1);
+    border-color: var(--gold-4);
+  }
+
+  /* ── BUTTONS ── */
   .btn-primary {
     position: relative;
     display: inline-flex;
@@ -184,14 +226,19 @@ const GLOBAL_CSS = `
     color: #0a0a0a;
     font-family: var(--font-body);
     font-size: 11px;
-    font-weight: 600;
+    font-weight: 700;
     letter-spacing: 0.2em;
     text-transform: uppercase;
     border: none;
-    border-radius: 9999px; /* Pill shape */
-    cursor: none;
+    border-radius: 9999px;
     overflow: hidden;
     transition: all 0.4s cubic-bezier(0.23, 1, 0.32, 1);
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+
+  @media (min-width: 768px) {
+    .btn-primary { cursor: none; }
   }
 
   .btn-primary::after {
@@ -202,14 +249,14 @@ const GLOBAL_CSS = `
     transform: translateX(-100%);
   }
 
-  .btn-primary:hover::after {
-    animation: shimmer 0.6s ease;
-  }
+  .btn-primary:hover::after { animation: shimmer 0.6s ease; }
 
   .btn-primary:hover {
     transform: translateY(-2px);
     box-shadow: 0 16px 48px rgba(191,162,100,0.3), 0 4px 16px rgba(191,162,100,0.2);
   }
+
+  .btn-primary:active { transform: scale(0.97); }
 
   .btn-outline {
     display: inline-flex;
@@ -225,9 +272,14 @@ const GLOBAL_CSS = `
     letter-spacing: 0.2em;
     text-transform: uppercase;
     border: 0.5px solid rgba(245,240,232,0.2);
-    border-radius: 9999px; /* Pill shape */
-    cursor: none;
+    border-radius: 9999px;
     transition: all 0.4s cubic-bezier(0.23, 1, 0.32, 1);
+    -webkit-tap-highlight-color: transparent;
+    touch-action: manipulation;
+  }
+
+  @media (min-width: 768px) {
+    .btn-outline { cursor: none; }
   }
 
   .btn-outline:hover {
@@ -236,6 +288,9 @@ const GLOBAL_CSS = `
     background: var(--gold-dim);
   }
 
+  .btn-outline:active { transform: scale(0.97); }
+
+  /* ── CARDS ── */
   .stat-card {
     background: linear-gradient(135deg, rgba(255,255,255,0.025) 0%, rgba(255,255,255,0.01) 100%);
     border: 0.5px solid rgba(255,255,255,0.06);
@@ -269,8 +324,8 @@ const GLOBAL_CSS = `
 
   .feature-card:hover {
     border-color: rgba(191,162,100,0.4);
-    transform: translateY(-8px) scale(1.02);
-    box-shadow: 0 32px 64px rgba(0,0,0,0.6), 0 0 0 1px rgba(191,162,100,0.3);
+    transform: translateY(-6px) scale(1.015);
+    box-shadow: 0 24px 48px rgba(0,0,0,0.6), 0 0 0 1px rgba(191,162,100,0.25);
   }
 
   .node-card {
@@ -285,6 +340,7 @@ const GLOBAL_CSS = `
     box-shadow: 0 0 40px rgba(191,162,100,0.1), inset 0 0 20px rgba(191,162,100,0.03);
   }
 
+  /* ── TICKER ── */
   .ticker-track {
     display: flex;
     gap: 80px;
@@ -297,34 +353,15 @@ const GLOBAL_CSS = `
     animation-direction: reverse;
   }
 
+  /* ── DIVIDERS ── */
   .divider-gold {
     height: 0.5px;
     background: linear-gradient(90deg, transparent 0%, var(--gold-3) 20%, var(--gold-1) 50%, var(--gold-3) 80%, transparent 100%);
   }
 
-  .vline {
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    width: 0.5px;
-    background: linear-gradient(180deg, transparent 0%, var(--border-gold) 30%, var(--border-gold) 70%, transparent 100%);
-  }
-
-  .hline {
-    height: 0.5px;
-    background: linear-gradient(90deg, transparent 0%, var(--border-gold) 30%, var(--border-gold) 70%, transparent 100%);
-  }
-
-  .score-ring {
-    transform: rotate(-90deg);
-  }
-
-  .score-ring-track {
-    fill: none;
-    stroke: rgba(255,255,255,0.06);
-    stroke-width: 3;
-  }
-
+  /* ── SCORE RING ── */
+  .score-ring { transform: rotate(-90deg); }
+  .score-ring-track { fill: none; stroke: rgba(255,255,255,0.06); stroke-width: 3; }
   .score-ring-fill {
     fill: none;
     stroke-width: 3;
@@ -333,63 +370,7 @@ const GLOBAL_CSS = `
     transition: stroke-dashoffset 2s cubic-bezier(0.23, 1, 0.32, 1);
   }
 
-  .custom-cursor {
-    position: fixed;
-    pointer-events: none;
-    z-index: 99999;
-    mix-blend-mode: difference;
-  }
-
-  .cursor-dot {
-    width: 6px;
-    height: 6px;
-    background: var(--gold-2);
-    border-radius: 50%;
-    transform: translate(-50%, -50%);
-  }
-
-  .cursor-ring {
-    width: 36px;
-    height: 36px;
-    border: 1px solid rgba(191,162,100,0.5);
-    border-radius: 50%;
-    transform: translate(-50%, -50%);
-    transition: transform 0.3s cubic-bezier(0.23, 1, 0.32, 1), background-color 0.3s ease;
-  }
-  
-  .cursor-ring.active {
-    transform: translate(-50%, -50%) scale(1.8) !important;
-    background-color: rgba(191,162,100,0.1);
-    border-color: rgba(191,162,100,0.8);
-  }
-
-  .marquee-container {
-    overflow: hidden;
-    display: flex;
-    gap: 80px;
-  }
-
-  .timeline-connector {
-    position: absolute;
-    left: 50%;
-    width: 0.5px;
-    background: linear-gradient(180deg, var(--border-gold) 0%, transparent 100%);
-  }
-
-  @keyframes borderGlow {
-    0%, 100% { box-shadow: 0 0 20px rgba(191,162,100,0.1); }
-    50% { box-shadow: 0 0 40px rgba(191,162,100,0.25), 0 0 80px rgba(191,162,100,0.08); }
-  }
-
-  .glow-card { animation: borderGlow 4s ease-in-out infinite; }
-
-  @keyframes verticalScroll {
-    0% { transform: translateY(0); }
-    100% { transform: translateY(-50%); }
-  }
-
-  .vertical-scroll { animation: verticalScroll 15s linear infinite; }
-
+  /* ── BADGE ── */
   .badge {
     display: inline-flex;
     align-items: center;
@@ -404,107 +385,289 @@ const GLOBAL_CSS = `
     font-family: var(--font-body);
   }
 
-  .underline-gold {
+  /* ── GLOW CARD ── */
+  @keyframes borderGlow {
+    0%, 100% { box-shadow: 0 0 20px rgba(191,162,100,0.1); }
+    50% { box-shadow: 0 0 40px rgba(191,162,100,0.25), 0 0 80px rgba(191,162,100,0.08); }
+  }
+  .glow-card { animation: borderGlow 4s ease-in-out infinite; }
+
+  /* ── SECTION PADDING ── */
+  .section-px {
+    padding-left: var(--px);
+    padding-right: var(--px);
+  }
+  @media (min-width: 640px) {
+    .section-px { padding-left: var(--px-md); padding-right: var(--px-md); }
+  }
+  @media (min-width: 1024px) {
+    .section-px { padding-left: var(--px-lg); padding-right: var(--px-lg); }
+  }
+
+  /* ── RESPONSIVE GRIDS (these actually work because no inline override) ── */
+  .grid-2col {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 40px;
+  }
+  @media (min-width: 768px) {
+    .grid-2col { grid-template-columns: 1fr 1fr; gap: 60px; }
+  }
+
+  .grid-3col {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+  @media (min-width: 640px) {
+    .grid-3col { grid-template-columns: repeat(2, 1fr); }
+  }
+  @media (min-width: 1024px) {
+    .grid-3col { grid-template-columns: repeat(3, 1fr); }
+  }
+
+  .grid-4col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+  @media (min-width: 1024px) {
+    .grid-4col { grid-template-columns: 2fr 1fr 1fr 1fr; gap: 60px; }
+  }
+
+  .grid-stats {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+  }
+  @media (min-width: 768px) {
+    .grid-stats { grid-template-columns: repeat(4, 1fr); gap: 60px; }
+  }
+
+  .grid-numbers {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+  @media (min-width: 640px) {
+    .grid-numbers { grid-template-columns: repeat(3, 1fr); }
+  }
+
+  /* ── HIDE ON MOBILE / DESKTOP ── */
+  .hide-on-mobile { display: none !important; }
+  @media (min-width: 768px) {
+    .hide-on-mobile { display: flex !important; }
+  }
+
+  .hide-on-desktop { display: flex !important; }
+  @media (min-width: 768px) {
+    .hide-on-desktop { display: none !important; }
+  }
+
+  /* ── NAV ── */
+  .nav-inner {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 0 var(--px);
+    height: 60px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
     position: relative;
-    display: inline-block;
+  }
+  @media (min-width: 640px) {
+    .nav-inner { padding: 0 var(--px-md); height: 64px; }
+  }
+  @media (min-width: 1024px) {
+    .nav-inner { padding: 0 var(--px-lg); }
   }
 
-  .underline-gold::after {
-    content: '';
-    position: absolute;
-    bottom: -4px;
-    left: 0;
-    right: 0;
-    height: 0.5px;
-    background: linear-gradient(90deg, transparent, var(--gold-1), transparent);
+  /* ── HERO ── */
+  .hero-padding {
+    padding: 90px var(--px) 60px;
+  }
+  @media (min-width: 640px) {
+    .hero-padding { padding: 100px var(--px-md) 80px; }
+  }
+  @media (min-width: 1024px) {
+    .hero-padding { padding: 120px var(--px-lg) 100px; }
   }
 
+  /* ── SECTION SPACING ── */
+  .section-py {
+    padding-top: 72px;
+    padding-bottom: 72px;
+  }
+  @media (min-width: 768px) {
+    .section-py { padding-top: 120px; padding-bottom: 120px; }
+  }
+  @media (min-width: 1024px) {
+    .section-py { padding-top: 140px; padding-bottom: 140px; }
+  }
+
+  /* ── TABS ── */
+  .tabs-row {
+    display: flex;
+    gap: 2px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    padding-bottom: 2px;
+  }
+  .tabs-row::-webkit-scrollbar { display: none; }
+
+  .tab-btn {
+    padding: 10px 20px;
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    font-family: var(--font-body);
+    font-weight: 700;
+    border: 0.5px solid;
+    border-bottom: none;
+    white-space: nowrap;
+    flex-shrink: 0;
+    transition: all 0.3s;
+  }
+  @media (min-width: 768px) {
+    .tab-btn { cursor: none; padding: 10px 28px; }
+  }
+
+  /* ── COMPARISON TABLE ── */
+  .compare-table {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .compare-grid {
+    display: grid;
+    grid-template-columns: 1fr 80px 80px;
+    padding: 14px 0;
+    border-bottom: 0.5px solid rgba(255,255,255,0.04);
+    min-width: 280px;
+  }
+  @media (min-width: 480px) {
+    .compare-grid { grid-template-columns: 1fr 1fr 1fr; }
+  }
+
+  /* ── PRICING CARDS ── */
+  .pricing-row {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+  @media (min-width: 640px) {
+    .pricing-row { grid-template-columns: repeat(3, 1fr); }
+  }
+
+  /* ── HORIZONTAL SCROLL ── */
+  .h-scroll {
+    display: flex;
+    overflow-x: auto;
+    gap: 16px;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    scroll-snap-type: x mandatory;
+    padding-bottom: 8px;
+  }
+  .h-scroll::-webkit-scrollbar { display: none; }
+  .h-scroll-item {
+    flex-shrink: 0;
+    scroll-snap-align: start;
+  }
+
+  /* ── FEATURE GRID RESPONSIVE ── */
+  .feature-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+  @media (min-width: 640px) {
+    .feature-grid { grid-template-columns: repeat(2, 1fr); }
+  }
+  @media (min-width: 1024px) {
+    .feature-grid { grid-template-columns: repeat(3, 1fr); }
+  }
+
+  /* ── SCORE ENGINE GRID ── */
+  .score-engine-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+
+  /* ── SCORE + DEMO LAYOUT ── */
+  .score-demo-layout {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+    margin-top: 32px;
+  }
+  @media (min-width: 1024px) {
+    .score-demo-layout { flex-direction: row; align-items: flex-start; gap: 32px; }
+  }
+
+  /* ── MANIFESTO GRID ── */
+  .manifesto-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 40px;
+    margin-top: 56px;
+  }
+  @media (min-width: 768px) {
+    .manifesto-grid { grid-template-columns: 1fr 1fr; gap: 80px; }
+  }
+
+  /* ── TECH GRID ── */
+  .tech-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 48px;
+    align-items: center;
+  }
+  @media (min-width: 768px) {
+    .tech-grid { grid-template-columns: 1fr 1fr; gap: 60px; }
+  }
+
+  /* ── SKELETON LOADER ── */
+  .skeleton {
+    background: linear-gradient(
+      90deg,
+      rgba(255,255,255,0.04) 0%,
+      rgba(255,255,255,0.08) 50%,
+      rgba(255,255,255,0.04) 100%
+    );
+    background-size: 200% 100%;
+    animation: shimmerPulse 1.6s infinite;
+    border-radius: 8px;
+  }
+
+  /* ── HERO NUMBER ── */
   .hero-number {
     font-variant-numeric: tabular-nums;
     font-feature-settings: 'tnum';
   }
 
-  @keyframes fadeUp {
-    from { opacity: 0; transform: translateY(30px); }
-    to { opacity: 1; transform: translateY(0); }
+  /* ── TOUCH TARGETS ── */
+  @media (max-width: 767px) {
+    button, a, [role="button"] {
+      min-height: 44px;
+      -webkit-tap-highlight-color: transparent;
+    }
   }
-
-  @keyframes lineExpand {
-    from { transform: scaleX(0); }
-    to { transform: scaleX(1); }
-  }
-
-  .luxury-input {
-    background: rgba(255,255,255,0.02);
-    border: 0.5px solid rgba(255,255,255,0.08);
-    color: var(--text-primary);
-    font-family: var(--font-body);
-    font-size: 13px;
-    padding: 14px 18px;
-    outline: none;
-    transition: border-color 0.3s;
-    width: 100%;
-  }
-
-  .luxury-input:focus {
-    border-color: var(--gold-1);
-    box-shadow: 0 0 0 1px rgba(191,162,100,0.1), 0 0 32px rgba(191,162,100,0.06);
-  }
-
-  .luxury-input::placeholder { color: var(--text-dim); }
-
-  @keyframes spin { to { transform: rotate(360deg); } }
-
-/* ── MOBILE-FIRST RESPONSIVE ── */
-  @media (max-width: 768px) {
-    body { cursor: auto; }
-    .cursor-dot, .cursor-ring { display: none !important; }
-    h1, h2 { letter-spacing: -0.04em !important; }
-    .btn-primary, .btn-outline { cursor: pointer; }
-    .grain-overlay { opacity: 0.015; }
-    /* Grid overrides */
-    .responsive-grid-2 { grid-template-columns: 1fr !important; gap: 40px !important; }
-    .responsive-grid-3 { grid-template-columns: 1fr !important; gap: 24px !important; }
-    .responsive-footer { grid-template-columns: 1fr !important; gap: 40px !important; text-align: center; }
-    .responsive-footer > div { align-items: center; justify-content: center; display: flex; flex-direction: column; }
-  }
-
-  .horizontal-scroll-container {
-    display: flex;
-    overflow-x: auto;
-    gap: 16px;
-    padding-bottom: 12px;
-    scroll-snap-type: x mandatory;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
-  }
-  .horizontal-scroll-container::-webkit-scrollbar { display: none; }
-  .horizontal-scroll-item {
-    flex-shrink: 0;
-    scroll-snap-align: start;
-  }
-
-  .mobile-hero-text {
-    font-size: clamp(40px, 11vw, 108px) !important;
-  }
-
-  /* Intersection Observer fade-up utility */
-  .reveal { opacity: 0; transform: translateY(24px); transition: opacity 0.8s cubic-bezier(0.23, 1, 0.32, 1), transform 0.8s cubic-bezier(0.23, 1, 0.32, 1); }
-  .reveal.visible { opacity: 1; transform: translateY(0); }
 `;
 
-// ─── CUSTOM CURSOR ────────────────────────────────────────────────────────────
+// ─── CUSTOM CURSOR (desktop only) ────────────────────────────────────────────
 function Cursor() {
   const dotRef = useRef(null);
+  const ringRef = useRef(null);
   const [isHovering, setIsHovering] = useState(false);
-  const mouse = { x: useMotionValue(0), y: useMotionValue(0) };
-  const springConfig = { damping: 22, stiffness: 280, mass: 0.4 };
+  const mouse = { x: useMotionValue(-100), y: useMotionValue(-100) };
+  const springConfig = { damping: 20, stiffness: 300, mass: 0.35 };
   const ringX = useSpring(mouse.x, springConfig);
   const ringY = useSpring(mouse.y, springConfig);
 
   useEffect(() => {
-    // Prevent JS event binding on mobile to save main thread cycles
-    if (typeof window !== "undefined" && window.innerWidth < 768) return;
+    if (typeof window === "undefined" || window.innerWidth < 768) return;
 
     const onMove = (e) => {
       mouse.x.set(e.clientX);
@@ -514,41 +677,44 @@ function Cursor() {
         dotRef.current.style.top = e.clientY + "px";
       }
     };
-
-    const onHover = (e) => {
+    const onOver = (e) => {
       if (
         e.target.closest(
-          "button, a, input, .node-card, .feature-card, .stat-card",
+          "button, a, input, select, textarea, [role='button'], .node-card, .feature-card, .stat-card, .tab-btn",
         )
       )
         setIsHovering(true);
     };
-    const onLeave = (e) => {
+    const onOut = (e) => {
       if (
         e.target.closest(
-          "button, a, input, .node-card, .feature-card, .stat-card",
+          "button, a, input, select, textarea, [role='button'], .node-card, .feature-card, .stat-card, .tab-btn",
         )
       )
         setIsHovering(false);
     };
 
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseover", onHover);
-    window.addEventListener("mouseout", onLeave);
-
+    window.addEventListener("mousemove", onMove, { passive: true });
+    window.addEventListener("mouseover", onOver);
+    window.addEventListener("mouseout", onOut);
     return () => {
       window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseover", onHover);
-      window.removeEventListener("mouseout", onLeave);
+      window.removeEventListener("mouseover", onOver);
+      window.removeEventListener("mouseout", onOut);
     };
   }, []);
 
   return (
     <>
-      <div ref={dotRef} className="custom-cursor cursor-dot" />
+      <div
+        ref={dotRef}
+        className="custom-cursor cursor-dot"
+        style={{ position: "fixed" }}
+      />
       <motion.div
+        ref={ringRef}
         className={`custom-cursor cursor-ring ${isHovering ? "active" : ""}`}
-        style={{ left: ringX, top: ringY }}
+        style={{ left: ringX, top: ringY, position: "fixed" }}
       />
     </>
   );
@@ -592,7 +758,7 @@ function NoiseBackground() {
   );
 }
 
-// ─── LIVE SCORE ──────────────────────────────────────────────────────────────
+// ─── LIVE SCORE WIDGET ────────────────────────────────────────────────────────
 function LiveScoreWidget() {
   const [score, setScore] = useState(4872);
   const [delta, setDelta] = useState(null);
@@ -640,14 +806,12 @@ function LiveScoreWidget() {
         background: "rgba(10,10,10,0.95)",
         border: "0.5px solid rgba(191,162,100,0.2)",
         borderRadius: 24,
-        padding: "24px",
+        padding: "20px",
         position: "relative",
         overflow: "hidden",
         width: "100%",
-        maxWidth: 340,
       }}
     >
-      {/* Top line accent */}
       <div
         style={{
           position: "absolute",
@@ -659,13 +823,12 @@ function LiveScoreWidget() {
             "linear-gradient(90deg, transparent, var(--gold-1), transparent)",
         }}
       />
-
       <div
         style={{
           display: "flex",
           alignItems: "center",
           justifyContent: "space-between",
-          marginBottom: 20,
+          marginBottom: 16,
         }}
       >
         <span
@@ -691,18 +854,16 @@ function LiveScoreWidget() {
           Discotive Score
         </span>
       </div>
-
       <div
         style={{
           display: "flex",
           alignItems: "center",
-          gap: 24,
-          marginBottom: 20,
+          gap: 16,
+          marginBottom: 16,
         }}
       >
-        {/* Ring */}
         <div style={{ position: "relative", flexShrink: 0 }}>
-          <svg width="100" height="100" className="score-ring">
+          <svg width="90" height="90" className="score-ring">
             <defs>
               <linearGradient id="goldGrad" x1="0%" y1="0%" x2="100%" y2="0%">
                 <stop offset="0%" stopColor="#8B7240" />
@@ -711,14 +872,14 @@ function LiveScoreWidget() {
                 <stop offset="100%" stopColor="#8B7240" />
               </linearGradient>
             </defs>
-            <circle cx="50" cy="50" r="44" className="score-ring-track" />
+            <circle cx="45" cy="45" r="40" className="score-ring-track" />
             <circle
-              cx="50"
-              cy="50"
-              r="44"
+              cx="45"
+              cy="45"
+              r="40"
               className="score-ring-fill"
-              strokeDasharray={circumference}
-              strokeDashoffset={offset}
+              strokeDasharray={2 * Math.PI * 40}
+              strokeDashoffset={circumference * (1 - progress)}
             />
           </svg>
           <div
@@ -739,7 +900,7 @@ function LiveScoreWidget() {
                   animate={{ opacity: 1, scale: 1, y: 0 }}
                   exit={{ opacity: 0, scale: 0.6, y: -5 }}
                   style={{
-                    fontSize: 16,
+                    fontSize: 15,
                     fontWeight: 600,
                     color: "var(--gold-2)",
                     fontFamily: "var(--font-body)",
@@ -753,7 +914,7 @@ function LiveScoreWidget() {
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   style={{
-                    fontSize: 18,
+                    fontSize: 14,
                     fontWeight: 600,
                     color: "var(--text-primary)",
                     fontFamily: "var(--font-display)",
@@ -766,7 +927,7 @@ function LiveScoreWidget() {
             </AnimatePresence>
             <span
               style={{
-                fontSize: 8,
+                fontSize: 7,
                 letterSpacing: "0.15em",
                 color: "var(--text-dim)",
                 textTransform: "uppercase",
@@ -776,8 +937,6 @@ function LiveScoreWidget() {
             </span>
           </div>
         </div>
-
-        {/* Events */}
         <div style={{ flex: 1, overflow: "hidden" }}>
           <AnimatePresence>
             {events.map((ev, i) => (
@@ -790,14 +949,14 @@ function LiveScoreWidget() {
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "space-between",
-                  padding: "5px 0",
+                  padding: "4px 0",
                   borderBottom: "0.5px solid rgba(255,255,255,0.04)",
                   opacity: 1 - i * 0.2,
                 }}
               >
                 <span
                   style={{
-                    fontSize: 10,
+                    fontSize: 9,
                     color: "var(--text-secondary)",
                     fontFamily: "var(--font-body)",
                   }}
@@ -806,7 +965,7 @@ function LiveScoreWidget() {
                 </span>
                 <span
                   style={{
-                    fontSize: 10,
+                    fontSize: 9,
                     color: "var(--gold-2)",
                     fontFamily: "var(--font-body)",
                     fontWeight: 600,
@@ -819,20 +978,18 @@ function LiveScoreWidget() {
           </AnimatePresence>
         </div>
       </div>
-
-      {/* Bottom bar */}
-      <div style={{ display: "flex", gap: 8 }}>
+      <div style={{ display: "flex", gap: 6 }}>
         {["Rank #14", "Top 1%", "Streak 47d"].map((tag) => (
           <div
             key={tag}
             style={{
               flex: 1,
               textAlign: "center",
-              padding: "6px 4px",
+              padding: "5px 2px",
               background: "rgba(191,162,100,0.06)",
               border: "0.5px solid rgba(191,162,100,0.15)",
-              fontSize: 8,
-              letterSpacing: "0.15em",
+              fontSize: 7,
+              letterSpacing: "0.12em",
               color: "var(--gold-1)",
               fontFamily: "var(--font-body)",
               textTransform: "uppercase",
@@ -846,407 +1003,529 @@ function LiveScoreWidget() {
   );
 }
 
-// ─── EXECUTION NODE ───────────────────────────────────────────────────────────
-function ExecutionNode({
-  title,
-  date,
-  status,
-  tasks = [],
-  delay = 0,
-  isActive = false,
-}) {
-  const statusConfig = {
-    VERIFIED: {
-      label: "VERIFIED",
-      color: "#4ADE80",
-      bg: "rgba(74,222,128,0.06)",
-    },
-    ACTIVE: {
-      label: "IN PROGRESS",
-      color: "var(--gold-2)",
-      bg: "rgba(191,162,100,0.06)",
-    },
-    LOCKED: {
-      label: "LOCKED",
-      color: "rgba(255,255,255,0.25)",
-      bg: "rgba(255,255,255,0.02)",
-    },
+// ─── VAULT DEMO ───────────────────────────────────────────────────────────────
+function VaultDemo() {
+  const [hashing, setHashing] = useState(false);
+  const [verified, setVerified] = useState(false);
+  const [hashStr, setHashStr] = useState("");
+
+  const handleVerify = () => {
+    setHashing(true);
+    setVerified(false);
+    let chars = "0123456789abcdef";
+    let i = 0;
+    const interval = setInterval(() => {
+      setHashStr(
+        Array.from(
+          { length: 40 },
+          () => chars[Math.floor(Math.random() * chars.length)],
+        ).join(""),
+      );
+      i++;
+      if (i > 12) {
+        clearInterval(interval);
+        setHashStr("9f2a1c4b8e3d7f0a5c2b9e4d1f7a3c8b2e5d9f0a");
+        setHashing(false);
+        setVerified(true);
+      }
+    }, 80);
   };
-  const cfg = statusConfig[status] || statusConfig.LOCKED;
+
+  const assets = [
+    {
+      name: "Google_Cloud_Cert.pdf",
+      cat: "Certificate",
+      status: verified ? "VERIFIED" : "PENDING",
+      pts: 30,
+    },
+    {
+      name: "GitHub_Profile.link",
+      cat: "Project",
+      status: "VERIFIED",
+      pts: 20,
+    },
+    { name: "SWE_Resume_2025.pdf", cat: "Resume", status: "VERIFIED", pts: 20 },
+  ];
+
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.7, delay }}
-      className={`node-card ${isActive ? "active" : ""}`}
+    <div
       style={{
-        borderRadius: 2,
-        padding: "16px",
-        width: 260,
-        flexShrink: 0,
-        position: "relative",
+        background: "rgba(10,10,10,0.98)",
+        border: "0.5px solid rgba(191,162,100,0.15)",
+        borderRadius: 16,
+        overflow: "hidden",
       }}
     >
-      {isActive && (
-        <div
-          style={{
-            position: "absolute",
-            top: 0,
-            left: 0,
-            right: 0,
-            height: 1,
-            background:
-              "linear-gradient(90deg, transparent, var(--gold-1), transparent)",
-          }}
-        />
-      )}
       <div
         style={{
+          padding: "12px 16px",
+          borderBottom: "0.5px solid rgba(255,255,255,0.05)",
           display: "flex",
-          justifyContent: "space-between",
-          alignItems: "flex-start",
-          marginBottom: 10,
+          alignItems: "center",
+          gap: 10,
+          background: "rgba(255,255,255,0.01)",
         }}
       >
-        <div>
-          <div
-            style={{
-              fontSize: 8,
-              color: "var(--text-dim)",
-              letterSpacing: "0.2em",
-              textTransform: "uppercase",
-              marginBottom: 4,
-              fontFamily: "var(--font-body)",
-            }}
-          >
-            {date}
-          </div>
-          <div
-            style={{
-              fontSize: 13,
-              fontWeight: 500,
-              color: isActive ? "var(--gold-2)" : "var(--text-primary)",
-              fontFamily: "var(--font-display)",
-              fontStyle: "italic",
-            }}
-          >
-            {title}
-          </div>
+        <div style={{ display: "flex", gap: 5 }}>
+          {["#F87171", "#FBBF24", "#4ADE80"].map((c) => (
+            <div
+              key={c}
+              style={{
+                width: 7,
+                height: 7,
+                borderRadius: "50%",
+                background: c,
+                opacity: 0.5,
+              }}
+            />
+          ))}
         </div>
-        <div
+        <span
           style={{
-            padding: "3px 8px",
-            fontSize: 7,
-            letterSpacing: "0.15em",
+            fontSize: 9,
+            letterSpacing: "0.25em",
+            color: "var(--text-dim)",
             textTransform: "uppercase",
-            color: cfg.color,
-            background: cfg.bg,
-            border: `0.5px solid ${cfg.color}40`,
             fontFamily: "var(--font-body)",
           }}
         >
-          {cfg.label}
-        </div>
+          Asset Vault — Proof of Work
+        </span>
       </div>
-      {tasks.map((task, i) => (
+      <div style={{ padding: 16 }}>
+        {assets.map((a, i) => (
+          <div
+            key={i}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 10,
+              padding: "8px 10px",
+              marginBottom: 5,
+              background: "rgba(255,255,255,0.02)",
+              border: "0.5px solid rgba(255,255,255,0.05)",
+              transition: "all 0.3s",
+            }}
+          >
+            <div
+              style={{
+                width: 7,
+                height: 7,
+                borderRadius: "50%",
+                background:
+                  a.status === "VERIFIED" ? "#4ADE80" : "var(--gold-2)",
+                boxShadow:
+                  a.status === "VERIFIED"
+                    ? "0 0 6px #4ADE80"
+                    : "0 0 6px var(--gold-2)",
+                animation:
+                  a.status !== "VERIFIED"
+                    ? "pulse-gold 2s ease-in-out infinite"
+                    : "none",
+                flexShrink: 0,
+              }}
+            />
+            <span
+              style={{
+                flex: 1,
+                fontSize: 10,
+                color: "var(--text-secondary)",
+                fontFamily: "var(--font-body)",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {a.name}
+            </span>
+            <span
+              style={{
+                fontSize: 7,
+                padding: "2px 6px",
+                letterSpacing: "0.12em",
+                color: a.status === "VERIFIED" ? "#4ADE80" : "var(--gold-2)",
+                background:
+                  a.status === "VERIFIED"
+                    ? "rgba(74,222,128,0.08)"
+                    : "rgba(191,162,100,0.08)",
+                border: `0.5px solid ${a.status === "VERIFIED" ? "rgba(74,222,128,0.2)" : "rgba(191,162,100,0.2)"}`,
+                fontFamily: "var(--font-body)",
+                textTransform: "uppercase",
+                flexShrink: 0,
+              }}
+            >
+              {a.status}
+            </span>
+            <span
+              style={{
+                fontSize: 10,
+                color: "var(--gold-2)",
+                fontFamily: "var(--font-body)",
+                flexShrink: 0,
+              }}
+            >
+              +{a.pts}
+            </span>
+          </div>
+        ))}
+        {hashing && (
+          <div
+            style={{
+              padding: "8px 10px",
+              marginBottom: 5,
+              background: "rgba(191,162,100,0.04)",
+              border: "0.5px solid rgba(191,162,100,0.15)",
+              fontFamily: "monospace",
+              fontSize: 8,
+              color: "var(--gold-3)",
+              letterSpacing: "0.05em",
+              wordBreak: "break-all",
+            }}
+          >
+            SHA-256: {hashStr}
+          </div>
+        )}
+        {verified && (
+          <motion.div
+            initial={{ opacity: 0, y: 5 }}
+            animate={{ opacity: 1, y: 0 }}
+            style={{
+              padding: "8px 10px",
+              marginBottom: 5,
+              background: "rgba(74,222,128,0.05)",
+              border: "0.5px solid rgba(74,222,128,0.2)",
+            }}
+          >
+            <span
+              style={{
+                fontSize: 8,
+                color: "#4ADE80",
+                fontFamily: "var(--font-body)",
+                letterSpacing: "0.12em",
+                textTransform: "uppercase",
+              }}
+            >
+              ✓ Cryptographic Signature Verified — +30 Score
+            </span>
+          </motion.div>
+        )}
+        <button
+          onClick={handleVerify}
+          disabled={hashing}
+          style={{
+            marginTop: 10,
+            width: "100%",
+            padding: "10px",
+            background:
+              "linear-gradient(135deg, rgba(139,114,64,0.3), rgba(191,162,100,0.15))",
+            border: "0.5px solid rgba(191,162,100,0.3)",
+            color: "var(--gold-2)",
+            fontSize: 8,
+            letterSpacing: "0.2em",
+            textTransform: "uppercase",
+            fontFamily: "var(--font-body)",
+            transition: "all 0.3s",
+            opacity: hashing ? 0.5 : 1,
+            borderRadius: 8,
+            minHeight: 44,
+          }}
+        >
+          {hashing
+            ? "Computing SHA-256 Signature..."
+            : "Simulate Verification →"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── LEADERBOARD SKELETON ─────────────────────────────────────────────────────
+function LeaderboardSkeleton() {
+  return (
+    <div
+      style={{
+        padding: "8px 0",
+        display: "flex",
+        flexDirection: "column",
+        gap: 10,
+      }}
+    >
+      {[...Array(3)].map((_, i) => (
         <div
           key={i}
           style={{
             display: "flex",
             alignItems: "center",
-            gap: 8,
-            padding: "6px 8px",
-            marginBottom: 4,
+            gap: 14,
+            padding: "14px 16px",
             background: "rgba(255,255,255,0.02)",
-            border: "0.5px solid rgba(255,255,255,0.05)",
+            border: "0.5px solid rgba(255,255,255,0.04)",
+            borderRadius: 10,
+            opacity: 1 - i * 0.15,
           }}
         >
           <div
+            className="skeleton"
             style={{
-              width: 12,
-              height: 12,
-              border: `0.5px solid ${task.done ? "#4ADE80" : "rgba(255,255,255,0.2)"}`,
-              background: task.done ? "rgba(74,222,128,0.1)" : "transparent",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
+              width: 28,
+              height: 28,
+              borderRadius: "50%",
               flexShrink: 0,
             }}
-          >
-            {task.done && (
-              <div style={{ width: 4, height: 4, background: "#4ADE80" }} />
-            )}
-          </div>
-          <span
+          />
+          <div
             style={{
-              fontSize: 10,
-              color: task.done ? "var(--text-dim)" : "var(--text-secondary)",
-              textDecoration: task.done ? "line-through" : "none",
-              fontFamily: "var(--font-body)",
+              flex: 1,
+              display: "flex",
+              flexDirection: "column",
+              gap: 6,
             }}
           >
-            {task.text}
-          </span>
+            <div
+              className="skeleton"
+              style={{ height: 12, width: "55%", borderRadius: 4 }}
+            />
+            <div
+              className="skeleton"
+              style={{ height: 9, width: "35%", borderRadius: 4 }}
+            />
+          </div>
+          <div
+            style={{
+              textAlign: "right",
+              display: "flex",
+              flexDirection: "column",
+              gap: 4,
+            }}
+          >
+            <div
+              className="skeleton"
+              style={{ height: 16, width: 64, borderRadius: 4 }}
+            />
+            <div
+              className="skeleton"
+              style={{
+                height: 8,
+                width: 40,
+                borderRadius: 4,
+                alignSelf: "flex-end",
+              }}
+            />
+          </div>
         </div>
       ))}
-    </motion.div>
-  );
-}
-
-// ─── FEATURE CARD ─────────────────────────────────────────────────────────────
-function FeatureCard({
-  number,
-  title,
-  subtitle,
-  description,
-  metrics = [],
-  delay = 0,
-}) {
-  const ref = useRef(null);
-  const inView = useInView(ref, { once: true, margin: "-80px" });
-  return (
-    <motion.div
-      ref={ref}
-      initial={{ opacity: 0, y: 40 }}
-      animate={inView ? { opacity: 1, y: 0 } : {}}
-      transition={{ duration: 0.9, delay, ease: [0.23, 1, 0.32, 1] }}
-      className="feature-card"
-      style={{ padding: "36px", borderRadius: 24 }}
-    >
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "flex-start",
-          marginBottom: 28,
-        }}
-      >
+      <div style={{ textAlign: "center", marginTop: 8 }}>
         <span
           style={{
-            fontSize: 10,
-            letterSpacing: "0.25em",
-            color: "var(--gold-3)",
+            fontSize: 9,
+            color: "var(--text-dim)",
             fontFamily: "var(--font-body)",
+            letterSpacing: "0.15em",
             textTransform: "uppercase",
           }}
         >
-          0{number}
+          Syncing Arena Matrix…
         </span>
-        <div className="badge">{subtitle}</div>
       </div>
-      <h3
-        style={{
-          fontFamily: "var(--font-display)",
-          fontSize: 26,
-          fontWeight: 500,
-          fontStyle: "italic",
-          lineHeight: 1.2,
-          marginBottom: 16,
-          color: "var(--text-primary)",
-          letterSpacing: "-0.01em",
-        }}
-      >
-        {title}
-      </h3>
-      <p
-        style={{
-          fontSize: 13,
-          lineHeight: 1.8,
-          color: "var(--text-secondary)",
-          fontFamily: "var(--font-body)",
-          marginBottom: 24,
-        }}
-      >
-        {description}
-      </p>
-      {metrics.length > 0 && (
-        <div
+    </div>
+  );
+}
+
+// ─── LEADERBOARD PREVIEW (lazy: only fetches when isActive becomes true) ──────
+function LeaderboardPreview({ isActive }) {
+  const [operators, setOperators] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const hasFetched = useRef(false);
+
+  useEffect(() => {
+    // Guard: only fetch once, only when this tab is actually visible
+    if (!isActive || hasFetched.current) return;
+    hasFetched.current = true;
+
+    async function fetchTopOperators() {
+      setLoading(true);
+      setError(null);
+      try {
+        const q = query(
+          collection(db, "users"),
+          where("onboardingComplete", "==", true),
+          orderBy("discotiveScore.current", "desc"),
+          limit(3),
+        );
+        const snap = await getDocs(q);
+        const fetchedOps = snap.docs.map((docSnap, index) => {
+          const data = docSnap.data();
+          const identity = data.identity || {};
+          const firstName = identity.firstName || "Operator";
+          const lastName = identity.lastName || "";
+          return {
+            rank: index + 1,
+            name: `${firstName} ${lastName}`.trim(),
+            domain: identity.domain || "General",
+            score: data.discotiveScore?.current || 0,
+            country: identity.country === "India" ? "🇮🇳" : "🌐",
+            streak: data.discotiveScore?.streak || 0,
+          };
+        });
+        setOperators(fetchedOps);
+      } catch (err) {
+        console.error("[Leaderboard] Fetch failed:", err);
+        setError("Could not load rankings.");
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    fetchTopOperators();
+  }, [isActive]);
+
+  if (!isActive && !hasFetched.current) {
+    return (
+      <div style={{ padding: "40px 0", textAlign: "center" }}>
+        <span
           style={{
-            display: "flex",
-            gap: 20,
-            paddingTop: 20,
-            borderTop: "0.5px solid var(--border)",
+            color: "var(--text-dim)",
+            fontSize: 12,
+            fontFamily: "var(--font-body)",
           }}
         >
-          {metrics.map((m, i) => (
-            <div key={i}>
+          Tap to load rankings
+        </span>
+      </div>
+    );
+  }
+
+  if (loading) return <LeaderboardSkeleton />;
+
+  if (error) {
+    return (
+      <div
+        style={{
+          color: "#F87171",
+          fontSize: 10,
+          textAlign: "center",
+          padding: "40px 0",
+          fontFamily: "monospace",
+          textTransform: "uppercase",
+        }}
+      >
+        [ERROR] {error}
+      </div>
+    );
+  }
+
+  if (operators.length === 0) {
+    return (
+      <div
+        style={{
+          color: "var(--text-dim)",
+          fontSize: 12,
+          textAlign: "center",
+          padding: "40px 0",
+        }}
+      >
+        No operators ranked yet.
+      </div>
+    );
+  }
+
+  const medals = ["🥇", "🥈", "🥉"];
+
+  return (
+    <div
+      style={{
+        padding: "8px 0",
+        display: "flex",
+        flexDirection: "column",
+        gap: 10,
+      }}
+    >
+      {operators.map((op, i) => (
+        <div
+          key={i}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "14px 16px",
+            background: "rgba(255,255,255,0.02)",
+            border: "0.5px solid rgba(255,255,255,0.05)",
+            borderRadius: 10,
+            transition: "all 0.3s",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+            <span style={{ fontSize: 20, flexShrink: 0 }}>
+              {medals[i] || `#${op.rank}`}
+            </span>
+            <div>
               <div
                 style={{
-                  fontSize: 20,
+                  fontSize: 13,
+                  color: "var(--text-primary)",
                   fontWeight: 600,
-                  color: "var(--gold-2)",
-                  fontFamily: "var(--font-display)",
-                  lineHeight: 1,
+                  fontFamily: "var(--font-body)",
                 }}
               >
-                {m.value}
+                {op.name} {op.country}
               </div>
               <div
                 style={{
                   fontSize: 9,
                   color: "var(--text-dim)",
-                  letterSpacing: "0.15em",
                   textTransform: "uppercase",
-                  marginTop: 4,
-                  fontFamily: "var(--font-body)",
+                  letterSpacing: "0.12em",
+                  marginTop: 3,
                 }}
               >
-                {m.label}
+                {op.domain}
               </div>
             </div>
-          ))}
+          </div>
+          <div style={{ textAlign: "right" }}>
+            <div
+              style={{
+                fontSize: 16,
+                color: "var(--gold-2)",
+                fontWeight: 700,
+                fontFamily: "var(--font-display)",
+              }}
+            >
+              {op.score.toLocaleString()}
+            </div>
+            <div
+              style={{
+                fontSize: 8,
+                color: "#4ADE80",
+                textTransform: "uppercase",
+                letterSpacing: "0.12em",
+                marginTop: 3,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "flex-end",
+                gap: 3,
+              }}
+            >
+              <span
+                style={{
+                  width: 4,
+                  height: 4,
+                  background: "#4ADE80",
+                  borderRadius: "50%",
+                  display: "inline-block",
+                }}
+              />
+              Live
+            </div>
+          </div>
         </div>
-      )}
-    </motion.div>
-  );
-}
-
-// ─── SECTION DIVIDER ──────────────────────────────────────────────────────────
-function SectionDivider({ label }) {
-  return (
-    <div
-      style={{
-        display: "flex",
-        alignItems: "center",
-        gap: 24,
-        margin: "0 auto",
-        maxWidth: 1200,
-        padding: "0 40px",
-      }}
-    >
-      <div
-        style={{
-          flex: 1,
-          height: "0.5px",
-          background: "linear-gradient(90deg, transparent, var(--border-gold))",
-        }}
-      />
-      <span
-        style={{
-          fontSize: 9,
-          letterSpacing: "0.3em",
-          textTransform: "uppercase",
-          color: "var(--gold-3)",
-          fontFamily: "var(--font-body)",
-          whiteSpace: "nowrap",
-        }}
-      >
-        {label}
-      </span>
-      <div
-        style={{
-          flex: 1,
-          height: "0.5px",
-          background: "linear-gradient(90deg, var(--border-gold), transparent)",
-        }}
-      />
+      ))}
     </div>
   );
 }
 
-// ─── TESTIMONIAL CARD ─────────────────────────────────────────────────────────
-function TestimonialCard({ quote, name, role, score, rank, delay = 0 }) {
-  const ref = useRef(null);
-  const inView = useInView(ref, { once: true, margin: "-60px" });
-  return (
-    <motion.div
-      ref={ref}
-      initial={{ opacity: 0, y: 30 }}
-      animate={inView ? { opacity: 1, y: 0 } : {}}
-      transition={{ duration: 0.8, delay, ease: [0.23, 1, 0.32, 1] }}
-      style={{
-        background: "rgba(255,255,255,0.015)",
-        border: "0.5px solid rgba(255,255,255,0.06)",
-        padding: "32px",
-        borderRadius: 24,
-        position: "relative",
-        transition: "all 0.5s cubic-bezier(0.23,1,0.32,1)",
-      }}
-    >
-      <div
-        style={{
-          fontSize: 32,
-          color: "var(--gold-3)",
-          fontFamily: "var(--font-display)",
-          lineHeight: 1,
-          marginBottom: 16,
-          opacity: 0.6,
-        }}
-      >
-        "
-      </div>
-      <p
-        style={{
-          fontSize: 14,
-          lineHeight: 1.75,
-          color: "var(--text-secondary)",
-          fontFamily: "var(--font-display)",
-          fontStyle: "italic",
-          marginBottom: 24,
-        }}
-      >
-        {quote}
-      </p>
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "flex-end",
-        }}
-      >
-        <div>
-          <div
-            style={{
-              fontSize: 13,
-              fontWeight: 500,
-              color: "var(--text-primary)",
-              fontFamily: "var(--font-body)",
-              marginBottom: 3,
-            }}
-          >
-            {name}
-          </div>
-          <div
-            style={{
-              fontSize: 10,
-              color: "var(--text-dim)",
-              letterSpacing: "0.1em",
-              fontFamily: "var(--font-body)",
-              textTransform: "uppercase",
-            }}
-          >
-            {role}
-          </div>
-        </div>
-        <div style={{ textAlign: "right" }}>
-          <div
-            style={{
-              fontSize: 16,
-              color: "var(--gold-2)",
-              fontFamily: "var(--font-display)",
-              fontWeight: 600,
-            }}
-          >
-            {score.toLocaleString()}
-          </div>
-          <div
-            style={{
-              fontSize: 8,
-              color: "var(--text-dim)",
-              letterSpacing: "0.2em",
-              textTransform: "uppercase",
-              fontFamily: "var(--font-body)",
-            }}
-          >
-            Rank #{rank}
-          </div>
-        </div>
-      </div>
-    </motion.div>
-  );
-}
-
-// ─── LANDING DEM WIDGET ───────────────────────────────────────────────────────
+// ─── DEM WIDGET ───────────────────────────────────────────────────────────────
 function LandingDEMWidget() {
   const [data, setData] = useState(null);
   const CX = 100,
@@ -1268,7 +1547,6 @@ function LandingDEMWidget() {
   useEffect(() => {
     const fetchDEM = async () => {
       try {
-        // Using static imports already defined at the top of Landing.jsx
         const fetchPromises = DEM.map((d) =>
           getCountFromServer(
             query(
@@ -1277,18 +1555,14 @@ function LandingDEMWidget() {
             ),
           ),
         );
-
         const snaps = await Promise.all(fetchPromises);
-
         const counts = {};
         let total = 0;
-
         snaps.forEach((snap, idx) => {
           const count = snap.data().count;
           counts[DEM[idx].id] = count;
           total += count;
         });
-
         const score =
           total === 0
             ? 0
@@ -1300,10 +1574,6 @@ function LandingDEMWidget() {
               );
         setData({ counts, total, score });
       } catch (err) {
-        console.error(
-          "[DEM Index] Live sync failed. Check Firestore rules.",
-          err,
-        );
         setData({
           counts: { a_drag: 0, average: 2, powerful: 5, game_changer: 8 },
           total: 15,
@@ -1318,11 +1588,13 @@ function LandingDEMWidget() {
     return (
       <div
         style={{
-          width: 280,
+          width: "100%",
+          maxWidth: 320,
           height: 160,
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
+          margin: "0 auto",
         }}
       >
         <div
@@ -1339,7 +1611,6 @@ function LandingDEMWidget() {
     );
 
   const { counts, total, score } = data;
-  const circ = 2 * Math.PI * R;
   const toXY = (deg) => {
     const rad = ((180 - deg) * Math.PI) / 180;
     return { x: CX + R * Math.cos(rad), y: CY - R * Math.sin(rad) };
@@ -1349,7 +1620,6 @@ function LandingDEMWidget() {
     const B = toXY(e);
     return `M ${A.x} ${A.y} A ${R} ${R} 0 0 1 ${B.x} ${B.y}`;
   };
-
   const validData = DEM.filter((d) => (counts[d.id] || 0) > 0);
   const gap = 3.5;
   const avail = 180 - (validData.length > 1 ? (validData.length - 1) * gap : 0);
@@ -1360,7 +1630,6 @@ function LandingDEMWidget() {
     cur += seg + gap;
     return a;
   });
-
   const dom =
     total === 0
       ? "var(--gold-1)"
@@ -1443,7 +1712,7 @@ function LandingDEMWidget() {
       <div
         style={{
           display: "flex",
-          gap: 20,
+          gap: 16,
           flexWrap: "wrap",
           justifyContent: "center",
           marginTop: 20,
@@ -1455,12 +1724,12 @@ function LandingDEMWidget() {
         {DEM.map((d) => (
           <div
             key={d.id}
-            style={{ display: "flex", alignItems: "center", gap: 8 }}
+            style={{ display: "flex", alignItems: "center", gap: 7 }}
           >
             <span
               style={{
-                width: 8,
-                height: 8,
+                width: 7,
+                height: 7,
                 borderRadius: "50%",
                 background: d.color,
                 display: "inline-block",
@@ -1493,470 +1762,393 @@ function LandingDEMWidget() {
   );
 }
 
-// ─── COMPARISON TABLE ROW ─────────────────────────────────────────────────────
-function CompareRow({ feature, them, us }) {
+// ─── SECTION DIVIDER ──────────────────────────────────────────────────────────
+function SectionDivider({ label }) {
   return (
-    <div
-      style={{
-        display: "grid",
-        gridTemplateColumns: "1fr 1fr 1fr",
-        padding: "14px 0",
-        borderBottom: "0.5px solid rgba(255,255,255,0.04)",
-      }}
-    >
+    <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
+      <div
+        style={{
+          flex: 1,
+          height: "0.5px",
+          background: "linear-gradient(90deg, transparent, var(--border-gold))",
+        }}
+      />
       <span
         style={{
-          fontSize: 12,
-          color: "var(--text-secondary)",
+          fontSize: 9,
+          letterSpacing: "0.3em",
+          textTransform: "uppercase",
+          color: "var(--gold-3)",
           fontFamily: "var(--font-body)",
+          whiteSpace: "nowrap",
         }}
       >
-        {feature}
+        {label}
       </span>
-      <div style={{ display: "flex", justifyContent: "center" }}>
-        {them ? (
-          <span
-            style={{
-              fontSize: 12,
-              color: "rgba(255,255,255,0.3)",
-              fontFamily: "var(--font-body)",
-            }}
-          >
-            ✓
-          </span>
-        ) : (
-          <span
-            style={{
-              fontSize: 12,
-              color: "rgba(255,255,255,0.15)",
-              fontFamily: "var(--font-body)",
-            }}
-          >
-            —
-          </span>
-        )}
-      </div>
-      <div style={{ display: "flex", justifyContent: "center" }}>
-        {us ? (
-          <span
-            style={{
-              fontSize: 12,
-              color: "var(--gold-2)",
-              fontFamily: "var(--font-body)",
-            }}
-          >
-            ✦
-          </span>
-        ) : (
-          <span
-            style={{
-              fontSize: 12,
-              color: "rgba(255,255,255,0.15)",
-              fontFamily: "var(--font-body)",
-            }}
-          >
-            —
-          </span>
-        )}
-      </div>
+      <div
+        style={{
+          flex: 1,
+          height: "0.5px",
+          background: "linear-gradient(90deg, var(--border-gold), transparent)",
+        }}
+      />
     </div>
   );
 }
 
-// ─── VAULT DEMO ───────────────────────────────────────────────────────────────
-function VaultDemo() {
-  const [hashing, setHashing] = useState(false);
-  const [verified, setVerified] = useState(false);
-  const [hashStr, setHashStr] = useState("");
-
-  const handleVerify = () => {
-    setHashing(true);
-    setVerified(false);
-    let chars = "0123456789abcdef";
-    let i = 0;
-    const interval = setInterval(() => {
-      setHashStr(
-        Array.from(
-          { length: 40 },
-          () => chars[Math.floor(Math.random() * chars.length)],
-        ).join(""),
-      );
-      i++;
-      if (i > 12) {
-        clearInterval(interval);
-        setHashStr("9f2a1c4b8e3d7f0a5c2b9e4d1f7a3c8b2e5d9f0a");
-        setHashing(false);
-        setVerified(true);
-      }
-    }, 80);
-  };
-
-  const assets = [
-    {
-      name: "Google_Cloud_Cert.pdf",
-      cat: "Certificate",
-      status: verified ? "VERIFIED" : "PENDING",
-      pts: 30,
-    },
-    {
-      name: "GitHub_Profile.link",
-      cat: "Project",
-      status: "VERIFIED",
-      pts: 20,
-    },
-    { name: "SWE_Resume_2025.pdf", cat: "Resume", status: "VERIFIED", pts: 20 },
-  ];
-
+// ─── FEATURE CARD ─────────────────────────────────────────────────────────────
+function FeatureCard({
+  number,
+  title,
+  subtitle,
+  description,
+  metrics = [],
+  delay = 0,
+}) {
+  const ref = useRef(null);
+  const inView = useInView(ref, { once: true, margin: "-80px" });
   return (
-    <div
+    <motion.div
+      ref={ref}
+      initial={{ opacity: 0, y: 40 }}
+      animate={inView ? { opacity: 1, y: 0 } : {}}
+      transition={{ duration: 0.9, delay, ease: [0.23, 1, 0.32, 1] }}
+      className="feature-card"
+      style={{ padding: "28px", borderRadius: 20 }}
+    >
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "flex-start",
+          marginBottom: 24,
+        }}
+      >
+        <span
+          style={{
+            fontSize: 10,
+            letterSpacing: "0.25em",
+            color: "var(--gold-3)",
+            fontFamily: "var(--font-body)",
+            textTransform: "uppercase",
+          }}
+        >
+          0{number}
+        </span>
+        <div className="badge">{subtitle}</div>
+      </div>
+      <h3
+        style={{
+          fontFamily: "var(--font-display)",
+          fontSize: 22,
+          fontWeight: 500,
+          fontStyle: "italic",
+          lineHeight: 1.2,
+          marginBottom: 14,
+          color: "var(--text-primary)",
+          letterSpacing: "-0.01em",
+        }}
+      >
+        {title}
+      </h3>
+      <p
+        style={{
+          fontSize: 13,
+          lineHeight: 1.8,
+          color: "var(--text-secondary)",
+          fontFamily: "var(--font-body)",
+          marginBottom: 20,
+        }}
+      >
+        {description}
+      </p>
+      {metrics.length > 0 && (
+        <div
+          style={{
+            display: "flex",
+            gap: 20,
+            paddingTop: 16,
+            borderTop: "0.5px solid var(--border)",
+          }}
+        >
+          {metrics.map((m, i) => (
+            <div key={i}>
+              <div
+                style={{
+                  fontSize: 18,
+                  fontWeight: 600,
+                  color: "var(--gold-2)",
+                  fontFamily: "var(--font-display)",
+                  lineHeight: 1,
+                }}
+              >
+                {m.value}
+              </div>
+              <div
+                style={{
+                  fontSize: 9,
+                  color: "var(--text-dim)",
+                  letterSpacing: "0.12em",
+                  textTransform: "uppercase",
+                  marginTop: 3,
+                  fontFamily: "var(--font-body)",
+                }}
+              >
+                {m.label}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </motion.div>
+  );
+}
+
+// ─── TESTIMONIAL CARD ─────────────────────────────────────────────────────────
+function TestimonialCard({ quote, name, role, score, rank, delay = 0 }) {
+  const ref = useRef(null);
+  const inView = useInView(ref, { once: true, margin: "-60px" });
+  return (
+    <motion.div
+      ref={ref}
+      initial={{ opacity: 0, y: 30 }}
+      animate={inView ? { opacity: 1, y: 0 } : {}}
+      transition={{ duration: 0.8, delay, ease: [0.23, 1, 0.32, 1] }}
       style={{
-        background: "rgba(10,10,10,0.98)",
-        border: "0.5px solid rgba(191,162,100,0.15)",
-        borderRadius: 16,
-        overflow: "hidden",
+        background: "rgba(255,255,255,0.015)",
+        border: "0.5px solid rgba(255,255,255,0.06)",
+        padding: "28px",
+        borderRadius: 20,
       }}
     >
       <div
         style={{
-          padding: "14px 20px",
-          borderBottom: "0.5px solid rgba(255,255,255,0.05)",
-          display: "flex",
-          alignItems: "center",
-          gap: 12,
-          background: "rgba(255,255,255,0.01)",
+          fontSize: 28,
+          color: "var(--gold-3)",
+          fontFamily: "var(--font-display)",
+          lineHeight: 1,
+          marginBottom: 14,
+          opacity: 0.6,
         }}
       >
-        <div style={{ display: "flex", gap: 6 }}>
-          {["#F87171", "#FBBF24", "#4ADE80"].map((c) => (
-            <div
-              key={c}
-              style={{
-                width: 8,
-                height: 8,
-                borderRadius: "50%",
-                background: c,
-                opacity: 0.5,
-              }}
-            />
-          ))}
+        "
+      </div>
+      <p
+        style={{
+          fontSize: 13,
+          lineHeight: 1.75,
+          color: "var(--text-secondary)",
+          fontFamily: "var(--font-display)",
+          fontStyle: "italic",
+          marginBottom: 20,
+        }}
+      >
+        {quote}
+      </p>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "flex-end",
+        }}
+      >
+        <div>
+          <div
+            style={{
+              fontSize: 13,
+              fontWeight: 500,
+              color: "var(--text-primary)",
+              fontFamily: "var(--font-body)",
+              marginBottom: 3,
+            }}
+          >
+            {name}
+          </div>
+          <div
+            style={{
+              fontSize: 10,
+              color: "var(--text-dim)",
+              letterSpacing: "0.1em",
+              fontFamily: "var(--font-body)",
+              textTransform: "uppercase",
+            }}
+          >
+            {role}
+          </div>
         </div>
-        <span
-          style={{
-            fontSize: 9,
-            letterSpacing: "0.25em",
-            color: "var(--text-dim)",
-            textTransform: "uppercase",
-            fontFamily: "var(--font-body)",
-          }}
-        >
-          Asset Vault — Proof of Work
-        </span>
-      </div>
-
-      <div style={{ padding: 20 }}>
-        {assets.map((a, i) => (
-          <div
-            key={i}
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 12,
-              padding: "10px 12px",
-              marginBottom: 6,
-              background: "rgba(255,255,255,0.02)",
-              border: "0.5px solid rgba(255,255,255,0.05)",
-              transition: "all 0.3s",
-            }}
-          >
-            <div
-              style={{
-                width: 8,
-                height: 8,
-                borderRadius: "50%",
-                background:
-                  a.status === "VERIFIED" ? "#4ADE80" : "var(--gold-2)",
-                boxShadow:
-                  a.status === "VERIFIED"
-                    ? "0 0 6px #4ADE80"
-                    : "0 0 6px var(--gold-2)",
-                animation:
-                  a.status !== "VERIFIED"
-                    ? "pulse-gold 2s ease-in-out infinite"
-                    : "none",
-              }}
-            />
-            <span
-              style={{
-                flex: 1,
-                fontSize: 11,
-                color: "var(--text-secondary)",
-                fontFamily: "var(--font-body)",
-              }}
-            >
-              {a.name}
-            </span>
-            <span
-              style={{
-                fontSize: 8,
-                padding: "2px 8px",
-                letterSpacing: "0.15em",
-                color: a.status === "VERIFIED" ? "#4ADE80" : "var(--gold-2)",
-                background:
-                  a.status === "VERIFIED"
-                    ? "rgba(74,222,128,0.08)"
-                    : "rgba(191,162,100,0.08)",
-                border: `0.5px solid ${a.status === "VERIFIED" ? "rgba(74,222,128,0.2)" : "rgba(191,162,100,0.2)"}`,
-                fontFamily: "var(--font-body)",
-                textTransform: "uppercase",
-              }}
-            >
-              {a.status}
-            </span>
-            <span
-              style={{
-                fontSize: 10,
-                color: "var(--gold-2)",
-                fontFamily: "var(--font-body)",
-                minWidth: 30,
-                textAlign: "right",
-              }}
-            >
-              +{a.pts}
-            </span>
-          </div>
-        ))}
-
-        {hashing && (
+        <div style={{ textAlign: "right" }}>
           <div
             style={{
-              padding: "10px 12px",
-              marginBottom: 6,
-              background: "rgba(191,162,100,0.04)",
-              border: "0.5px solid rgba(191,162,100,0.15)",
-              fontFamily: "monospace",
-              fontSize: 9,
-              color: "var(--gold-3)",
-              letterSpacing: "0.05em",
-              wordBreak: "break-all",
+              fontSize: 14,
+              color: "var(--gold-2)",
+              fontFamily: "var(--font-display)",
+              fontWeight: 600,
             }}
           >
-            SHA-256: {hashStr}
+            {score.toLocaleString()}
           </div>
-        )}
-
-        {verified && (
-          <motion.div
-            initial={{ opacity: 0, y: 5 }}
-            animate={{ opacity: 1, y: 0 }}
+          <div
             style={{
-              padding: "10px 12px",
-              marginBottom: 6,
-              background: "rgba(74,222,128,0.05)",
-              border: "0.5px solid rgba(74,222,128,0.2)",
+              fontSize: 8,
+              color: "var(--text-dim)",
+              letterSpacing: "0.2em",
+              textTransform: "uppercase",
+              fontFamily: "var(--font-body)",
             }}
           >
-            <span
-              style={{
-                fontSize: 9,
-                color: "#4ADE80",
-                fontFamily: "var(--font-body)",
-                letterSpacing: "0.15em",
-                textTransform: "uppercase",
-              }}
-            >
-              ✓ Cryptographic Signature Verified — +30 Score
-            </span>
-          </motion.div>
-        )}
-
-        <button
-          onClick={handleVerify}
-          disabled={hashing}
-          style={{
-            marginTop: 12,
-            width: "100%",
-            padding: "10px",
-            background:
-              "linear-gradient(135deg, rgba(139,114,64,0.3), rgba(191,162,100,0.15))",
-            border: "0.5px solid rgba(191,162,100,0.3)",
-            color: "var(--gold-2)",
-            fontSize: 9,
-            letterSpacing: "0.25em",
-            textTransform: "uppercase",
-            cursor: "none",
-            fontFamily: "var(--font-body)",
-            transition: "all 0.3s",
-            opacity: hashing ? 0.5 : 1,
-          }}
-        >
-          {hashing
-            ? "Computing SHA-256 Signature..."
-            : "Simulate Verification →"}
-        </button>
+            Rank #{rank}
+          </div>
+        </div>
       </div>
-    </div>
+    </motion.div>
   );
 }
 
-// ─── LEADERBOARD PREVIEW ──────────────────────────────────────────────────────
-function LeaderboardPreview() {
-  const [operators, setOperators] = useState([]);
-  const [error, setError] = useState(null);
-
-  useEffect(() => {
-    async function fetchTopOperators() {
-      try {
-        const q = query(
-          collection(db, "users"),
-          where("onboardingComplete", "==", true),
-          orderBy("discotiveScore.current", "desc"),
-          limit(3),
-        );
-        const snap = await getDocs(q);
-        const fetchedOps = snap.docs.map((docSnap, index) => {
-          const data = docSnap.data();
-          const identity = data.identity || {};
-          const firstName = identity.firstName || "Operator";
-          const lastName = identity.lastName || "";
-          return {
-            rank: index + 1,
-            name: `${firstName} ${lastName}`.trim(),
-            domain: identity.domain || "General",
-            score: data.discotiveScore?.current || 0,
-            country: identity.country === "India" ? "🇮🇳" : "🌐",
-            change: "Live",
-          };
-        });
-        setOperators(fetchedOps);
-      } catch (err) {
-        console.error(
-          "[Leaderboard] Fetch failed. Check Firestore rules & indexes:",
-          err,
-        );
-        setError("Access Denied: Unauthenticated or Missing Index");
-      }
-    }
-    fetchTopOperators();
-  }, []);
-
-  const medals = ["🥇", "🥈", "🥉"];
-
+// ─── EXECUTION NODE ───────────────────────────────────────────────────────────
+function ExecutionNode({
+  title,
+  date,
+  status,
+  tasks = [],
+  delay = 0,
+  isActive = false,
+}) {
+  const statusConfig = {
+    VERIFIED: {
+      label: "VERIFIED",
+      color: "#4ADE80",
+      bg: "rgba(74,222,128,0.06)",
+    },
+    ACTIVE: {
+      label: "IN PROGRESS",
+      color: "var(--gold-2)",
+      bg: "rgba(191,162,100,0.06)",
+    },
+    LOCKED: {
+      label: "LOCKED",
+      color: "rgba(255,255,255,0.25)",
+      bg: "rgba(255,255,255,0.02)",
+    },
+  };
+  const cfg = statusConfig[status] || statusConfig.LOCKED;
   return (
-    <div
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.7, delay }}
+      className={`node-card ${isActive ? "active" : ""}`}
       style={{
-        padding: "8px 0",
-        display: "flex",
-        flexDirection: "column",
-        gap: "12px",
+        borderRadius: 2,
+        padding: "14px",
+        width: 240,
+        flexShrink: 0,
+        position: "relative",
       }}
     >
-      {error ? (
+      {isActive && (
         <div
           style={{
-            color: "#F87171",
-            fontSize: "10px",
-            textAlign: "center",
-            padding: "40px 0",
-            fontFamily: "monospace",
-            textTransform: "uppercase",
+            position: "absolute",
+            top: 0,
+            left: 0,
+            right: 0,
+            height: 1,
+            background:
+              "linear-gradient(90deg, transparent, var(--gold-1), transparent)",
           }}
-        >
-          [ERROR] {error}
-        </div>
-      ) : operators.length === 0 ? (
-        <div
-          style={{
-            color: "var(--text-dim)",
-            fontSize: "12px",
-            textAlign: "center",
-            padding: "40px 0",
-          }}
-        >
-          Syncing Global Telemetry...
-        </div>
-      ) : (
-        operators.map((op, i) => (
+        />
+      )}
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "flex-start",
+          marginBottom: 8,
+        }}
+      >
+        <div>
           <div
-            key={i}
             style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-              padding: "16px",
-              background: "rgba(255,255,255,0.02)",
-              border: "0.5px solid rgba(255,255,255,0.05)",
-              borderRadius: "8px",
-              transition: "all 0.3s",
+              fontSize: 7,
+              color: "var(--text-dim)",
+              letterSpacing: "0.2em",
+              textTransform: "uppercase",
+              marginBottom: 3,
+              fontFamily: "var(--font-body)",
             }}
           >
-            <div style={{ display: "flex", alignItems: "center", gap: "16px" }}>
-              <span style={{ fontSize: "20px" }}>
-                {medals[i] || `#${op.rank}`}
-              </span>
-              <div>
-                <div
-                  style={{
-                    fontSize: "14px",
-                    color: "var(--text-primary)",
-                    fontWeight: "600",
-                    fontFamily: "var(--font-body)",
-                  }}
-                >
-                  {op.name} {op.country}
-                </div>
-                <div
-                  style={{
-                    fontSize: "10px",
-                    color: "var(--text-dim)",
-                    textTransform: "uppercase",
-                    letterSpacing: "0.15em",
-                    marginTop: "4px",
-                  }}
-                >
-                  {op.domain}
-                </div>
-              </div>
-            </div>
-            <div style={{ textAlign: "right" }}>
-              <div
-                style={{
-                  fontSize: "18px",
-                  color: "var(--gold-2)",
-                  fontWeight: "700",
-                  fontFamily: "var(--font-display)",
-                }}
-              >
-                {op.score.toLocaleString()}
-              </div>
-              <div
-                style={{
-                  fontSize: "9px",
-                  color: "#4ADE80",
-                  textTransform: "uppercase",
-                  letterSpacing: "0.15em",
-                  marginTop: "4px",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "flex-end",
-                  gap: "4px",
-                }}
-              >
-                <span
-                  style={{
-                    width: "4px",
-                    height: "4px",
-                    background: "#4ADE80",
-                    borderRadius: "50%",
-                    display: "inline-block",
-                  }}
-                ></span>{" "}
-                {op.change}
-              </div>
-            </div>
+            {date}
           </div>
-        ))
-      )}
-    </div>
+          <div
+            style={{
+              fontSize: 12,
+              fontWeight: 500,
+              color: isActive ? "var(--gold-2)" : "var(--text-primary)",
+              fontFamily: "var(--font-display)",
+              fontStyle: "italic",
+            }}
+          >
+            {title}
+          </div>
+        </div>
+        <div
+          style={{
+            padding: "2px 7px",
+            fontSize: 6,
+            letterSpacing: "0.12em",
+            textTransform: "uppercase",
+            color: cfg.color,
+            background: cfg.bg,
+            border: `0.5px solid ${cfg.color}40`,
+            fontFamily: "var(--font-body)",
+            flexShrink: 0,
+          }}
+        >
+          {cfg.label}
+        </div>
+      </div>
+      {tasks.map((task, i) => (
+        <div
+          key={i}
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 7,
+            padding: "5px 7px",
+            marginBottom: 3,
+            background: "rgba(255,255,255,0.02)",
+            border: "0.5px solid rgba(255,255,255,0.05)",
+          }}
+        >
+          <div
+            style={{
+              width: 11,
+              height: 11,
+              border: `0.5px solid ${task.done ? "#4ADE80" : "rgba(255,255,255,0.2)"}`,
+              background: task.done ? "rgba(74,222,128,0.1)" : "transparent",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              flexShrink: 0,
+            }}
+          >
+            {task.done && (
+              <div style={{ width: 4, height: 4, background: "#4ADE80" }} />
+            )}
+          </div>
+          <span
+            style={{
+              fontSize: 9,
+              color: task.done ? "var(--text-dim)" : "var(--text-secondary)",
+              textDecoration: task.done ? "line-through" : "none",
+              fontFamily: "var(--font-body)",
+            }}
+          >
+            {task.text}
+          </span>
+        </div>
+      ))}
+    </motion.div>
   );
 }
 
@@ -1965,7 +2157,7 @@ export default function DiscotiveLanding() {
   const navigate = useNavigate();
   const { scrollY } = useScroll();
   const heroOpacity = useTransform(scrollY, [0, 600], [1, 0]);
-  const heroScale = useTransform(scrollY, [0, 600], [1, 0.96]);
+  const heroScale = useTransform(scrollY, [0, 600], [1, 0.97]);
   const [navVisible, setNavVisible] = useState(false);
   const [activeTab, setActiveTab] = useState(0);
   const [realStats, setRealStats] = useState({
@@ -1977,7 +2169,7 @@ export default function DiscotiveLanding() {
   useEffect(() => {
     const fetchRealStats = async () => {
       try {
-        const { getCountFromServer, collection, query, where } =
+        const { getCountFromServer, collection } =
           await import("firebase/firestore");
         const { db } = await import("../firebase");
         const [totalSnap] = await Promise.all([
@@ -1989,10 +2181,7 @@ export default function DiscotiveLanding() {
     };
     fetchRealStats();
   }, []);
-  const [email, setEmail] = useState("");
-  const [emailSubmitted, setEmailSubmitted] = useState(false);
 
-  // Real data state
   const [platformStats, setPlatformStats] = useState({
     users: 0,
     proofVerified: 99,
@@ -2012,14 +2201,11 @@ export default function DiscotiveLanding() {
           ...prev,
           users: usersSnap.data().count,
         }));
-      } catch (error) {
-        console.error("Stats fetch error:", error);
-      }
+      } catch (_) {}
     }
     fetchStats();
   }, []);
 
-  // Execution Flow Canvas initial state
   const initialNodes = [
     {
       id: "1",
@@ -2111,11 +2297,10 @@ export default function DiscotiveLanding() {
   ];
 
   useEffect(() => {
-    const unsub = scrollY.onChange((v) => setNavVisible(v > 80));
+    const unsub = scrollY.on("change", (v) => setNavVisible(v > 80));
     return unsub;
   }, [scrollY]);
 
-  // Inject CSS
   useEffect(() => {
     const el = document.createElement("style");
     el.textContent = GLOBAL_CSS;
@@ -2140,7 +2325,6 @@ export default function DiscotiveLanding() {
     "Harvard",
     "IIT Kanpur",
   ];
-
   const careerTargets = [
     "Founder & CEO",
     "AI Research Scientist",
@@ -2156,170 +2340,129 @@ export default function DiscotiveLanding() {
     "Strategy Consultant",
   ];
 
-  const tabs = [
-    {
-      label: "Execution Map",
-      content: (
-        <div
-          style={{
-            width: "100%",
-            height: "260px",
-            background: "#0a0a0a",
-            borderRadius: "8px",
-            overflow: "hidden",
-          }}
-        >
-          <ReactFlow
-            nodes={initialNodes}
-            edges={initialEdges}
-            fitView
-            proOptions={{ hideAttribution: true }}
-            zoomOnScroll={false}
-          >
-            <Background color="#333" gap={16} />
-            <Controls showInteractive={false} style={{ display: "none" }} />
-          </ReactFlow>
-        </div>
-      ),
-    },
-    {
-      label: "Vault",
-      content: <VaultDemo />,
-    },
-    {
-      label: "Global Arena",
-      content: <LeaderboardPreview />,
-    },
-  ];
-
-  const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
+  // Tab content rendered separately so LeaderboardPreview only mounts when needed
+  const TAB_LABELS = ["Execution Map", "Vault", "Global Arena"];
 
   return (
     <div
       style={{
         minHeight: "100vh",
         background: "var(--void)",
-        overflow: "hidden",
+        overflowX: "hidden",
       }}
     >
       <NoiseBackground />
       <Cursor />
 
-      {/* ─── NAV ───────────────────────────────────────────────────────── */}
+      {/* ─── NAV ─────────────────────────────────────────────────────────── */}
       <motion.nav
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         transition={{ duration: 0.8, delay: 0.2 }}
-        style={{
-          position: "fixed",
-          top: 0,
-          left: 0,
-          right: 0,
-          zIndex: 1000,
-          padding: "0 40px",
-          height: 64,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-        }}
+        style={{ position: "fixed", top: 0, left: 0, right: 0, zIndex: 1000 }}
         className={navVisible ? "nav-blur" : ""}
       >
-        <div
-          style={{ display: "flex", alignItems: "center", gap: 10, zIndex: 10 }}
-        >
-          <img
-            src="/logo.png"
-            alt="Discotive"
-            style={{ height: 28, width: "auto", objectFit: "contain" }}
-          />
-          <span
+        <div className="nav-inner">
+          {/* Logo */}
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <img
+              src="/logo.png"
+              alt="Discotive"
+              style={{ height: 26, width: "auto", objectFit: "contain" }}
+            />
+            <span
+              style={{
+                fontFamily: "var(--font-display)",
+                fontSize: 16,
+                fontWeight: 800,
+                letterSpacing: "-0.01em",
+                color: "var(--text-primary)",
+              }}
+            >
+              DISCOTIVE
+            </span>
+          </div>
+
+          {/* Center Nav (desktop only) */}
+          <div
+            className="hide-on-mobile"
             style={{
-              fontFamily: "var(--font-display)",
-              fontSize: 18,
-              fontWeight: 800,
-              letterSpacing: "-0.01em",
-              color: "var(--text-primary)",
+              position: "absolute",
+              left: "50%",
+              transform: "translateX(-50%)",
+              alignItems: "center",
+              gap: 40,
             }}
           >
-            DISCOTIVE
-          </span>
-        </div>
-        {/* Centered Navigation */}       {" "}
-        <div
-          className="hide-on-mobile"
-          style={{
-            position: "absolute",
-            left: "50%",
-            transform: "translateX(-50%)",
-            display: "flex",
-            alignItems: "center",
-            gap: 40,
-          }}
-        >
-          {[
-            { name: "Features", route: "#" },
-            { name: "Connective", route: "/connective" },
-            { name: "Pricing", route: "#" },
-          ].map((item) => (
-            <Link
-              key={item.name}
-              to={item.route}
-              style={{
-                fontSize: 11,
-                letterSpacing: "0.15em",
-                textTransform: "uppercase",
-                color: "var(--text-dim)",
-                textDecoration: "none",
-                fontFamily: "var(--font-body)",
-                transition: "color 0.3s",
-              }}
-              onMouseEnter={(e) => (e.target.style.color = "var(--gold-2)")}
-              onMouseLeave={(e) => (e.target.style.color = "var(--text-dim)")}
+            {[
+              { name: "Features", route: "#" },
+              { name: "Connective", route: "/connective" },
+              { name: "Pricing", route: "#" },
+            ].map((item) => (
+              <Link
+                key={item.name}
+                to={item.route}
+                style={{
+                  fontSize: 11,
+                  letterSpacing: "0.15em",
+                  textTransform: "uppercase",
+                  color: "var(--text-dim)",
+                  textDecoration: "none",
+                  fontFamily: "var(--font-body)",
+                  transition: "color 0.3s",
+                }}
+                onMouseEnter={(e) => (e.target.style.color = "var(--gold-2)")}
+                onMouseLeave={(e) => (e.target.style.color = "var(--text-dim)")}
+              >
+                {item.name}
+              </Link>
+            ))}
+          </div>
+
+          {/* CTA */}
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <button
+              className="btn-outline hide-on-mobile"
+              style={{ padding: "8px 20px", fontSize: 10 }}
+              onClick={() => navigate("/auth")}
             >
-              {item.name}
-            </Link>
-          ))}
-        </div>
-        <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-          <button
-            className="btn-outline hidden sm:flex"
-            style={{ padding: "9px 24px", fontSize: 10 }}
-            onClick={() => (window.location.href = "/auth")}
-          >
-            Sign In
-          </button>
-          <button
-            className="btn-primary"
-            style={{ padding: "9px 24px", fontSize: 10 }}
-            onClick={() => (window.location.href = "/auth")}
-          >
-            <span className="hidden sm:inline">Initialize Protocol</span>
-            <span className="sm:hidden">Boot OS</span>
-          </button>
+              Sign In
+            </button>
+            <button
+              className="btn-primary"
+              style={{
+                padding: "9px 20px",
+                fontSize: 10,
+                whiteSpace: "nowrap",
+              }}
+              onClick={() => navigate("/auth")}
+            >
+              <span className="hide-on-mobile" style={{ display: "inline" }}>
+                Initialize Protocol
+              </span>
+              <span className="hide-on-desktop" style={{ display: "inline" }}>
+                Boot OS
+              </span>
+            </button>
+          </div>
         </div>
       </motion.nav>
 
-      {/* ─── HERO ──────────────────────────────────────────────────────── */}
-      <motion.section
-        style={{ opacity: heroOpacity, scale: heroScale }}
-        className="hero-section"
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ duration: 1 }}
-      >
+      {/* ─── HERO ─────────────────────────────────────────────────────────── */}
+      <motion.section style={{ opacity: heroOpacity, scale: heroScale }}>
         <div
+          className="hero-padding"
           style={{
-            minHeight: "100vh",
+            minHeight: "100svh",
             display: "flex",
             flexDirection: "column",
             alignItems: "center",
             justifyContent: "center",
             position: "relative",
             overflow: "hidden",
-            padding: "120px 40px 80px",
           }}
         >
-          {/* Background architectural lines */}
+          {/* Architectural lines */}
           <div
             style={{
               position: "absolute",
@@ -2328,7 +2471,6 @@ export default function DiscotiveLanding() {
               pointerEvents: "none",
             }}
           >
-            {/* Vertical lines */}
             {[0.15, 0.3, 0.5, 0.7, 0.85].map((pos, i) => (
               <motion.div
                 key={i}
@@ -2351,51 +2493,32 @@ export default function DiscotiveLanding() {
                 }}
               />
             ))}
-            {/* Radial gradient center glow */}
             <div
               style={{
                 position: "absolute",
                 top: "50%",
                 left: "50%",
                 transform: "translate(-50%, -55%)",
-                width: 800,
-                height: 800,
+                width: 600,
+                height: 600,
                 background:
                   "radial-gradient(ellipse, rgba(139,114,64,0.08) 0%, rgba(191,162,100,0.04) 40%, transparent 70%)",
                 pointerEvents: "none",
               }}
             />
-            {/* Horizontal lines */}
-            {[0.3, 0.6].map((pos, i) => (
-              <motion.div
-                key={i}
-                initial={{ scaleX: 0, opacity: 0 }}
-                animate={{ scaleX: 1, opacity: 1 }}
-                transition={{ duration: 2.5, delay: 0.8 + i * 0.2 }}
-                style={{
-                  position: "absolute",
-                  left: 0,
-                  right: 0,
-                  top: `${pos * 100}%`,
-                  height: "0.5px",
-                  background:
-                    "linear-gradient(90deg, transparent 0%, rgba(191,162,100,0.04) 30%, rgba(191,162,100,0.04) 70%, transparent 100%)",
-                  transformOrigin: "left",
-                }}
-              />
-            ))}
           </div>
 
           {/* Content */}
           <div
             style={{
               textAlign: "center",
-              maxWidth: 960,
+              maxWidth: 900,
               position: "relative",
               zIndex: 1,
+              width: "100%",
             }}
           >
-            {/* Overline badge */}
+            {/* Badge */}
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
@@ -2403,7 +2526,7 @@ export default function DiscotiveLanding() {
               style={{
                 display: "flex",
                 justifyContent: "center",
-                marginBottom: 40,
+                marginBottom: 32,
               }}
             >
               <div
@@ -2420,7 +2543,6 @@ export default function DiscotiveLanding() {
                   textTransform: "uppercase",
                   color: "var(--text-secondary)",
                   fontFamily: "var(--font-body)",
-                  boxShadow: "0 0 20px rgba(255,255,255,0.02)",
                 }}
               >
                 <span
@@ -2437,7 +2559,7 @@ export default function DiscotiveLanding() {
               </div>
             </motion.div>
 
-            {/* Main headline */}
+            {/* Headline */}
             <motion.div
               initial={{ opacity: 0, y: 30 }}
               animate={{ opacity: 1, y: 0 }}
@@ -2447,12 +2569,12 @@ export default function DiscotiveLanding() {
                 style={{
                   fontFamily: "var(--font-display)",
                   fontStyle: "italic",
-                  fontSize: "clamp(52px, 8vw, 108px)",
+                  fontSize: "clamp(44px, 10vw, 108px)",
                   fontWeight: 400,
                   lineHeight: 0.92,
                   letterSpacing: "-0.03em",
                   color: "var(--text-primary)",
-                  marginBottom: 20,
+                  marginBottom: 16,
                 }}
               >
                 Build Your
@@ -2461,11 +2583,11 @@ export default function DiscotiveLanding() {
                 style={{
                   fontFamily: "var(--font-display)",
                   fontStyle: "normal",
-                  fontSize: "clamp(52px, 8vw, 108px)",
+                  fontSize: "clamp(44px, 10vw, 108px)",
                   fontWeight: 800,
                   lineHeight: 0.92,
                   letterSpacing: "-0.03em",
-                  marginBottom: 36,
+                  marginBottom: 28,
                 }}
                 className="gold-text"
               >
@@ -2479,14 +2601,13 @@ export default function DiscotiveLanding() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.9, delay: 0.7 }}
               style={{
-                fontSize: "clamp(14px, 1.6vw, 18px)",
+                fontSize: "clamp(14px, 1.6vw, 17px)",
                 lineHeight: 1.7,
                 color: "var(--text-secondary)",
                 fontFamily: "var(--font-body)",
-                maxWidth: 620,
-                margin: "0 auto 52px",
+                maxWidth: 560,
+                margin: "0 auto 40px",
                 fontWeight: 300,
-                letterSpacing: "0.01em",
               }}
             >
               The operating system for the next generation of builders. Map your
@@ -2494,39 +2615,38 @@ export default function DiscotiveLanding() {
               leaderboard.
             </motion.p>
 
-            {/* CTA buttons */}
+            {/* CTAs */}
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.8, delay: 0.85 }}
               style={{
                 display: "flex",
-                gap: 16,
+                gap: 12,
                 justifyContent: "center",
                 flexWrap: "wrap",
-                marginBottom: 80,
+                marginBottom: 56,
               }}
             >
-              <button className="btn-primary" style={{ fontSize: 11 }}>
-                Initialize Your OS
-                <span style={{ opacity: 0.7 }}>→</span>
+              <button
+                className="btn-primary"
+                style={{ fontSize: 11 }}
+                onClick={() => navigate("/auth")}
+              >
+                Initialize Your OS <span style={{ opacity: 0.7 }}>→</span>
               </button>
               <button className="btn-outline" style={{ fontSize: 11 }}>
                 Watch the Brief
               </button>
             </motion.div>
 
-            {/* Hero stats */}
+            {/* Stats */}
             <motion.div
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               transition={{ duration: 1, delay: 1 }}
-              style={{
-                display: "flex",
-                justifyContent: "center",
-                gap: 60,
-                flexWrap: "wrap",
-              }}
+              className="grid-stats"
+              style={{ maxWidth: 600, margin: "0 auto" }}
             >
               {[
                 {
@@ -2559,12 +2679,11 @@ export default function DiscotiveLanding() {
                   <div
                     style={{
                       fontFamily: "var(--font-display)",
-                      fontSize: 32,
+                      fontSize: "clamp(22px, 4vw, 32px)",
                       fontWeight: 500,
                       color: "var(--gold-2)",
                       lineHeight: 1,
                       marginBottom: 6,
-                      letterSpacing: "-0.02em",
                     }}
                     className="hero-number"
                   >
@@ -2573,7 +2692,7 @@ export default function DiscotiveLanding() {
                   <div
                     style={{
                       fontSize: 9,
-                      letterSpacing: "0.25em",
+                      letterSpacing: "0.2em",
                       textTransform: "uppercase",
                       color: "var(--text-dim)",
                       fontFamily: "var(--font-body)",
@@ -2593,7 +2712,7 @@ export default function DiscotiveLanding() {
             transition={{ delay: 1.5 }}
             style={{
               position: "absolute",
-              bottom: 40,
+              bottom: 32,
               left: "50%",
               transform: "translateX(-50%)",
               display: "flex",
@@ -2618,7 +2737,7 @@ export default function DiscotiveLanding() {
               transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
               style={{
                 width: 1,
-                height: 32,
+                height: 28,
                 background:
                   "linear-gradient(180deg, var(--gold-3), transparent)",
               }}
@@ -2627,92 +2746,80 @@ export default function DiscotiveLanding() {
         </div>
       </motion.section>
 
-      {/* ─── MARQUEE SECTION ────────────────────────────────────────────── */}
+      {/* ─── MARQUEE ──────────────────────────────────────────────────────── */}
       <div
         style={{
           overflow: "hidden",
           borderTop: "0.5px solid var(--border)",
           borderBottom: "0.5px solid var(--border)",
-          padding: "20px 0",
+          padding: "18px 0",
           background: "rgba(255,255,255,0.008)",
         }}
       >
-        <div style={{ display: "flex", gap: 0 }}>
-          <div style={{ overflow: "hidden", flex: 1 }}>
-            <div className="ticker-track" style={{ display: "flex" }}>
-              {[...collegeNames, ...collegeNames].map((name, i) => (
-                <span
-                  key={i}
-                  style={{
-                    fontSize: 11,
-                    letterSpacing: "0.2em",
-                    textTransform: "uppercase",
-                    color: "var(--text-dim)",
-                    fontFamily: "var(--font-body)",
-                    whiteSpace: "nowrap",
-                    minWidth: "max-content",
-                  }}
-                >
-                  {name}{" "}
-                  <span style={{ color: "var(--gold-3)", margin: "0 20px" }}>
-                    ✦
-                  </span>
+        <div style={{ overflow: "hidden" }}>
+          <div className="ticker-track" style={{ display: "flex" }}>
+            {[...collegeNames, ...collegeNames].map((name, i) => (
+              <span
+                key={i}
+                style={{
+                  fontSize: 10,
+                  letterSpacing: "0.2em",
+                  textTransform: "uppercase",
+                  color: "var(--text-dim)",
+                  fontFamily: "var(--font-body)",
+                  whiteSpace: "nowrap",
+                  minWidth: "max-content",
+                }}
+              >
+                {name}{" "}
+                <span style={{ color: "var(--gold-3)", margin: "0 16px" }}>
+                  ✦
                 </span>
-              ))}
-            </div>
+              </span>
+            ))}
           </div>
         </div>
-        <div style={{ marginTop: 14, display: "flex", gap: 0 }}>
-          <div style={{ overflow: "hidden", flex: 1 }}>
-            <div
-              className="ticker-track ticker-track-slow"
-              style={{ display: "flex" }}
-            >
-              {[...careerTargets, ...careerTargets].map((name, i) => (
+        <div style={{ marginTop: 12, overflow: "hidden" }}>
+          <div
+            className="ticker-track ticker-track-slow"
+            style={{ display: "flex" }}
+          >
+            {[...careerTargets, ...careerTargets].map((name, i) => (
+              <span
+                key={i}
+                style={{
+                  fontSize: 10,
+                  letterSpacing: "0.2em",
+                  textTransform: "uppercase",
+                  color: "rgba(191,162,100,0.35)",
+                  fontFamily: "var(--font-body)",
+                  whiteSpace: "nowrap",
+                  minWidth: "max-content",
+                }}
+              >
+                {name}{" "}
                 <span
-                  key={i}
                   style={{
-                    fontSize: 11,
-                    letterSpacing: "0.2em",
-                    textTransform: "uppercase",
-                    color: "rgba(191,162,100,0.35)",
-                    fontFamily: "var(--font-body)",
-                    whiteSpace: "nowrap",
-                    minWidth: "max-content",
+                    color: "var(--gold-3)",
+                    margin: "0 16px",
+                    opacity: 0.4,
                   }}
                 >
-                  {name}{" "}
-                  <span
-                    style={{
-                      color: "var(--gold-3)",
-                      margin: "0 20px",
-                      opacity: 0.4,
-                    }}
-                  >
-                    ◆
-                  </span>
+                  ◆
                 </span>
-              ))}
-            </div>
+              </span>
+            ))}
           </div>
         </div>
       </div>
 
-      {/* ─── THE MANIFESTO SECTION ───────────────────────────────────────── */}
+      {/* ─── MANIFESTO ────────────────────────────────────────────────────── */}
       <section
-        style={{ maxWidth: 1200, margin: "0 auto", padding: "140px 40px" }}
+        style={{ maxWidth: 1200, margin: "0 auto" }}
+        className="section-py section-px"
       >
         <SectionDivider label="The Problem · The Solution" />
-        <div
-          className="responsive-grid-2"
-          style={{
-            marginTop: 80,
-            display: "grid",
-            gridTemplateColumns: "1fr 1fr",
-            gap: 80,
-            alignItems: "start",
-          }}
-        >
+        <div className="manifesto-grid">
           <motion.div
             initial={{ opacity: 0, x: -30 }}
             whileInView={{ opacity: 1, x: 0 }}
@@ -2723,12 +2830,12 @@ export default function DiscotiveLanding() {
               style={{
                 display: "flex",
                 alignItems: "center",
-                gap: 16,
-                marginBottom: 28,
+                gap: 14,
+                marginBottom: 24,
               }}
             >
               <div
-                style={{ width: 24, height: 0.5, background: "var(--gold-3)" }}
+                style={{ width: 20, height: 0.5, background: "var(--gold-3)" }}
               />
               <span
                 style={{
@@ -2745,13 +2852,13 @@ export default function DiscotiveLanding() {
             <h2
               style={{
                 fontFamily: "var(--font-display)",
-                fontSize: 42,
+                fontSize: "clamp(28px, 4vw, 42px)",
                 fontWeight: 400,
                 fontStyle: "italic",
                 lineHeight: 1.15,
                 letterSpacing: "-0.02em",
                 color: "var(--text-primary)",
-                marginBottom: 24,
+                marginBottom: 20,
               }}
             >
               Students are spending years in an information fog.
@@ -2762,7 +2869,7 @@ export default function DiscotiveLanding() {
                 lineHeight: 1.9,
                 color: "var(--text-secondary)",
                 fontFamily: "var(--font-body)",
-                marginBottom: 20,
+                marginBottom: 16,
               }}
             >
               The traditional career market is structurally broken. Resumes lie.
@@ -2782,7 +2889,6 @@ export default function DiscotiveLanding() {
               work. Just noise.
             </p>
           </motion.div>
-
           <motion.div
             initial={{ opacity: 0, x: 30 }}
             whileInView={{ opacity: 1, x: 0 }}
@@ -2793,12 +2899,12 @@ export default function DiscotiveLanding() {
               style={{
                 display: "flex",
                 alignItems: "center",
-                gap: 16,
-                marginBottom: 28,
+                gap: 14,
+                marginBottom: 24,
               }}
             >
               <div
-                style={{ width: 24, height: 0.5, background: "var(--gold-1)" }}
+                style={{ width: 20, height: 0.5, background: "var(--gold-1)" }}
               />
               <span
                 style={{
@@ -2815,12 +2921,12 @@ export default function DiscotiveLanding() {
             <h2
               style={{
                 fontFamily: "var(--font-display)",
-                fontSize: 42,
+                fontSize: "clamp(28px, 4vw, 42px)",
                 fontWeight: 700,
                 fontStyle: "italic",
                 lineHeight: 1.15,
                 letterSpacing: "-0.02em",
-                marginBottom: 24,
+                marginBottom: 20,
               }}
               className="gold-text"
             >
@@ -2832,7 +2938,7 @@ export default function DiscotiveLanding() {
                 lineHeight: 1.9,
                 color: "var(--text-secondary)",
                 fontFamily: "var(--font-body)",
-                marginBottom: 20,
+                marginBottom: 16,
               }}
             >
               Discotive converts a confusing professional future into a
@@ -2855,17 +2961,20 @@ export default function DiscotiveLanding() {
         </div>
       </section>
 
-      {/* ─── LIVE OS DEMO SECTION ────────────────────────────────────────── */}
+      {/* ─── LIVE OS DEMO ─────────────────────────────────────────────────── */}
       <section
         style={{
-          padding: "80px 0 140px",
+          padding: "80px 0 120px",
           background: "rgba(255,255,255,0.008)",
           borderTop: "0.5px solid var(--border)",
           borderBottom: "0.5px solid var(--border)",
         }}
       >
-        <div style={{ maxWidth: 1200, margin: "0 auto", padding: "0 40px" }}>
-          <div style={{ textAlign: "center", marginBottom: 64 }}>
+        <div
+          style={{ maxWidth: 1200, margin: "0 auto" }}
+          className="section-px"
+        >
+          <div style={{ textAlign: "center", marginBottom: 52 }}>
             <SectionDivider label="Live OS Interface" />
             <motion.h2
               initial={{ opacity: 0, y: 20 }}
@@ -2874,12 +2983,12 @@ export default function DiscotiveLanding() {
               transition={{ duration: 0.9 }}
               style={{
                 fontFamily: "var(--font-display)",
-                fontSize: 52,
+                fontSize: "clamp(32px, 5vw, 52px)",
                 fontWeight: 400,
                 fontStyle: "italic",
                 letterSpacing: "-0.02em",
                 color: "var(--text-primary)",
-                marginTop: 40,
+                marginTop: 32,
                 lineHeight: 1.1,
               }}
             >
@@ -2892,26 +3001,13 @@ export default function DiscotiveLanding() {
           </div>
 
           {/* Tabs */}
-          <div
-            style={{
-              display: "flex",
-              gap: 2,
-              marginBottom: 0,
-              justifyContent: "center",
-            }}
-          >
-            {tabs.map((tab, i) => (
+          <div className="tabs-row" style={{ justifyContent: "flex-start" }}>
+            {TAB_LABELS.map((label, i) => (
               <button
                 key={i}
                 onClick={() => setActiveTab(i)}
+                className="tab-btn"
                 style={{
-                  padding: "10px 28px",
-                  fontSize: 10,
-                  letterSpacing: "0.2em",
-                  textTransform: "uppercase",
-                  fontFamily: "var(--font-body)",
-                  cursor: "none",
-                  border: "0.5px solid",
                   borderColor:
                     activeTab === i
                       ? "rgba(191,162,100,0.4)"
@@ -2919,56 +3015,73 @@ export default function DiscotiveLanding() {
                   background:
                     activeTab === i ? "rgba(191,162,100,0.08)" : "transparent",
                   color: activeTab === i ? "var(--gold-2)" : "var(--text-dim)",
-                  transition: "all 0.3s",
-                  borderBottom: "none",
                 }}
               >
-                {tab.label}
+                {label}
               </button>
             ))}
           </div>
 
-          {/* Tab content */}
+          {/* Tab Content */}
           <AnimatePresence mode="wait">
             <motion.div
               key={activeTab}
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
-              transition={{ duration: 0.4 }}
+              transition={{ duration: 0.35 }}
               style={{
                 background: "rgba(8,8,8,0.98)",
                 border: "0.5px solid rgba(191,162,100,0.2)",
-                borderRadius: "0 2px 2px 2px",
-                padding: "32px",
+                borderRadius: "0 4px 4px 4px",
+                padding: "24px",
                 overflowX: "auto",
-                overflowY: "hidden",
               }}
             >
-              {tabs[activeTab].content}
+              {activeTab === 0 && (
+                <div
+                  style={{
+                    width: "100%",
+                    height: "240px",
+                    background: "#0a0a0a",
+                    borderRadius: "8px",
+                    overflow: "hidden",
+                  }}
+                >
+                  <ReactFlow
+                    nodes={initialNodes}
+                    edges={initialEdges}
+                    fitView
+                    proOptions={{ hideAttribution: true }}
+                    zoomOnScroll={false}
+                  >
+                    <Background color="#333" gap={16} />
+                    <Controls
+                      showInteractive={false}
+                      style={{ display: "none" }}
+                    />
+                  </ReactFlow>
+                </div>
+              )}
+              {activeTab === 1 && <VaultDemo />}
+              {activeTab === 2 && (
+                <LeaderboardPreview isActive={activeTab === 2} />
+              )}
             </motion.div>
           </AnimatePresence>
 
-          {/* Score widget alongside */}
-          <div
-            style={{
-              display: "flex",
-              gap: 32,
-              marginTop: 32,
-              alignItems: "flex-start",
-              flexWrap: "wrap",
-            }}
-          >
-            <div style={{ flex: 1, minWidth: 280 }}>
+          {/* Score + Engine */}
+          <div className="score-demo-layout">
+            <div style={{ flexShrink: 0, width: "100%", maxWidth: 320 }}>
               <LiveScoreWidget />
             </div>
-            <div style={{ flex: 2, minWidth: 320 }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
               <div
                 style={{
                   background: "rgba(8,8,8,0.98)",
                   border: "0.5px solid rgba(255,255,255,0.06)",
                   borderRadius: 2,
-                  padding: "28px",
+                  padding: "24px",
                 }}
               >
                 <div
@@ -2978,18 +3091,12 @@ export default function DiscotiveLanding() {
                     textTransform: "uppercase",
                     color: "var(--gold-3)",
                     fontFamily: "var(--font-body)",
-                    marginBottom: 20,
+                    marginBottom: 16,
                   }}
                 >
                   The Score Engine — What Moves the Needle
                 </div>
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "1fr 1fr",
-                    gap: 8,
-                  }}
-                >
+                <div className="score-engine-grid">
                   {[
                     {
                       event: "Daily Login",
@@ -3006,11 +3113,7 @@ export default function DiscotiveLanding() {
                       pts: "Variable",
                       type: "Execution",
                     },
-                    {
-                      event: "Vault Verified (Strong)",
-                      pts: "Variable",
-                      type: "Proof",
-                    },
+                    { event: "Vault Verified", pts: "Variable", type: "Proof" },
                     {
                       event: "Alliance Forged",
                       pts: "Variable",
@@ -3025,12 +3128,13 @@ export default function DiscotiveLanding() {
                     <div
                       key={i}
                       style={{
-                        padding: "10px 14px",
+                        padding: "9px 12px",
                         background: "rgba(255,255,255,0.02)",
                         border: "0.5px solid rgba(255,255,255,0.04)",
                         display: "flex",
                         justifyContent: "space-between",
                         alignItems: "center",
+                        borderRadius: 6,
                       }}
                     >
                       <div>
@@ -3058,12 +3162,13 @@ export default function DiscotiveLanding() {
                       </div>
                       <span
                         style={{
-                          fontSize: 12,
+                          fontSize: 11,
                           fontWeight: 600,
                           fontFamily: "var(--font-body)",
-                          color: item.pts.startsWith("-")
-                            ? "#F87171"
-                            : "var(--gold-2)",
+                          color:
+                            item.pts === "Penalty"
+                              ? "#F87171"
+                              : "var(--gold-2)",
                         }}
                       >
                         {item.pts}
@@ -3077,23 +3182,24 @@ export default function DiscotiveLanding() {
         </div>
       </section>
 
-      {/* ─── FEATURES GRID ───────────────────────────────────────────────── */}
+      {/* ─── FEATURES GRID ────────────────────────────────────────────────── */}
       <section
-        style={{ maxWidth: 1200, margin: "0 auto", padding: "140px 40px" }}
+        style={{ maxWidth: 1200, margin: "0 auto" }}
+        className="section-py section-px"
       >
-        <div style={{ textAlign: "center", marginBottom: 80 }}>
+        <div style={{ textAlign: "center", marginBottom: 56 }}>
           <SectionDivider label="Core Modules" />
           <motion.div
             initial={{ opacity: 0, y: 24 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
             transition={{ duration: 1 }}
-            style={{ marginTop: 40 }}
+            style={{ marginTop: 32 }}
           >
             <h2
               style={{
                 fontFamily: "var(--font-display)",
-                fontSize: 52,
+                fontSize: "clamp(32px, 5vw, 52px)",
                 fontWeight: 400,
                 fontStyle: "italic",
                 letterSpacing: "-0.02em",
@@ -3108,111 +3214,91 @@ export default function DiscotiveLanding() {
             </h2>
           </motion.div>
         </div>
-
-        {/* Mobile: horizontal scroll, Desktop: 3-col grid */}
-        <div style={{ position: "relative" }}>
-          <div
-            className="horizontal-scroll-container"
-            style={{ display: "flex" }}
-          >
-            {/* Mobile wrapper — each card is 85vw */}
-            <style>{`
-              @media(min-width:768px){
-                .feature-grid-inner { display: grid !important; grid-template-columns: repeat(3,1fr) !important; gap: 16px !important; }
-                .feature-grid-card { min-width: unset !important; width: auto !important; }
-              }
-            `}</style>
-            <div
-              className="feature-grid-inner"
-              style={{ display: "flex", gap: 16, width: "100%" }}
-            >
-              <div
-                className="feature-grid-card horizontal-scroll-item"
-                style={{ minWidth: "85vw" }}
-              >
-                <FeatureCard
-                  number={1}
-                  title="Execution Roadmap"
-                  subtitle="Neural DAG"
-                  description="An AI-generated Directed Acyclic Graph that maps your career trajectory. Every node is a verifiable task. Dependencies unlock sequentially. Built on Kahn's topological algorithm at O(V+E)."
-                  metrics={[
-                    { value: "∞", label: "Node depth" },
-                    { value: "<50ms", label: "Evaluation" },
-                  ]}
-                  delay={0}
-                />
-                <FeatureCard
-                  number={2}
-                  title="Discotive Score Engine"
-                  subtitle="Atomic Ledger"
-                  description="10+ atomic score events tracked via Firestore transactions. Streaks, task completions, vault verifications, alliance formations. Every action has mathematical weight."
-                  metrics={[
-                    { value: "10+", label: "Score events" },
-                    { value: "Real-time", label: "Mutations" },
-                  ]}
-                  delay={0.08}
-                />
-                <FeatureCard
-                  number={3}
-                  title="Asset Vault"
-                  subtitle="Zero-Trust Storage"
-                  description="SHA-256 cryptographic hashing for every uploaded credential. Admin verification pipeline. Weak/Medium/Strong strength ratings. Your proof of work, immutably stored."
-                  metrics={[
-                    { value: "SHA-256", label: "Encryption" },
-                    { value: "25MB", label: "Per asset" },
-                  ]}
-                  delay={0.16}
-                />
-                <FeatureCard
-                  number={4}
-                  title="Global Arena"
-                  subtitle="Live Leaderboard"
-                  description="Cursor-paginated leaderboard with multi-dimensional filtering by domain, niche, country, and level. Precomputed nightly percentiles for zero-read-cost rank display."
-                  metrics={[
-                    { value: "180+", label: "Countries" },
-                    { value: "Top 1%", label: "Threshold" },
-                  ]}
-                  delay={0.08}
-                />
-                <FeatureCard
-                  number={5}
-                  title="Grace AI"
-                  subtitle="Gemini 2.5 Flash"
-                  description="Embedded career assistant powered by Gemini 2.5 Flash. Structured flow for common queries, free-form chat for everything else. Zero idle cost — fires only on demand."
-                  metrics={[
-                    { value: "2.5 Flash", label: "Model" },
-                    { value: "<1s", label: "Response" },
-                  ]}
-                  delay={0.16}
-                />
-                <FeatureCard
-                  number={6}
-                  title="Neural Engine"
-                  subtitle="Pure Functional"
-                  description="A pure functional DAG compiler using Kahn's topological sort. O(V+E) state evaluation. Ghost states, backoff penalties, and time-lock mechanics computed client-side."
-                  metrics={[
-                    { value: "O(V+E)", label: "Complexity" },
-                    { value: "0 RPC", label: "Per render" },
-                  ]}
-                  delay={0.24}
-                />
-              </div>
-            </div>
-          </div>
+        <div className="feature-grid">
+          {[
+            {
+              number: 1,
+              title: "Execution Roadmap",
+              subtitle: "Neural DAG",
+              description:
+                "An AI-generated Directed Acyclic Graph that maps your career trajectory. Every node is a verifiable task. Dependencies unlock sequentially. Built on Kahn's topological algorithm at O(V+E).",
+              metrics: [
+                { value: "∞", label: "Node depth" },
+                { value: "<50ms", label: "Evaluation" },
+              ],
+            },
+            {
+              number: 2,
+              title: "Discotive Score Engine",
+              subtitle: "Atomic Ledger",
+              description:
+                "10+ atomic score events tracked via Firestore transactions. Streaks, task completions, vault verifications, alliance formations. Every action has mathematical weight.",
+              metrics: [
+                { value: "10+", label: "Score events" },
+                { value: "Real-time", label: "Mutations" },
+              ],
+            },
+            {
+              number: 3,
+              title: "Asset Vault",
+              subtitle: "Zero-Trust Storage",
+              description:
+                "SHA-256 cryptographic hashing for every uploaded credential. Admin verification pipeline. Weak/Medium/Strong strength ratings. Your proof of work, immutably stored.",
+              metrics: [
+                { value: "SHA-256", label: "Encryption" },
+                { value: "25MB", label: "Per asset" },
+              ],
+            },
+            {
+              number: 4,
+              title: "Global Arena",
+              subtitle: "Live Leaderboard",
+              description:
+                "Cursor-paginated leaderboard with multi-dimensional filtering by domain, niche, country, and level. Precomputed nightly percentiles for zero-read-cost rank display.",
+              metrics: [
+                { value: "180+", label: "Countries" },
+                { value: "Top 1%", label: "Threshold" },
+              ],
+            },
+            {
+              number: 5,
+              title: "Grace AI",
+              subtitle: "Gemini 2.5 Flash",
+              description:
+                "Embedded career assistant powered by Gemini 2.5 Flash. Structured flow for common queries, free-form chat for everything else. Zero idle cost — fires only on demand.",
+              metrics: [
+                { value: "2.5 Flash", label: "Model" },
+                { value: "<1s", label: "Response" },
+              ],
+            },
+            {
+              number: 6,
+              title: "Neural Engine",
+              subtitle: "Pure Functional",
+              description:
+                "A pure functional DAG compiler using Kahn's topological sort. O(V+E) state evaluation. Ghost states, backoff penalties, and time-lock mechanics computed client-side.",
+              metrics: [
+                { value: "O(V+E)", label: "Complexity" },
+                { value: "0 RPC", label: "Per render" },
+              ],
+            },
+          ].map((card, i) => (
+            <FeatureCard key={i} {...card} delay={i * 0.05} />
+          ))}
         </div>
       </section>
 
       {/* ─── COMPARISON TABLE ─────────────────────────────────────────────── */}
       <section
         style={{
-          padding: "80px 0 140px",
+          padding: "80px 0 120px",
           background: "rgba(255,255,255,0.006)",
           borderTop: "0.5px solid var(--border)",
           borderBottom: "0.5px solid var(--border)",
         }}
       >
-        <div style={{ maxWidth: 800, margin: "0 auto", padding: "0 40px" }}>
-          <div style={{ textAlign: "center", marginBottom: 64 }}>
+        <div style={{ maxWidth: 800, margin: "0 auto" }} className="section-px">
+          <div style={{ textAlign: "center", marginBottom: 52 }}>
             <SectionDivider label="Versus The Market" />
             <motion.h2
               initial={{ opacity: 0, y: 20 }}
@@ -3221,23 +3307,21 @@ export default function DiscotiveLanding() {
               transition={{ duration: 1 }}
               style={{
                 fontFamily: "var(--font-display)",
-                fontSize: 48,
+                fontSize: "clamp(28px, 5vw, 48px)",
                 fontWeight: 400,
                 fontStyle: "italic",
                 letterSpacing: "-0.02em",
-                marginTop: 40,
+                marginTop: 32,
                 color: "var(--text-primary)",
                 lineHeight: 1.1,
               }}
             >
-              Every alternative is a
-              <br />
+              Every alternative is a<br />
               <span className="gold-text" style={{ fontWeight: 700 }}>
                 pale imitation.
               </span>
             </motion.h2>
           </div>
-
           <motion.div
             initial={{ opacity: 0, y: 30 }}
             whileInView={{ opacity: 1, y: 0 }}
@@ -3251,75 +3335,128 @@ export default function DiscotiveLanding() {
             }}
           >
             {/* Header */}
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "1fr 1fr 1fr",
-                padding: "16px 24px",
-                borderBottom: "0.5px solid rgba(255,255,255,0.06)",
-                background: "rgba(255,255,255,0.02)",
-              }}
-            >
-              <span
+            <div className="compare-table">
+              <div
                 style={{
-                  fontSize: 9,
-                  letterSpacing: "0.2em",
-                  textTransform: "uppercase",
-                  color: "var(--text-dim)",
-                  fontFamily: "var(--font-body)",
+                  padding: "14px 20px",
+                  borderBottom: "0.5px solid rgba(255,255,255,0.06)",
+                  background: "rgba(255,255,255,0.02)",
                 }}
               >
-                Capability
-              </span>
-              <div style={{ textAlign: "center" }}>
-                <span
-                  style={{
-                    fontSize: 9,
-                    letterSpacing: "0.2em",
-                    textTransform: "uppercase",
-                    color: "var(--text-dim)",
-                    fontFamily: "var(--font-body)",
-                  }}
+                <div
+                  className="compare-grid"
+                  style={{ padding: 0, borderBottom: "none" }}
                 >
-                  Others
-                </span>
+                  <span
+                    style={{
+                      fontSize: 9,
+                      letterSpacing: "0.2em",
+                      textTransform: "uppercase",
+                      color: "var(--text-dim)",
+                      fontFamily: "var(--font-body)",
+                    }}
+                  >
+                    Capability
+                  </span>
+                  <div style={{ textAlign: "center" }}>
+                    <span
+                      style={{
+                        fontSize: 9,
+                        letterSpacing: "0.2em",
+                        textTransform: "uppercase",
+                        color: "var(--text-dim)",
+                        fontFamily: "var(--font-body)",
+                      }}
+                    >
+                      Others
+                    </span>
+                  </div>
+                  <div style={{ textAlign: "center" }}>
+                    <span
+                      style={{
+                        fontSize: 9,
+                        letterSpacing: "0.2em",
+                        textTransform: "uppercase",
+                        color: "var(--gold-2)",
+                        fontFamily: "var(--font-body)",
+                      }}
+                    >
+                      Discotive
+                    </span>
+                  </div>
+                </div>
               </div>
-              <div style={{ textAlign: "center" }}>
-                <span
-                  style={{
-                    fontSize: 9,
-                    letterSpacing: "0.2em",
-                    textTransform: "uppercase",
-                    color: "var(--gold-2)",
-                    fontFamily: "var(--font-body)",
-                  }}
-                >
-                  Discotive
-                </span>
+              <div style={{ padding: "0 20px" }}>
+                {[
+                  ["Proof of Work Verification", false, true],
+                  ["Algorithmic Score Engine", false, true],
+                  ["AI-Generated Career DAG", false, true],
+                  ["Real-Time Global Leaderboard", false, true],
+                  ["Cryptographic Asset Storage", false, true],
+                  ["Neural Dependency Resolution", false, true],
+                  ["Job Listings", true, false],
+                  ["Resume Builder", true, false],
+                  ["Content Consumption", true, false],
+                ].map(([feature, them, us], i) => (
+                  <div key={i} className="compare-grid">
+                    <span
+                      style={{
+                        fontSize: 12,
+                        color: "var(--text-secondary)",
+                        fontFamily: "var(--font-body)",
+                      }}
+                    >
+                      {feature}
+                    </span>
+                    <div style={{ display: "flex", justifyContent: "center" }}>
+                      {them ? (
+                        <span
+                          style={{
+                            fontSize: 12,
+                            color: "rgba(255,255,255,0.3)",
+                          }}
+                        >
+                          ✓
+                        </span>
+                      ) : (
+                        <span
+                          style={{
+                            fontSize: 12,
+                            color: "rgba(255,255,255,0.15)",
+                          }}
+                        >
+                          —
+                        </span>
+                      )}
+                    </div>
+                    <div style={{ display: "flex", justifyContent: "center" }}>
+                      {us ? (
+                        <span style={{ fontSize: 12, color: "var(--gold-2)" }}>
+                          ✦
+                        </span>
+                      ) : (
+                        <span
+                          style={{
+                            fontSize: 12,
+                            color: "rgba(255,255,255,0.15)",
+                          }}
+                        >
+                          —
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))}
               </div>
-            </div>
-            <div style={{ padding: "0 24px" }}>
-              {[
-                ["Proof of Work Verification", false, true],
-                ["Algorithmic Score Engine", false, true],
-                ["AI-Generated Career DAG", false, true],
-                ["Real-Time Global Leaderboard", false, true],
-                ["Cryptographic Asset Storage", false, true],
-                ["Neural Dependency Resolution", false, true],
-                ["Job Listings", true, false],
-                ["Resume Builder", true, false],
-                ["Content Consumption", true, false],
-              ].map(([feature, them, us], i) => (
-                <CompareRow key={i} feature={feature} them={them} us={us} />
-              ))}
             </div>
           </motion.div>
         </div>
       </section>
 
-      {/* ─── LIVE DEM INDEX (Platform Efficiency) ────────────────────────── */}
+      {/* ─── DEM INDEX ────────────────────────────────────────────────────── */}
       <section
-        style={{ maxWidth: 1200, margin: "0 auto", padding: "80px 40px 0" }}
+        style={{ maxWidth: 1200, margin: "0 auto", paddingTop: 80 }}
+        className="section-px"
       >
         <SectionDivider label="Platform DEM Index" />
         <motion.div
@@ -3327,7 +3464,7 @@ export default function DiscotiveLanding() {
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true }}
           style={{
-            marginTop: 64,
+            marginTop: 52,
             display: "flex",
             flexDirection: "column",
             alignItems: "center",
@@ -3336,7 +3473,7 @@ export default function DiscotiveLanding() {
           <h2
             style={{
               fontFamily: "var(--font-display)",
-              fontSize: 48,
+              fontSize: "clamp(28px, 5vw, 48px)",
               fontWeight: 400,
               fontStyle: "italic",
               letterSpacing: "-0.02em",
@@ -3353,12 +3490,13 @@ export default function DiscotiveLanding() {
           </h2>
           <p
             style={{
-              fontSize: 14,
+              fontSize: 13,
               color: "var(--text-dim)",
               textAlign: "center",
-              marginBottom: 40,
+              marginBottom: 36,
               fontFamily: "var(--font-body)",
-              maxWidth: 480,
+              maxWidth: 440,
+              lineHeight: 1.7,
             }}
           >
             The Discotive Efficiency Meter (DEM) aggregates real operator
@@ -3367,11 +3505,13 @@ export default function DiscotiveLanding() {
           <LandingDEMWidget />
         </motion.div>
       </section>
-      {/* ─── TESTIMONIALS ────────────────────────────────────────────────── */}
+
+      {/* ─── TESTIMONIALS ─────────────────────────────────────────────────── */}
       <section
-        style={{ maxWidth: 1200, margin: "0 auto", padding: "140px 40px" }}
+        style={{ maxWidth: 1200, margin: "0 auto" }}
+        className="section-py section-px"
       >
-        <div style={{ textAlign: "center", marginBottom: 80 }}>
+        <div style={{ textAlign: "center", marginBottom: 56 }}>
           <SectionDivider label="Operator Testimonials" />
           <motion.h2
             initial={{ opacity: 0, y: 20 }}
@@ -3380,11 +3520,11 @@ export default function DiscotiveLanding() {
             transition={{ duration: 1 }}
             style={{
               fontFamily: "var(--font-display)",
-              fontSize: 48,
+              fontSize: "clamp(28px, 5vw, 48px)",
               fontWeight: 400,
               fontStyle: "italic",
               letterSpacing: "-0.02em",
-              marginTop: 40,
+              marginTop: 32,
               color: "var(--text-primary)",
               lineHeight: 1.1,
             }}
@@ -3396,15 +3536,7 @@ export default function DiscotiveLanding() {
             </span>
           </motion.h2>
         </div>
-
-        <div
-          className="responsive-grid-3"
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(3, 1fr)",
-            gap: 16,
-          }}
-        >
+        <div className="grid-3col">
           <TestimonialCard
             quote="I replaced my entire LinkedIn with my Discotive profile. Recruiters now see 47 verified proof-of-work nodes instead of bullet points I wrote two years ago."
             name="Arjun Mehta"
@@ -3432,23 +3564,19 @@ export default function DiscotiveLanding() {
         </div>
       </section>
 
-      {/* ─── PRICING TEASER ──────────────────────────────────────────────── */}
+      {/* ─── PRICING ──────────────────────────────────────────────────────── */}
       <section
         style={{
-          padding: "80px 0 140px",
+          padding: "80px 0 120px",
           borderTop: "0.5px solid var(--border)",
         }}
       >
-        <div style={{ maxWidth: 1200, margin: "0 auto", padding: "0 40px" }}>
+        <div
+          style={{ maxWidth: 1200, margin: "0 auto" }}
+          className="section-px"
+        >
           <SectionDivider label="Clearance Tiers" />
-
-          <div
-            className="horizontal-scroll-container md:grid"
-            style={{
-              gap: 16,
-              marginTop: 64,
-            }}
-          >
+          <div className="pricing-row" style={{ marginTop: 52 }}>
             {[
               {
                 tier: "Essential",
@@ -3500,15 +3628,13 @@ export default function DiscotiveLanding() {
                   delay: i * 0.1,
                   ease: [0.23, 1, 0.32, 1],
                 }}
-                className="horizontal-scroll-item"
                 style={{
                   background: plan.highlight
                     ? "rgba(191,162,100,0.06)"
                     : "rgba(255,255,255,0.015)",
                   border: `0.5px solid ${plan.highlight ? "rgba(191,162,100,0.35)" : "rgba(255,255,255,0.06)"}`,
-                  borderRadius: 2,
-                  padding: "36px",
-                  minWidth: "min(80vw, 320px)",
+                  borderRadius: 4,
+                  padding: "32px",
                   position: "relative",
                   overflow: "hidden",
                   boxShadow: plan.highlight
@@ -3532,7 +3658,7 @@ export default function DiscotiveLanding() {
                 {plan.highlight && (
                   <div
                     className="badge"
-                    style={{ marginBottom: 20, fontSize: 8 }}
+                    style={{ marginBottom: 16, fontSize: 8 }}
                   >
                     Most Chosen
                   </div>
@@ -3544,166 +3670,161 @@ export default function DiscotiveLanding() {
                     textTransform: "uppercase",
                     color: plan.highlight ? "var(--gold-2)" : "var(--text-dim)",
                     fontFamily: "var(--font-body)",
-                    marginBottom: 12,
+                    marginBottom: 10,
                   }}
                 >
                   {plan.tier}
                 </div>
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "baseline",
-                    gap: 4,
-                    marginBottom: 6,
-                  }}
-                >
-                  <span
-                    style={{
-                      fontFamily: "var(--font-display)",
-                      fontSize: 44,
-                      fontWeight: plan.highlight ? 700 : 400,
-                      ...(plan.highlight
-                        ? {
-                            background:
-                              "linear-gradient(135deg, #BFA264, #D4AF78)",
-                            WebkitBackgroundClip: "text",
-                            WebkitTextFillColor: "transparent",
-                          }
-                        : { color: "var(--text-primary)" }),
-                    }}
-                  >
-                    {plan.price}
-                  </span>
-                  {plan.priceSub && (
-                    <span
+                {!plan.comingSoon && (
+                  <>
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "baseline",
+                        gap: 4,
+                        marginBottom: 5,
+                      }}
+                    >
+                      <span
+                        style={{
+                          fontFamily: "var(--font-display)",
+                          fontSize: 40,
+                          fontWeight: plan.highlight ? 700 : 400,
+                          ...(plan.highlight
+                            ? {
+                                background:
+                                  "linear-gradient(135deg, #BFA264, #D4AF78)",
+                                WebkitBackgroundClip: "text",
+                                WebkitTextFillColor: "transparent",
+                              }
+                            : { color: "var(--text-primary)" }),
+                        }}
+                      >
+                        {plan.price}
+                      </span>
+                      {plan.priceSub && (
+                        <span
+                          style={{
+                            fontSize: 12,
+                            color: "var(--text-dim)",
+                            fontFamily: "var(--font-body)",
+                          }}
+                        >
+                          {plan.priceSub}
+                        </span>
+                      )}
+                    </div>
+                    <p
                       style={{
                         fontSize: 12,
                         color: "var(--text-dim)",
                         fontFamily: "var(--font-body)",
+                        marginBottom: 24,
                       }}
                     >
-                      {plan.priceSub}
-                    </span>
-                  )}
-                </div>
-                <p
-                  style={{
-                    fontSize: 12,
-                    color: "var(--text-dim)",
-                    fontFamily: "var(--font-body)",
-                    marginBottom: 28,
-                    letterSpacing: "0.02em",
-                  }}
-                >
-                  {plan.caption}
-                </p>
-                <div
-                  style={{
-                    borderTop: "0.5px solid var(--border)",
-                    paddingTop: 24,
-                    marginBottom: 28,
-                  }}
-                >
-                  {!plan.comingSoon &&
-                    plan.features.map((f, j) => (
-                      <div
-                        key={j}
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 10,
-                          marginBottom: 10,
-                          fontSize: 12,
-                          color: "var(--text-secondary)",
-                          fontFamily: "var(--font-body)",
-                        }}
-                      >
-                        <span
-                          style={{
-                            color: plan.highlight
-                              ? "var(--gold-2)"
-                              : "var(--text-dim)",
-                            fontSize: 10,
-                          }}
-                        >
-                          ✦
-                        </span>
-                        {f}
-                      </div>
-                    ))}
-                  {plan.comingSoon && (
+                      {plan.caption}
+                    </p>
                     <div
                       style={{
-                        display: "flex",
-                        flexDirection: "column",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        flex: 1,
-                        gap: 16,
-                        opacity: 0.4,
+                        borderTop: "0.5px solid var(--border)",
+                        paddingTop: 20,
+                        marginBottom: 24,
                       }}
                     >
-                      <div
-                        style={{
-                          width: 48,
-                          height: 48,
-                          borderRadius: "50%",
-                          border: "1px solid rgba(255,255,255,0.1)",
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                        }}
-                      >
-                        <span style={{ fontSize: 20 }}>🔒</span>
-                      </div>
-                      <span
-                        style={{
-                          fontSize: 11,
-                          letterSpacing: "0.2em",
-                          textTransform: "uppercase",
-                          color: "var(--text-dim)",
-                          fontFamily: "var(--font-body)",
-                        }}
-                      >
-                        Coming Soon
-                      </span>
-                      <span
-                        style={{
-                          fontSize: 10,
-                          color: "var(--text-dim)",
-                          fontFamily: "var(--font-body)",
-                          textAlign: "center",
-                          lineHeight: 1.6,
-                        }}
-                      >
-                        Enterprise deployment is in development. Signal your
-                        interest.
-                      </span>
+                      {plan.features.map((f, j) => (
+                        <div
+                          key={j}
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 9,
+                            marginBottom: 10,
+                            fontSize: 12,
+                            color: "var(--text-secondary)",
+                            fontFamily: "var(--font-body)",
+                          }}
+                        >
+                          <span
+                            style={{
+                              color: plan.highlight
+                                ? "var(--gold-2)"
+                                : "var(--text-dim)",
+                              fontSize: 10,
+                            }}
+                          >
+                            ✦
+                          </span>
+                          {f}
+                        </div>
+                      ))}
                     </div>
-                  )}
-                </div>
-                {!plan.comingSoon && (
-                  <button
-                    className={plan.highlight ? "btn-primary" : "btn-outline"}
-                    style={{ width: "100%", justifyContent: "center" }}
-                  >
-                    {plan.cta}
-                  </button>
+                    <button
+                      className={plan.highlight ? "btn-primary" : "btn-outline"}
+                      style={{ width: "100%", justifyContent: "center" }}
+                    >
+                      {plan.cta}
+                    </button>
+                  </>
                 )}
                 {plan.comingSoon && (
-                  <button
-                    className="btn-outline"
+                  <div
                     style={{
-                      width: "100%",
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "center",
                       justifyContent: "center",
+                      padding: "32px 0",
+                      gap: 14,
                       opacity: 0.5,
                     }}
-                    onClick={() =>
-                      (window.location.href = "mailto:enterprise@discotive.in")
-                    }
                   >
-                    Signal Interest
-                  </button>
+                    <div
+                      style={{
+                        width: 44,
+                        height: 44,
+                        borderRadius: "50%",
+                        border: "1px solid rgba(255,255,255,0.1)",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                      }}
+                    >
+                      <span style={{ fontSize: 20 }}>🔒</span>
+                    </div>
+                    <span
+                      style={{
+                        fontSize: 11,
+                        letterSpacing: "0.2em",
+                        textTransform: "uppercase",
+                        color: "var(--text-dim)",
+                        fontFamily: "var(--font-body)",
+                      }}
+                    >
+                      Coming Soon
+                    </span>
+                    <span
+                      style={{
+                        fontSize: 10,
+                        color: "var(--text-dim)",
+                        fontFamily: "var(--font-body)",
+                        textAlign: "center",
+                        lineHeight: 1.6,
+                      }}
+                    >
+                      Enterprise deployment is in development. Signal your
+                      interest.
+                    </span>
+                    <button
+                      className="btn-outline"
+                      style={{ marginTop: 8, opacity: 0.6 }}
+                      onClick={() =>
+                        (window.location.href =
+                          "mailto:enterprise@discotive.in")
+                      }
+                    >
+                      Signal Interest
+                    </button>
+                  </div>
                 )}
               </motion.div>
             ))}
@@ -3711,24 +3832,21 @@ export default function DiscotiveLanding() {
         </div>
       </section>
 
-      {/* ─── THE NUMBERS SECTION ─────────────────────────────────────────── */}
+      {/* ─── NUMBERS ──────────────────────────────────────────────────────── */}
       <section
         style={{
-          padding: "80px 0 140px",
+          padding: "80px 0 120px",
           background: "rgba(255,255,255,0.006)",
           borderTop: "0.5px solid var(--border)",
           borderBottom: "0.5px solid var(--border)",
         }}
       >
-        <div style={{ maxWidth: 1200, margin: "0 auto", padding: "0 40px" }}>
+        <div
+          style={{ maxWidth: 1200, margin: "0 auto" }}
+          className="section-px"
+        >
           <SectionDivider label="Infrastructure at Scale" />
-          <div
-            className="horizontal-scroll-container md:grid"
-            style={{
-              marginTop: 64,
-              gap: 16,
-            }}
-          >
+          <div className="grid-numbers" style={{ marginTop: 52 }}>
             {[
               {
                 value: <AnimatedCounter end={platformStats.users} suffix="" />,
@@ -3759,7 +3877,7 @@ export default function DiscotiveLanding() {
                 transition={{ duration: 0.8, delay: i * 0.08 }}
                 className="stat-card"
                 style={{
-                  padding: "32px 24px",
+                  padding: "28px 20px",
                   borderRadius: 2,
                   textAlign: "center",
                 }}
@@ -3767,11 +3885,11 @@ export default function DiscotiveLanding() {
                 <div
                   style={{
                     fontFamily: "var(--font-display)",
-                    fontSize: 44,
+                    fontSize: "clamp(32px, 5vw, 44px)",
                     fontWeight: 600,
                     color: "var(--gold-2)",
                     lineHeight: 1,
-                    marginBottom: 10,
+                    marginBottom: 8,
                   }}
                   className="hero-number"
                 >
@@ -3782,7 +3900,7 @@ export default function DiscotiveLanding() {
                     fontSize: 12,
                     color: "var(--text-primary)",
                     fontFamily: "var(--font-body)",
-                    marginBottom: 6,
+                    marginBottom: 5,
                   }}
                 >
                   {stat.label}
@@ -3792,7 +3910,6 @@ export default function DiscotiveLanding() {
                     fontSize: 10,
                     color: "var(--text-dim)",
                     fontFamily: "var(--font-body)",
-                    letterSpacing: "0.05em",
                   }}
                 >
                   {stat.sub}
@@ -3803,21 +3920,13 @@ export default function DiscotiveLanding() {
         </div>
       </section>
 
-      {/* ─── TECH STACK TRUST ─────────────────────────────────────────────── */}
+      {/* ─── TECH STACK ───────────────────────────────────────────────────── */}
       <section
-        style={{ maxWidth: 1200, margin: "0 auto", padding: "140px 40px 80px" }}
+        style={{ maxWidth: 1200, margin: "0 auto" }}
+        className="section-py section-px"
       >
         <SectionDivider label="Built For Scale" />
-        <div
-          className="responsive-grid-2"
-          style={{
-            marginTop: 64,
-            display: "grid",
-            gridTemplateColumns: "repeat(2, 1fr)",
-            gap: 60,
-            alignItems: "center",
-          }}
-        >
+        <div className="tech-grid" style={{ marginTop: 52 }}>
           <motion.div
             initial={{ opacity: 0, x: -20 }}
             whileInView={{ opacity: 1, x: 0 }}
@@ -3827,13 +3936,13 @@ export default function DiscotiveLanding() {
             <h2
               style={{
                 fontFamily: "var(--font-display)",
-                fontSize: 44,
+                fontSize: "clamp(28px, 4vw, 44px)",
                 fontWeight: 400,
                 fontStyle: "italic",
                 letterSpacing: "-0.02em",
                 lineHeight: 1.15,
                 color: "var(--text-primary)",
-                marginBottom: 20,
+                marginBottom: 18,
               }}
             >
               MAANG-grade infrastructure.
@@ -3844,11 +3953,11 @@ export default function DiscotiveLanding() {
             </h2>
             <p
               style={{
-                fontSize: 14,
+                fontSize: 13,
                 lineHeight: 1.9,
                 color: "var(--text-secondary)",
                 fontFamily: "var(--font-body)",
-                marginBottom: 24,
+                marginBottom: 20,
               }}
             >
               Every architectural decision was made to scale to millions of
@@ -3856,7 +3965,7 @@ export default function DiscotiveLanding() {
               evaluation. Zero-trust credential storage. Atomic Firestore
               transactions.
             </p>
-            <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               {[
                 "React 19",
                 "Firebase Gen 2",
@@ -3868,14 +3977,15 @@ export default function DiscotiveLanding() {
                 <div
                   key={tech}
                   style={{
-                    padding: "6px 14px",
+                    padding: "5px 12px",
                     background: "rgba(255,255,255,0.02)",
                     border: "0.5px solid rgba(255,255,255,0.08)",
-                    fontSize: 10,
+                    fontSize: 9,
                     letterSpacing: "0.1em",
                     color: "var(--text-dim)",
                     fontFamily: "var(--font-body)",
                     textTransform: "uppercase",
+                    borderRadius: 4,
                   }}
                 >
                   {tech}
@@ -3883,7 +3993,6 @@ export default function DiscotiveLanding() {
               ))}
             </div>
           </motion.div>
-
           <motion.div
             initial={{ opacity: 0, x: 20 }}
             whileInView={{ opacity: 1, x: 0 }}
@@ -3901,17 +4010,17 @@ export default function DiscotiveLanding() {
             >
               <div
                 style={{
-                  padding: "12px 16px",
+                  padding: "10px 14px",
                   borderBottom: "0.5px solid rgba(255,255,255,0.05)",
-                  fontSize: 9,
+                  fontSize: 8,
                   color: "var(--text-dim)",
-                  letterSpacing: "0.15em",
+                  letterSpacing: "0.12em",
                   display: "flex",
                   alignItems: "center",
                   gap: 8,
                 }}
               >
-                <div style={{ display: "flex", gap: 5 }}>
+                <div style={{ display: "flex", gap: 4 }}>
                   {["#F87171", "#FBBF24", "#4ADE80"].map((c) => (
                     <div
                       key={c}
@@ -3927,7 +4036,14 @@ export default function DiscotiveLanding() {
                 </div>
                 NEURAL ENGINE — graphEngine.js
               </div>
-              <div style={{ padding: "20px", fontSize: 11, lineHeight: 1.8 }}>
+              <div
+                style={{
+                  padding: "18px",
+                  fontSize: 11,
+                  lineHeight: 1.8,
+                  overflowX: "auto",
+                }}
+              >
                 {[
                   {
                     code: "const compileExecutionGraph = (",
@@ -3969,7 +4085,10 @@ export default function DiscotiveLanding() {
                   },
                   { code: "};", color: "var(--text-secondary)" },
                 ].map((line, i) => (
-                  <div key={i} style={{ color: line.color, fontSize: 11 }}>
+                  <div
+                    key={i}
+                    style={{ color: line.color, whiteSpace: "nowrap" }}
+                  >
                     {line.code}
                   </div>
                 ))}
@@ -3979,9 +4098,10 @@ export default function DiscotiveLanding() {
         </div>
       </section>
 
-      {/* ─── EMAIL CAPTURE / CTA ──────────────────────────────────────────── */}
+      {/* ─── CTA ──────────────────────────────────────────────────────────── */}
       <section
-        style={{ maxWidth: 1200, margin: "0 auto", padding: "0 40px 80px" }}
+        style={{ maxWidth: 1200, margin: "0 auto", paddingBottom: 80 }}
+        className="section-px"
       >
         <motion.div
           initial={{ opacity: 0, y: 30 }}
@@ -3992,8 +4112,8 @@ export default function DiscotiveLanding() {
             background:
               "linear-gradient(135deg, rgba(139,114,64,0.08) 0%, rgba(191,162,100,0.04) 50%, rgba(139,114,64,0.08) 100%)",
             border: "0.5px solid rgba(191,162,100,0.2)",
-            borderRadius: 2,
-            padding: "80px 60px",
+            borderRadius: 4,
+            padding: "clamp(40px, 6vw, 80px) clamp(20px, 5vw, 60px)",
             textAlign: "center",
             position: "relative",
             overflow: "hidden",
@@ -4012,20 +4132,8 @@ export default function DiscotiveLanding() {
             }}
           />
           <div
-            style={{
-              position: "absolute",
-              bottom: 0,
-              left: 0,
-              right: 0,
-              height: 1,
-              background:
-                "linear-gradient(90deg, transparent, var(--gold-3), transparent)",
-            }}
-          />
-
-          <div
             className="badge"
-            style={{ marginBottom: 32, display: "inline-flex" }}
+            style={{ marginBottom: 28, display: "inline-flex" }}
           >
             <span
               style={{
@@ -4039,17 +4147,16 @@ export default function DiscotiveLanding() {
             />
             Early Access — Limited Operators
           </div>
-
           <h2
             style={{
               fontFamily: "var(--font-display)",
-              fontSize: 56,
+              fontSize: "clamp(36px, 6vw, 56px)",
               fontWeight: 400,
               fontStyle: "italic",
               letterSpacing: "-0.03em",
               lineHeight: 1.05,
               color: "var(--text-primary)",
-              marginBottom: 20,
+              marginBottom: 18,
             }}
           >
             The fog ends
@@ -4058,37 +4165,26 @@ export default function DiscotiveLanding() {
               here.
             </span>
           </h2>
-
           <p
             style={{
-              fontSize: 16,
+              fontSize: "clamp(14px, 2vw, 16px)",
               lineHeight: 1.7,
               color: "var(--text-secondary)",
               fontFamily: "var(--font-body)",
-              maxWidth: 520,
-              margin: "0 auto 48px",
+              maxWidth: 480,
+              margin: "0 auto 40px",
             }}
           >
             Join 12,000+ operators who replaced their resume with cryptographic
             proof of work. Your career DAG is waiting.
           </p>
-
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
+          <button
+            onClick={() => navigate("/auth")}
+            className="btn-primary"
+            style={{ padding: "16px 40px", fontSize: "12px" }}
           >
-            <button
-              onClick={() => navigate("/auth")}
-              className="btn-primary"
-              style={{
-                whiteSpace: "nowrap",
-                padding: "16px 36px",
-                fontSize: "12px",
-              }}
-            >
-              Get Started →
-            </button>
-          </motion.div>
+            Get Started →
+          </button>
         </motion.div>
       </section>
 
@@ -4096,37 +4192,32 @@ export default function DiscotiveLanding() {
       <footer
         style={{
           borderTop: "0.5px solid var(--border)",
-          padding: "64px 0 40px",
+          padding: "52px 0 32px",
         }}
       >
-        <div style={{ maxWidth: 1200, margin: "0 auto", padding: "0 40px" }}>
-          <div
-            className="responsive-footer"
-            style={{
-              display: "grid",
-              gridTemplateColumns: "2fr 1fr 1fr 1fr",
-              gap: 60,
-              marginBottom: 60,
-            }}
-          >
+        <div
+          style={{ maxWidth: 1200, margin: "0 auto" }}
+          className="section-px"
+        >
+          <div className="grid-4col" style={{ marginBottom: 48 }}>
             <div>
               <div
                 style={{
                   display: "flex",
                   alignItems: "center",
-                  gap: 10,
-                  marginBottom: 20,
+                  gap: 8,
+                  marginBottom: 16,
                 }}
               >
                 <img
                   src="/logo.png"
                   alt="Discotive"
-                  style={{ height: 24, width: "auto", objectFit: "contain" }}
+                  style={{ height: 22, width: "auto", objectFit: "contain" }}
                 />
                 <span
                   style={{
                     fontFamily: "var(--font-display)",
-                    fontSize: 16,
+                    fontSize: 15,
                     fontWeight: 500,
                     color: "var(--text-primary)",
                   }}
@@ -4136,23 +4227,30 @@ export default function DiscotiveLanding() {
               </div>
               <p
                 style={{
-                  fontSize: 13,
+                  fontSize: 12,
                   lineHeight: 1.7,
                   color: "var(--text-dim)",
                   fontFamily: "var(--font-body)",
-                  maxWidth: 280,
+                  maxWidth: 260,
                 }}
               >
                 The execution protocol for elite operators. Replace your resume.
                 Build your monopoly.
               </p>
-              <div style={{ display: "flex", gap: 12, marginTop: 20 }}>
+              <div
+                style={{
+                  display: "flex",
+                  gap: 12,
+                  marginTop: 16,
+                  flexWrap: "wrap",
+                }}
+              >
                 {["LinkedIn", "Instagram", "X", "YouTube"].map((s) => (
                   <a
                     key={s}
                     href="#"
                     style={{
-                      fontSize: 10,
+                      fontSize: 9,
                       letterSpacing: "0.15em",
                       textTransform: "uppercase",
                       color: "var(--text-dim)",
@@ -4172,7 +4270,6 @@ export default function DiscotiveLanding() {
                 ))}
               </div>
             </div>
-
             {[
               {
                 title: "Platform",
@@ -4207,7 +4304,7 @@ export default function DiscotiveLanding() {
                     textTransform: "uppercase",
                     color: "var(--gold-3)",
                     fontFamily: "var(--font-body)",
-                    marginBottom: 20,
+                    marginBottom: 16,
                   }}
                 >
                   {col.title}
@@ -4218,13 +4315,12 @@ export default function DiscotiveLanding() {
                     href={link.href}
                     style={{
                       display: "block",
-                      fontSize: 13,
+                      fontSize: 12,
                       color: "var(--text-dim)",
                       textDecoration: "none",
-                      marginBottom: 10,
+                      marginBottom: 9,
                       fontFamily: "var(--font-body)",
                       transition: "color 0.3s",
-                      letterSpacing: "0.01em",
                     }}
                     onMouseEnter={(e) =>
                       (e.target.style.color = "var(--text-primary)")
@@ -4239,14 +4335,14 @@ export default function DiscotiveLanding() {
               </div>
             ))}
           </div>
-
-          <div className="divider-gold" style={{ marginBottom: 32 }} />
-
+          <div className="divider-gold" style={{ marginBottom: 24 }} />
           <div
             style={{
               display: "flex",
               justifyContent: "space-between",
               alignItems: "center",
+              flexWrap: "wrap",
+              gap: 12,
             }}
           >
             <span
@@ -4254,7 +4350,6 @@ export default function DiscotiveLanding() {
                 fontSize: 11,
                 color: "var(--text-dim)",
                 fontFamily: "var(--font-body)",
-                letterSpacing: "0.05em",
               }}
             >
               © 2026 Discotive. All rights reserved. Built in Jaipur, India.
