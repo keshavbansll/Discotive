@@ -27,11 +27,13 @@ import {
   collection,
   query,
   where,
+  orderBy,
   getCountFromServer,
   doc,
   updateDoc,
   arrayUnion,
   getDoc,
+  getDocs,
   doc as firestoreDoc,
 } from "firebase/firestore";
 import { db } from "../firebase";
@@ -500,8 +502,7 @@ const Dashboard = () => {
 
         if (tf === "24H") {
           // 1. Fetch from the 24H granular subcollection safely
-          const { getDocs, query, where, orderBy } =
-            await import("firebase/firestore");
+
           const logRef = collection(db, "users", userData.uid, "score_log");
 
           // Strict 24-hour lookback to prevent TTL bleed
