@@ -386,7 +386,7 @@ const Navbar = ({ setIsHoveringCard, isInstallable, handleInstallClick }) => {
             to="/session"
             className="text-[11px] font-extrabold text-[#888] hover:text-white transition-colors uppercase tracking-[0.2em]"
           >
-            Discotive Edge
+            Connective
           </Link>
           <Link
             to="/premium"

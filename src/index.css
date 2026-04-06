@@ -78,14 +78,16 @@
   html,
   body {
     /* Stops pull-to-refresh and rubber-band bouncing on iOS */
-    overscroll-behavior-y: none;
+    overscroll-behavior-y: auto;
     /* Prevents accidental text selection on UI elements */
     -webkit-user-select: none;
     user-select: none;
     /* Locks the body to prevent scrolling the underlying document */
-    position: fixed;
-    width: 100%;
-    height: 100%;
+
+    /* ADD THESE to ensure the background is consistent */
+    @apply bg-[#030303];
+    min-height: 100vh;
+    overflow-x: hidden;
   }
 
   /* Allow text selection ONLY on actual content areas */
