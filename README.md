@@ -20,7 +20,7 @@
 
 ## The Problem We're Solving
 
-The global career development market is broken. Students waste 2-3 years in an information fog — consuming content without a clear execution roadmap, unable to verify their credibility, and competing blind on job platforms that prioritize resume keywords over real capability.
+The global career development market is broken. Students waste 2-3 years in an information fog - consuming content without a clear execution roadmap, unable to verify their credibility, and competing blind on job platforms that prioritize resume keywords over real capability.
 
 **Discotive converts a confusing professional future into a deterministic, verifiable, scored execution system.**
 
@@ -28,32 +28,40 @@ The global career development market is broken. Students waste 2-3 years in an i
 
 ## System Architecture
 
-┌─────────────────────────────────────────────────────────────────────┐
-│ DISCOTIVE OS v2.0 │
-├──────────────────────┬──────────────────────┬───────────────────────┤
-│ CLIENT (React 19) │ BACKEND (Firebase) │ AI LAYER (Gemini) │
-├──────────────────────┼──────────────────────┼───────────────────────┤
-│ │ │ │
-│ ┌────────────────┐ │ ┌────────────────┐ │ ┌─────────────────┐ │
-│ │ Execution Map │ │ │ Cloud Functions │ │ │ Career Calibrat │ │
-│ │ (ReactFlow DAG)│ │ │ Gen 2 (Node 22)│ │ │ ion Engine │ │
-│ └────────────────┘ │ └────────────────┘ │ └─────────────────┘ │
-│ │ │ │
-│ ┌────────────────┐ │ ┌────────────────┐ │ ┌─────────────────┐ │
-│ │ Score Engine │ │ │ Firestore │ │ │ Node Verification│ │
-│ │ (Real-time) │ │ │ (Multi-index) │ │ │ (Gemini Flash) │ │
-│ └────────────────┘ │ └────────────────┘ │ └─────────────────┘ │
-│ │ │ │
-│ ┌────────────────┐ │ ┌────────────────┐ │ ┌─────────────────┐ │
-│ │ Vault (Proof │ │ │ Firebase Storage│ │ │ Grace AI Chat │ │
-│ │ of Work) │ │ │ (Encrypted) │ │ │ (Gemini 2.5) │ │
-│ └────────────────┘ │ └────────────────┘ │ └─────────────────┘ │
-│ │ │ │
-│ ┌────────────────┐ │ ┌────────────────┐ │ │
-│ │ Leaderboard │ │ │ App Check │ │ │
-│ │ (Global Arena) │ │ │ (reCAPTCHA v3) │ │ │
-│ └────────────────┘ │ └────────────────┘ │ │
-└──────────────────────┴──────────────────────┴───────────────────────┘
+<details>
+<summary>📂 <b>View Full Repository Structure</b></summary>
+
+```mermaid
+graph TD
+    subgraph Client [CLIENT - React 19]
+        A[Execution Map<br/>ReactFlow DAG]
+        B[Score Engine<br/>Real-time]
+        C[Vault<br/>Proof of Work]
+        D[Leaderboard<br/>Global Arena]
+    end
+
+    subgraph Backend [BACKEND - Firebase]
+        E[Cloud Functions<br/>Gen 2 Node 22]
+        F[Firestore<br/>Multi-index]
+        G[Firebase Storage<br/>Encrypted]
+        H[App Check<br/>reCAPTCHA v3]
+    end
+
+    subgraph AI [AI LAYER - Gemini]
+        I[Career Calibration Engine]
+        J[Node Verification<br/>Gemini Flash]
+        K[Grace AI Chat<br/>Gemini 2.5]
+    end
+
+    Client --- Backend
+    Backend --- AI
+
+    style Client fill:#1a1a1a,stroke:#38B2AC,stroke-width:2px,color:#fff
+    style Backend fill:#1a1a1a,stroke:#FFCA28,stroke-width:2px,color:#fff
+    style AI fill:#1a1a1a,stroke:#61DAFB,stroke-width:2px,color:#fff
+```
+
+</details>
 
 ---
 
@@ -67,8 +75,6 @@ The global career development market is broken. Students waste 2-3 years in an i
 | **Global Arena**           | Cursor-paginated leaderboard with multi-dimensional filtering (domain/niche/country)              | ✅ Live           |
 | **Grace AI**               | Embedded career assistant powered by Gemini 2.5 Flash with structured flow + free-form chat       | ✅ Live           |
 | **Neural Engine**          | Pure functional DAG compiler using Kahn's topological sort — O(V+E) state evaluation              | ✅ Live           |
-| **Opportunities**          | Curated career matchmaking                                                                        | 🚧 In Development |
-| **Campus Hubs**            | Offline mentorship network integration                                                            | 🚧 In Development |
 
 ---
 
@@ -106,37 +112,44 @@ The global career development market is broken. Students waste 2-3 years in an i
 
 ---
 
+```markdown
 ## Repository Structure
 
+<details>
+<summary>📂 <b>View Full Repository Structure</b></summary>
+
+```text
 discotive/
 ├── src/
-│ ├── components/
-│ │ ├── roadmap/ # ReactFlow canvas, node types, edge engine
-│ │ ├── dashboard/ # Widgets, charts, telemetry components
-│ │ └── ui/ # Base UI primitives
-│ ├── contexts/
-│ │ ├── AuthContext.jsx # Firebase Auth state
-│ │ └── RoadmapContext.jsx # Neural engine + roadmap state
-│ ├── hooks/
-│ │ ├── useUserData.js # Firestore user data with session cache
-│ │ ├── useAIGateway.js # Secure Gemini API proxy
-│ │ └── useVerificationAPI.js
-│ ├── lib/
-│ │ ├── roadmap/
-│ │ │ ├── graphEngine.js # Pure functional DAG compiler (Kahn's algo)
-│ │ │ ├── idb.js # IndexedDB persistence layer
-│ │ │ ├── layout.js # Dagre auto-layout engine
-│ │ │ └── constants.js # Single source of truth for all config
-│ │ ├── scoreEngine.js # Atomic score mutations
-│ │ ├── TierEngine.js # Monetization limits
-│ │ └── gemini.js # AI gateway client
-│ ├── pages/ # Route-level components
-│ └── layouts/ # MainLayout with dual-paradigm nav
+│   ├── components/
+│   │   ├── roadmap/        # ReactFlow canvas, node types, edge engine
+│   │   ├── dashboard/      # Widgets, charts, telemetry components
+│   │   └── ui/             # Base UI primitives
+│   ├── contexts/
+│   │   ├── AuthContext.jsx # Firebase Auth state
+│   │   └── RoadmapContext.jsx # Neural engine + roadmap state
+│   ├── hooks/
+│   │   ├── useUserData.js  # Firestore user data with session cache
+│   │   ├── useAIGateway.js # Secure Gemini API proxy
+│   │   └── useVerificationAPI.js
+│   ├── lib/
+│   │   ├── roadmap/
+│   │   │   ├── graphEngine.js # Pure functional DAG compiler
+│   │   │   ├── idb.js        # IndexedDB persistence layer
+│   │   │   ├── layout.js     # Dagre auto-layout engine
+│   │   │   └── constants.js  # Single source of truth
+│   │   ├── scoreEngine.js    # Atomic score mutations
+│   │   ├── TierEngine.js     # Monetization limits
+│   │   └── gemini.js         # AI gateway client
+│   ├── pages/              # Route-level components
+│   └── layouts/            # MainLayout with dual-paradigm nav
 ├── functions/
-│ └── index.js # All Cloud Functions (Gen 2)
-├── firestore.rules # Security rules (deploy separately)
-├── firestore.indexes.json # Composite indexes
+│   └── index.js            # All Cloud Functions (Gen 2)
+├── firestore.rules         # Security rules
+├── firestore.indexes.json  # Composite indexes
 └── vite.config.js
+
+```  
 
 ---
 
@@ -305,7 +318,7 @@ All vulnerability reports receive a response within 24 hours.
 
 ## License
 
-Proprietary. All rights reserved. © 2025 Discotive Hubs.
+Proprietary. All rights reserved. © 2026 Discotive.
 
 ---
 
