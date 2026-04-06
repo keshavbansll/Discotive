@@ -40,7 +40,7 @@ import {
   RefreshCw,
 } from "lucide-react";
 import GlobalLoader from "../components/GlobalLoader";
-import { cn } from "../components/ui/BentoCard";
+import { cn } from "../lib/cn";
 
 // ============================================================================
 // 1. BACKGROUND & NAVBAR

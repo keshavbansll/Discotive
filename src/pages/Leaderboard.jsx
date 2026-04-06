@@ -87,7 +87,7 @@ import {
   BarChart2,
   Eye,
 } from "lucide-react";
-import { cn } from "../components/ui/BentoCard";
+import { cn } from "../lib/cn";
 
 // ─── Taxonomy ─────────────────────────────────────────────────────────────────
 const DOMAINS = [
@@ -522,7 +522,14 @@ const PodiumCard = ({ player, rank, resolvePlayerName, isMe }) => {
         )}
         <img
           src={getAvatar(rankKey, player.identity?.gender)}
-          alt={`Rank ${rank}`}
+          // --- 🔴 MAANG-GRADE FIX: DYNAMIC ACCESSIBILITY LABEL ---
+          alt={`${player.identity?.username || player.username || "Operator"}'s avatar`}
+          role="img"
+          // -------------------------------------------------------
+          width={176}
+          height={176}
+          fetchpriority={rank === 1 ? "high" : "auto"}
+          decoding="async"
           className={cn(
             "w-full h-full object-contain select-none pointer-events-none",
             isMe && "brightness-110",
@@ -1152,6 +1159,8 @@ const PlayerSidebar = ({
 // MAIN COMPONENT
 // ═══════════════════════════════════════════════════════════════════════════════
 const Leaderboard = () => {
+  const filterCountCache = useRef(new Map());
+
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const { userData, loading: userLoading } = useUserData();
@@ -1364,8 +1373,15 @@ const Leaderboard = () => {
       level: filters.level,
       country: filters.country,
     });
-    if (cacheKey === lastFetchFilterRef.current) return;
-    lastFetchFilterRef.current = cacheKey;
+    // 1. Check if we already queried this exact filter combination
+    if (filterCountCache.current.has(cacheKey)) {
+      const cached = filterCountCache.current.get(cacheKey);
+      setTotalCount(cached.total);
+      setMyRank(cached.myRank);
+      setPercentile(cached.percentile);
+      setNextTarget(cached.nextTarget);
+      return; // Exit instantly. Zero reads.
+    }
 
     try {
       const constraints = buildConstraints();
@@ -1375,7 +1391,6 @@ const Leaderboard = () => {
         query(collection(db, "users"), ...constraints),
       );
       const total = totalSnap.data().count;
-      setTotalCount(total);
 
       // My rank (1 Firestore read)
       const myScore = userData.discotiveScore.current;
@@ -1387,10 +1402,9 @@ const Leaderboard = () => {
         ),
       );
       const newRank = rankSnap.data().count + 1;
-      setMyRank(newRank);
-      setPercentile(total > 0 ? Math.ceil((newRank / total) * 100) : 100);
+      const newPct = total > 0 ? Math.ceil((newRank / total) * 100) : 100;
 
-      // Next target (1 Firestore read — getDocs of 1 doc)
+      // Next target (1 read)
       const targetSnap = await getDocs(
         query(
           collection(db, "users"),
@@ -1400,11 +1414,24 @@ const Leaderboard = () => {
           limit(1),
         ),
       );
-      setNextTarget(
-        targetSnap.empty
-          ? null
-          : { id: targetSnap.docs[0].id, ...targetSnap.docs[0].data() },
-      );
+
+      const nextTargetData = targetSnap.empty
+        ? null
+        : { id: targetSnap.docs[0].id, ...targetSnap.docs[0].data() };
+
+      // Update UI
+      setTotalCount(total);
+      setMyRank(newRank);
+      setPercentile(newPct);
+      setNextTarget(nextTargetData);
+
+      // 2. Save to cache so we never pay for this combo again
+      filterCountCache.current.set(cacheKey, {
+        total,
+        myRank: newRank,
+        percentile: newPct,
+        nextTarget: nextTargetData,
+      });
 
       // Notification logic (async, non-blocking)
       const uid = userData.uid || userData.id;
@@ -1451,6 +1478,9 @@ const Leaderboard = () => {
       p.id === userData?.id ||
       p.identity?.username === userData?.identity?.username,
   );
+
+  const myLevelStr = userData?.identity?.level || userData?.level || "L1";
+  const userAura = LEVEL_AURA[getLevelKey(myLevelStr)];
 
   const activeFilterCount = [
     filters.domain,
@@ -1831,10 +1861,18 @@ const Leaderboard = () => {
                   {/* Left: Avatar & Rank */}
                   <div className="flex items-center gap-3 shrink-0">
                     <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl bg-amber-500/15 border border-amber-500/25 flex items-center justify-center shrink-0">
+                      {/* Inside the MOBILE CARD section */}
                       <img
-                        src={getAvatar("observer", userData?.identity?.gender)}
-                        alt="You"
-                        className="w-7 h-7 sm:w-8 sm:h-8 object-contain grayscale brightness-75"
+                        src={getAvatar("observer", userData.identity?.gender)}
+                        alt="Operator Avatar"
+                        loading="lazy"
+                        decoding="async"
+                        width={40}
+                        height={40}
+                        className={cn(
+                          "w-full h-full object-contain rounded-xl",
+                          userAura.ring,
+                        )}
                       />
                     </div>
                     <div>

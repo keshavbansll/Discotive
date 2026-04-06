@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Database, FileText, ChevronRight, X, Search } from "lucide-react";
-import { cn } from "./ui/BentoCard";
+import { cn } from "../lib/cn";
 
 const SyncAsset = ({ isOpen, onClose, onSelectAsset, userVault = [] }) => {
   const [filter, setFilter] = useState("All");

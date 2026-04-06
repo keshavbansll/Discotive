@@ -15,17 +15,34 @@
  *   Arrow keys    pan canvas
  */
 
-import React, { useState, useEffect, useCallback, useRef } from "react";
-import { getLayoutedElements } from "../../lib/roadmap/layout";
+import React, {
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  Suspense,
+  lazy,
+} from "react";
 import ReactFlow, {
-  Background,
-  Controls,
-  MiniMap,
   applyNodeChanges,
   applyEdgeChanges,
   addEdge,
   useReactFlow,
 } from "reactflow";
+import "reactflow/dist/style.css";
+
+// ── MAANG-GRADE CODE SPLITTING ──
+// These components are heavy. We dynamically chunk them so they only
+// download and execute when the user explicitly needs them.
+const MiniMap = lazy(() =>
+  import("reactflow").then((m) => ({ default: m.MiniMap })),
+);
+const Controls = lazy(() =>
+  import("reactflow").then((m) => ({ default: m.Controls })),
+);
+const Background = lazy(() =>
+  import("reactflow").then((m) => ({ default: m.Background })),
+);
 import "reactflow/dist/style.css";
 
 import { motion, AnimatePresence } from "framer-motion";
@@ -53,7 +70,7 @@ import {
 } from "lucide-react";
 import { toPng } from "html-to-image";
 import { jsPDF } from "jspdf";
-import { cn } from "../ui/BentoCard";
+import { cn } from "../lib/cn";
 
 import { ExecutionNode } from "./ExecutionNode.jsx";
 import { NeuralEdge, edgeTypes } from "./NeuralEdge.jsx";
@@ -629,7 +646,7 @@ export const FlowCanvas = ({
         <TopologyStats nodes={nodes} edges={edges} />
 
         {/* Sync status */}
-        <div className="hidden md:flex items-center gap-1.5 px-3 py-1.5 bg-[#080808]/95 backdrop-blur-xl border border-[#1a1a1a] rounded-full text-[9px] font-black uppercase tracking-widest text-[#555]">
+        <div className="hidden md:flex items-center gap-1.5 px-3 py-1.5 bg-[#080808]/95 backdrop-blur-xl border border-[#1a1a1a] rounded-full text-[9px] font-black uppercase tracking-widest text-[#888]">
           {isSaving ? (
             <>
               <RefreshCw className="w-3 h-3 animate-spin text-amber-500" />{" "}
@@ -662,7 +679,7 @@ export const FlowCanvas = ({
       {/* ── HUD: SEARCH + FILTER ── */}
       <div className="absolute top-4 right-[180px] md:right-[200px] z-[70] flex items-center gap-2">
         <div className="relative">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-[#555]" />
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-[#888]" />
           <input
             type="search"
             value={searchQ}
@@ -831,34 +848,42 @@ export const FlowCanvas = ({
         defaultEdgeOptions={{ type: "neuralEdge", animated: false }}
         className="bg-[#101010]"
       >
-        <Background
-          variant="dots"
-          color="rgba(255,255,255,0.15)"
-          gap={24}
-          size={1.5}
-          style={{ backgroundColor: "#070707" }}
-        />
-        <Controls
-          showInteractive={false}
-          className="!bg-transparent !border-none [&_.react-flow__controls-button]:bg-[#0d0d12] [&_.react-flow__controls-button]:border-white/[0.07] [&_.react-flow__controls-button]:fill-[rgba(255,255,255,0.4)] [&_.react-flow__controls-button:hover]:bg-[#13131a] rounded-xl border border-white/[0.06] overflow-hidden z-30 hidden md:flex"
-        />
-        {showMini && (
-          <MiniMap
-            nodeColor={(n) =>
-              n.data?.isCompleted
-                ? "#10b981"
-                : n.data?.priorityStatus === "READY"
-                  ? "#f59e0b"
-                  : "#333"
-            }
-            maskColor="rgba(0,0,0,0.85)"
-            style={{
-              background: "#080808",
-              border: "1px solid #1e1e1e",
-              borderRadius: 12,
-            }}
-            aria-label="Canvas minimap"
+        <Suspense fallback={null}>
+          <Background
+            variant="dots"
+            color="rgba(255,255,255,0.15)"
+            gap={24}
+            size={1.5}
+            style={{ backgroundColor: "#070707" }}
           />
+        </Suspense>
+
+        <Suspense fallback={null}>
+          <Controls
+            showInteractive={false}
+            className="!bg-transparent !border-none [&_.react-flow__controls-button]:bg-[#0d0d12] [&_.react-flow__controls-button]:border-white/[0.07] [&_.react-flow__controls-button]:fill-[rgba(255,255,255,0.4)] [&_.react-flow__controls-button:hover]:bg-[#13131a] rounded-xl border border-white/[0.06] overflow-hidden z-30 hidden md:flex"
+          />
+        </Suspense>
+
+        {showMini && (
+          <Suspense fallback={null}>
+            <MiniMap
+              nodeColor={(n) =>
+                n.data?.isCompleted
+                  ? "#10b981"
+                  : n.data?.priorityStatus === "READY"
+                    ? "#f59e0b"
+                    : "#333"
+              }
+              maskColor="rgba(0,0,0,0.85)"
+              style={{
+                background: "#080808",
+                border: "1px solid #1e1e1e",
+                borderRadius: 12,
+              }}
+              aria-label="Canvas minimap"
+            />
+          </Suspense>
         )}
       </ReactFlow>
 
@@ -866,6 +891,8 @@ export const FlowCanvas = ({
       {(paneMenu || nodeMenu || edgeMenu) && (
         <div
           className="fixed inset-0 z-[90]"
+          role="presentation"
+          tabIndex={-1}
           onClick={() => {
             setPaneMenu(null);
             setNodeMenu(null);

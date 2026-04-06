@@ -8,7 +8,7 @@ import {
   Eye,
   Link as LinkIcon,
 } from "lucide-react";
-import { cn } from "../../ui/BentoCard";
+import { cn } from "../../../lib/cn";
 import { useRoadmap } from "../../../contexts/RoadmapContext.jsx";
 import { useYouTubePlayer } from "../../../hooks/useYouTubePlayer";
 

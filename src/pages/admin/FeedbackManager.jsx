@@ -30,8 +30,7 @@ import {
   Users,
   Zap,
 } from "lucide-react";
-import { cn } from "../../components/ui/BentoCard";
-
+import { cn } from "../../lib/cn";
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const RECOMMENDATION_META = {

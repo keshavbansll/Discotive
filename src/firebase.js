@@ -7,6 +7,7 @@ import {
   initializeAppCheck,
   ReCaptchaEnterpriseProvider,
 } from "firebase/app-check";
+import { getFunctions } from "firebase/functions";
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -18,34 +19,36 @@ const firebaseConfig = {
   measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID,
 };
 
+// 1. Configure the Debug Token BEFORE initializing App Check
 if (import.meta.env.DEV) {
-  self.FIREBASE_APPCHECK_DEBUG_TOKEN = true;
+  // Uses a specific token if defined in .env.local, otherwise generates a random one in the console.
+  self.FIREBASE_APPCHECK_DEBUG_TOKEN =
+    import.meta.env.VITE_APPCHECK_DEBUG_TOKEN || true;
 }
 
-// Initialize Firebase
+// 2. Initialize Core Firebase Services
 export const app = initializeApp(firebaseConfig);
+export const auth = getAuth(app);
+export const db = getFirestore(app);
+export const storage = getStorage(app);
+export const functions = getFunctions(app);
 
-// Initialize App Check
-if (import.meta.env.PROD && import.meta.env.VITE_RECAPTCHA_KEY) {
+// 3. Initialize App Check Universally (Dev and Prod)
+if (import.meta.env.VITE_RECAPTCHA_KEY) {
   initializeAppCheck(app, {
     provider: new ReCaptchaEnterpriseProvider(
       import.meta.env.VITE_RECAPTCHA_KEY,
     ),
     isTokenAutoRefreshEnabled: true,
   });
-} else if (import.meta.env.PROD) {
-  console.warn(
-    "App Check skipped: VITE_RECAPTCHA_KEY is missing from environment variables.",
+} else {
+  console.error(
+    "[Security] Firebase App Check failed to initialize. Missing VITE_RECAPTCHA_KEY in environment variables.",
   );
 }
 
-// Initialize Services
-export const auth = getAuth(app);
-export const db = getFirestore(app);
-export const storage = getStorage(app);
-
-// Initialize Analytics Safely (Checks if browser supports it/isn't blocking it)
-export let analytics = null;
+// 4. Initialize Analytics conditionally (client-side only)
+export let analytics;
 isSupported().then((supported) => {
   if (supported) {
     analytics = getAnalytics(app);

@@ -12,7 +12,7 @@ import {
   Flame,
   TrendingUp,
 } from "lucide-react";
-import { cn } from "../ui/BentoCard";
+import { cn } from "../lib/cn";
 
 export const TopologyStats = ({ nodes, edges }) => {
   const stats = useMemo(() => {

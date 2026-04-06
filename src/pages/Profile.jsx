@@ -20,7 +20,7 @@ import React, { useState, useMemo, useRef, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { useUserData } from "../hooks/useUserData";
-import { cn } from "../components/ui/BentoCard";
+import { cn } from "../lib/cn";
 import {
   MapPin,
   Terminal,
@@ -379,6 +379,54 @@ const Profile = () => {
     });
   }, [viewDate, activeDates]);
 
+  const [isExporting, setIsExporting] = useState(false);
+
+  const handleExportDCI = async () => {
+    try {
+      setIsExporting(true);
+      showToast("Initializing DCI Export...", "green"); // Give immediate UI feedback
+
+      // 1. Dynamically import the heavy PDF renderer ONLY when clicked
+      const { pdf } = await import("@react-pdf/renderer");
+
+      // 2. Dynamically import your specific template
+      // Ensure the path is correct based on your folder structure
+      const { DCIExportTemplate } =
+        await import("../components/DCIExportTemplate");
+
+      // 3. Construct the document with the data currently in scope
+      const document = (
+        <DCIExportTemplate
+          data={userData}
+          level={level}
+          skills={skills}
+          assetsCount={vault.length}
+          alliesCount={allies.length}
+        />
+      );
+
+      // 4. Generate the blob
+      const blob = await pdf(document).toBlob();
+
+      // 5. Trigger the native browser download
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${userData.identity?.firstName || "Operator"}_DCI_Profile.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+
+      showToast("DCI Export Complete", "green");
+    } catch (error) {
+      console.error("PDF Export Error:", error);
+      showToast("Export failed. Please try again.", "red");
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
   const handleCopyPublicLink = () => {
     const url = `https://discotive.in/@${userData?.identity?.username || ""}`;
     navigator.clipboard.writeText(url);
@@ -471,6 +519,25 @@ const Profile = () => {
             </h1>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
+            {/* NEW EXPORT BUTTON */}
+            <button
+              onClick={handleExportDCI}
+              disabled={isExporting}
+              className={cn(
+                "flex items-center gap-2 px-3 py-2 bg-[#0a0a0a] border border-[#1a1a1a] rounded-xl text-[10px] font-bold transition-all uppercase tracking-widest",
+                isExporting
+                  ? "opacity-50 cursor-not-allowed text-white/40"
+                  : "text-indigo-400 hover:border-indigo-500/30 hover:bg-indigo-500/10",
+              )}
+            >
+              {isExporting ? (
+                <Activity className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <FolderLock className="w-3.5 h-3.5" />
+              )}
+              {isExporting ? "Compiling..." : "Export DCI"}
+            </button>
+
             <button
               onClick={handleCopyPublicLink}
               className="flex items-center gap-2 px-3 py-2 bg-[#0a0a0a] border border-[#1a1a1a] hover:border-[#333] rounded-xl text-[10px] font-bold text-[#666] hover:text-white transition-all"
@@ -482,6 +549,7 @@ const Profile = () => {
               )}
               {copiedLink ? "Copied!" : "Share Profile"}
             </button>
+
             <Link
               to="/app/profile/edit"
               className="flex items-center gap-2 px-4 py-2 bg-white text-black text-[10px] font-black rounded-xl hover:bg-[#ddd] transition-colors uppercase tracking-widest"

@@ -57,7 +57,7 @@ import {
   User,
   Ban,
 } from "lucide-react";
-import { cn } from "../../components/ui/BentoCard";
+import { cn } from "../../lib/cn";
 import CertificateExplorerModal from "./CertificateExplorerModal";
 
 // ============================================================================

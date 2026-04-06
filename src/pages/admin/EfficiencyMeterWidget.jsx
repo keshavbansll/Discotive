@@ -55,8 +55,7 @@ import {
   ArrowUpRight,
 } from "lucide-react";
 import { toPng } from "html-to-image";
-import { cn } from "../../components/ui/BentoCard";
-
+import { cn } from "../../lib/cn";
 // ── DEM Schema ────────────────────────────────────────────────────────────────
 // weight: the efficiency score contribution (0–100) for each recommendation.
 // id values MUST match the `recommendation` field values written by FeedbackModal.

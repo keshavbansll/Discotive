@@ -66,8 +66,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
-import { cn } from "../../components/ui/BentoCard";
-
+import { cn } from "../../lib/cn";
 import EfficiencyMeterWidget from "./EfficiencyMeterWidget";
 
 // ============================================================================

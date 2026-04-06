@@ -7,7 +7,6 @@ const loadingPhrases = [
   "Encrypting Asset Vault...",
   "Mapping execution dependencies...",
   "Calculating baseline momentum...",
-  "Personalizing your career trajectory...",
 ];
 
 const AuthLoader = ({ taskComplete }) => {
@@ -16,17 +15,17 @@ const AuthLoader = ({ taskComplete }) => {
   const [minTimeMet, setMinTimeMet] = useState(false);
 
   useEffect(() => {
-    // Cycle text
+    // 1. Cycle text twice as fast (600ms) so they actually see the OS booting vibe
     const textInterval = setInterval(() => {
       setPhraseIndex((prev) =>
         prev + 1 < loadingPhrases.length ? prev + 1 : prev,
       );
-    }, 1200);
+    }, 600);
 
-    // Enforce strict 6-second minimum animation
+    // 2. Strict 1.5-second minimum animation (CRITICAL FIX: Down from 6.0 seconds)
     const minTimer = setTimeout(() => {
       setMinTimeMet(true);
-    }, 6000);
+    }, 1500);
 
     return () => {
       clearInterval(textInterval);
@@ -34,10 +33,13 @@ const AuthLoader = ({ taskComplete }) => {
     };
   }, []);
 
-  // When BOTH the 6 seconds have passed AND the Firebase task is complete -> Route to App
+  // 3. When BOTH the 1.5s have passed AND Firebase is done -> Route to App
   useEffect(() => {
     if (minTimeMet && taskComplete) {
-      navigate("/app");
+      // Add a tiny 300ms buffer so they actually see "Deployment Ready"
+      // before the component unmounts and shifts to the dashboard.
+      const exitTimer = setTimeout(() => navigate("/app"), 300);
+      return () => clearTimeout(exitTimer);
     }
   }, [minTimeMet, taskComplete, navigate]);
 
@@ -45,7 +47,7 @@ const AuthLoader = ({ taskComplete }) => {
     <div className="fixed inset-0 z-[9999] bg-[#030303] text-white flex flex-col items-center justify-center selection:bg-white selection:text-black">
       <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-[0.03] pointer-events-none" />
 
-      {/* 1. THE CENTER ANIMATION (Algorithmic Core) */}
+      {/* 1. THE CENTER ANIMATION */}
       <div className="relative w-32 h-32 mb-16 flex items-center justify-center">
         <motion.div
           className="absolute inset-0 border border-[#333] rounded-full"
@@ -66,12 +68,12 @@ const AuthLoader = ({ taskComplete }) => {
 
       {/* 2. THE HORIZONTAL LINE LOADER */}
       <div className="w-64 md:w-80 h-[2px] bg-[#222] overflow-hidden mb-8 relative rounded-full">
-        {/* We slow down the bar significantly if waiting on backend, otherwise it hits 100% at 6s */}
         <motion.div
           className="absolute top-0 left-0 h-full bg-white"
           initial={{ width: "0%" }}
+          // Notice we changed the transition duration here to match the 1.5s minimum
           animate={{ width: taskComplete ? "100%" : "85%" }}
-          transition={{ duration: taskComplete ? 0.5 : 6, ease: "easeInOut" }}
+          transition={{ duration: taskComplete ? 0.3 : 1.5, ease: "easeInOut" }}
         />
       </div>
 
@@ -83,7 +85,7 @@ const AuthLoader = ({ taskComplete }) => {
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -10 }}
-            transition={{ duration: 0.3 }}
+            transition={{ duration: 0.2 }}
             className="text-xs md:text-sm font-bold text-[#888] uppercase tracking-widest text-center"
           >
             {taskComplete && minTimeMet

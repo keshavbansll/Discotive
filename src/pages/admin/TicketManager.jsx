@@ -38,8 +38,7 @@ import {
   ExternalLink,
   Eye,
 } from "lucide-react";
-import { cn } from "../../components/ui/BentoCard";
-
+import { cn } from "../../lib/cn";
 const PRIORITY_META = {
   Critical: {
     color: "text-red-400",

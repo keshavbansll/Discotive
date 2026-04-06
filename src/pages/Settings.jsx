@@ -6,29 +6,33 @@
  * identity field, and security protocol on the platform.
  *
  * Tabs:
- *   account      → Identity, Discotive ID (6-digit immutable), join date
- *   profile      → Edit profile redirect, avatar, bio preview
- *   connectors   → App connectors (GitHub, LinkedIn, Twitter, YouTube, etc.)
- *   privacy      → ML Consent, data export, visibility controls
- *   notifications → Email notifs, newsletter, push preferences
- *   security     → Password reset, active session, devices
- *   subscription → Current tier, feature comparison, upgrade CTA
- *   danger       → Account deletion with typed confirmation
+ * account      → Identity, Discotive ID (6-digit immutable), join date
+ * profile      → Edit profile redirect, avatar, bio preview
+ * connectors   → App connectors (GitHub, LinkedIn, Twitter, YouTube, etc.)
+ * privacy      → ML Consent, data export, visibility controls
+ * notifications → Email notifs, newsletter, push preferences
+ * security     → Password reset, active session, devices
+ * subscription → Current tier, feature comparison, upgrade CTA
+ * danger       → Account deletion with typed confirmation
  */
 
 import { useState, useEffect, useCallback } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { doc, updateDoc, deleteDoc, getDoc, setDoc } from "firebase/firestore";
+import { httpsCallable } from "firebase/functions";
+import { functions } from "../firebase"; // Ensure functions is exported from firebase.js
 import {
   deleteUser,
   sendPasswordResetEmail,
   reauthenticateWithCredential,
   EmailAuthProvider,
+  GoogleAuthProvider,
+  reauthenticateWithPopup,
 } from "firebase/auth";
 import { db, auth } from "../firebase";
 import { useUserData } from "../hooks/useUserData";
-import { cn } from "../components/ui/BentoCard";
+import { cn } from "../lib/cn";
 import {
   User,
   Shield,
@@ -238,6 +242,8 @@ const FieldRow = ({ label, sublabel, children, noBorder = false }) => (
 // MAIN COMPONENT
 // ═══════════════════════════════════════════════════════════════════════════════
 const Settings = () => {
+  const [isExportingData, setIsExportingData] = useState(false);
+
   const navigate = useNavigate();
   const { userData, loading, refreshUserData } = useUserData();
 
@@ -245,13 +251,17 @@ const Settings = () => {
   const [toast, setToast] = useState(null);
   const [isSaving, setIsSaving] = useState(false);
   const [isResettingPass, setIsResettingPass] = useState(false);
+
+  // Deletion States
   const [isDeleting, setIsDeleting] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState("");
+  const [password, setPassword] = useState("");
+
   const [copiedId, setCopiedId] = useState(false);
 
   // Connector edit state
-  const [connectorEdit, setConnectorEdit] = useState(null); // key of connector being edited
+  const [connectorEdit, setConnectorEdit] = useState(null);
   const [connectorValue, setConnectorValue] = useState("");
 
   // Session info
@@ -259,6 +269,9 @@ const Settings = () => {
     os: "Unknown OS",
     browser: "Unknown Browser",
   });
+
+  // Identify auth provider for deletion modal
+  const authProvider = auth.currentUser?.providerData[0]?.providerId;
 
   useEffect(() => {
     const ua = navigator.userAgent;
@@ -285,7 +298,6 @@ const Settings = () => {
     setSessionInfo({ os, browser });
   }, []);
 
-  // Auto-generate Discotive ID if missing
   useEffect(() => {
     const ensureDiscotiveId = async () => {
       const uid = userData?.uid || userData?.id;
@@ -369,57 +381,87 @@ const Settings = () => {
     }
   };
 
+  // ── MAANG-Grade Secure Deletion Handler ──
   const handleDeleteAccount = async () => {
     if (deleteConfirm !== "DELETE") {
       showToast("Type DELETE to confirm.", "red");
       return;
     }
+
+    const user = auth.currentUser;
+    if (!user) {
+      showToast("System error: No active session found.", "red");
+      return;
+    }
+
+    if (authProvider === "password" && !password) {
+      showToast("Password is required for termination.", "red");
+      return;
+    }
+
     setIsDeleting(true);
     try {
-      const user = auth.currentUser;
-      if (!user) throw new Error("No session.");
+      // 1. Proactive Re-authentication Gate
+      if (authProvider === "password") {
+        const credential = EmailAuthProvider.credential(user.email, password);
+        await reauthenticateWithCredential(user, credential);
+      } else if (authProvider === "google.com") {
+        const provider = new GoogleAuthProvider();
+        await reauthenticateWithPopup(user, provider);
+      }
+
+      // 2. Erase Ledger & Identity
       if (uid) await deleteDoc(doc(db, "users", uid));
       await deleteUser(user);
       navigate("/");
     } catch (e) {
-      if (e.code === "auth/requires-recent-login") {
+      console.error("[Settings] Account Termination Fault:", e);
+      if (e.code === "auth/wrong-password") {
+        showToast("Incorrect password.", "red");
+      } else if (e.code === "auth/popup-closed-by-user") {
+        showToast("Google authentication was cancelled.", "red");
+      } else if (e.code === "auth/requires-recent-login") {
         showToast(
-          "Re-login required. Sign out and back in, then retry.",
+          "Critical: Re-auth failed. Please sign out and back in.",
           "red",
         );
       } else {
         showToast("Termination failed. Contact support.", "red");
       }
+    } finally {
       setIsDeleting(false);
-      setShowDeleteModal(false);
     }
   };
 
-  const handleExportData = () => {
-    const exportable = {
-      identity: userData?.identity,
-      vision: userData?.vision,
-      baseline: userData?.baseline,
-      skills: userData?.skills,
-      discotiveScore: userData?.discotiveScore,
-      vault: userData?.vault,
-      allies: userData?.allies,
-      links: userData?.links,
-      daily_scores: userData?.daily_scores,
-      monthly_scores: userData?.monthly_scores,
-    };
-    const blob = new Blob([JSON.stringify(exportable, null, 2)], {
-      type: "application/json",
-    });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `discotive_data_export_${Date.now()}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-    showToast("Data exported.", "green");
-  };
+  const handleExportData = async () => {
+    setIsExportingData(true);
+    showToast(
+      "Compiling compliance payload. This may take a moment...",
+      "default",
+    );
 
+    try {
+      const exportUserData = httpsCallable(functions, "exportUserData");
+      const response = await exportUserData();
+
+      const blob = new Blob([JSON.stringify(response.data, null, 2)], {
+        type: "application/json",
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `discotive_gdpr_export_${Date.now()}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+
+      showToast("Data exported successfully.", "green");
+    } catch (error) {
+      console.error("[Settings] Export fault:", error);
+      showToast("Export failed. Please check your connection.", "red");
+    } finally {
+      setIsExportingData(false);
+    }
+  };
   const copyDiscotiveId = () => {
     const id = userData?.discotiveId || "—";
     navigator.clipboard.writeText(id);
@@ -444,7 +486,6 @@ const Settings = () => {
     );
   }
 
-  // Derived values
   const isPro =
     userData?.tier === "PRO" || userData?.subscription?.tier === "pro";
   const mlConsent = userData?.settings?.mlConsent ?? true;
@@ -462,13 +503,11 @@ const Settings = () => {
       ).toLocaleDateString([], { month: "long", year: "numeric" })
     : "—";
 
-  // ─── RENDER ──────────────────────────────────────────────────────────────
   return (
     <div className="bg-[#030303] min-h-screen text-white selection:bg-white/20 pb-28 relative overflow-x-hidden">
       <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-[0.02] pointer-events-none" />
 
       <div className="max-w-[1480px] mx-auto px-4 md:px-8 py-6 md:py-10 relative z-10">
-        {/* Header */}
         <div className="mb-8 md:mb-10">
           <p className="text-[9px] font-black text-white/30 uppercase tracking-[0.25em] mb-2">
             System Controller
@@ -482,7 +521,6 @@ const Settings = () => {
         </div>
 
         <div className="flex flex-col md:flex-row gap-6 md:gap-8">
-          {/* ── Sidebar tabs ──────────────────────────────────────────────── */}
           <div className="md:w-56 shrink-0">
             <div className="flex md:flex-col gap-1.5 overflow-x-auto md:overflow-visible pb-2 md:pb-0 -mx-4 px-4 md:mx-0 md:px-0 md:sticky md:top-24">
               {TABS.map((tab) => {
@@ -515,7 +553,6 @@ const Settings = () => {
             </div>
           </div>
 
-          {/* ── Main content ──────────────────────────────────────────────── */}
           <div className="flex-1 min-w-0">
             <AnimatePresence mode="wait">
               {/* ════════ ACCOUNT ════════ */}
@@ -531,7 +568,6 @@ const Settings = () => {
                     Account Overview
                   </h2>
 
-                  {/* Identity */}
                   <Card>
                     <CardHeader
                       icon={User}
@@ -569,7 +605,6 @@ const Settings = () => {
                     </FieldRow>
                   </Card>
 
-                  {/* Discotive ID */}
                   <Card>
                     <CardHeader
                       icon={Fingerprint}
@@ -610,7 +645,6 @@ const Settings = () => {
                     </p>
                   </Card>
 
-                  {/* Account metadata */}
                   <Card>
                     <CardHeader
                       icon={Calendar}
@@ -669,7 +703,6 @@ const Settings = () => {
                       subtitle="Your career identity card — what the world sees"
                     />
 
-                    {/* Preview card */}
                     <div className="flex items-center gap-4 p-4 bg-[#050505] border border-[#1a1a1a] rounded-xl mb-5">
                       <div className="w-14 h-14 rounded-2xl bg-[#111] border border-[#222] flex items-center justify-center text-xl font-black text-white shrink-0">
                         {`${userData.identity?.firstName?.charAt(0) || ""}${userData.identity?.lastName?.charAt(0) || ""}`.toUpperCase() ||
@@ -727,7 +760,6 @@ const Settings = () => {
                     </div>
                   </Card>
 
-                  {/* Bio preview */}
                   <Card>
                     <CardHeader
                       icon={User}
@@ -866,7 +898,6 @@ const Settings = () => {
                                 </div>
                               </div>
 
-                              {/* Edit input */}
                               {isEditing && (
                                 <motion.div
                                   initial={{ opacity: 0, height: 0 }}
@@ -1019,9 +1050,17 @@ const Settings = () => {
                     </p>
                     <button
                       onClick={handleExportData}
-                      className="flex items-center gap-2 px-5 py-3 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 font-black text-xs uppercase tracking-widest rounded-xl hover:bg-emerald-500/20 transition-all"
+                      disabled={isExportingData}
+                      className="flex items-center gap-2 px-5 py-3 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 font-black text-xs uppercase tracking-widest rounded-xl hover:bg-emerald-500/20 transition-all disabled:opacity-50"
                     >
-                      <Download className="w-4 h-4" /> Export My Data (JSON)
+                      {isExportingData ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Download className="w-4 h-4" />
+                      )}
+                      {isExportingData
+                        ? "Compiling..."
+                        : "Export My Data (JSON)"}
                     </button>
                   </Card>
                 </motion.div>
@@ -1289,7 +1328,6 @@ const Settings = () => {
                     Subscription
                   </h2>
 
-                  {/* Current plan hero */}
                   <div
                     className={cn(
                       "relative overflow-hidden rounded-2xl p-6 md:p-8 border",
@@ -1365,7 +1403,6 @@ const Settings = () => {
                     </div>
                   </div>
 
-                  {/* Feature comparison */}
                   <Card>
                     <CardHeader
                       icon={Sparkles}
@@ -1520,6 +1557,22 @@ const Settings = () => {
                 <span className="text-rose-400 font-bold">permanent</span>. Your
                 entire operator record will be wiped from the Discotive network.
               </p>
+
+              {authProvider === "password" && (
+                <div className="mb-4">
+                  <label className="block text-[9px] font-black text-[#555] uppercase tracking-widest mb-2">
+                    Verify Password
+                  </label>
+                  <input
+                    type="password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="••••••••"
+                    className="w-full bg-[#111] border border-[#222] rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-rose-500 transition-colors placeholder:text-[#333]"
+                  />
+                </div>
+              )}
+
               <div className="mb-5">
                 <label className="block text-[9px] font-black text-[#555] uppercase tracking-widest mb-2">
                   Type "DELETE" to confirm
@@ -1532,11 +1585,13 @@ const Settings = () => {
                   className="w-full bg-[#111] border border-[#222] rounded-xl px-4 py-3 text-sm text-white focus:outline-none focus:border-rose-500 transition-colors font-mono tracking-widest placeholder:text-[#333]"
                 />
               </div>
+
               <div className="flex gap-3">
                 <button
                   onClick={() => {
                     setShowDeleteModal(false);
                     setDeleteConfirm("");
+                    setPassword("");
                   }}
                   disabled={isDeleting}
                   className="flex-1 py-3 bg-[#111] border border-[#222] text-sm font-bold rounded-xl hover:bg-[#1a1a1a] transition-colors disabled:opacity-50"
@@ -1545,7 +1600,11 @@ const Settings = () => {
                 </button>
                 <button
                   onClick={handleDeleteAccount}
-                  disabled={isDeleting || deleteConfirm !== "DELETE"}
+                  disabled={
+                    isDeleting ||
+                    deleteConfirm !== "DELETE" ||
+                    (authProvider === "password" && !password)
+                  }
                   className="flex-1 py-3 bg-rose-600 text-white text-sm font-black rounded-xl hover:bg-rose-500 transition-colors flex items-center justify-center gap-2 disabled:opacity-30 disabled:bg-rose-900 disabled:text-rose-200"
                 >
                   {isDeleting ? (

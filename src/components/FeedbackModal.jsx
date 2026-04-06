@@ -27,9 +27,10 @@
 import React, { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Star, Send, ShieldCheck, MessageSquare } from "lucide-react";
-import { doc, setDoc, serverTimestamp } from "firebase/firestore";
+import { httpsCallable } from "firebase/functions";
+import { functions } from "../firebase";
 import { db } from "../firebase";
-import { cn } from "./ui/BentoCard";
+import { cn } from "./../lib/cn";
 
 // ── Recommendation option definitions ────────────────────────────────────────
 // id values MUST match the keys tallied in EfficiencyMeterWidget's DEM_SCHEMA.
@@ -99,44 +100,32 @@ const FeedbackModal = ({ isOpen, onClose, user }) => {
     setSubmitError(null);
 
     try {
-      // Use the user's UID as the document ID so that resubmission always
-      // overwrites the existing document rather than creating a new one.
-      // This is the anti-spam mechanism: one feedback entry per user, ever.
-      const feedbackRef = doc(db, "feedback", user.uid);
+      const submitFeedback = httpsCallable(functions, "submitFeedback");
 
-      await setDoc(
-        feedbackRef,
-        {
-          uid: user.uid,
-          email: user.email || null,
-          rating,
-          recommendation, // "a_drag" | "average" | "powerful" | "game_changer"
-          comments: comments.trim(),
-          updatedAt: serverTimestamp(),
-        },
-        // merge: true preserves any admin-added fields (e.g. "reviewed")
-        // while still overwriting the user-submitted fields above.
-        { merge: true },
-      );
+      await submitFeedback({
+        rating,
+        recommendation,
+        comments: comments.trim(),
+      });
 
       setIsSuccess(true);
-      // Give the user 2 seconds to see the success state before closing
       setTimeout(() => onClose(), 2000);
     } catch (error) {
-      // Surface the error visibly. The most common cause is a missing
-      // Firestore Security Rule. The rule must allow:
-      //   allow write: if request.auth.uid == feedbackDocId;
-      console.error("[FeedbackModal] Firestore write failed:", error);
+      console.error("[FeedbackModal] Cloud Function submission failed:", error);
       setSubmitError("Submission failed. Check your connection and try again.");
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  // ── Half-star rating renderer ──────────────────────────────────────────────
+  // ── Half-star rating renderer (WCAG Compliant) ──────────────────────────────
   const renderStars = () => {
     return (
-      <div className="flex items-center justify-center gap-1.5 mb-4">
+      <div
+        className="flex items-center justify-center gap-1.5 mb-4"
+        role="radiogroup"
+        aria-label="Rate the efficiency of Discotive from 0.5 to 5 stars"
+      >
         {[1, 2, 3, 4, 5].map((index) => {
           const activeRating = hoverRating > 0 ? hoverRating : rating;
           const isFull = activeRating >= index;
@@ -145,27 +134,47 @@ const FeedbackModal = ({ isOpen, onClose, user }) => {
           return (
             <div
               key={index}
-              className="relative w-8 h-8 md:w-9 md:h-9 cursor-pointer touch-manipulation transition-transform hover:scale-110"
+              className="relative w-8 h-8 md:w-9 md:h-9 touch-manipulation transition-transform hover:scale-110"
             >
-              {/* Invisible hit zones — left half sets half-star, right half sets full */}
+              {/* Accessible hit zones — left half sets half-star, right half sets full */}
               <div className="absolute inset-0 z-20 flex">
                 <div
-                  className="w-1/2 h-full"
+                  className="w-1/2 h-full outline-none focus-visible:ring-2 focus-visible:ring-[#D4AF37] focus-visible:ring-inset"
                   onClick={() => setRating(index - 0.5)}
                   onMouseEnter={() => setHoverRating(index - 0.5)}
                   onMouseLeave={() => setHoverRating(0)}
+                  role="radio"
+                  aria-checked={rating === index - 0.5}
+                  tabIndex={0}
+                  aria-label={`${index - 0.5} stars`}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      setRating(index - 0.5);
+                    }
+                  }}
                 />
                 <div
-                  className="w-1/2 h-full"
+                  className="w-1/2 h-full outline-none focus-visible:ring-2 focus-visible:ring-[#D4AF37] focus-visible:ring-inset"
                   onClick={() => setRating(index)}
                   onMouseEnter={() => setHoverRating(index)}
                   onMouseLeave={() => setHoverRating(0)}
+                  role="radio"
+                  aria-checked={rating === index}
+                  tabIndex={0}
+                  aria-label={`${index} stars`}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      setRating(index);
+                    }
+                  }}
                 />
               </div>
 
               {/* Empty star (background layer) */}
               <Star
-                className="absolute inset-0 w-full h-full text-[#222222]"
+                className="absolute inset-0 w-full h-full text-[#333]"
                 strokeWidth={1.5}
               />
 

@@ -30,8 +30,7 @@ import {
   Eye,
   ExternalLink,
 } from "lucide-react";
-import { cn } from "../../components/ui/BentoCard";
-
+import { cn } from "../../lib/cn";
 const STATUS_META = {
   pending: {
     color: "text-amber-400",

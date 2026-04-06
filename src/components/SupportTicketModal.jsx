@@ -28,9 +28,10 @@ import {
   CheckCircle2,
   Loader2,
 } from "lucide-react";
-import { collection, addDoc, serverTimestamp } from "firebase/firestore";
+import { httpsCallable } from "firebase/functions";
+import { functions } from "../firebase";
 import { db } from "../firebase";
-import { cn } from "./ui/BentoCard";
+import { cn } from "../lib/cn";
 
 // ── Grace Quick-Answers (mirrors Grace.jsx flows) ────────────────────────────
 const GRACE_QUICK = {
@@ -168,26 +169,21 @@ const SupportTicketModal = ({ isOpen, onClose, user, userData }) => {
     setSubmitting(true);
     setSubmitError(null);
     try {
-      await addDoc(collection(db, "support_tickets"), {
-        uid: user.uid,
-        email: user.email || null,
-        username: userData?.identity?.username || null,
-        category: form.category,
+      const submitSupportTicket = httpsCallable(
+        functions,
+        "submitSupportTicket",
+      );
+
+      await submitSupportTicket({
+        category: form.category || selectedCategory || "Other",
         subject: form.subject.trim(),
         message: form.message.trim(),
         priority: form.priority,
-        status: "open",
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-        closedAt: null,
-        deleteAt: null, // Set by admin/CRON when status → closed
-        // Context that helps admins
-        tier: userData?.tier || "ESSENTIAL",
-        graceChecked: step === "grace_answer" || selectedOpt !== null,
       });
+
       setStep("success");
     } catch (err) {
-      console.error("[SupportTicket] Submit failed:", err);
+      console.error("[SupportTicket] Cloud Function submit failed:", err);
       setSubmitError("Submission failed. Check your connection.");
     } finally {
       setSubmitting(false);

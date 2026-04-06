@@ -26,24 +26,15 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import {
-  collection,
-  query,
-  where,
-  getDocs,
-  getCountFromServer,
-  doc,
-  updateDoc,
-  increment,
-  writeBatch,
-  arrayUnion,
-} from "firebase/firestore";
+import { doc, updateDoc, writeBatch, arrayUnion } from "firebase/firestore";
+import { httpsCallable } from "firebase/functions";
+import { db, auth, functions } from "../firebase";
 import { db, auth } from "../firebase";
 import { useUserData } from "../hooks/useUserData";
 import { mutateScore } from "../lib/scoreEngine";
 import { pdf } from "@react-pdf/renderer";
 import { DCIExportTemplate } from "../components/DCIExportTemplate";
-import { cn } from "../components/ui/BentoCard";
+import { cn } from "../lib/cn";
 import {
   MapPin,
   Github,
@@ -393,43 +384,25 @@ const PublicProfile = () => {
       }
 
       try {
-        const snap = await getDocs(
-          query(
-            collection(db, "users"),
-            where("identity.username", "==", username),
-          ),
-        );
-        if (snap.empty) {
-          setProfileData(null);
-          setLoading(false);
-          return;
-        }
+        const getProfile = httpsCallable(functions, "getPublicProfileData");
+        const response = await getProfile({ handle: username });
+        const data = response.data;
 
-        const docSnap = snap.docs[0];
-        const data = docSnap.data();
-        const tId = docSnap.id;
-        const score = data.discotiveScore?.current || 0;
-
-        setProfileData({ id: tId, ...data });
-        setTargetId(tId);
-
-        // Rank
-        const rankSnap = await getCountFromServer(
-          query(
-            collection(db, "users"),
-            where("discotiveScore.current", ">", score),
-          ),
-        );
-        setRank(rankSnap.data().count + 1);
+        setProfileData(data);
+        setTargetId(data.id);
+        setRank(data.rank);
 
         // View tracking (unique per device per profile)
-        const viewKey = `dv_viewed_${tId}`;
-        const isOwner = auth.currentUser?.uid === tId;
+        const viewKey = `dv_viewed_${data.id}`;
+        const isOwner = auth.currentUser?.uid === data.id;
+
         if (!localStorage.getItem(viewKey) && !isOwner) {
-          await updateDoc(doc(db, "users", tId), {
+          // It's safe to fire this increment directly because our firestore.rules
+          // allow users to increment profileViews by exactly +1
+          await updateDoc(doc(db, "users", data.id), {
             profileViews: increment(1),
           });
-          mutateScore(tId, 1, "Public Profile View");
+          mutateScore(data.id, 1, "Public Profile View");
           localStorage.setItem(viewKey, "true");
           setProfileData((prev) => ({
             ...prev,
@@ -438,11 +411,12 @@ const PublicProfile = () => {
         }
 
         // Check if viewer is already allied
-        if (viewerData?.allies?.includes(tId)) setAllyStatus("allied");
-        else if (viewerData?.outboundRequests?.includes(tId))
+        if (viewerData?.allies?.includes(data.id)) setAllyStatus("allied");
+        else if (viewerData?.outboundRequests?.includes(data.id))
           setAllyStatus("sent");
       } catch (err) {
         console.error("[PublicProfile] fetch failed:", err);
+        setProfileData(null);
       } finally {
         setLoading(false);
       }
@@ -483,7 +457,7 @@ const PublicProfile = () => {
   const gradYear = profileData?.baseline?.gradYear || null;
 
   const skills = profileData?.skills?.alignedSkills || [];
-  const alliesCount = (profileData?.allies || []).length;
+  const alliesCount = profileData?.alliesCount || 0;
 
   // Only verified public vault assets
   const verifiedVault = (profileData?.vault || []).filter(

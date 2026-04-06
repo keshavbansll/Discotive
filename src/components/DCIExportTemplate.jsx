@@ -130,7 +130,7 @@ const styles = StyleSheet.create({
 });
 
 // --- ATS PDF DOCUMENT COMPONENT ---
-export const DCIExportTemplate = ({
+const DCIExportTemplate = ({
   data,
   level,
   skills,
@@ -434,3 +434,5 @@ export const DCIExportTemplate = ({
     </Document>
   );
 };
+
+export default DCIExportTemplate;

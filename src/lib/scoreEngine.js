@@ -217,14 +217,6 @@ export const awardNodeCompletion = (userId, nodeType) => {
 };
 
 /**
- * @function awardVaultUpload
- * @description Fires when a user uploads a new vault asset.
- * Unverified assets get fewer points; verified get a bonus via awardVaultVerification.
- */
-export const awardVaultUpload = (userId) =>
-  mutateScore(userId, 10, "Vault Asset Uploaded");
-
-/**
  * @function awardVaultVerification
  * @description Fires when an admin marks an asset as Verified.
  * Point value scales with strength rating.
@@ -241,27 +233,60 @@ export const awardVaultVerification = (userId, strength) => {
 };
 
 // --- NETWORK & ALLIANCE EVENTS ---
-export const awardAllianceAction = (userId, actionType) => {
+export const awardAllianceAction = async (userId, actionType) => {
   if (!userId) return;
 
   let points = 0;
   let reason = "";
 
-  switch (actionType) {
-    case "accepted":
-      points = 15;
-      reason = "Alliance Forged";
-      break;
-    case "sent":
+  if (actionType === "sent") {
+    const { todayStr } = getISTDateStrings();
+    const userRef = doc(db, "users", userId);
+
+    try {
+      // Security Gate: Verify and lock the rate limit via Transaction
+      const isAuthorized = await runTransaction(db, async (tx) => {
+        const snap = await tx.get(userRef);
+        if (!snap.exists()) return false;
+
+        const data = snap.data();
+        const dailyLimit = data.dailyAllianceSent || { count: 0, date: "" };
+
+        if (dailyLimit.date === todayStr && dailyLimit.count >= 5) {
+          return false; // Farm attempt blocked
+        }
+
+        const newCount =
+          dailyLimit.date === todayStr ? dailyLimit.count + 1 : 1;
+        tx.update(userRef, {
+          dailyAllianceSent: { count: newCount, date: todayStr },
+        });
+        return true;
+      });
+
+      if (!isAuthorized) {
+        console.warn(
+          `[ScoreEngine] Anti-farm rate limit enforced for user: ${userId}`,
+        );
+        return; // Terminate execution immediately
+      }
+
       points = 5;
       reason = "Alliance Request Sent";
-      break;
-    default:
-      points = -5;
-      reason = "Alliance Action Reversed";
+    } catch (error) {
+      console.error("[ScoreEngine] Rate limit transaction failed:", error);
+      return; // Fail closed: Do not award points if the validation DB call fails
+    }
+  } else if (actionType === "accepted") {
+    points = 15;
+    reason = "Alliance Forged";
+  } else {
+    points = -5;
+    reason = "Alliance Action Reversed";
   }
 
-  mutateScore(userId, points, reason);
+  // Await the mutation. Fire-and-forget causes race conditions in rapid UI interactions.
+  await mutateScore(userId, points, reason);
 };
 
 /**

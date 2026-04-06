@@ -54,8 +54,9 @@ import {
   AlertTriangle,
   Check,
   ArrowRight,
+  Command,
 } from "lucide-react";
-import { cn } from "../components/ui/BentoCard";
+import { cn } from "../lib/cn";
 import { processDailyConsistency } from "../lib/scoreEngine";
 import FeedbackModal from "../components/FeedbackModal";
 
@@ -201,12 +202,32 @@ const MainLayout = () => {
     }
   }, [loading, userData, navigate]);
 
-  // --- TRIGGER DAILY SCORE ENGINE ---
+  // ── CORE OS BOOT: Daily Consistency Check ────────────────────────────────
   useEffect(() => {
-    if (userData?.uid) {
-      processDailyConsistency(userData.uid);
-    }
-  }, [userData?.uid]);
+    if (!userData?.uid) return;
+
+    // 1. MAANG-GRADE: Match the backend's exact timezone (IST) to prevent 5:30 AM loop bugs
+    const options = {
+      timeZone: "Asia/Kolkata",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    };
+    const todayStr = new Intl.DateTimeFormat("en-CA", options).format(
+      new Date(),
+    );
+
+    // 2. PRIMARY GUARD: If Firestore already registered today's login, abort immediately.
+    if (userData.discotiveScore?.lastLoginDate === todayStr) return;
+
+    // 3. SECONDARY GUARD: Session cache to prevent race conditions during React remounts
+    const cacheKey = `sys_boot_${userData.uid}_${todayStr}`;
+    if (sessionStorage.getItem(cacheKey)) return;
+
+    // Lock the cache and fire the transaction
+    sessionStorage.setItem(cacheKey, "true");
+    processDailyConsistency(userData.uid);
+  }, [userData?.uid, userData?.discotiveScore?.lastLoginDate]);
 
   // --- STRICT CLICK-OUTSIDE REFS ---
   const profileMenuRef = useRef(null);
@@ -413,6 +434,10 @@ const MainLayout = () => {
                     : "/logo-no-bg-white.png"
                 }
                 alt="Discotive Logo"
+                width={32}
+                height={32}
+                fetchpriority="high"
+                decoding="async"
                 className="w-full h-full object-contain transition-all duration-300"
               />
             </div>
@@ -554,18 +579,26 @@ const MainLayout = () => {
             <span className="md:hidden font-extrabold text-xl tracking-tight text-white">
               DISCOTIVE
             </span>
-            <div className="hidden md:flex items-center bg-[#0a0a0a] border border-[#222] rounded-xl px-4 py-2.5 focus-within:border-[#555] transition-colors w-72 lg:w-96 group">
-              <Search className="w-4 h-4 text-[#555] group-focus-within:text-white shrink-0" />
+            <div className="flex-1 max-w-md relative hidden md:block">
+              <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                <Search className="w-4 h-4 text-white/40" />
+              </div>
               <input
                 type="text"
+                // MAANG-GRADE FIX: Set correct user expectations
+                placeholder="Search operators..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 onKeyDown={handleSearch}
-                placeholder="Search operators, vaults, assets..."
-                className="w-full bg-transparent border-none outline-none text-xs px-3 text-white placeholder-[#555] font-medium"
+                className="w-full bg-transparent border-none text-sm text-white placeholder-white/30 focus:outline-none pl-10 pr-4 py-2.5 font-medium"
               />
-              <div className="px-1.5 py-0.5 rounded border border-[#333] bg-[#111] text-[10px] text-[#666] font-mono shrink-0">
-                ⌘K
+              <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
+                <div className="hidden lg:flex items-center gap-1 px-2 py-1 rounded bg-white/5 border border-white/10">
+                  <Command className="w-3 h-3 text-white/40" />
+                  <span className="text-[10px] font-medium text-white/40">
+                    K
+                  </span>
+                </div>
               </div>
             </div>
             {isInstallable && (
@@ -1060,7 +1093,7 @@ const MainLayout = () => {
           { icon: LayoutDashboard, path: "/app", label: "Dashboard" },
           { icon: Target, path: "/app/roadmap", label: "Roadmap" },
           { icon: Trophy, path: "/app/leaderboard", label: "Arena" },
-          { icon: Users, path: "/app/network", label: "Network" },
+          { icon: FolderOpen, path: "/app/vault", label: "Vault" },
         ].map((item) => {
           const Icon = item.icon;
           const isActive = location.pathname === item.path;

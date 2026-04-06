@@ -41,7 +41,7 @@ import {
 } from "lucide-react";
 import GlobalLoader from "../components/GlobalLoader";
 import AnimatedButton from "../components/AnimatedButton";
-import { cn } from "../components/ui/BentoCard";
+import { cn } from "../lib/cn";
 
 // ============================================================================
 // CORE DATA (MARQUEES)

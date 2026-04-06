@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { BookOpen, X, RefreshCw, Award, Link as LinkIcon } from "lucide-react";
-import { cn } from "../../components/ui/BentoCard";
+import { cn } from "../../lib/cn";
 import { fetchCertificates } from "../../lib/discotiveLearn";
 
 const CertificateExplorerModal = ({ isOpen, onClose, onSelect }) => {

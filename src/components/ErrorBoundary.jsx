@@ -1,10 +1,11 @@
 import React from "react";
+import * as Sentry from "@sentry/react";
 import SystemFailure from "./SystemFailure";
 
 class ErrorBoundary extends React.Component {
   constructor(props) {
     super(props);
-    this.state = { hasError: false, error: null };
+    this.state = { hasError: false, error: null, eventId: null };
   }
 
   static getDerivedStateFromError(error) {
@@ -12,8 +13,18 @@ class ErrorBoundary extends React.Component {
   }
 
   componentDidCatch(error, errorInfo) {
-    // You can log the error to Sentry, Firebase Crashlytics, etc. here
-    console.error("Discotive Error Boundary Caught:", error, errorInfo);
+    console.error(
+      "[System Fault] Discotive Error Boundary Caught:",
+      error,
+      errorInfo,
+    );
+
+    // MAANG-Grade Telemetry Injection
+    Sentry.withScope((scope) => {
+      scope.setExtras(errorInfo);
+      const eventId = Sentry.captureException(error);
+      this.setState({ eventId });
+    });
   }
 
   render() {
@@ -22,7 +33,12 @@ class ErrorBoundary extends React.Component {
         <SystemFailure
           errorType="RUNTIME_EXCEPTION"
           errorMessage={this.state.error?.toString()}
-          resetBoundary={() => this.setState({ hasError: false })}
+          // If you update SystemFailure, you can display this eventId to the user
+          // so they can include it in their support tickets.
+          eventId={this.state.eventId}
+          resetBoundary={() =>
+            this.setState({ hasError: false, eventId: null })
+          }
         />
       );
     }

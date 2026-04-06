@@ -4,7 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { Lock, Crown, Zap } from "lucide-react";
 import { useUserData } from "../hooks/useUserData";
 import { checkAccess, TIERS } from "../lib/TierEngine";
-import { cn } from "./ui/BentoCard";
+import { cn } from "../lib/cn";
 
 /**
  * A highly aggressive, MAANG-style UI wrapper that blocks free users

@@ -1,0 +1,126 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "users",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "onboardingComplete", "order": "ASCENDING" },
+        { "fieldPath": "discotiveScore.current", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "users",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "onboardingComplete", "order": "ASCENDING" },
+        { "fieldPath": "discotiveScore.current", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "users",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "onboardingComplete", "order": "ASCENDING" },
+        { "fieldPath": "identity.domain", "order": "ASCENDING" },
+        { "fieldPath": "discotiveScore.current", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "users",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "onboardingComplete", "order": "ASCENDING" },
+        { "fieldPath": "identity.domain", "order": "ASCENDING" },
+        { "fieldPath": "discotiveScore.current", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "users",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "onboardingComplete", "order": "ASCENDING" },
+        { "fieldPath": "identity.niche", "order": "ASCENDING" },
+        { "fieldPath": "discotiveScore.current", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "users",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "onboardingComplete", "order": "ASCENDING" },
+        { "fieldPath": "identity.niche", "order": "ASCENDING" },
+        { "fieldPath": "discotiveScore.current", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "users",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "onboardingComplete", "order": "ASCENDING" },
+        { "fieldPath": "identity.country", "order": "ASCENDING" },
+        { "fieldPath": "discotiveScore.current", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "users",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "onboardingComplete", "order": "ASCENDING" },
+        { "fieldPath": "identity.country", "order": "ASCENDING" },
+        { "fieldPath": "discotiveScore.current", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "users",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "onboardingComplete", "order": "ASCENDING" },
+        { "fieldPath": "identity.level", "order": "ASCENDING" },
+        { "fieldPath": "discotiveScore.current", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "users",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "onboardingComplete", "order": "ASCENDING" },
+        { "fieldPath": "identity.level", "order": "ASCENDING" },
+        { "fieldPath": "discotiveScore.current", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "users",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "onboardingComplete", "order": "ASCENDING" },
+        { "fieldPath": "identity.username", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "users",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "onboardingComplete", "order": "ASCENDING" },
+        { "fieldPath": "discotiveScore.streak", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "users",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "onboardingComplete", "order": "ASCENDING" },
+        { "fieldPath": "vault_count", "order": "DESCENDING" },
+        { "fieldPath": "discotiveScore.current", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "verification_requests",
+      "queryScope": "COLLECTION_GROUP",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "ghostUnlockTimeMs", "order": "ASCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

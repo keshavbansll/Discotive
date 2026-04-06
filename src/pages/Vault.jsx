@@ -35,9 +35,8 @@ import {
   RefreshCw,
   AlertTriangle,
 } from "lucide-react";
-import { cn } from "../components/ui/BentoCard";
+import { cn } from "../lib/cn";
 import { useUserData } from "../hooks/useUserData";
-import { awardVaultUpload } from "../lib/scoreEngine";
 
 // --- LIVE FIREBASE IMPORTS ---
 import { db, storage, auth } from "../firebase";
@@ -614,7 +613,6 @@ const Vault = () => {
             // Instantly inject the new asset into the UI
             setLocalAssets((prev) => [...prev, newAsset]);
             // Award upload score event (non-blocking)
-            awardVaultUpload(userData.uid).catch(console.warn);
 
             setUploadQueue((prev) => prev.filter((q) => q.id !== item.id));
             // Auto-close modal when all uploads complete
@@ -667,7 +665,6 @@ const Vault = () => {
       });
       // NEW: Instantly inject the new link asset into the UI
       setLocalAssets((prev) => [...prev, newAsset]);
-      awardVaultUpload(userData.uid).catch(console.warn);
       resetUploadModal();
     } catch (err) {
       console.error("[Vault] Link upload failed:", err);
@@ -817,13 +814,13 @@ const Vault = () => {
           </div>
           <div className="w-full h-1.5 bg-[#111] rounded-full overflow-hidden border border-[#222]">
             <motion.div
-              initial={{ width: 0 }}
+              initial={{ scaleX: 0 }}
               animate={{
-                width: `${Math.min((totalBytes / tierLimitBytes) * 100, 100)}%`,
+                scaleX: Math.min(totalBytes / tierLimitBytes, 1),
               }}
               transition={{ duration: 1, ease: "easeOut" }}
               className={cn(
-                "h-full rounded-full",
+                "h-full w-full rounded-full origin-left", // <-- CRITICAL FIXES
                 totalBytes / tierLimitBytes > 0.9
                   ? "bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.5)]"
                   : "bg-amber-500 shadow-[0_0_10px_rgba(245,158,11,0.5)]",
@@ -1437,14 +1434,15 @@ const Vault = () => {
               {/* Step progress bar */}
               <div className="h-px bg-[#111] shrink-0">
                 <div
-                  className="h-full bg-amber-500 transition-all duration-500"
+                  className="h-full w-full bg-amber-500 transition-transform duration-500 origin-left"
                   style={{
-                    width:
+                    transform: `scaleX(${
                       uploadStep === "category"
-                        ? "33%"
+                        ? 0.33
                         : uploadStep === "credentials"
-                          ? "66%"
-                          : "100%",
+                          ? 0.66
+                          : 1
+                    })`,
                   }}
                 />
               </div>
@@ -1689,10 +1687,10 @@ const Vault = () => {
                           className="p-4 bg-[#111] border border-[#222] rounded-xl relative overflow-hidden"
                         >
                           <div
-                            className="absolute top-0 left-0 h-full bg-white/5"
+                            className="absolute top-0 left-0 w-full h-full bg-white/5 origin-left"
                             style={{
-                              width: `${item.progress}%`,
-                              transition: "width 0.3s ease",
+                              transform: `scaleX(${item.progress / 100})`,
+                              transition: "transform 0.3s ease",
                             }}
                           />
                           <div className="relative z-10 flex justify-between items-start mb-3">
@@ -1715,10 +1713,10 @@ const Vault = () => {
                           </div>
                           <div className="relative z-10 w-full h-1 bg-[#222] rounded-full overflow-hidden">
                             <div
-                              className="h-full bg-amber-500 shadow-[0_0_10px_rgba(245,158,11,0.8)]"
+                              className="w-full h-full bg-amber-500 shadow-[0_0_10px_rgba(245,158,11,0.8)] origin-left"
                               style={{
-                                width: `${item.progress}%`,
-                                transition: "width 0.3s ease",
+                                transform: `scaleX(${item.progress / 100})`,
+                                transition: "transform 0.3s ease",
                               }}
                             />
                           </div>

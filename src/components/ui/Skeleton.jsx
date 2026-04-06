@@ -1,4 +1,4 @@
-import { cn } from "./BentoCard";
+import { cn } from "../../lib/cn";
 
 export const Skeleton = ({ className }) => {
   return (

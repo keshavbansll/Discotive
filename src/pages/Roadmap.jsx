@@ -22,6 +22,8 @@ import React, {
   useCallback,
   useRef,
   useMemo,
+  lazy,
+  Suspense,
 } from "react";
 import { useNavigate } from "react-router-dom";
 import { ReactFlowProvider } from "reactflow";
@@ -44,7 +46,10 @@ import {
   useNeuralEngine,
 } from "../contexts/RoadmapContext.jsx";
 import { mutateScore } from "../lib/scoreEngine";
-import { generateExecutionMap } from "../lib/gemini";
+import {
+  generateExecutionMap,
+  generateCalibrationQuestions,
+} from "../lib/gemini";
 import {
   fetchCertificatesForGemini,
   fetchVideosForGemini,
@@ -54,7 +59,9 @@ import { useAIGateway } from "../hooks/useAIGateway.js";
 
 import { FlowCanvas } from "../components/roadmap/FlowCanvas.jsx";
 import { NodeEditPanel } from "../components/roadmap/NodeEditPanel.jsx";
-import { MobileEditSheet } from "../components/roadmap/MobileEditSheet.jsx";
+const MobileEditSheet = lazy(
+  () => import("../components/roadmap/MobileEditSheet.jsx"),
+);
 import { ShortcutsPanel } from "../components/ShortcutsPanel.jsx";
 import { JournalModal } from "../components/roadmap/JournalModal.jsx";
 import { ExplorerModal } from "../components/roadmap/ExplorerModal.jsx";
@@ -74,7 +81,7 @@ import {
   Loader2,
   Sparkles,
 } from "lucide-react";
-import { cn } from "../components/ui/BentoCard";
+import { cn } from "../lib/cn";
 
 // ── Inject CSS keyframes once ─────────────────────────────────────────────────
 if (typeof document !== "undefined") {
@@ -116,10 +123,15 @@ const Roadmap = () => {
   const [nodes2, setNodes2] = useState(nodes);
   const [edges2, setEdges2] = useState(edges);
 
+  // --- 🔴 MAANG-GRADE FIX: LATEST REF TRACKING ---
+  const nodesRef = useRef(nodes2);
+  const edgesRef = useRef(edges2);
   useEffect(() => {
-    setNodes2(nodes);
-    setEdges2(edges);
-  }, [nodes, edges]);
+    nodesRef.current = nodes2;
+  }, [nodes2]);
+  useEffect(() => {
+    edgesRef.current = edges2;
+  }, [edges2]);
 
   // ── Page state ─────────────────────────────────────────────────────────────
   const [subscriptionTier, setSubscriptionTier] = useState("free");
@@ -154,7 +166,7 @@ const Roadmap = () => {
   const [aiAnswers, setAiAnswers] = useState({});
   const [aiQIdx, setAiQIdx] = useState(0);
   const [showCalibrationOverlay, setShowCalibrationOverlay] = useState(false);
-  const [showFirstTimeSplash, setShowFirstTimeSplash] = useState(false);
+  const [showFirstTimeSplash, setShowFirstTimeSplash] = useState(true);
 
   // ── Explorer Modal ─────────────────────────────────────────────────────────
   const [explorerModal, setExplorerModal] = useState({
@@ -305,8 +317,11 @@ const Roadmap = () => {
     async (overrideNodes, overrideEdges) => {
       if (!uid) return;
       setIsSaving(true);
-      const n = overrideNodes ?? nodes2;
-      const e = overrideEdges ?? edges2;
+
+      // Read directly from the mutable refs, bypassing React's closure trap
+      const n = overrideNodes ?? nodesRef.current;
+      const e = overrideEdges ?? edgesRef.current;
+
       try {
         const batch = writeBatch(db);
         const ts = Date.now();
@@ -316,7 +331,9 @@ const Roadmap = () => {
           updatedAt: ts,
         });
         await batch.commit();
+
         await idbPut(uid, { nodes: n, edges: e }, ts);
+
         if (pendingScoreDelta !== 0) {
           await mutateScore(
             uid,
@@ -325,6 +342,7 @@ const Roadmap = () => {
           );
           setPendingScoreDelta(0);
         }
+
         setHasUnsavedChanges(false);
         commit(n, e);
         addToast("Synced to cloud.", "green");
@@ -335,7 +353,8 @@ const Roadmap = () => {
         setIsSaving(false);
       }
     },
-    [uid, nodes2, edges2, pendingScoreDelta, commit, addToast],
+    // Removed nodes2 and edges2 from dependencies. This function is now stable.
+    [uid, pendingScoreDelta, commit, addToast],
   );
 
   // ── Debounced auto-save ────────────────────────────────────────────────────
@@ -392,6 +411,10 @@ const Roadmap = () => {
             localStorage.setItem("discotive_initialized_v6", "true");
           } catch (_) {}
 
+          // --- 🔴 MAANG-GRADE FIX: DISMISS SPLASH ON SUCCESS ---
+          setShowFirstTimeSplash(false);
+          // ---------------------------------------------------
+
           // State Alignment: Ensure both local and cloud match the resolved master
           if (useLocal) {
             // Local is ahead: Dispatch non-blocking sync to cloud
@@ -402,7 +425,7 @@ const Roadmap = () => {
           }
         } else {
           // Zero-state deployment
-          setShowFirstTimeSplash(true);
+          setShowFirstTimeSplash(true); // Ensures it stays true if no nodes exist
         }
       } catch (err) {
         console.error("[Roadmap] Boot sequence failed:", err);
@@ -698,14 +721,16 @@ const Roadmap = () => {
         {/* ── Mobile node edit bottom sheet ── */}
         <AnimatePresence>
           {activeNode && isMobile && (
-            <MobileEditSheet
-              activeNode={activeNode}
-              onUpdate={updateActiveNode}
-              onClose={() => setActiveEditNodeId(null)}
-              onDelete={deleteActiveNode}
-              pendingScoreDelta={pendingScoreDelta}
-              onSubtaskToggle={toggleSubtask}
-            />
+            <Suspense fallback={null}>
+              <MobileEditSheet
+                activeNode={activeNode}
+                onUpdate={updateActiveNode}
+                onClose={() => setActiveEditNodeId(null)}
+                onDelete={deleteActiveNode}
+                pendingScoreDelta={pendingScoreDelta}
+                onSubtaskToggle={toggleSubtask}
+              />
+            </Suspense>
           )}
         </AnimatePresence>
 

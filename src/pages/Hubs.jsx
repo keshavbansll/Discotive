@@ -16,7 +16,7 @@ import {
   Terminal,
 } from "lucide-react";
 import { useUserData } from "../hooks/useUserData";
-import { cn } from "../components/ui/BentoCard";
+import { cn } from "../lib/cn";
 
 // --- MOCK LIVE HUB DATA ---
 const localHub = {

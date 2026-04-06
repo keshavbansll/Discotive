@@ -1,43 +1,50 @@
+import React, { Suspense, lazy } from "react";
 import {
   BrowserRouter as Router,
   Routes,
   Route,
   Navigate,
-  Outlet,
 } from "react-router-dom";
-import GlobalLoader from "./components/GlobalLoader";
-import React, { Suspense, lazy } from "react";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
+import { useEffect, useState } from "react";
+
+// ── EAGER IMPORTS (The Critical Path) ──
+// These MUST load immediately. Landing is the entry point. MainLayout is the shell.
 import Landing from "./pages/Landing";
-import Auth from "./pages/Auth";
 import MainLayout from "./layouts/MainLayout";
-const Dashboard = lazy(() => import("./pages/Dashboard"));
-import Roadmap from "./pages/Roadmap";
-const Leaderboard = lazy(() => import("./pages/Leaderboard"));
-import Opportunities from "./pages/Opportunities";
-const Vault = lazy(() => import("./pages/Vault"));
-import Hubs from "./pages/Hubs";
-import Profile from "./pages/Profile";
-import Settings from "./pages/Settings";
-import About from "./pages/About";
-import Network from "./pages/Network";
-import PublicProfile from "./pages/PublicProfile";
-import Premium from "./pages/Premium";
-import Checkout from "./pages/Checkout";
-import VerifyAsset from "./pages/VerifyAsset";
+import GlobalLoader from "./components/GlobalLoader";
 import PageTracker from "./components/PageTracker";
-import EditProfile from "./pages/EditProfile";
-const Features = lazy(() => import("./pages/Features"));
-// ── Admin ──
+import SystemFailure from "./components/SystemFailure";
 import AdminRoute from "./components/AdminRoute";
+
+// ── LAZY IMPORTS (Code-Split Chunks) ──
+// These are chunked into separate files and downloaded ONLY when the route is hit.
+const Auth = lazy(() => import("./pages/Auth"));
+const Dashboard = lazy(() => import("./pages/Dashboard"));
+const Roadmap = lazy(() => import("./pages/Roadmap"));
+const Leaderboard = lazy(() => import("./pages/Leaderboard"));
+const Vault = lazy(() => import("./pages/Vault"));
+const Profile = lazy(() => import("./pages/Profile"));
+const EditProfile = lazy(() => import("./pages/EditProfile"));
+const Settings = lazy(() => import("./pages/Settings"));
+const PublicProfile = lazy(() => import("./pages/PublicProfile"));
+const Premium = lazy(() => import("./pages/Premium"));
+const Checkout = lazy(() => import("./pages/Checkout"));
+const VerifyAsset = lazy(() => import("./pages/VerifyAsset"));
+const About = lazy(() => import("./pages/About"));
+const Features = lazy(() => import("./pages/Features"));
+
+// Stubbed/Coming Soon Modules
+const Opportunities = lazy(() => import("./pages/Opportunities"));
+const Hubs = lazy(() => import("./pages/Hubs"));
+const Network = lazy(() => import("./pages/Network"));
+
+// Admin Modules (Heavy tables, graphs, CMS logic - KEEP LAZY)
 const AdminDashboard = lazy(() => import("./pages/admin/AdminDashboard"));
 const VaultVerification = lazy(() => import("./pages/admin/VaultVerification"));
-
 const TicketManager = lazy(() => import("./pages/admin/TicketManager"));
 const ReportManager = lazy(() => import("./pages/admin/ReportManager"));
 const FeedbackManager = lazy(() => import("./pages/admin/FeedbackManager"));
-
-import SystemFailure from "./components/SystemFailure";
 
 const ProtectedRoute = ({ children }) => {
   const { currentUser } = useAuth();
@@ -64,12 +71,65 @@ const ComingSoon = ({ title }) => (
   </div>
 );
 
+const RouteChunkLoader = () => (
+  <div className="fixed inset-0 z-[9998] bg-[#030303] flex items-center justify-center">
+    <div className="w-8 h-8 border-2 border-amber-500 border-t-transparent rounded-full animate-spin drop-shadow-[0_0_10px_rgba(245,158,11,0.5)]" />
+  </div>
+);
+const AppInitializer = ({ children }) => {
+  const { loading } = useAuth(); // Ensure your AuthContext provides this!
+  const [showBootScreen, setShowBootScreen] = useState(true);
+
+  return (
+    <>
+      {/* Pass the actual Firebase loading state. 
+        The GlobalLoader will handle its own 500ms minimum display logic 
+        and then call setShowBootScreen(false) 
+      */}
+      {showBootScreen && (
+        <GlobalLoader
+          isReady={!loading}
+          onComplete={() => setShowBootScreen(false)}
+        />
+      )}
+
+      {/* Only render the actual router paths once the boot screen is gone */}
+      {!showBootScreen && children}
+    </>
+  );
+};
+
 function App() {
+  useEffect(() => {
+    const injectUmami = () => {
+      // Prevent duplicate injections if React strict mode double-fires
+      if (
+        document.querySelector('script[src="https://cloud.umami.is/script.js"]')
+      ) {
+        return;
+      }
+
+      const script = document.createElement("script");
+      script.src = "https://cloud.umami.is/script.js";
+      script.dataset.websiteId = "1ff7e483-a629-4cee-93fb-c98c6d68bedc";
+      script.async = true; // async is critical here
+      document.body.appendChild(script);
+    };
+
+    // Wait for the main thread to be completely idle
+    if ("requestIdleCallback" in window) {
+      requestIdleCallback(injectUmami);
+    } else {
+      // Fallback for Safari (which doesn't support requestIdleCallback natively yet)
+      setTimeout(injectUmami, 2500);
+    }
+  }, []);
+
   return (
     <AuthProvider>
       <Router>
         <PageTracker />
-        <Suspense fallback={<GlobalLoader onComplete={() => {}} />}>
+        <Suspense fallback={<RouteChunkLoader />}>
           <Routes>
             <Route
               path="/"

@@ -21,6 +21,11 @@ export const ShortcutsPanel = ({ isOpen, onClose }) => {
     if (!isOpen) return;
     const fn = (e) => {
       if (e.key === "Escape") onClose();
+      // --- 🔴 MAANG-GRADE FIX: FOCUS TRAP ---
+      if (e.key === "Tab") {
+        e.preventDefault(); // Prevents focus from bleeding into the background canvas
+      }
+      // --------------------------------------
     };
     window.addEventListener("keydown", fn);
     return () => window.removeEventListener("keydown", fn);

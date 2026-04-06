@@ -16,12 +16,8 @@ import {
   TerminalSquare,
   Activity,
 } from "lucide-react";
-import { clsx } from "clsx";
-import { twMerge } from "tailwind-merge";
 
-function cn(...inputs) {
-  return twMerge(clsx(inputs));
-}
+import { cn } from "../../lib/cn"; // Adjust relative path
 
 const HorizontalTimeline = ({ events = [] }) => {
   const [view, setView] = useState("days");

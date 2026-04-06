@@ -30,7 +30,7 @@ import {
   ResponsiveContainer,
 } from "recharts";
 import { checkAccess, TIERS } from "../lib/TierEngine";
-import { cn } from "./ui/BentoCard";
+import { cn } from "../lib/cn";
 
 // ============================================================================
 // SYSTEM LIMITS

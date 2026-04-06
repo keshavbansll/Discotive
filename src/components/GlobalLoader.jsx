@@ -2,14 +2,25 @@ import { useEffect } from "react";
 import { motion } from "framer-motion";
 
 const GlobalLoader = ({ onComplete }) => {
-  // Simulate the OS boot time (2 seconds) before revealing the site
   useEffect(() => {
+    // 1. If the app isn't ready (Auth/Data still fetching), do absolutely nothing.
+    if (!isReady) return;
+
+    // 2. The app IS ready. Now we calculate if we need to pad the time.
+    // We want a minimum display time of 500ms so the loader doesn't look like a glitch.
+    const MIN_DISPLAY_MS = 500;
+
+    // performance.now() tracks time since the page started loading
+    const timeElapsed = performance.now();
+    const remainingTime = Math.max(0, MIN_DISPLAY_MS - timeElapsed);
+
+    // 3. Fire onComplete after the remaining time (often 0ms on slow networks, ~300ms on fast ones)
     const timer = setTimeout(() => {
       onComplete();
-    }, 2000);
+    }, remainingTime);
 
     return () => clearTimeout(timer);
-  }, [onComplete]);
+  }, [isReady, onComplete]);
 
   return (
     <motion.div
@@ -22,17 +33,14 @@ const GlobalLoader = ({ onComplete }) => {
       className="fixed inset-0 z-[9999] bg-[#0a0a0a] flex flex-col items-center justify-center text-white"
     >
       <div className="flex flex-col items-center gap-8">
-        {/* Brand Name */}
         <h1 className="text-3xl font-extrabold tracking-tighter">DISCOTIVE</h1>
 
-        {/* Constantly Rotating Circular Loader */}
         <motion.div
           animate={{ rotate: 360 }}
           transition={{ repeat: Infinity, duration: 1, ease: "linear" }}
           className="relative flex items-center justify-center w-12 h-12"
         >
           <svg className="w-full h-full" viewBox="0 0 50 50">
-            {/* Dark background track */}
             <circle
               cx="25"
               cy="25"
@@ -41,7 +49,6 @@ const GlobalLoader = ({ onComplete }) => {
               strokeWidth="4"
               fill="none"
             />
-            {/* White glowing spinner */}
             <circle
               cx="25"
               cy="25"
@@ -57,7 +64,6 @@ const GlobalLoader = ({ onComplete }) => {
           </svg>
         </motion.div>
 
-        {/* Minimal Subtext */}
         <p className="text-[10px] text-slate-500 font-bold tracking-widest uppercase mt-[-10px]">
           Booting Core OS
         </p>

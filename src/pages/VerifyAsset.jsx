@@ -1,12 +1,14 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { doc, updateDoc } from "firebase/firestore";
+import { doc, getDoc, updateDoc } from "firebase/firestore";
 import { db } from "../firebase";
 import { ShieldCheck, Loader2, AlertCircle } from "lucide-react";
+import { awardVaultVerification } from "../lib/scoreEngine"; // INJECT THE SCORE ENGINE
 
 const VerifyAsset = () => {
   const [searchParams] = useSearchParams();
   const [status, setStatus] = useState("verifying");
+  const [errorMsg, setErrorMsg] = useState("");
 
   useEffect(() => {
     const verify = async () => {
@@ -15,22 +17,56 @@ const VerifyAsset = () => {
       const strength = searchParams.get("strength"); // "Weak", "Medium", "Strong"
 
       if (!uid || !assetId || !strength) {
+        setErrorMsg("Missing required URL parameters.");
         setStatus("error");
         return;
       }
 
       try {
-        await updateDoc(doc(db, "users", uid, "vault", assetId), {
-          status: "Verified",
+        const userRef = doc(db, "users", uid);
+        const userSnap = await getDoc(userRef);
+
+        if (!userSnap.exists()) {
+          throw new Error("Target user does not exist in the database.");
+        }
+
+        const userData = userSnap.data();
+        const vaultArray = userData.vault || [];
+
+        // Find the exact asset in the array
+        const assetIndex = vaultArray.findIndex((a) => a.id === assetId);
+        if (assetIndex === -1) {
+          throw new Error("Asset ID not found in user's vault array.");
+        }
+
+        if (vaultArray[assetIndex].status === "VERIFIED") {
+          throw new Error(
+            "Asset is already verified. Preventing duplicate score exploit.",
+          );
+        }
+
+        // Mutate the specific asset
+        vaultArray[assetIndex] = {
+          ...vaultArray[assetIndex],
+          status: "VERIFIED",
           strength: strength,
           verifiedAt: new Date().toISOString(),
-        });
+        };
+
+        // 1. Atomic array overwrite
+        await updateDoc(userRef, { vault: vaultArray });
+
+        // 2. Dispatch secure score reward based on strength
+        await awardVaultVerification(uid, strength);
+
         setStatus("success");
       } catch (err) {
-        console.error(err);
+        console.error("[VerifyAsset] Fault:", err);
+        setErrorMsg(err.message);
         setStatus("error");
       }
     };
+
     verify();
   }, [searchParams]);
 
@@ -51,13 +87,14 @@ const VerifyAsset = () => {
           {status === "verifying"
             ? "Authenticating Protocol..."
             : status === "success"
-              ? "Asset Verified."
+              ? "Asset Verified & Score Awarded."
               : "Verification Failed."}
         </h2>
-        <p className="text-[#888] text-sm">
+        <p className="text-[#888] text-sm mt-4">
           {status === "success"
-            ? "The operator's vault has been updated on the chain. You can close this window."
-            : "Ensure the URL parameters are correct and you have admin database rules."}
+            ? "The operator's vault array has been mutated and their score has been credited."
+            : errorMsg ||
+              "Ensure the URL parameters are correct and you have admin database rules."}
         </p>
       </div>
     </div>

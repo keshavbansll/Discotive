@@ -20,9 +20,10 @@ import {
   ChevronDown,
   Loader2,
 } from "lucide-react";
-import { collection, addDoc, serverTimestamp } from "firebase/firestore";
+import { httpsCallable } from "firebase/functions";
+import { functions } from "../firebase";
 import { db } from "../firebase";
-import { cn } from "./ui/BentoCard";
+import { cn } from "../lib/cn";
 
 const REPORT_REASONS = {
   User: [
@@ -78,24 +79,19 @@ const UserReportModal = ({
     setSubmitError(null);
 
     try {
-      await addDoc(collection(db, "reports"), {
-        reporterUid: user.uid,
-        reporterEmail: user.email || null,
-        reporterUsername: userData?.identity?.username || null,
+      const submitUserReport = httpsCallable(functions, "submitUserReport");
+
+      await submitUserReport({
         targetType,
         targetId: targetId || null,
-        targetUsername: targetUsername || null,
-        targetDisplayName: targetDisplayName || null,
         reason,
         description: description.trim(),
-        status: "pending",
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
       });
+
       setSuccess(true);
       setTimeout(() => onClose(), 2200);
     } catch (err) {
-      console.error("[UserReport] Submit failed:", err);
+      console.error("[UserReport] Cloud Function submit failed:", err);
       setSubmitError("Submission failed. Check your connection.");
     } finally {
       setSubmitting(false);

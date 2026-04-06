@@ -44,7 +44,7 @@ import {
   Inbox,
   Send,
 } from "lucide-react";
-import { cn } from "../components/ui/BentoCard";
+import { cn } from "../lib/cn";
 
 // ============================================================================
 // 1. CONFIGURATIONS & TAXONOMY

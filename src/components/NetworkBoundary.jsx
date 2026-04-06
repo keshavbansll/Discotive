@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import * as Sentry from "@sentry/react";
 import SystemFailure from "./SystemFailure";
 
 const NetworkBoundary = ({ children }) => {
@@ -6,11 +7,23 @@ const NetworkBoundary = ({ children }) => {
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
 
   useEffect(() => {
-    const handleOffline = () => setIsOffline(true);
+    const handleOffline = () => {
+      setIsOffline(true);
+      // Inject network state into the telemetry timeline
+      Sentry.addBreadcrumb({
+        category: "network",
+        message: "Client lost network connection",
+        level: "warning",
+      });
+    };
+
     const handleOnline = () => {
       setIsOffline(false);
-      // Optional: Force a soft reload to ensure Firebase/APIs reconnect cleanly
-      // window.location.reload();
+      Sentry.addBreadcrumb({
+        category: "network",
+        message: "Client regained network connection",
+        level: "info",
+      });
     };
 
     window.addEventListener("offline", handleOffline);
@@ -27,12 +40,10 @@ const NetworkBoundary = ({ children }) => {
       <SystemFailure
         errorType="Connection Severed"
         errorMessage="The engine was unable to establish a secure link. Awaiting network realignment."
-        // We override the button behavior here to check connection rather than just reloading
         resetBoundary={() => {
           if (navigator.onLine) {
             setIsOffline(false);
           } else {
-            // Provide a subtle visual feedback that it checked but failed
             console.warn("Network still severed.");
           }
         }}

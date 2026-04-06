@@ -155,7 +155,7 @@ exports.razorpayWebhook = onRequest(
 );
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 3. DAILY INACTIVITY SWEEP (Scheduled, already v2 — unchanged)
+// 3. DAILY INACTIVITY SWEEP (Scheduled, already v2)
 // ─────────────────────────────────────────────────────────────────────────────
 
 exports.dailyInactivitySweep = onSchedule(
@@ -165,6 +165,13 @@ exports.dailyInactivitySweep = onSchedule(
     timeoutSeconds: 300,
   },
   async (event) => {
+    // --- 🔴 MAANG-GRADE FIX: FREEZE TIME ---
+    // If batch processing crosses midnight, dynamic Date() calls will corrupt the query.
+    // We bind the time strictly to the CRON's scheduled invocation.
+    const executionTime = event.scheduleTime
+      ? new Date(event.scheduleTime)
+      : new Date();
+
     const options = {
       timeZone: "Asia/Kolkata",
       year: "numeric",
@@ -172,13 +179,14 @@ exports.dailyInactivitySweep = onSchedule(
       day: "2-digit",
     };
     const formatter = new Intl.DateTimeFormat("en-CA", options);
-    const todayStr = formatter.format(new Date());
+    const todayStr = formatter.format(executionTime);
     const monthStr = todayStr.substring(0, 7);
 
     const usersRef = db.collection("users");
+    // --- 🔴 MAANG-GRADE FIX: ILLEGAL FIRESTORE QUERY ---
+    // You cannot have inequalities on both lastLoginDate AND current score.
     const snapshot = await usersRef
       .where("discotiveScore.lastLoginDate", "<", todayStr)
-      .where("discotiveScore.current", ">", 0)
       .get();
 
     if (snapshot.empty) {
@@ -186,9 +194,20 @@ exports.dailyInactivitySweep = onSchedule(
       return;
     }
 
+    // Filter the > 0 constraint in memory
+    const validDocs = snapshot.docs.filter(
+      (doc) => (doc.data().discotiveScore?.current || 0) > 0,
+    );
+
+    if (validDocs.length === 0) return;
+
     console.log(`[CRON] Penalty sweep for ${snapshot.size} users.`);
 
     const USERS_PER_BATCH = 250;
+    // --- 🔴 MAANG-GRADE FIX: STAGNANT ECONOMY ---
+    // Penalty must outweigh the standard +10 login bonus to enforce consistency.
+    const PENALTY_AMOUNT = 15;
+
     const batches = [];
     let currentBatch = db.batch();
     let userCount = 0;
@@ -196,17 +215,17 @@ exports.dailyInactivitySweep = onSchedule(
     snapshot.docs.forEach((userDoc) => {
       const data = userDoc.data();
       const currentScore = data.discotiveScore?.current || 0;
-      const newScore = Math.max(0, currentScore - 10);
+      const newScore = Math.max(0, currentScore - PENALTY_AMOUNT);
       const actualChange = newScore - currentScore;
       if (actualChange === 0) return;
 
-      const expireAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+      const expireAt = new Date(executionTime.getTime() + 24 * 60 * 60 * 1000);
 
       currentBatch.update(userDoc.ref, {
         "discotiveScore.current": newScore,
-        "discotiveScore.streak": 0,
+        "discotiveScore.streak": 0, // Wipe the streak
         "discotiveScore.lastAmount": actualChange,
-        "discotiveScore.lastReason": "System Penalty - Daily Inactivity",
+        "discotiveScore.lastReason": "System Penalty - Inconsistency",
         "discotiveScore.lastUpdatedAt": FieldValue.serverTimestamp(),
         [`daily_scores.${todayStr}`]: newScore,
         [`monthly_scores.${monthStr}`]: newScore,
@@ -216,9 +235,9 @@ exports.dailyInactivitySweep = onSchedule(
       currentBatch.set(logRef, {
         score: newScore,
         change: actualChange,
-        rawAttempt: -10,
-        reason: "System Penalty - Daily Inactivity",
-        date: new Date().toISOString(),
+        rawAttempt: -PENALTY_AMOUNT,
+        reason: "System Penalty - Inconsistency",
+        date: executionTime.toISOString(),
         timestamp: FieldValue.serverTimestamp(),
         expireAt: admin.firestore.Timestamp.fromDate(expireAt),
       });
@@ -513,6 +532,13 @@ exports.generateNeuralMap = onCall(
       const tier = userData.tier || "ESSENTIAL";
       const limits = getMapLimits(tier);
 
+      if (generationType === "EXPAND" && tier === "ESSENTIAL") {
+        throw new HttpsError(
+          "permission-denied",
+          "System Lock: Map expansion (continuation) requires Discotive Pro clearance.",
+        );
+      }
+
       // Cooldown enforcement
       const mapInfo = userData.execution_map_info || {};
       const lastGeneratedMs = mapInfo.lastGeneratedAt?.toMillis() || 0;
@@ -734,5 +760,670 @@ exports.dailyClosedTicketSweep = onSchedule(
     await batch.commit();
 
     console.log(`[CRON] Auto-deleted ${snap.size} closed support tickets.`);
+  },
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DAILY PERCENTILE COMPUTE — Prevents $60/day client-side read catastrophe
+// ─────────────────────────────────────────────────────────────────────────────
+exports.dailyPercentileCompute = onSchedule(
+  {
+    schedule: "0 2 * * *",
+    timeZone: "Asia/Kolkata",
+    memory: "1GiB", // CRITICAL: Allocate memory for array sorting
+    timeoutSeconds: 540, // Max execution time for large datasets
+  },
+  async () => {
+    // Only fetch exactly what we need to sort to save memory
+    const usersSnap = await db
+      .collection("users")
+      .where("onboardingComplete", "==", true)
+      .select("discotiveScore.current")
+      .get();
+
+    if (usersSnap.empty) return;
+
+    // Sort users by score descending
+    const scores = usersSnap.docs
+      .map((d) => ({
+        uid: d.id,
+        score: d.data().discotiveScore?.current || 0,
+      }))
+      .sort((a, b) => b.score - a.score);
+
+    const totalUsers = scores.length;
+
+    // MAANG-GRADE: Firestore batches fail at 500. We chunk at 450 to be safe.
+    const BATCH_SIZE = 450;
+
+    for (let i = 0; i < totalUsers; i += BATCH_SIZE) {
+      const batch = db.batch();
+      const chunk = scores.slice(i, i + BATCH_SIZE);
+
+      chunk.forEach((user, chunkIdx) => {
+        const globalRank = i + chunkIdx + 1;
+        // Top 1%, Top 5%, etc. (Math.max prevents 0%)
+        const globalPercentile = Math.max(
+          1,
+          Math.ceil((globalRank / totalUsers) * 100),
+        );
+
+        batch.update(db.collection("users").doc(user.uid), {
+          "precomputed.globalRank": globalRank,
+          "precomputed.globalPercentile": globalPercentile,
+          "precomputed.totalNetwork": totalUsers,
+          "precomputed.rankUpdatedAt":
+            admin.firestore.FieldValue.serverTimestamp(),
+        });
+      });
+
+      // Await each chunk to prevent overwhelming the Firebase connection pool
+      await batch.commit();
+    }
+
+    console.log(
+      `[CRON] Percentiles successfully precomputed for ${totalUsers} operators.`,
+    );
+  },
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 10. SECURE FORM INGESTION GATEWAY (Sanitized Writes)
+// ─────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Enterprise-grade server-side string sanitizer.
+ * Strips HTML tags and executable script attributes.
+ */
+const sanitizePayload = (raw) => {
+  if (typeof raw !== "string") return raw;
+  return raw
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/javascript:/gi, "")
+    .replace(/on\w+\s*=/gi, "")
+    .slice(0, 5000) // Hard cap to prevent database bloat attacks
+    .trim();
+};
+
+exports.submitSupportTicket = onCall(async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Unauthorized.");
+
+  const { category, subject, message, priority } = request.data;
+  if (!subject || !message)
+    throw new HttpsError("invalid-argument", "Missing required fields.");
+
+  const ticketData = {
+    uid: request.auth.uid,
+    category: sanitizePayload(category),
+    subject: sanitizePayload(subject),
+    message: sanitizePayload(message),
+    priority: sanitizePayload(priority || "normal"),
+    status: "open",
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  };
+
+  const docRef = await db.collection("support_tickets").add(ticketData);
+  return { status: "SUCCESS", id: docRef.id };
+});
+
+exports.submitUserReport = onCall(async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Unauthorized.");
+
+  const { targetType, targetId, reason, description } = request.data;
+
+  const reportData = {
+    reporterUid: request.auth.uid,
+    targetType: sanitizePayload(targetType),
+    targetId: sanitizePayload(targetId),
+    reason: sanitizePayload(reason),
+    description: sanitizePayload(description),
+    status: "pending",
+    createdAt: admin.firestore.FieldValue.serverTimestamp(),
+  };
+
+  const docRef = await db.collection("reports").add(reportData);
+  return { status: "SUCCESS", id: docRef.id };
+});
+
+exports.submitFeedback = onCall(async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Unauthorized.");
+
+  const { rating, recommendation, comments } = request.data;
+
+  const feedbackData = {
+    uid: request.auth.uid,
+    rating: typeof rating === "number" ? rating : 0,
+    recommendation: sanitizePayload(recommendation),
+    comments: sanitizePayload(comments),
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  };
+
+  // Feedback uses setDoc with merge to ensure only 1 doc per user
+  await db
+    .collection("feedback")
+    .doc(request.auth.uid)
+    .set(feedbackData, { merge: true });
+  return { status: "SUCCESS" };
+});
+// ─────────────────────────────────────────────────────────────────────────────
+// 11. SECURE AI GATEWAY (Gemini 2.5 Flash)
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Utility functions moved from frontend
+const extractJSON = (text) => {
+  const match = text.match(/\[[\s\S]*\]|\{[\s\S]*\}/);
+  if (!match) throw new Error("AI returned no parseable JSON.");
+  return JSON.parse(match[0]);
+};
+
+const fmtDate = (iso) =>
+  new Date(iso).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+
+exports.discotiveAIGateway = onCall(
+  {
+    secrets: ["GEMINI_API_KEY"],
+    timeoutSeconds: 120,
+    memory: "512MiB",
+  },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "Unauthorized AI access.");
+    }
+
+    const { action, payload } = request.data;
+    const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+
+    try {
+      let prompt = "";
+      let result;
+
+      switch (action) {
+        // ---------------------------------------------------------------------
+        case "CALIBRATE": {
+          prompt = `
+SYSTEM: You are an elite Agentic Workflow Architect building a career execution map.
+OPERATOR CONTEXT:
+- Domain: ${payload.userData?.vision?.passion || payload.userData?.identity?.domain || "General"}
+- Niche: ${payload.userData?.vision?.niche || payload.userData?.identity?.niche || "Career Growth"}
+- Skills: ${JSON.stringify(payload.userData?.skills?.alignedSkills || [])}
+- Goal: ${payload.userData?.vision?.goal3Months || "Not specified"}
+
+Generate EXACTLY 3 calibration questions to personalise their 30-day execution map.
+Q1 (text): Ask for their single most important 30-day target.
+Q2 (mcq):  Ask what their biggest blocker is right now (4 options).
+Q3 (mcq):  Ask their current execution style (4 options).
+
+RETURN ONLY a JSON array. Format: [{"id":"q1","type":"text","question":"..."},{"id":"q2","type":"mcq","question":"...","options":["A","B","C","D"]}]
+          `.trim();
+          result = await model.generateContent({
+            contents: [{ role: "user", parts: [{ text: prompt }] }],
+          });
+          return extractJSON(result.response.text());
+        }
+
+        // ---------------------------------------------------------------------
+        case "GENERATE_MAP": {
+          const {
+            userData,
+            qaAnswers,
+            subscriptionTier,
+            learnInventory,
+            mapRange,
+          } = payload;
+          const limits = getMapLimits(subscriptionTier || "free"); // Uses the helper already defined in your index.js
+          const maxNodes = limits.auto_nodes;
+          const rangeStr = mapRange
+            ? `${fmtDate(mapRange.from)} → ${fmtDate(mapRange.to)}`
+            : "Next 30 days";
+
+          prompt = `
+SYSTEM: You are a Graph Database Compiler for the Discotive Career Engine.
+Output a visual execution DAG (Directed Acyclic Graph) for exactly the period: ${rangeStr}.
+
+STRICT RULES:
+1. Generate EXACTLY ${Math.floor(maxNodes * 0.7)}–${maxNodes} execution/milestone nodes total.
+2. ALL deadlines MUST fall within: ${rangeStr}. No exceptions.
+3. ZERO floating nodes — every node must be connected.
+4. Chronological spine: core nodes = sequential milestones across the 30 days.
+
+OPERATOR CONTEXT:
+Domain:  ${userData?.vision?.passion || userData?.identity?.domain || "General"}
+Niche:   ${userData?.vision?.niche || userData?.identity?.niche || "General"}
+Skills:  ${JSON.stringify((userData?.skills?.alignedSkills || []).slice(0, 8))}
+Goal30d: ${qaAnswers?.[0] || userData?.vision?.goal3Months || "Not specified"}
+Blocker: ${qaAnswers?.[1] || "Not specified"}
+Style:   ${qaAnswers?.[2] || "Not specified"}
+
+DISCOTIVE LEARN INVENTORY:
+Videos:       ${JSON.stringify((learnInventory?.videos || []).slice(0, 6))}
+Certificates: ${JSON.stringify((learnInventory?.certificates || []).slice(0, 6))}
+
+NODE SCHEMA:
+executionNode: { id, type:"executionNode", position:{x,y}, data: { title, subtitle, desc, deadline, priorityStatus:"READY"|"FUTURE", nodeType:"core"|"branch"|"milestone", accentColor:"amber", tags:[], tasks:[{id,text,completed:false,points:10}], isCompleted:false, linkedAssets:[], delegates:[], collapsed:false } }
+milestoneNode: { id, type:"milestoneNode", position:{x,y}, data:{ title, subtitle, xpReward:50, isUnlocked:false } }
+edges: [{ id, source, target, type:"neuralEdge", data:{connType:"core-core"|"core-branch"|"branch-sub"} }]
+
+RETURN FORMAT: JSON ONLY { "nodes": [...], "edges": [...] }
+          `.trim();
+          result = await model.generateContent({
+            contents: [{ role: "user", parts: [{ text: prompt }] }],
+          });
+          const parsed = extractJSON(result.response.text());
+          return Array.isArray(parsed)
+            ? { nodes: parsed, edges: [] }
+            : { nodes: parsed.nodes || [], edges: parsed.edges || [] };
+        }
+
+        // ---------------------------------------------------------------------
+        case "EXPANSION_QUESTIONS": {
+          const { userData, existingNodes } = payload;
+          const completedTitles = (existingNodes || [])
+            .filter((n) => n.data?.isCompleted)
+            .map((n) => n.data?.title)
+            .filter(Boolean)
+            .slice(0, 5);
+          const pendingTitles = (existingNodes || [])
+            .filter((n) => !n.data?.isCompleted && n.type === "executionNode")
+            .map((n) => n.data?.title)
+            .filter(Boolean)
+            .slice(0, 5);
+
+          prompt = `
+SYSTEM: You are a career coach extending an operator's 30-day execution map.
+Domain:    ${userData?.vision?.passion || userData?.identity?.domain || "General"}
+Completed: ${completedTitles.join(", ") || "Nothing yet"}
+Pending:   ${pendingTitles.join(", ") || "None"}
+
+Generate EXACTLY 3 questions for expanding their map.
+Q1 (mcq): What should the next phase focus on? (4 options)
+Q2 (mcq): What's the biggest challenge going into the next phase? (4 options)
+Q3 (text): What specific outcome do you want from the next batch of nodes?
+
+RETURN ONLY a JSON array. Format: [{"id":"eq1","type":"mcq","question":"...","options":["A","B","C","D"]},{"id":"eq3","type":"text","question":"..."}]
+          `.trim();
+          result = await model.generateContent({
+            contents: [{ role: "user", parts: [{ text: prompt }] }],
+          });
+          return extractJSON(result.response.text());
+        }
+
+        // ---------------------------------------------------------------------
+        case "EXPAND": {
+          const {
+            userData,
+            expansionAnswers,
+            existingNodes,
+            subscriptionTier,
+            expansionRange,
+            lastNodeId,
+          } = payload;
+          const limits = getMapLimits(subscriptionTier || "free");
+          const maxNew = Math.floor(limits.auto_nodes * 0.5);
+          const rangeStr = expansionRange
+            ? `${fmtDate(expansionRange.from)} → ${fmtDate(expansionRange.to)}`
+            : "Next 30 days";
+          const existingSummary = (existingNodes || [])
+            .filter(
+              (n) => n.type === "executionNode" || n.type === "milestoneNode",
+            )
+            .map(
+              (n) =>
+                `${n.data?.title || "?"} (${n.data?.isCompleted ? "done" : "pending"})`,
+            )
+            .join(", ");
+
+          prompt = `
+SYSTEM: You are extending an existing execution map DAG with continuation nodes.
+PERIOD FOR NEW NODES: ${rangeStr}
+EXISTING MAP SUMMARY: ${existingSummary || "None"}
+LAST NODE ID TO CONNECT FROM: ${lastNodeId}
+
+EXPANSION CONTEXT:
+Next focus: ${expansionAnswers?.[0] || "Not specified"}
+Challenge:  ${expansionAnswers?.[1] || "Not specified"}
+Target:     ${expansionAnswers?.[2] || "Not specified"}
+
+Generate EXACTLY ${Math.floor(maxNew * 0.7)}–${maxNew} NEW execution/milestone nodes.
+The FIRST new node MUST connect FROM: ${lastNodeId}. Do NOT modify existing nodes.
+Use standard JSON return format { "nodes": [...], "edges": [...] }
+          `.trim();
+          result = await model.generateContent({
+            contents: [{ role: "user", parts: [{ text: prompt }] }],
+          });
+          const parsed = extractJSON(result.response.text());
+          return Array.isArray(parsed)
+            ? { nodes: parsed, edges: [] }
+            : { nodes: parsed.nodes || [], edges: parsed.edges || [] };
+        }
+
+        // ---------------------------------------------------------------------
+        case "REGENERATE": {
+          const {
+            userData,
+            calibrationAnswers,
+            specificInstruction,
+            preservedNodes,
+            preservedEdges,
+            subscriptionTier,
+            mapRange,
+            learnInventory,
+          } = payload;
+          const limits = getMapLimits(subscriptionTier || "free");
+          const maxNodes = limits.auto_nodes;
+          const rangeStr = mapRange
+            ? `${fmtDate(mapRange.from)} → ${fmtDate(mapRange.to)}`
+            : "Next 30 days";
+
+          const safePreserved = preservedNodes || [];
+          const preservedSummary = safePreserved
+            .map(
+              (n) => `"${n.data?.title || "?"}" (ID: ${n.id}, type: ${n.type})`,
+            )
+            .join("\n");
+          const preservedIds = safePreserved.map((n) => n.id).join(", ");
+
+          prompt = `
+SYSTEM: You are regenerating a Discotive execution map DAG for the period: ${rangeStr}.
+
+STRICT RULES:
+1. Do NOT include or modify these PRESERVED nodes:
+   ${preservedSummary || "None"}
+2. Generate ${Math.floor(maxNodes * 0.7)}–${maxNodes} NEW nodes. ALL new node deadlines MUST be within: ${rangeStr}.
+3. Connect your new nodes to the preserved nodes where logical. Do NOT use IDs: ${preservedIds || "none"}
+
+OPERATOR CONTEXT:
+Domain:  ${userData?.vision?.passion || userData?.identity?.domain || "General"}
+Goal:    ${calibrationAnswers?.[0] || "Not specified"}
+Blocker: ${calibrationAnswers?.[1] || "Not specified"}
+Style:   ${calibrationAnswers?.[2] || "Not specified"}
+Specific instruction: ${specificInstruction || "None"}
+
+RETURN FORMAT: JSON ONLY { "nodes": [...NEW nodes only], "edges": [...edges for new nodes] }
+          `.trim();
+          result = await model.generateContent({
+            contents: [{ role: "user", parts: [{ text: prompt }] }],
+          });
+          const parsed = extractJSON(result.response.text());
+          const newNodes = Array.isArray(parsed) ? parsed : parsed.nodes || [];
+          const newEdges = Array.isArray(parsed) ? [] : parsed.edges || [];
+          return {
+            nodes: [...safePreserved, ...newNodes],
+            edges: [...(preservedEdges || []), ...newEdges],
+          };
+        }
+
+        // ---------------------------------------------------------------------
+        case "GRACE_CHAT": {
+          const { name, userData, text } = payload;
+          const systemContext = `You are Grace, Discotive's AI career assistant. Discotive is a unified career engine for students and young professionals — it has an Execution Map (ReactFlow DAG), a Vault for credential proof-of-work, a Leaderboard with scoring, and a Pro tier.
+User: ${name || "Operator"}
+Domain: ${userData?.identity?.domain || userData?.vision?.passion || "Not set"}
+Score: ${userData?.discotiveScore?.current || 0}
+Answer concisely (max 3 sentences). Be direct, helpful, and encouraging. Don't make up features that don't exist. If unsure, suggest contacting support at discotive@gmail.com.`;
+
+          result = await model.generateContent(
+            `${systemContext}\n\nUser question: ${text}`,
+          );
+          // Grace expects a raw text string back, not JSON
+          return { text: result.response.text() };
+        }
+
+        default:
+          throw new HttpsError(
+            "invalid-argument",
+            "Unknown AI action requested.",
+          );
+      }
+    } catch (err) {
+      console.error("[AIGateway] Engine fault:", err);
+      throw new HttpsError("internal", "AI Engine failed to process request.");
+    }
+  },
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 12. EDGE INJECTION PROXY (SEO & OpenGraph for Vercel/Social Bots)
+// ─────────────────────────────────────────────────────────────────────────────
+
+exports.renderPublicProfile = onRequest(
+  { timeoutSeconds: 15, memory: "256MiB" },
+  async (req, res) => {
+    try {
+      const handle = req.query.handle;
+      if (!handle) return res.status(400).send("Missing handle parameter");
+
+      // 1. Fetch the live frontend shell to guarantee correct Vite asset hashes
+      // Replace this URL with your actual production Vercel domain once deployed
+      const frontendUrl =
+        process.env.FRONTEND_URL || "https://www.discotive.in";
+      const shellResponse = await fetch(`${frontendUrl}/index.html`);
+      let html = await shellResponse.text();
+
+      // 2. Query the user via Admin SDK (bypasses Firestore client rules safely)
+      const usersSnap = await db
+        .collection("users")
+        .where("identity.username", "==", handle)
+        .limit(1)
+        .get();
+
+      if (usersSnap.empty) {
+        html = html.replace(
+          /<title>.*?<\/title>/i,
+          "<title>Operator Not Found | Discotive</title>",
+        );
+        return res.status(200).send(html);
+      }
+
+      const userData = usersSnap.docs[0].data();
+
+      // 3. Privacy Gate
+      if (userData.settings?.publicProfile === false) {
+        html = html.replace(
+          /<title>.*?<\/title>/i,
+          "<title>Profile Private | Discotive</title>",
+        );
+        return res.status(200).send(html);
+      }
+
+      // 4. Construct dynamic metadata
+      const name =
+        `${userData.identity?.firstName || ""} ${userData.identity?.lastName || ""}`.trim() ||
+        handle;
+      const score = userData.discotiveScore?.current || 0;
+      const title = `${name} | Discotive Verified Operator`;
+      const desc = `View ${name}'s verified career execution map, vault proofs, and Discotive score (${score.toLocaleString()} pts).`;
+
+      // 5. Inject into the HTML string payload
+      html = html.replace(/<title>.*?<\/title>/i, `<title>${title}</title>`);
+      html = html.replace(
+        /<meta name="title" content=".*?"\s*\/>/gi,
+        `<meta name="title" content="${title}" />`,
+      );
+      html = html.replace(
+        /<meta name="description" content=".*?"\s*\/>/gi,
+        `<meta name="description" content="${desc}" />`,
+      );
+      html = html.replace(
+        /<meta property="og:title" content=".*?"\s*\/>/gi,
+        `<meta property="og:title" content="${title}" />`,
+      );
+      html = html.replace(
+        /<meta property="og:description" content=".*?"\s*\/>/gi,
+        `<meta property="og:description" content="${desc}" />`,
+      );
+      html = html.replace(
+        /<meta property="twitter:title" content=".*?"\s*\/>/gi,
+        `<meta property="twitter:title" content="${title}" />`,
+      );
+      html = html.replace(
+        /<meta property="twitter:description" content=".*?"\s*\/>/gi,
+        `<meta property="twitter:description" content="${desc}" />`,
+      );
+
+      // Serve the fully hydrated app shell. Cache it heavily at the edge CDN.
+      res.set("Cache-Control", "public, max-age=300, s-maxage=3600");
+      res.status(200).send(html);
+    } catch (err) {
+      console.error("[SEO Proxy Fault]", err);
+      res.status(500).send("System Fault");
+    }
+  },
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 13. SECURE PUBLIC PROFILE FETCH (Bypasses Auth Rules safely)
+// ─────────────────────────────────────────────────────────────────────────────
+
+exports.getPublicProfileData = onCall(async (request) => {
+  const { handle } = request.data;
+  if (!handle) throw new HttpsError("invalid-argument", "Handle required.");
+
+  try {
+    // 1. Query the user
+    const usersSnap = await db
+      .collection("users")
+      .where("identity.username", "==", handle)
+      .limit(1)
+      .get();
+
+    if (usersSnap.empty) {
+      throw new HttpsError("not-found", "Operator not found.");
+    }
+
+    const targetDoc = usersSnap.docs[0];
+    const userData = targetDoc.data();
+
+    // 2. Enforce Privacy Gate
+    if (userData.settings?.publicProfile === false) {
+      throw new HttpsError("permission-denied", "This profile is private.");
+    }
+
+    // 3. Compute Rank Server-Side
+    const score = userData.discotiveScore?.current || 0;
+    const rankSnap = await db
+      .collection("users")
+      .where("discotiveScore.current", ">", score)
+      .count()
+      .get();
+
+    const rank = rankSnap.data().count + 1;
+
+    // 4. Strip sensitive data (email, exact DOB, billing info)
+    return {
+      id: targetDoc.id,
+      identity: {
+        firstName: userData.identity?.firstName,
+        lastName: userData.identity?.lastName,
+        username: userData.identity?.username,
+        domain: userData.identity?.domain,
+        niche: userData.identity?.niche,
+        country: userData.identity?.country,
+        gender: userData.identity?.gender,
+      },
+      vision: userData.vision || {},
+      skills: userData.skills || {},
+      baseline: userData.baseline || {},
+      footprint: userData.footprint || {},
+      links: userData.links || {},
+      discotiveScore: userData.discotiveScore || {},
+      // Only return strictly verified assets
+      vault: (userData.vault || []).filter((a) => a.status === "VERIFIED"),
+      profileViews: userData.profileViews || 0,
+      tier: userData.tier || "ESSENTIAL",
+      alliesCount: (userData.allies || []).length,
+      rank: rank,
+    };
+  } catch (err) {
+    console.error("[getPublicProfileData] Fault:", err);
+    throw new HttpsError("internal", err.message);
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 14. GDPR DATA EXPORT (Complete Payload)
+// ─────────────────────────────────────────────────────────────────────────────
+
+exports.exportUserData = onCall(
+  { timeoutSeconds: 120, memory: "512MiB" },
+  async (request) => {
+    if (!request.auth) {
+      throw new HttpsError("unauthenticated", "Unauthorized.");
+    }
+    const uid = request.auth.uid;
+
+    try {
+      const userRef = db.collection("users").doc(uid);
+      const userDoc = await userRef.get();
+
+      if (!userDoc.exists) {
+        throw new HttpsError("not-found", "User ledger missing.");
+      }
+
+      // Initialize the compliance payload
+      const exportData = {
+        account: userDoc.data(),
+        execution_map: [],
+        journal_entries: [],
+        score_log: [],
+        verification_requests: [],
+        support_tickets: [],
+        feedback: null,
+        reports: [],
+      };
+
+      // Fetch Subcollections concurrently
+      const [mapSnap, journalSnap, scoreSnap, verifySnap] = await Promise.all([
+        userRef.collection("execution_map").get(),
+        userRef.collection("journal_entries").get(),
+        userRef.collection("score_log").get(),
+        userRef.collection("verification_requests").get(),
+      ]);
+
+      mapSnap.forEach((doc) =>
+        exportData.execution_map.push({ id: doc.id, ...doc.data() }),
+      );
+      journalSnap.forEach((doc) =>
+        exportData.journal_entries.push({ id: doc.id, ...doc.data() }),
+      );
+      scoreSnap.forEach((doc) =>
+        exportData.score_log.push({ id: doc.id, ...doc.data() }),
+      );
+      verifySnap.forEach((doc) =>
+        exportData.verification_requests.push({ id: doc.id, ...doc.data() }),
+      );
+
+      // Fetch external collections tied to the user concurrently
+      const [ticketsSnap, feedbackDoc, reportsSnap] = await Promise.all([
+        db.collection("support_tickets").where("uid", "==", uid).get(),
+        db.collection("feedback").doc(uid).get(),
+        db.collection("reports").where("reporterUid", "==", uid).get(),
+      ]);
+
+      ticketsSnap.forEach((doc) =>
+        exportData.support_tickets.push({ id: doc.id, ...doc.data() }),
+      );
+      if (feedbackDoc.exists) {
+        exportData.feedback = { id: feedbackDoc.id, ...feedbackDoc.data() };
+      }
+      reportsSnap.forEach((doc) =>
+        exportData.reports.push({ id: doc.id, ...doc.data() }),
+      );
+
+      return exportData;
+    } catch (error) {
+      console.error(
+        "[GDPR Export] Compilation failed for operator:",
+        uid,
+        error,
+      );
+      throw new HttpsError("internal", "Failed to compile compliance payload.");
+    }
   },
 );

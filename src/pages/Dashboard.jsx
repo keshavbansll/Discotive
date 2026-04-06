@@ -74,7 +74,7 @@ import {
   YAxis,
   CartesianGrid,
 } from "recharts";
-import { cn } from "../components/ui/BentoCard";
+import { cn } from "../lib/cn";
 
 // ─── Character assets ────────────────────────────────────────────────────────
 const CHARACTERS = {
@@ -237,6 +237,8 @@ const Dashboard = () => {
   const { userData, loading: userLoading } = useUserData();
   const navigate = useNavigate();
 
+  const [nodesCount, setNodesCount] = useState(0);
+
   // ── Core metrics ─────────────────────────────────────────────────────────
   const currentScore = userData?.discotiveScore?.current || 0;
   const last24hScore = userData?.discotiveScore?.last24h || currentScore;
@@ -256,6 +258,15 @@ const Dashboard = () => {
     userData?.identity?.firstName ||
     userData?.identity?.fullName?.split(" ")[0] ||
     "Operator";
+
+  const hasLinkedSocials = Object.values(userData?.links || {}).some(Boolean);
+  const missionsCompleted =
+    (nodesCount > 0 ? 1 : 0) +
+    (vaultCount > 0 ? 1 : 0) +
+    (hasLinkedSocials ? 1 : 0);
+
+  // They are in the Zero State if they haven't finished the core loop and have a low score
+  const isZeroState = missionsCompleted < 3 && currentScore <= 50;
 
   const level = Math.min(Math.floor(currentScore / 1000) + 1, 10);
   const levelProgress = currentScore % 1000;
@@ -279,7 +290,6 @@ const Dashboard = () => {
   const [isFetchingMap, setFetchingMap] = useState(false);
   const [journalEntry, setJournalEntry] = useState("");
   const [isCommitting, setIsCommitting] = useState(false);
-  const [nodesCount, setNodesCount] = useState(0);
 
   // ── Month Navigation State ───────────────────────────────────────────────
   // Always set to the 1st of the month to prevent day-overflow calculation bugs
@@ -296,11 +306,6 @@ const Dashboard = () => {
   const handleNextMonth = useCallback(() => {
     setViewDate((prev) => new Date(prev.getFullYear(), prev.getMonth() + 1, 1));
   }, []);
-
-  // ── Boot sequence ────────────────────────────────────────────────────────
-  useEffect(() => {
-    if (userData?.uid) processDailyConsistency(userData.uid);
-  }, [userData?.uid]);
 
   // ── Execution map fetch ──────────────────────────────────────────────────
   useEffect(() => {
@@ -325,23 +330,33 @@ const Dashboard = () => {
     fetchMap();
   }, [userData?.uid]);
 
-  // ── Percentiles engine ───────────────────────────────────────────────────
+  // ── Percentiles engine (MAANG-Grade Cached) ───────────────────────────────
   useEffect(() => {
     const run = async () => {
       if (!userData?.discotiveScore) return;
       setIsCalc(true);
       try {
+        // 1. Instantly load Global from the nightly Cron Job (Zero database reads!)
+        const globalPct = userData.precomputed?.globalPercentile || 100;
+
+        // 2. Check if we already calculated the expensive sub-filters this session
+        const cacheKey = `pct_${userData.uid}_${currentScore}`;
+        const cached = sessionStorage.getItem(cacheKey);
+
+        if (cached) {
+          setPercentiles({ global: globalPct, ...JSON.parse(cached) });
+          setIsCalc(false);
+          return;
+        }
+
+        // 3. Only if no cache exists, fetch the sub-filters
         const ref = collection(db, "users");
         const domain = resolveFilterValue(userData, "domain");
         const niche = resolveFilterValue(userData, "niche");
         const pg = resolveFilterValue(userData, "parallelGoal");
 
-        const promises = [
-          getCountFromServer(query(ref)),
-          getCountFromServer(
-            query(ref, where("discotiveScore.current", ">", currentScore)),
-          ),
-        ];
+        const promises = [];
+
         if (domain) {
           promises.push(
             getCountFromServer(
@@ -357,7 +372,10 @@ const Dashboard = () => {
               ),
             ),
           );
+        } else {
+          promises.push(null, null);
         }
+
         if (niche) {
           promises.push(
             getCountFromServer(
@@ -373,7 +391,10 @@ const Dashboard = () => {
               ),
             ),
           );
+        } else {
+          promises.push(null, null);
         }
+
         if (pg) {
           promises.push(
             getCountFromServer(
@@ -389,20 +410,28 @@ const Dashboard = () => {
               ),
             ),
           );
+        } else {
+          promises.push(null, null);
         }
 
         const r = await Promise.all(promises);
+
         const pct = (tot, rank) => {
+          if (!tot || !rank) return 100;
           const t = tot.data().count;
           if (t === 0) return 1;
           return Math.max(1, Math.ceil(((rank.data().count + 1) / t) * 100));
         };
-        setPercentiles({
-          global: pct(r[0], r[1]),
-          domain: domain && r[2] ? pct(r[2], r[3]) : 100,
-          niche: niche && r[4] ? pct(r[4], r[5]) : 100,
-          parallel: pg && r[6] ? pct(r[6], r[7]) : 100,
-        });
+
+        const calculated = {
+          domain: domain ? pct(r[0], r[1]) : 100,
+          niche: niche ? pct(r[2], r[3]) : 100,
+          parallel: pg ? pct(r[4], r[5]) : 100,
+        };
+
+        // Save to cache so we never pay for these reads again this session
+        sessionStorage.setItem(cacheKey, JSON.stringify(calculated));
+        setPercentiles({ global: globalPct, ...calculated });
       } catch (e) {
         console.error(e);
       } finally {
@@ -410,7 +439,7 @@ const Dashboard = () => {
       }
     };
     if (!userLoading) run();
-  }, [userLoading, currentScore, userData?.identity]);
+  }, [userLoading, currentScore, userData]);
 
   // ── Leaderboard rank engine (fixed multi-path) ───────────────────────────
   const fetchWidgetRank = useCallback(async () => {
@@ -770,6 +799,120 @@ const Dashboard = () => {
         </header>
 
         {/* ════════════════════════════════════════════════════════════════════
+            ZERO STATE: INITIALIZATION PROTOCOL
+        ════════════════════════════════════════════════════════════════════ */}
+        <AnimatePresence>
+          {isZeroState && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, height: 0, overflow: "hidden" }}
+              className="bg-gradient-to-br from-amber-500/10 to-[#0a0a0c] border border-amber-500/20 rounded-[2rem] p-6 md:p-8 shadow-2xl relative overflow-hidden mb-4"
+            >
+              <div className="absolute top-0 right-0 w-64 h-64 bg-amber-500 opacity-[0.05] blur-3xl rounded-full pointer-events-none" />
+
+              <div className="relative z-10 flex flex-col md:flex-row gap-8 justify-between">
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Sparkles className="w-5 h-5 text-amber-500" />
+                    <h2 className="text-xl font-black text-white tracking-tight">
+                      Initialization Protocol
+                    </h2>
+                  </div>
+                  <p className="text-sm text-amber-500/70 mb-6 max-w-md leading-relaxed">
+                    Your telemetry is flatlined. Complete your first three
+                    missions to calibrate the Discotive Engine and unlock your
+                    dashboard.
+                  </p>
+
+                  <div className="flex items-center gap-3 mb-2">
+                    <span className="text-[10px] font-black text-amber-500 uppercase tracking-widest">
+                      Calibration Progress:{" "}
+                      {Math.round((missionsCompleted / 3) * 100)}%
+                    </span>
+                  </div>
+                  <div className="w-full max-w-md h-2 bg-black/50 border border-white/5 rounded-full overflow-hidden">
+                    <motion.div
+                      initial={{ width: 0 }}
+                      animate={{ width: `${(missionsCompleted / 3) * 100}%` }}
+                      transition={{ duration: 1, ease: "easeOut" }}
+                      className="h-full bg-amber-500 shadow-[0_0_10px_rgba(245,158,11,0.5)]"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex-1 flex flex-col gap-3">
+                  {[
+                    {
+                      title: "Generate Execution Map",
+                      desc: "Deploy AI to plot your 30-day trajectory.",
+                      done: nodesCount > 0,
+                      link: "/app/roadmap",
+                    },
+                    {
+                      title: "Secure a Vault Asset",
+                      desc: "Upload your first proof-of-work credential.",
+                      done: vaultCount > 0,
+                      link: "/app/vault",
+                    },
+                    {
+                      title: "Link Social Connectors",
+                      desc: "Connect your GitHub or LinkedIn profile.",
+                      done: hasLinkedSocials,
+                      link: "/app/settings",
+                    },
+                  ].map((mission, i) => (
+                    <Link
+                      key={i}
+                      to={mission.link}
+                      className={cn(
+                        "flex items-center justify-between p-4 rounded-xl border transition-all",
+                        mission.done
+                          ? "bg-emerald-500/5 border-emerald-500/20 opacity-60"
+                          : "bg-black/40 border-white/10 hover:border-amber-500/40 hover:bg-black/60 group",
+                      )}
+                    >
+                      <div className="flex items-center gap-4">
+                        <div
+                          className={cn(
+                            "w-6 h-6 rounded-full flex items-center justify-center border",
+                            mission.done
+                              ? "bg-emerald-500 border-emerald-400"
+                              : "bg-[#111] border-[#333]",
+                          )}
+                        >
+                          {mission.done && (
+                            <CheckCircle2 className="w-3.5 h-3.5 text-white" />
+                          )}
+                        </div>
+                        <div>
+                          <p
+                            className={cn(
+                              "text-sm font-bold",
+                              mission.done
+                                ? "text-emerald-500 line-through"
+                                : "text-white",
+                            )}
+                          >
+                            {mission.title}
+                          </p>
+                          <p className="text-[10px] text-white/40 mt-0.5">
+                            {mission.desc}
+                          </p>
+                        </div>
+                      </div>
+                      {!mission.done && (
+                        <ArrowUpRight className="w-4 h-4 text-white/20 group-hover:text-amber-500 transition-colors" />
+                      )}
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* ════════════════════════════════════════════════════════════════════
             MAIN BENTO GRID
         ════════════════════════════════════════════════════════════════════ */}
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-12 gap-4">
@@ -1025,8 +1168,12 @@ const Dashboard = () => {
                   <Crown className="absolute -top-5 text-amber-500 w-6 h-6 animate-bounce drop-shadow-[0_0_10px_rgba(245,158,11,0.8)]" />
                 )}
                 <img
-                  src={avatar}
+                  src={avatar.replace(".gif", ".webp")} // Ensure you use WebP
                   alt="Rank"
+                  width={80} // 20 * 4 (Tailwind w-20)
+                  height={80}
+                  fetchpriority="high" // This is highly visible above the fold
+                  decoding="async"
                   className={cn(
                     "w-full h-full object-contain pointer-events-none select-none",
                     rankKey === "observer" &&
@@ -1324,312 +1471,324 @@ const Dashboard = () => {
           </motion.div>
 
           {/* ── 5. CONSISTENCY HEATMAP (12→7 col) ────────────────────────── */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.22 }}
-            className="col-span-1 sm:col-span-2 xl:col-span-7 bg-[#0a0a0c] border border-white/[0.05] rounded-[2rem] p-5 md:p-6 shadow-2xl flex flex-col"
-          >
-            <div className="flex items-start justify-between mb-1">
-              <WLabel icon={Flame} iconColor="text-orange-500">
-                Consistency Engine
-              </WLabel>
-              <div className="text-right">
-                <p className="text-2xl font-black text-white font-mono leading-none">
-                  {streak}
-                  <span className="text-sm text-white/30 font-sans ml-1">
-                    {streak === 1 ? "day" : "days"}
-                  </span>
-                </p>
-                {streak >= 7 && (
-                  <p className="text-[8px] text-orange-400 font-bold mt-0.5">
-                    🔥 On fire
-                  </p>
-                )}
-              </div>
-            </div>
-            {/* Month Navigator */}
-            <div className="flex items-center justify-center gap-4 mt-2 mb-5">
-              <button
-                onClick={handlePrevMonth}
-                className="w-6 h-6 flex items-center justify-center rounded-md bg-white/[0.03] border border-white/[0.05] text-white/40 hover:text-white hover:bg-white/[0.08] transition-all"
-              >
-                <ChevronLeft className="w-3.5 h-3.5" />
-              </button>
-
-              <span className="text-[10px] font-black uppercase tracking-widest text-white/60 w-24 text-center select-none">
-                {viewDate.toLocaleDateString("en-US", {
-                  month: "short",
-                  year: "numeric",
-                })}
-              </span>
-
-              <button
-                onClick={handleNextMonth}
-                // Optional: Disable going into future months
-                disabled={
-                  viewDate.getMonth() === new Date().getMonth() &&
-                  viewDate.getFullYear() === new Date().getFullYear()
-                }
-                className="w-6 h-6 flex items-center justify-center rounded-md bg-white/[0.03] border border-white/[0.05] text-white/40 hover:text-white hover:bg-white/[0.08] transition-all disabled:opacity-30 disabled:pointer-events-none"
-              >
-                <ChevronRight className="w-3.5 h-3.5" />
-              </button>
-            </div>
-
-            {/* Dynamic timeline (Vertical Pill bars) */}
-            <div className="flex items-center justify-between gap-0.5 sm:gap-1 mb-5 h-8 sm:h-10">
-              {heatmapData.map((day, i) => (
-                <div
-                  key={i}
-                  title={day.date}
-                  className={cn(
-                    "flex-1 h-full max-w-[10px] sm:max-w-[12px] rounded-full border transition-all",
-                    day.active
-                      ? "bg-amber-500 border-amber-400 shadow-[0_0_6px_rgba(245,158,11,0.4)]"
-                      : "bg-white/[0.04] border-white/[0.04]",
-                  )}
-                />
-              ))}
-            </div>
-
-            {/* Streak milestones */}
-            <div className="grid grid-cols-3 gap-2">
-              {[
-                { target: 7, icon: "⚡", label: "7D Lock", color: "amber" },
-                { target: 14, icon: "🔥", label: "14D Blaze", color: "orange" },
-                { target: 30, icon: "💎", label: "30D Elite", color: "sky" },
-              ].map(({ target, icon, label, color }) => {
-                const hit = streak >= target;
-                return (
-                  <div
-                    key={target}
-                    className={cn(
-                      "flex flex-col items-center justify-center p-2.5 rounded-xl border text-center",
-                      hit
-                        ? color === "amber"
-                          ? "bg-amber-500/10 border-amber-500/25"
-                          : color === "orange"
-                            ? "bg-orange-500/10 border-orange-500/25"
-                            : "bg-sky-500/10 border-sky-500/25"
-                        : "bg-white/[0.02] border-white/[0.04]",
-                    )}
-                  >
-                    <span className="text-lg leading-none mb-1">
-                      {hit ? icon : "🔒"}
+          {!isZeroState && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.22 }}
+              className="col-span-1 sm:col-span-2 xl:col-span-7 bg-[#0a0a0c] border border-white/[0.05] rounded-[2rem] p-5 md:p-6 shadow-2xl flex flex-col"
+            >
+              <div className="flex items-start justify-between mb-1">
+                <WLabel icon={Flame} iconColor="text-orange-500">
+                  Consistency Engine
+                </WLabel>
+                <div className="text-right">
+                  <p className="text-2xl font-black text-white font-mono leading-none">
+                    {streak}
+                    <span className="text-sm text-white/30 font-sans ml-1">
+                      {streak === 1 ? "day" : "days"}
                     </span>
-                    <span
+                  </p>
+                  {streak >= 7 && (
+                    <p className="text-[8px] text-orange-400 font-bold mt-0.5">
+                      🔥 On fire
+                    </p>
+                  )}
+                </div>
+              </div>
+              {/* Month Navigator */}
+              <div className="flex items-center justify-center gap-4 mt-2 mb-5">
+                <button
+                  onClick={handlePrevMonth}
+                  className="w-6 h-6 flex items-center justify-center rounded-md bg-white/[0.03] border border-white/[0.05] text-white/40 hover:text-white hover:bg-white/[0.08] transition-all"
+                >
+                  <ChevronLeft className="w-3.5 h-3.5" />
+                </button>
+
+                <span className="text-[10px] font-black uppercase tracking-widest text-white/60 w-24 text-center select-none">
+                  {viewDate.toLocaleDateString("en-US", {
+                    month: "short",
+                    year: "numeric",
+                  })}
+                </span>
+
+                <button
+                  onClick={handleNextMonth}
+                  // Optional: Disable going into future months
+                  disabled={
+                    viewDate.getMonth() === new Date().getMonth() &&
+                    viewDate.getFullYear() === new Date().getFullYear()
+                  }
+                  className="w-6 h-6 flex items-center justify-center rounded-md bg-white/[0.03] border border-white/[0.05] text-white/40 hover:text-white hover:bg-white/[0.08] transition-all disabled:opacity-30 disabled:pointer-events-none"
+                >
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+
+              {/* Dynamic timeline (Vertical Pill bars) */}
+              <div className="flex items-center justify-between gap-0.5 sm:gap-1 mb-5 h-8 sm:h-10">
+                {heatmapData.map((day, i) => (
+                  <div
+                    key={i}
+                    title={day.date}
+                    className={cn(
+                      "flex-1 h-full max-w-[10px] sm:max-w-[12px] rounded-full border transition-all",
+                      day.active
+                        ? "bg-amber-500 border-amber-400 shadow-[0_0_6px_rgba(245,158,11,0.4)]"
+                        : "bg-white/[0.04] border-white/[0.04]",
+                    )}
+                  />
+                ))}
+              </div>
+
+              {/* Streak milestones */}
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  { target: 7, icon: "⚡", label: "7D Lock", color: "amber" },
+                  {
+                    target: 14,
+                    icon: "🔥",
+                    label: "14D Blaze",
+                    color: "orange",
+                  },
+                  { target: 30, icon: "💎", label: "30D Elite", color: "sky" },
+                ].map(({ target, icon, label, color }) => {
+                  const hit = streak >= target;
+                  return (
+                    <div
+                      key={target}
                       className={cn(
-                        "text-[8px] font-black uppercase tracking-widest",
+                        "flex flex-col items-center justify-center p-2.5 rounded-xl border text-center",
                         hit
                           ? color === "amber"
-                            ? "text-amber-400"
+                            ? "bg-amber-500/10 border-amber-500/25"
                             : color === "orange"
-                              ? "text-orange-400"
-                              : "text-sky-400"
-                          : "text-white/20",
+                              ? "bg-orange-500/10 border-orange-500/25"
+                              : "bg-sky-500/10 border-sky-500/25"
+                          : "bg-white/[0.02] border-white/[0.04]",
                       )}
                     >
-                      {label}
-                    </span>
-                    {hit && (
+                      <span className="text-lg leading-none mb-1">
+                        {hit ? icon : "🔒"}
+                      </span>
                       <span
                         className={cn(
-                          "text-[7px] font-bold mt-0.5",
-                          color === "amber"
-                            ? "text-amber-500/60"
-                            : color === "orange"
-                              ? "text-orange-500/60"
-                              : "text-sky-500/60",
+                          "text-[8px] font-black uppercase tracking-widest",
+                          hit
+                            ? color === "amber"
+                              ? "text-amber-400"
+                              : color === "orange"
+                                ? "text-orange-400"
+                                : "text-sky-400"
+                            : "text-white/20",
                         )}
                       >
-                        UNLOCKED
+                        {label}
                       </span>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </motion.div>
+                      {hit && (
+                        <span
+                          className={cn(
+                            "text-[7px] font-bold mt-0.5",
+                            color === "amber"
+                              ? "text-amber-500/60"
+                              : color === "orange"
+                                ? "text-orange-500/60"
+                                : "text-sky-500/60",
+                          )}
+                        >
+                          UNLOCKED
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </motion.div>
+          )}
 
           {/* ── 6. EXECUTION TIMELINE GANTT (12 col) ──────────────────────── */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.28 }}
-            className="col-span-1 sm:col-span-2 xl:col-span-12 bg-[#0a0a0c] border border-white/[0.05] rounded-[2rem] p-5 md:p-7 shadow-2xl"
-          >
-            <div className="flex items-center justify-between mb-5">
-              <WLabel icon={Map} iconColor="text-indigo-400">
-                Execution Timeline - 90D Horizon
-              </WLabel>
-              <div className="flex items-center gap-3">
-                {isFetchingMap && (
-                  <RefreshCw className="w-3 h-3 text-white/20 animate-spin" />
-                )}
-                <Link
-                  to="/app/roadmap"
-                  className="text-[9px] font-black text-indigo-400/60 hover:text-indigo-400 uppercase tracking-widest transition-colors flex items-center gap-1"
-                >
-                  Roadmap <ArrowUpRight className="w-3 h-3" />
-                </Link>
-              </div>
-            </div>
-
-            {ganttData.nodes.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-8 text-center">
-                <Target className="w-7 h-7 text-white/10 mb-3" />
-                <p className="text-sm font-bold text-white/20 mb-1">
-                  No active protocols with deadlines
-                </p>
-                <Link
-                  to="/app/roadmap"
-                  className="text-[9px] font-black text-indigo-400/50 hover:text-indigo-400 uppercase tracking-widest transition-colors"
-                >
-                  Generate your execution map →
-                </Link>
-              </div>
-            ) : (
-              <>
-                {/* Ruler */}
-                <div className="flex items-center mb-2 pl-[140px] sm:pl-[180px]">
-                  {[0, 15, 30, 45, 60, 75, 90].map((d) => (
-                    <div
-                      key={d}
-                      className="flex-1 text-[7px] font-mono font-bold text-white/15 border-l border-white/[0.04] pl-1"
-                    >
-                      {d === 0 ? "Today" : `+${d}d`}
-                    </div>
-                  ))}
+          {!isZeroState && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.28 }}
+              className="col-span-1 sm:col-span-2 xl:col-span-12 bg-[#0a0a0c] border border-white/[0.05] rounded-[2rem] p-5 md:p-7 shadow-2xl"
+            >
+              <div className="flex items-center justify-between mb-5">
+                <WLabel icon={Map} iconColor="text-indigo-400">
+                  Execution Timeline - 90D Horizon
+                </WLabel>
+                <div className="flex items-center gap-3">
+                  {isFetchingMap && (
+                    <RefreshCw className="w-3 h-3 text-white/20 animate-spin" />
+                  )}
+                  <Link
+                    to="/app/roadmap"
+                    className="text-[9px] font-black text-indigo-400/60 hover:text-indigo-400 uppercase tracking-widest transition-colors flex items-center gap-1"
+                  >
+                    Roadmap <ArrowUpRight className="w-3 h-3" />
+                  </Link>
                 </div>
+              </div>
 
-                {/* Bars */}
-                <div className="space-y-2">
-                  {ganttData.nodes.map((n) => {
-                    const pct = n.isCompleted
-                      ? 100
-                      : Math.min(
-                          100,
-                          Math.max(2, (Math.max(0, n.daysLeft) / window) * 100),
-                        );
-                    const isOverdue = n.daysLeft < 0;
-                    const isUrgent = !isOverdue && n.daysLeft <= 7;
-                    const a = n.isCompleted
-                      ? ACCENT.emerald
-                      : isOverdue
-                        ? {
-                            bar: "#ef4444",
-                            bg: "rgba(239,68,68,0.15)",
-                            text: "#ef4444",
-                          }
-                        : isUrgent
-                          ? ACCENT.orange
-                          : ACCENT[n.accentColor] || ACCENT.amber;
-
-                    return (
-                      <Link
-                        to="/app/roadmap"
-                        key={n.id}
-                        className="flex items-center gap-2 group cursor-pointer"
+              {ganttData.nodes.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-8 text-center">
+                  <Target className="w-7 h-7 text-white/10 mb-3" />
+                  <p className="text-sm font-bold text-white/20 mb-1">
+                    No active protocols with deadlines
+                  </p>
+                  <Link
+                    to="/app/roadmap"
+                    className="text-[9px] font-black text-indigo-400/50 hover:text-indigo-400 uppercase tracking-widest transition-colors"
+                  >
+                    Generate your execution map →
+                  </Link>
+                </div>
+              ) : (
+                <>
+                  {/* Ruler */}
+                  <div className="flex items-center mb-2 pl-[140px] sm:pl-[180px]">
+                    {[0, 15, 30, 45, 60, 75, 90].map((d) => (
+                      <div
+                        key={d}
+                        className="flex-1 text-[7px] font-mono font-bold text-white/15 border-l border-white/[0.04] pl-1"
                       >
-                        {/* Label */}
-                        <div className="w-[140px] sm:w-[180px] shrink-0 flex items-center gap-2">
-                          <div
-                            className="w-1.5 h-1.5 rounded-full shrink-0"
-                            style={{ background: a.bar }}
-                          />
-                          <div className="min-w-0">
-                            <p
-                              className="text-[10px] font-bold truncate leading-tight"
+                        {d === 0 ? "Today" : `+${d}d`}
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Bars */}
+                  <div className="space-y-2">
+                    {ganttData.nodes.map((n) => {
+                      const pct = n.isCompleted
+                        ? 100
+                        : Math.min(
+                            100,
+                            Math.max(
+                              2,
+                              (Math.max(0, n.daysLeft) / window) * 100,
+                            ),
+                          );
+                      const isOverdue = n.daysLeft < 0;
+                      const isUrgent = !isOverdue && n.daysLeft <= 7;
+                      const a = n.isCompleted
+                        ? ACCENT.emerald
+                        : isOverdue
+                          ? {
+                              bar: "#ef4444",
+                              bg: "rgba(239,68,68,0.15)",
+                              text: "#ef4444",
+                            }
+                          : isUrgent
+                            ? ACCENT.orange
+                            : ACCENT[n.accentColor] || ACCENT.amber;
+
+                      return (
+                        <Link
+                          to="/app/roadmap"
+                          key={n.id}
+                          className="flex items-center gap-2 group cursor-pointer"
+                        >
+                          {/* Label */}
+                          <div className="w-[140px] sm:w-[180px] shrink-0 flex items-center gap-2">
+                            <div
+                              className="w-1.5 h-1.5 rounded-full shrink-0"
+                              style={{ background: a.bar }}
+                            />
+                            <div className="min-w-0">
+                              <p
+                                className="text-[10px] font-bold truncate leading-tight"
+                                style={{
+                                  color: n.isCompleted
+                                    ? "rgba(255,255,255,0.25)"
+                                    : "rgba(255,255,255,0.7)",
+                                  textDecoration: n.isCompleted
+                                    ? "line-through"
+                                    : "none",
+                                }}
+                              >
+                                {n.title}
+                              </p>
+                              <p className="text-[7px] font-bold uppercase tracking-widest text-white/20">
+                                {isOverdue
+                                  ? `${Math.abs(n.daysLeft)}d overdue`
+                                  : n.isCompleted
+                                    ? "done"
+                                    : `${n.daysLeft}d`}
+                              </p>
+                            </div>
+                          </div>
+
+                          {/* Bar track */}
+                          <div className="flex-1 h-6 bg-white/[0.03] rounded-full overflow-hidden relative border border-white/[0.04]">
+                            <motion.div
+                              initial={{ width: 0 }}
+                              animate={{ width: `${pct}%` }}
+                              transition={{ duration: 0.7, ease: "easeOut" }}
+                              className="absolute inset-y-0 left-0 rounded-full"
                               style={{
-                                color: n.isCompleted
-                                  ? "rgba(255,255,255,0.25)"
-                                  : "rgba(255,255,255,0.7)",
-                                textDecoration: n.isCompleted
-                                  ? "line-through"
-                                  : "none",
+                                background: `linear-gradient(90deg,${a.bar}25,${a.bar}55)`,
+                                border: `1px solid ${a.bar}30`,
                               }}
                             >
-                              {n.title}
-                            </p>
-                            <p className="text-[7px] font-bold uppercase tracking-widest text-white/20">
-                              {isOverdue
-                                ? `${Math.abs(n.daysLeft)}d overdue`
-                                : n.isCompleted
-                                  ? "done"
-                                  : `${n.daysLeft}d`}
-                            </p>
+                              <div
+                                className="h-full rounded-full"
+                                style={{
+                                  width: `${n.progress}%`,
+                                  background: `linear-gradient(90deg,${a.bar}70,${a.bar})`,
+                                  boxShadow: `0 0 6px ${a.bar}50`,
+                                }}
+                              />
+                            </motion.div>
+                            <div className="absolute inset-y-0 left-0 w-px bg-white/15" />
                           </div>
-                        </div>
 
-                        {/* Bar track */}
-                        <div className="flex-1 h-6 bg-white/[0.03] rounded-full overflow-hidden relative border border-white/[0.04]">
-                          <motion.div
-                            initial={{ width: 0 }}
-                            animate={{ width: `${pct}%` }}
-                            transition={{ duration: 0.7, ease: "easeOut" }}
-                            className="absolute inset-y-0 left-0 rounded-full"
+                          {/* Deadline */}
+                          <div
+                            className="shrink-0 text-[7px] font-black font-mono px-1.5 py-1 rounded-lg border"
                             style={{
-                              background: `linear-gradient(90deg,${a.bar}25,${a.bar}55)`,
-                              border: `1px solid ${a.bar}30`,
+                              color: a.text,
+                              borderColor: `${a.bar}25`,
+                              background: a.bg,
                             }}
                           >
-                            <div
-                              className="h-full rounded-full"
-                              style={{
-                                width: `${n.progress}%`,
-                                background: `linear-gradient(90deg,${a.bar}70,${a.bar})`,
-                                boxShadow: `0 0 6px ${a.bar}50`,
-                              }}
-                            />
-                          </motion.div>
-                          <div className="absolute inset-y-0 left-0 w-px bg-white/15" />
-                        </div>
+                            {new Date(n.deadline).toLocaleDateString([], {
+                              month: "short",
+                              day: "numeric",
+                            })}
+                          </div>
+                        </Link>
+                      );
+                    })}
+                  </div>
 
-                        {/* Deadline */}
+                  {/* Legend */}
+                  <div className="flex flex-wrap items-center gap-4 mt-4 pt-3 border-t border-white/[0.04]">
+                    {[
+                      ["#10b981", "Done"],
+                      ["#f59e0b", "On Track"],
+                      ["#f97316", "Urgent ≤7d"],
+                      ["#ef4444", "Overdue"],
+                    ].map(([c, l]) => (
+                      <div key={l} className="flex items-center gap-1.5">
                         <div
-                          className="shrink-0 text-[7px] font-black font-mono px-1.5 py-1 rounded-lg border"
-                          style={{
-                            color: a.text,
-                            borderColor: `${a.bar}25`,
-                            background: a.bg,
-                          }}
-                        >
-                          {new Date(n.deadline).toLocaleDateString([], {
-                            month: "short",
-                            day: "numeric",
-                          })}
-                        </div>
-                      </Link>
-                    );
-                  })}
-                </div>
-
-                {/* Legend */}
-                <div className="flex flex-wrap items-center gap-4 mt-4 pt-3 border-t border-white/[0.04]">
-                  {[
-                    ["#10b981", "Done"],
-                    ["#f59e0b", "On Track"],
-                    ["#f97316", "Urgent ≤7d"],
-                    ["#ef4444", "Overdue"],
-                  ].map(([c, l]) => (
-                    <div key={l} className="flex items-center gap-1.5">
-                      <div
-                        className="w-2 h-2 rounded-full"
-                        style={{ background: c }}
-                      />
-                      <span className="text-[7px] font-bold text-white/25 uppercase tracking-widest">
-                        {l}
-                      </span>
-                    </div>
-                  ))}
-                  <span className="ml-auto text-[7px] font-bold text-white/15 uppercase tracking-widest hidden sm:inline">
-                    Bar = time left · Fill = task %
-                  </span>
-                </div>
-              </>
-            )}
-          </motion.div>
+                          className="w-2 h-2 rounded-full"
+                          style={{ background: c }}
+                        />
+                        <span className="text-[7px] font-bold text-white/25 uppercase tracking-widest">
+                          {l}
+                        </span>
+                      </div>
+                    ))}
+                    <span className="ml-auto text-[7px] font-bold text-white/15 uppercase tracking-widest hidden sm:inline">
+                      Bar = time left · Fill = task %
+                    </span>
+                  </div>
+                </>
+              )}
+            </motion.div>
+          )}
 
           {/* ── 7. ROADMAP NODES (12→6 col) ──────────────────────────────── */}
           <motion.div

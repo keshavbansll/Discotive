@@ -47,7 +47,7 @@ import {
   Zap,
   Star,
 } from "lucide-react";
-import { cn } from "../ui/BentoCard";
+import { cn } from "../lib/cn";
 import { doc, updateDoc, arrayUnion } from "firebase/firestore";
 import {
   ref as storageRef,
@@ -281,7 +281,6 @@ const UploadPanel = ({ userId, onClose, onUploaded }) => {
         await updateDoc(doc(db, "users", userId), {
           vault: arrayUnion(newAsset),
         });
-        awardVaultUpload(userId).catch(() => {});
         onUploaded(newAsset);
         setIsUploading(false);
       },

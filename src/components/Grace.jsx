@@ -31,8 +31,9 @@ import {
   HelpCircle,
   MessageCircle,
 } from "lucide-react";
-import { GoogleGenerativeAI } from "@google/generative-ai";
-import { cn } from "./ui/BentoCard";
+import { httpsCallable } from "firebase/functions";
+import { functions } from "../firebase";
+import { cn } from "../lib/cn";
 
 // ─── Flow data ────────────────────────────────────────────────────────────────
 const TOPICS = [
@@ -312,7 +313,7 @@ const Grace = ({ userData }) => {
     }
   }, [step]);
 
-  // ── Gemini free-form handler ────────────────────────────────────────────
+  // ── Gemini free-form handler (Secured via Cloud Functions) ──
   const handleFreeformSend = useCallback(async () => {
     const text = freeInput.trim();
     if (!text || isAiLoading) return;
@@ -323,24 +324,18 @@ const Grace = ({ userData }) => {
     setIsAiLoading(true);
 
     try {
-      const genAI = new GoogleGenerativeAI(import.meta.env.VITE_GEMINI_API_KEY);
-      const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+      const aiGateway = httpsCallable(functions, "discotiveAIGateway");
+      const response = await aiGateway({
+        action: "GRACE_CHAT",
+        payload: { name, userData, text },
+      });
 
-      const systemContext = `You are Grace, Discotive's AI career assistant. Discotive is a unified career engine for students and young professionals — it has an Execution Map (ReactFlow DAG), a Vault for credential proof-of-work, a Leaderboard with scoring, and a Pro tier.
-
-User: ${name}
-Domain: ${userData?.identity?.domain || userData?.vision?.passion || "Not set"}
-Niche: ${userData?.identity?.niche || userData?.vision?.niche || "Not set"}
-Score: ${userData?.discotiveScore?.current || 0}
-
-Answer concisely (max 3 sentences). Be direct, helpful, and encouraging. Don't make up features that don't exist. If unsure, suggest contacting support at discotive@gmail.com.`;
-
-      const result = await model.generateContent(
-        `${systemContext}\n\nUser question: ${text}`,
-      );
-      const responseText = result.response.text();
-      setAiMessages((prev) => [...prev, { role: "grace", text: responseText }]);
+      setAiMessages((prev) => [
+        ...prev,
+        { role: "grace", text: response.data.text },
+      ]);
     } catch (err) {
+      console.error("[Grace] AI connection failed:", err);
       setAiMessages((prev) => [
         ...prev,
         {

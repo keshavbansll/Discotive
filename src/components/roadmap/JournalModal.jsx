@@ -16,7 +16,7 @@ import {
   Loader2,
   Check,
 } from "lucide-react";
-import { cn } from "../ui/BentoCard";
+import { cn } from "../lib/cn";
 
 const MONTHS = [
   "Jan",
