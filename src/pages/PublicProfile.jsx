@@ -29,7 +29,6 @@ import { motion, AnimatePresence } from "framer-motion";
 import { doc, updateDoc, writeBatch, arrayUnion } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
 import { db, auth, functions } from "../firebase";
-import { db, auth } from "../firebase";
 import { useUserData } from "../hooks/useUserData";
 import { mutateScore } from "../lib/scoreEngine";
 import { pdf } from "@react-pdf/renderer";
