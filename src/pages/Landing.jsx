@@ -11,7 +11,7 @@ import {
 
 // ─── CSS INJECTION ───────────────────────────────────────────────────────────
 const GLOBAL_CSS = `
-  @import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;0,700;1,300;1,400;1,500&family=Didact+Gothic&family=EB+Garamond:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400;1,500&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,300..800;1,300..800&family=Poppins:ital,wght@0,300..700;1,300..700&display=swap');
 
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -30,8 +30,12 @@ const GLOBAL_CSS = `
     --text-primary: #F5F0E8;
     --text-secondary: rgba(245,240,232,0.55);
     --text-dim: rgba(245,240,232,0.25);
-    --font-display: 'EB Garamond', 'Cormorant Garamond', Georgia, serif;
-    --font-body: 'Didact Gothic', 'Helvetica Neue', sans-serif;
+    --font-display: 'Montserrat', sans-serif;
+    --font-body: 'Poppins', sans-serif;
+  }
+
+  h1, h2, h3, .font-display {
+    letter-spacing: -0.05em !important; /* Forces the tight, packed look */
   }
 
   html { scroll-behavior: smooth; overflow-x: hidden; }
@@ -171,6 +175,7 @@ const GLOBAL_CSS = `
     letter-spacing: 0.2em;
     text-transform: uppercase;
     border: none;
+    border-radius: 9999px; /* Pill shape */
     cursor: none;
     overflow: hidden;
     transition: all 0.4s cubic-bezier(0.23, 1, 0.32, 1);
@@ -207,6 +212,7 @@ const GLOBAL_CSS = `
     letter-spacing: 0.2em;
     text-transform: uppercase;
     border: 0.5px solid rgba(245,240,232,0.2);
+    border-radius: 9999px; /* Pill shape */
     cursor: none;
     transition: all 0.4s cubic-bezier(0.23, 1, 0.32, 1);
   }
@@ -249,9 +255,9 @@ const GLOBAL_CSS = `
   .feature-card:hover::before { opacity: 1; }
 
   .feature-card:hover {
-    border-color: rgba(191,162,100,0.2);
-    transform: translateY(-6px);
-    box-shadow: 0 24px 64px rgba(0,0,0,0.5), 0 0 0 0.5px rgba(191,162,100,0.15);
+    border-color: rgba(191,162,100,0.4);
+    transform: translateY(-8px) scale(1.02);
+    box-shadow: 0 32px 64px rgba(0,0,0,0.6), 0 0 0 1px rgba(191,162,100,0.3);
   }
 
   .node-card {
@@ -335,6 +341,13 @@ const GLOBAL_CSS = `
     border: 1px solid rgba(191,162,100,0.5);
     border-radius: 50%;
     transform: translate(-50%, -50%);
+    transition: transform 0.3s cubic-bezier(0.23, 1, 0.32, 1), background-color 0.3s ease;
+  }
+  
+  .cursor-ring.active {
+    transform: translate(-50%, -50%) scale(1.8) !important;
+    background-color: rgba(191,162,100,0.1);
+    border-color: rgba(191,162,100,0.8);
   }
 
   .marquee-container {
@@ -435,7 +448,7 @@ const GLOBAL_CSS = `
 // ─── CUSTOM CURSOR ────────────────────────────────────────────────────────────
 function Cursor() {
   const dotRef = useRef(null);
-  const ringRef = useRef(null);
+  const [isHovering, setIsHovering] = useState(false);
   const mouse = { x: useMotionValue(0), y: useMotionValue(0) };
   const springConfig = { damping: 22, stiffness: 280, mass: 0.4 };
   const ringX = useSpring(mouse.x, springConfig);
@@ -450,15 +463,40 @@ function Cursor() {
         dotRef.current.style.top = e.clientY + "px";
       }
     };
+
+    const onHover = (e) => {
+      if (
+        e.target.closest(
+          "button, a, input, .node-card, .feature-card, .stat-card",
+        )
+      )
+        setIsHovering(true);
+    };
+    const onLeave = (e) => {
+      if (
+        e.target.closest(
+          "button, a, input, .node-card, .feature-card, .stat-card",
+        )
+      )
+        setIsHovering(false);
+    };
+
     window.addEventListener("mousemove", onMove);
-    return () => window.removeEventListener("mousemove", onMove);
+    window.addEventListener("mouseover", onHover);
+    window.addEventListener("mouseout", onLeave);
+
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseover", onHover);
+      window.removeEventListener("mouseout", onLeave);
+    };
   }, []);
 
   return (
     <>
       <div ref={dotRef} className="custom-cursor cursor-dot" />
       <motion.div
-        className="custom-cursor cursor-ring"
+        className={`custom-cursor cursor-ring ${isHovering ? "active" : ""}`}
         style={{ left: ringX, top: ringY }}
       />
     </>
@@ -550,7 +588,7 @@ function LiveScoreWidget() {
       style={{
         background: "rgba(10,10,10,0.95)",
         border: "0.5px solid rgba(191,162,100,0.2)",
-        borderRadius: 2,
+        borderRadius: 24,
         padding: "24px",
         position: "relative",
         overflow: "hidden",
@@ -922,7 +960,7 @@ function FeatureCard({
       animate={inView ? { opacity: 1, y: 0 } : {}}
       transition={{ duration: 0.9, delay, ease: [0.23, 1, 0.32, 1] }}
       className="feature-card"
-      style={{ padding: "36px", borderRadius: 2 }}
+      style={{ padding: "36px", borderRadius: 24 }}
     >
       <div
         style={{
@@ -1069,7 +1107,7 @@ function TestimonialCard({ quote, name, role, score, rank, delay = 0 }) {
         background: "rgba(255,255,255,0.015)",
         border: "0.5px solid rgba(255,255,255,0.06)",
         padding: "32px",
-        borderRadius: 2,
+        borderRadius: 24,
         position: "relative",
         transition: "all 0.5s cubic-bezier(0.23,1,0.32,1)",
       }}
@@ -1276,7 +1314,7 @@ function VaultDemo() {
       style={{
         background: "rgba(10,10,10,0.98)",
         border: "0.5px solid rgba(191,162,100,0.15)",
-        borderRadius: 2,
+        borderRadius: 16,
         overflow: "hidden",
       }}
     >
@@ -1514,7 +1552,7 @@ function LeaderboardPreview() {
       style={{
         background: "rgba(10,10,10,0.98)",
         border: "0.5px solid rgba(191,162,100,0.15)",
-        borderRadius: 2,
+        borderRadius: 16,
         overflow: "hidden",
       }}
     >
