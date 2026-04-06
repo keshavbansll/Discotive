@@ -55,6 +55,7 @@ import {
   Check,
   ArrowRight,
   Command,
+  Ticket,
 } from "lucide-react";
 import { cn } from "../lib/cn";
 import { processDailyConsistency } from "../lib/scoreEngine";

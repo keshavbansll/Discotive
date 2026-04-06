@@ -394,10 +394,29 @@ const Profile = () => {
       const { DCIExportTemplate } =
         await import("../components/DCIExportTemplate");
 
-      // 3. Construct the document with the data currently in scope
-      const document = (
+      // 3. Construct the document with the flattened data schema
+      const pdfDocument = (
         <DCIExportTemplate
-          data={userData}
+          data={{
+            firstName: userData.identity?.firstName || "Operator",
+            lastName: userData.identity?.lastName || "",
+            username: userData.identity?.username || "",
+            email: userData.email || "",
+            domain:
+              userData.identity?.domain ||
+              userData.vision?.passion ||
+              "Undeclared",
+            niche: userData.identity?.niche || userData.vision?.niche || "—",
+            rank: userData.rank || null,
+            score: score,
+            goal: userData.vision?.goal3Months || "",
+            endgame: userData.vision?.endgame || "",
+            institution: userData.baseline?.institution || "",
+            degree: userData.baseline?.degree || "",
+            major: userData.baseline?.major || "",
+            gradYear: userData.baseline?.gradYear || "",
+            streak: streak,
+          }}
           level={level}
           skills={skills}
           assetsCount={vault.length}
@@ -406,7 +425,7 @@ const Profile = () => {
       );
 
       // 4. Generate the blob
-      const blob = await pdf(document).toBlob();
+      const blob = await pdf(pdfDocument).toBlob();
 
       // 5. Trigger the native browser download
       const url = URL.createObjectURL(blob);
