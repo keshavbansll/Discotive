@@ -8,25 +8,31 @@
  * Accessible by anyone with the link — zero sensitive data exposed.
  *
  * Philosophy:
- *   "People today share LinkedIn URLs, GitHub handles, résumé PDFs.
- *    The Discotive Public Profile replaces all three: it is a living,
- *    verifiable, scored career document that updates in real-time."
+ * "People today share LinkedIn URLs, GitHub handles, résumé PDFs.
+ * The Discotive Public Profile replaces all three: it is a living,
+ * verifiable, scored career document that updates in real-time."
  *
  * Features:
- *  - SVG Radar chart (Execution, Skills, Network, Vault, Reach)
- *  - SVG Donut — Moat distribution (skills × effort allocation)
- *  - Verified vault assets only (status === 'VERIFIED')
- *  - Global rank + percentile display
- *  - Profile view tracking (+1 score for owner on each unique visit)
- *  - Export DCI PDF (via DCIExportTemplate)
- *  - Alliance / Connect CTA for authenticated visitors
- *  - Discotive branding footer ("Verified by Discotive OS")
+ * - SVG Radar chart (Execution, Skills, Network, Vault, Reach)
+ * - SVG Donut — Moat distribution (skills × effort allocation)
+ * - Verified vault assets only (status === 'VERIFIED')
+ * - Global rank + percentile display
+ * - Profile view tracking (+1 score for owner on each unique visit)
+ * - Export DCI PDF (via DCIExportTemplate)
+ * - Alliance / Connect CTA for authenticated visitors
+ * - Discotive branding footer ("Verified by Discotive OS")
  */
 
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { doc, updateDoc, writeBatch, arrayUnion } from "firebase/firestore";
+import {
+  doc,
+  updateDoc,
+  writeBatch,
+  arrayUnion,
+  increment,
+} from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
 import { db, auth, functions } from "../firebase";
 import { useUserData } from "../hooks/useUserData";
@@ -174,12 +180,13 @@ const DonutChart = ({ segments, centerLabel, centerSub, size = 130 }) => {
   const cy = 50;
   const circ = 2 * Math.PI * r;
   const total = segments.reduce((s, seg) => s + seg.value, 0) || 1;
-  let offset = 0;
-  const arcs = segments.map((seg) => {
+
+  const arcs = segments.map((seg, index) => {
     const dash = (seg.value / total) * circ;
-    const arc = { ...seg, dash, offset };
-    offset += dash;
-    return arc;
+    const offset = segments
+      .slice(0, index)
+      .reduce((acc, s) => acc + (s.value / total) * circ, 0);
+    return { ...seg, dash, offset };
   });
 
   return (
@@ -408,11 +415,6 @@ const PublicProfile = () => {
             profileViews: (prev?.profileViews || 0) + 1,
           }));
         }
-
-        // Check if viewer is already allied
-        if (viewerData?.allies?.includes(data.id)) setAllyStatus("allied");
-        else if (viewerData?.outboundRequests?.includes(data.id))
-          setAllyStatus("sent");
       } catch (err) {
         console.error("[PublicProfile] fetch failed:", err);
         setProfileData(null);
@@ -421,7 +423,17 @@ const PublicProfile = () => {
       }
     };
     fetchProfile();
-  }, [username, viewerData?.uid]);
+  }, [username]);
+
+  // ── Alliance status sync ─────────────────────────────────────────────────
+  useEffect(() => {
+    if (!targetId || !viewerData) return;
+    if (viewerData?.allies?.includes(targetId)) {
+      setAllyStatus("allied");
+    } else if (viewerData?.outboundRequests?.includes(targetId)) {
+      setAllyStatus("sent");
+    }
+  }, [targetId, viewerData]);
 
   // ── Data extraction ───────────────────────────────────────────────────────
   const isMe = viewerData?.identity?.username === username;
@@ -514,7 +526,8 @@ const PublicProfile = () => {
       await batch.commit();
       setAllyStatus("sent");
       showToast("Alliance request sent!", "green");
-    } catch (e) {
+    } catch (error) {
+      console.error("[PublicProfile] Alliance request failed:", error);
       showToast("Request failed.", "red");
     }
   };
@@ -833,7 +846,7 @@ const PublicProfile = () => {
               bg: "bg-sky-500/10",
               border: "border-sky-500/15",
             },
-          ].map(({ label, val, icon: Icon, color, bg, border }) => (
+          ].map(({ label, val, icon: IconComp, color, bg, border }) => (
             <div
               key={label}
               className={cn(
@@ -842,7 +855,7 @@ const PublicProfile = () => {
                 border,
               )}
             >
-              <Icon className={cn("w-4 h-4 shrink-0", color)} />
+              <IconComp className={cn("w-4 h-4 shrink-0", color)} />
               <div>
                 <p
                   className={cn(
@@ -1096,7 +1109,7 @@ const PublicProfile = () => {
                   Presence
                 </h3>
                 <div className="flex flex-wrap gap-2">
-                  {activeLinks.map(({ key, label, icon: Icon, color }) => (
+                  {activeLinks.map(({ key, label, icon: IconComp, color }) => (
                     <a
                       key={key}
                       href={profileData.links[key]}
@@ -1104,7 +1117,7 @@ const PublicProfile = () => {
                       rel="noreferrer"
                       className="flex items-center gap-2 px-3 py-2 bg-[#0f0f0f] border border-[#1a1a1a] rounded-xl hover:border-[#333] transition-colors"
                     >
-                      <Icon className="w-3.5 h-3.5" style={{ color }} />
+                      <IconComp className="w-3.5 h-3.5" style={{ color }} />
                       <span className="text-[10px] font-bold text-[#888]">
                         {label}
                       </span>
