@@ -33,15 +33,11 @@ export default {
         },
       },
       fontFamily: {
-        sans: ["Poppins", "Montserrat", "sans-serif"],
-        serif: ["Georgia", "serif"],
+        // Inter is great, but we will use tight tracking in the code to make it look premium
+        sans: ["Inter", "sans-serif"],
+        serif: ["Georgia", "serif"], // For aesthetic accents
       },
-      letterSpacing: {
-        tightest: '-.075em',
-        tighter: '-.05em',
-        tight: '-.025em',
-        normal: '0',
-      },
+    },
   },
   plugins: [],
 };
