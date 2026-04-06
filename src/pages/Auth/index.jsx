@@ -396,6 +396,11 @@ export default function AuthOrchestrator() {
       if (wlSnap.empty) setStep("locked");
       else setStep(2);
     } catch (err) {
+      console.error("Verification failed:", err);
+      setSystemStatus((prev) => ({
+        ...prev,
+        error: "Failed to verify credentials: " + err.message,
+      }));
     } finally {
       setSystemStatus((prev) => ({ ...prev, loading: false }));
     }

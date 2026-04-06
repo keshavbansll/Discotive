@@ -1,571 +1,692 @@
-import { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { motion, AnimatePresence } from "framer-motion";
 import {
-  ChevronRight,
-  MapPin,
-  Globe,
-  Instagram,
-  Linkedin,
-  Youtube,
-  Zap,
-  Terminal,
-  Crosshair,
-  ShieldAlert,
-  Fingerprint,
-  Cpu,
-  Mail,
-  ArrowRight,
-  Eye,
-} from "lucide-react";
-import GlobalLoader from "../components/GlobalLoader";
+  motion,
+  useScroll,
+  useTransform,
+  AnimatePresence,
+} from "framer-motion";
 import { cn } from "../lib/cn";
-import emailjs from "@emailjs/browser";
 
-// ============================================================================
-// 1. DATA & CONFIG
-// ============================================================================
-const BOARD_MEMBERS = [
-  {
-    id: "kb",
-    name: "Keshav Bansll",
-    title: "Co-Founder & Chief Architect",
-    image: "/Keshav-Bansal.jpeg",
-    bio: "The visionary behind the Discotive protocol. Engineering the algorithmic death of the traditional resume.",
-    socials: {
-      linkedin: "https://www.linkedin.com/in/keshavbansll/", // Update with your actual link
-      instagram: "https://instagram.com/keshavbansll", // Update with your actual link
-    },
-    color: "text-[#D4AF37]",
-    border: "border-[#D4AF37]/30",
-    bg: "bg-[#D4AF37]/5",
-  },
-  {
-    id: "rk",
-    name: "Reshmi Kumari",
-    title: "Co-Founder & CMO",
-    image: "/Reshmi-Kumari.jpg",
-    bio: "Architecting the narrative and expanding the syndicate. Forging global alliances to scale the Discotive ecosystem.",
-    socials: {
-      linkedin: "https://www.linkedin.com/in/reshmikri/", // Update with her actual link
-    },
-    color: "text-[#C0C0C0]",
-    border: "border-[#C0C0C0]/30",
-    bg: "bg-[#C0C0C0]/5",
-  },
-];
+const goldText = {
+  background:
+    "linear-gradient(135deg, #8B6914 0%, #B8960C 20%, #D4AF37 35%, #F5E07A 50%, #D4AF37 65%, #B8960C 80%, #7A5C0A 100%)",
+  WebkitBackgroundClip: "text",
+  WebkitTextFillColor: "transparent",
+};
 
-// ============================================================================
-// 2. BACKGROUND & NAVBAR
-// ============================================================================
-const ParticleBackground = () => {
-  const [particles, setParticles] = useState([]);
+// ─── Stat Counter ──────────────────────────────────────────────────────────
+const AnimatedStat = ({ value, label, delay = 0 }) => {
+  const [count, setCount] = useState(0);
+  const [inView, setInView] = useState(false);
+  const ref = useRef(null);
+
   useEffect(() => {
-    setParticles(Array.from({ length: 30 }));
+    const obs = new IntersectionObserver(
+      ([e]) => {
+        if (e.isIntersecting) setInView(true);
+      },
+      { threshold: 0.5 },
+    );
+    if (ref.current) obs.observe(ref.current);
+    return () => obs.disconnect();
   }, []);
+
+  useEffect(() => {
+    if (!inView) return;
+    const numericValue = parseInt(value.replace(/[^0-9]/g, ""));
+    let start = 0;
+    const timer = setTimeout(() => {
+      const iv = setInterval(() => {
+        start += Math.ceil(numericValue / 60);
+        if (start >= numericValue) {
+          setCount(numericValue);
+          clearInterval(iv);
+        } else setCount(start);
+      }, 20);
+    }, delay);
+    return () => clearTimeout(timer);
+  }, [inView, value, delay]);
+
+  const suffix = value.replace(/[0-9]/g, "");
   return (
-    <div className="absolute inset-0 overflow-hidden pointer-events-none z-0 opacity-20 mask-image:linear-gradient(to_bottom,black,transparent)">
-      {particles.map((_, i) => (
-        <motion.div
-          key={i}
-          className="absolute w-1 h-1 bg-white rounded-full"
-          initial={{
-            x:
-              Math.random() *
-              (typeof window !== "undefined" ? window.innerWidth : 1000),
-            y:
-              Math.random() *
-              (typeof window !== "undefined" ? window.innerHeight : 1000),
-            opacity: Math.random() * 0.3,
-            scale: Math.random() * 2,
-          }}
-          animate={{
-            y: [null, Math.random() * -200 - 50],
-            opacity: [0, Math.random() * 0.5 + 0.1, 0],
-          }}
-          transition={{
-            duration: Math.random() * 8 + 7,
-            repeat: Infinity,
-            ease: "linear",
-            delay: Math.random() * 5,
-          }}
-        />
-      ))}
+    <div ref={ref} className="text-center">
+      <div className="text-4xl md:text-5xl font-black mb-2" style={goldText}>
+        {count.toLocaleString()}
+        {suffix}
+      </div>
+      <div className="text-[9px] font-black text-white/25 uppercase tracking-widest">
+        {label}
+      </div>
     </div>
   );
 };
 
-const AboutNavbar = ({ setIsHoveringCard }) => {
-  const navigate = useNavigate();
-  return (
-    <motion.nav
-      initial={{ y: -100 }}
-      animate={{ y: 0 }}
-      transition={{ type: "spring", stiffness: 100, damping: 20 }}
-      className="fixed top-0 w-full z-50 bg-[#030303]/80 backdrop-blur-2xl border-b border-white/5"
-    >
-      <div className="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
-        <Link
-          to="/"
-          className="flex items-center gap-3 group"
-          onMouseEnter={() => setIsHoveringCard(true)}
-          onMouseLeave={() => setIsHoveringCard(false)}
-        >
-          <img
-            src="/logo.png"
-            alt="Discotive Logo"
-            className="w-10 h-10 object-contain group-hover:scale-105 transition-transform duration-300 drop-shadow-[0_0_15px_rgba(255,255,255,0.2)]"
-          />
-          <span className="text-xl font-extrabold tracking-tight text-white hidden sm:block">
-            Discotive
+// ─── Tech stack item ───────────────────────────────────────────────────────
+const TechItem = ({ name, desc, color, badge }) => (
+  <motion.div
+    initial={{ opacity: 0, x: -16 }}
+    whileInView={{ opacity: 1, x: 0 }}
+    viewport={{ once: true }}
+    className="flex items-start gap-4 p-4 rounded-2xl border border-white/[0.04] hover:border-[#D4AF37]/20 transition-all group"
+    style={{ background: "rgba(8,8,8,0.9)" }}
+  >
+    <div
+      className="w-2 h-2 rounded-full mt-1.5 shrink-0 group-hover:scale-125 transition-transform"
+      style={{ background: color, boxShadow: `0 0 8px ${color}60` }}
+    />
+    <div className="flex-1 min-w-0">
+      <div className="flex items-center gap-2 mb-1">
+        <span className="text-sm font-black text-white/70">{name}</span>
+        {badge && (
+          <span
+            className="text-[7px] font-black px-1.5 py-0.5 rounded uppercase tracking-widest"
+            style={{
+              background: `${color}15`,
+              color,
+              border: `1px solid ${color}40`,
+            }}
+          >
+            {badge}
           </span>
-        </Link>
-        <div className="flex items-center gap-4">
-          <Link
-            to="/features"
-            className="hidden md:block text-[11px] font-extrabold text-[#888] hover:text-white transition-colors uppercase tracking-[0.2em] mr-4"
-          >
-            Platform
-          </Link>
-          <Link
-            to="/auth"
-            className="text-[11px] font-extrabold text-white hover:text-[#ccc] transition-colors uppercase tracking-[0.2em]"
-          >
-            Sign In
-          </Link>
-          <button
-            onClick={() => navigate("/auth")}
-            onMouseEnter={() => setIsHoveringCard(true)}
-            onMouseLeave={() => setIsHoveringCard(false)}
-            className="px-6 py-2.5 bg-white text-black font-extrabold text-xs uppercase tracking-widest rounded-full hover:bg-[#e5e5e5] transition-transform hover:scale-105"
-          >
-            Boot OS
-          </button>
-        </div>
-      </div>
-    </motion.nav>
-  );
-};
-
-// ============================================================================
-// 3. INTERACTIVE MODULES
-// ============================================================================
-const PhilosophyCard = ({
-  icon: Icon,
-  title,
-  desc,
-  delay,
-  setIsHoveringCard,
-}) => {
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 30 }}
-      whileInView={{ opacity: 1, y: 0 }}
-      viewport={{ once: true, margin: "-50px" }}
-      transition={{ duration: 0.6, delay }}
-      onMouseEnter={() => setIsHoveringCard(true)}
-      onMouseLeave={() => setIsHoveringCard(false)}
-      className="group relative p-8 bg-[#0a0a0a] border border-[#222] rounded-[2rem] hover:border-amber-500/30 transition-colors overflow-hidden"
-    >
-      <div className="absolute top-0 right-0 w-32 h-32 bg-amber-500/10 blur-[50px] rounded-full group-hover:bg-amber-500/20 transition-colors pointer-events-none" />
-      <div className="w-12 h-12 rounded-xl bg-[#111] border border-[#333] flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
-        <Icon className="w-5 h-5 text-[#888] group-hover:text-amber-500 transition-colors" />
-      </div>
-      <h3 className="text-xl font-extrabold text-white mb-3 tracking-tight">
-        {title}
-      </h3>
-      <p className="text-sm text-[#666] leading-relaxed font-medium">{desc}</p>
-    </motion.div>
-  );
-};
-
-const BoardMemberCard = ({ member, setIsHoveringCard }) => {
-  return (
-    <motion.div
-      initial={{ opacity: 0, scale: 0.95 }}
-      whileInView={{ opacity: 1, scale: 1 }}
-      viewport={{ once: true, margin: "-50px" }}
-      onMouseEnter={() => setIsHoveringCard(true)}
-      onMouseLeave={() => setIsHoveringCard(false)}
-      className={cn(
-        "relative group p-6 rounded-[2rem] bg-[#0a0a0a] border overflow-hidden flex flex-col items-center text-center transition-all duration-500 hover:-translate-y-2",
-        member.border,
-      )}
-    >
-      <div
-        className={cn(
-          "absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none",
-          member.bg,
         )}
+      </div>
+      <p className="text-[10px] text-white/30 leading-relaxed">{desc}</p>
+    </div>
+  </motion.div>
+);
+
+// ─── Team member card ──────────────────────────────────────────────────────
+const TeamCard = ({ name, role, initials, color, bio, socials }) => {
+  const [flipped, setFlipped] = useState(false);
+
+  return (
+    <div
+      className="relative w-full"
+      style={{ perspective: "1000px", height: "320px" }}
+      onMouseEnter={() => setFlipped(true)}
+      onMouseLeave={() => setFlipped(false)}
+    >
+      <motion.div
+        animate={{ rotateY: flipped ? 180 : 0 }}
+        transition={{
+          duration: 0.6,
+          type: "spring",
+          stiffness: 180,
+          damping: 22,
+        }}
+        className="w-full h-full relative"
+        style={{ transformStyle: "preserve-3d" }}
+      >
+        {/* Front */}
+        <div
+          className="absolute inset-0 flex flex-col items-center justify-center p-6 rounded-[2rem] border text-center"
+          style={{
+            background: "rgba(8,8,8,0.95)",
+            borderColor: `${color}25`,
+            backfaceVisibility: "hidden",
+            boxShadow: `0 0 40px ${color}08`,
+          }}
+        >
+          <div
+            className="w-20 h-20 rounded-[1.2rem] border-2 flex items-center justify-center text-2xl font-black mb-4"
+            style={{
+              background: `${color}10`,
+              borderColor: `${color}40`,
+              color,
+            }}
+          >
+            {initials}
+          </div>
+          <h3 className="text-lg font-black text-white/90 mb-1">{name}</h3>
+          <p
+            className="text-[9px] font-black uppercase tracking-widest mb-3"
+            style={{ color: color + "80" }}
+          >
+            {role}
+          </p>
+          <div className="mt-auto text-[8px] font-bold text-white/20 uppercase tracking-widest flex items-center gap-1.5">
+            <span
+              className="w-1 h-1 rounded-full"
+              style={{ background: color }}
+            />
+            Hover to Inspect
+          </div>
+        </div>
+
+        {/* Back */}
+        <div
+          className="absolute inset-0 flex flex-col p-6 rounded-[2rem] border"
+          style={{
+            background: `linear-gradient(135deg, ${color}08, rgba(8,8,8,0.98))`,
+            borderColor: `${color}40`,
+            backfaceVisibility: "hidden",
+            transform: "rotateY(180deg)",
+            boxShadow: `0 0 30px ${color}15`,
+          }}
+        >
+          <p className="text-xs text-white/50 leading-relaxed flex-1 mb-4">
+            {bio}
+          </p>
+          <div className="flex items-center gap-3 mt-auto pt-4 border-t border-white/[0.06]">
+            {socials.map((s, i) => (
+              <a
+                key={i}
+                href={s.url}
+                target="_blank"
+                rel="noreferrer"
+                className="text-[8px] font-black uppercase tracking-widest px-3 py-1.5 rounded-lg border transition-all hover:scale-105"
+                style={{
+                  color: color + "80",
+                  borderColor: color + "30",
+                  background: color + "08",
+                }}
+              >
+                {s.label}
+              </a>
+            ))}
+          </div>
+        </div>
+      </motion.div>
+    </div>
+  );
+};
+
+// ─── Timeline item ─────────────────────────────────────────────────────────
+const TimelineItem = ({ year, title, desc, active = false }) => (
+  <motion.div
+    initial={{ opacity: 0, x: -20 }}
+    whileInView={{ opacity: 1, x: 0 }}
+    viewport={{ once: true }}
+    className="flex gap-5 pb-10 relative"
+  >
+    <div className="flex flex-col items-center gap-2 shrink-0">
+      <div
+        className="w-3 h-3 rounded-full z-10"
+        style={{
+          background: active ? "#D4AF37" : "rgba(255,255,255,0.15)",
+          boxShadow: active ? "0 0 12px #D4AF37" : "none",
+        }}
+      />
+      <div
+        className="w-[1px] flex-1"
+        style={{
+          background: active
+            ? "rgba(212,175,55,0.3)"
+            : "rgba(255,255,255,0.06)",
+        }}
+      />
+    </div>
+    <div className="pt-0 pb-8">
+      <div
+        className="text-[8px] font-black uppercase tracking-widest mb-2"
+        style={{ color: active ? "#D4AF37" : "rgba(255,255,255,0.2)" }}
+      >
+        {year}
+      </div>
+      <h4 className="text-sm font-black text-white/70 mb-1.5">{title}</h4>
+      <p className="text-xs text-white/30 leading-relaxed max-w-sm">{desc}</p>
+    </div>
+  </motion.div>
+);
+
+// ─── About Page ────────────────────────────────────────────────────────────
+const AboutPage = () => {
+  const navigate = useNavigate();
+
+  return (
+    <div className="min-h-screen bg-[#030303] text-white overflow-x-hidden selection:bg-[#D4AF37]/30">
+      {/* Grain */}
+      <div
+        className="fixed inset-0 pointer-events-none z-[1] opacity-[0.02]"
+        style={{
+          backgroundImage:
+            "url(\"data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E\")",
+          backgroundSize: "200px 200px",
+        }}
       />
 
-      {/* UPDATED: Renders actual image with a sleek grayscale filter that reveals color on hover */}
-      <div
-        className={cn(
-          "w-24 h-24 rounded-full border-2 overflow-hidden mb-6 shadow-2xl relative z-10 transition-transform duration-500 group-hover:scale-110",
-          member.border,
-          member.bg,
-        )}
-      >
-        <img
-          src={member.image}
-          alt={member.name}
-          className="w-full h-full object-cover grayscale group-hover:grayscale-0 transition-all duration-500"
+      {/* Ambient */}
+      <div className="fixed inset-0 pointer-events-none z-0">
+        <div
+          className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[500px] rounded-full opacity-[0.04]"
+          style={{
+            background: "radial-gradient(ellipse, #D4AF37 0%, transparent 70%)",
+            filter: "blur(80px)",
+          }}
         />
       </div>
 
-      <h3 className="text-xl font-extrabold text-white mb-1 relative z-10">
-        {member.name}
-      </h3>
-      <p
-        className={cn(
-          "text-[10px] font-mono uppercase tracking-widest mb-4 relative z-10",
-          member.color,
-        )}
+      {/* Navbar */}
+      <nav
+        className="fixed top-0 w-full z-50 border-b border-white/[0.04]"
+        style={{ background: "rgba(3,3,3,0.9)", backdropFilter: "blur(24px)" }}
       >
-        {member.title}
-      </p>
+        <div className="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
+          <Link to="/" className="flex items-center gap-3">
+            <img
+              src="/logo.png"
+              alt="Discotive"
+              className="w-9 h-9 object-contain"
+            />
+            <span className="text-lg font-black tracking-tighter">
+              DISCOTIVE
+            </span>
+          </Link>
+          <div className="flex items-center gap-4">
+            <Link
+              to="/auth"
+              className="hidden md:block text-[10px] font-black text-white/40 hover:text-white transition-colors uppercase tracking-widest"
+            >
+              Sign In
+            </Link>
+            <motion.button
+              whileHover={{ scale: 1.03 }}
+              onClick={() => navigate("/auth")}
+              className="px-6 py-2.5 text-[10px] font-black uppercase tracking-widest text-black rounded-full"
+              style={{
+                background:
+                  "linear-gradient(135deg, #B8960C, #D4AF37, #F5E07A, #D4AF37, #9A7B0A)",
+                boxShadow: "0 0 20px rgba(212,175,55,0.25)",
+              }}
+            >
+              Boot OS
+            </motion.button>
+          </div>
+        </div>
+      </nav>
 
-      <p className="text-xs text-[#888] leading-relaxed mb-6 relative z-10 px-4">
-        {member.bio}
-      </p>
-
-      {/* UPDATED: Dynamic Social Links based on the data provided */}
-      <div className="mt-auto flex items-center gap-4 relative z-10">
-        {member.socials.linkedin && (
-          <a
-            href={member.socials.linkedin}
-            target="_blank"
-            rel="noreferrer"
-            className="p-2 bg-[#111] border border-[#333] rounded-full text-[#888] hover:text-[#0077B5] hover:border-[#0077b5]/50 transition-all"
-            title="LinkedIn"
-          >
-            <Linkedin className="w-4 h-4" />
-          </a>
-        )}
-        {member.socials.instagram && (
-          <a
-            href={member.socials.instagram}
-            target="_blank"
-            rel="noreferrer"
-            className="p-2 bg-[#111] border border-[#333] rounded-full text-[#888] hover:text-[#E1306C] hover:border-[#E1306C]/50 transition-all"
-            title="Instagram"
-          >
-            <Instagram className="w-4 h-4" />
-          </a>
-        )}
-      </div>
-    </motion.div>
-  );
-};
-
-const PulseOrigin = () => (
-  <div className="relative w-4 h-4 flex items-center justify-center">
-    <div className="absolute inset-0 bg-amber-500 rounded-full animate-ping opacity-75" />
-    <div className="relative w-2 h-2 bg-amber-500 rounded-full" />
-  </div>
-);
-
-// ============================================================================
-// 4. MAIN ABOUT COMPONENT
-// ============================================================================
-const About = () => {
-  const [isLoading, setIsLoading] = useState(true);
-  const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
-  const [isHoveringCard, setIsHoveringCard] = useState(false);
-  const navigate = useNavigate();
-
-  useEffect(() => {
-    const handleMouseMove = (e) =>
-      setMousePosition({ x: e.clientX, y: e.clientY });
-    window.addEventListener("mousemove", handleMouseMove);
-    const timer = setTimeout(() => setIsLoading(false), 1500);
-    return () => {
-      window.removeEventListener("mousemove", handleMouseMove);
-      clearTimeout(timer);
-    };
-  }, []);
-
-  if (isLoading) return <GlobalLoader onComplete={() => {}} />;
-
-  return (
-    <>
-      {/* CUSTOM CURSOR */}
-      <motion.div
-        className="fixed top-0 left-0 w-8 h-8 rounded-full pointer-events-none z-[10000] mix-blend-difference hidden md:block border-2 border-white"
-        animate={{
-          x: mousePosition.x - 16,
-          y: mousePosition.y - 16,
-          scale: isHoveringCard ? 2.5 : 1,
-          backgroundColor: isHoveringCard ? "#ffffff" : "transparent",
-        }}
-        transition={{ type: "spring", stiffness: 150, damping: 15, mass: 0.1 }}
-      />
-
-      <div className="min-h-screen bg-[#030303] text-white selection:bg-white selection:text-black font-sans overflow-x-hidden">
-        <ParticleBackground />
-        <AboutNavbar setIsHoveringCard={setIsHoveringCard} />
-
-        {/* --- THE MANIFESTO (HERO) --- */}
-        <div className="relative pt-32 pb-20 md:pt-48 md:pb-32 px-6 flex flex-col items-center justify-center text-center">
+      {/* ════ HERO / MANIFESTO ════ */}
+      <section className="relative pt-44 pb-28 px-6 z-10">
+        <div className="max-w-5xl mx-auto">
           <motion.div
-            initial={{ opacity: 0, y: 20 }}
+            initial={{ opacity: 0, y: 30 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.8, ease: "easeOut" }}
-            className="relative z-10 max-w-5xl mx-auto w-full"
+            transition={{ duration: 0.7 }}
           >
-            <div className="inline-flex items-center gap-3 px-4 py-2 rounded-full border border-white/10 bg-white/5 backdrop-blur-md mb-8 shadow-2xl">
-              <Fingerprint className="w-4 h-4 text-amber-500" />
-              <span className="text-xs font-bold tracking-[0.2em] text-[#ccc] uppercase">
-                Our Identity
-              </span>
+            <div className="text-[9px] font-black text-[#D4AF37]/60 uppercase tracking-[0.3em] mb-6 flex items-center gap-3">
+              <div className="h-[1px] w-8 bg-[#D4AF37]/40" />
+              Our Manifesto
             </div>
-
-            <h1 className="text-5xl md:text-7xl lg:text-[100px] font-extrabold tracking-tight leading-[0.9] mb-8">
-              Death to the <br className="hidden md:block" />
-              <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#666] to-[#333] line-through decoration-amber-500 decoration-8">
+            <h1
+              className="font-black tracking-[-0.04em] leading-[0.88] mb-10"
+              style={{ fontSize: "clamp(44px, 8vw, 96px)" }}
+            >
+              <span className="block text-white/90">Death to the</span>
+              <span className="block relative" style={goldText}>
                 resume.
+                <span className="absolute inset-0 flex items-center pointer-events-none">
+                  <span
+                    className="w-full h-[3px] opacity-60"
+                    style={{
+                      background:
+                        "linear-gradient(90deg, #D4AF37, transparent)",
+                      marginTop: "0.6em",
+                      display: "block",
+                    }}
+                  />
+                </span>
               </span>
             </h1>
-
-            <p className="text-lg md:text-2xl text-[#888] font-medium max-w-3xl mx-auto mb-12 leading-relaxed tracking-wide">
-              We are a collective of engineers and operators building the
-              infrastructure for a meritocratic future. We believe that what you
-              build matters infinitely more than what you say.
-            </p>
+            <div className="max-w-2xl space-y-5 text-lg text-white/45 leading-relaxed">
+              <p>
+                The global career development market is broken. Students waste
+                2–3 years in an information fog — consuming content without a
+                clear execution roadmap, unable to verify their credibility,
+                competing blind on platforms that prioritize keywords over real
+                capability.
+              </p>
+              <p>
+                We are building the antidote.{" "}
+                <span className="text-white/70 font-bold">
+                  Discotive converts a confusing professional future into a
+                  deterministic, verifiable, scored execution system.
+                </span>
+              </p>
+            </div>
           </motion.div>
         </div>
+      </section>
 
-        {/* --- THE PHILOSOPHY (CORE TENETS) --- */}
-        <section className="py-24 px-6 max-w-7xl mx-auto border-t border-white/5 relative">
-          <div className="text-center mb-16">
-            <h2 className="text-[10px] font-extrabold tracking-[0.3em] text-amber-500 uppercase mb-4">
-              The Discotive Philosophy
+      {/* ════ THE PROBLEM ════ */}
+      <section
+        className="py-24 px-6 z-10 relative border-y border-white/[0.04]"
+        style={{ background: "rgba(6,6,6,0.95)" }}
+      >
+        <div className="max-w-7xl mx-auto">
+          <div className="text-center mb-14">
+            <div className="text-[9px] font-black text-[#D4AF37]/60 uppercase tracking-[0.3em] mb-4">
+              The Contrast
+            </div>
+            <h2 className="text-3xl md:text-4xl font-black tracking-[-0.03em]">
+              Broken Market vs. Deterministic Future
             </h2>
-            <p className="text-3xl md:text-4xl font-extrabold tracking-tight text-white">
-              Built on three core directives.
-            </p>
           </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <PhilosophyCard
-              setIsHoveringCard={setIsHoveringCard}
-              delay={0}
-              icon={Crosshair}
-              title="Ruthless Execution"
-              desc="Ideas are cheap multipliers. Execution is worth millions. We build systems that incentivize, track, and reward continuous deployment of effort."
-            />
-            <PhilosophyCard
-              setIsHoveringCard={setIsHoveringCard}
-              delay={0.2}
-              icon={ShieldAlert}
-              title="Cryptographic Truth"
-              desc="Trust is a vulnerability. The Discotive Career Index relies entirely on verifiable proof of work, eliminating bias and credential inflation."
-            />
-            <PhilosophyCard
-              setIsHoveringCard={setIsHoveringCard}
-              delay={0.4}
-              icon={Cpu}
-              title="Algorithmic Merit"
-              desc="The global leaderboard doesn't care about your background, zip code, or pedigree. It only respects the math of your momentum."
-            />
-          </div>
-        </section>
-
-        {/* --- MEET THE BOARD (THE SYNDICATE) --- */}
-        <section className="py-32 px-6 bg-[#050505] border-y border-white/5 relative">
-          <div className="absolute top-0 right-1/4 w-[500px] h-[500px] bg-amber-500/5 blur-[120px] rounded-full pointer-events-none" />
-
-          <div className="max-w-7xl mx-auto relative z-10">
-            <div className="text-center mb-16">
-              <h2 className="text-[10px] font-extrabold tracking-[0.3em] text-[#666] uppercase mb-4">
-                The Syndicate
-              </h2>
-              <p className="text-4xl md:text-5xl font-extrabold tracking-tight text-white">
-                Meet The Board.
-              </p>
-              <p className="text-[#888] mt-4 max-w-xl mx-auto text-sm">
-                The architects designing the engine. We are operators building
-                for operators.
-              </p>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 max-w-3xl mx-auto">
-              {BOARD_MEMBERS.map((member) => (
-                <BoardMemberCard
-                  key={member.id}
-                  member={member}
-                  setIsHoveringCard={setIsHoveringCard}
-                />
-              ))}
-            </div>
-          </div>
-        </section>
-
-        {/* --- THE ORIGIN (FORGED IN JAIPUR) --- */}
-        <section className="py-32 px-6 max-w-4xl mx-auto text-center relative">
-          <motion.div
-            initial={{ opacity: 0, scale: 0.9 }}
-            whileInView={{ opacity: 1, scale: 1 }}
-            viewport={{ once: true }}
-            className="flex flex-col items-center justify-center p-12 rounded-[3rem] bg-gradient-to-b from-[#111] to-[#030303] border border-[#222]"
-          >
-            <div className="flex items-center gap-4 px-4 py-2 bg-[#000] border border-[#333] rounded-full mb-8">
-              <PulseOrigin />
-              <span className="text-xs font-mono font-bold text-[#ccc] uppercase tracking-widest">
-                Protocol Origin
-              </span>
-            </div>
-            <h2 className="text-3xl md:text-5xl font-extrabold text-white mb-6">
-              Forged in{" "}
-              <span className="text-transparent bg-clip-text bg-gradient-to-r from-amber-500 to-orange-600">
-                Jaipur.
-              </span>
-            </h2>
-            <p className="text-[#888] leading-relaxed max-w-lg mx-auto mb-8">
-              The Discotive protocol is being architected, engineered, and
-              scaled from Jaipur, Rajasthan. We are proving that elite global
-              infrastructure can be built from anywhere.
-            </p>
-            <MapPin className="w-10 h-10 text-[#444] opacity-50" />
-          </motion.div>
-        </section>
-
-        {/* --- THE MONOPOLY FOOTER --- */}
-        <footer
-          className="border-t border-white/5 bg-[#030303] pt-24 pb-12 px-6 relative overflow-hidden"
-          onMouseEnter={() => setIsHoveringCard(true)}
-          onMouseLeave={() => setIsHoveringCard(false)}
-        >
-          <div className="max-w-7xl mx-auto relative z-10">
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-x-8 gap-y-12 mb-20">
-              <div className="col-span-2 md:col-span-2 flex flex-col items-start text-left">
-                <Link to="/" className="flex items-center gap-3 mb-6">
-                  <img
-                    src="/logo.png"
-                    alt="Discotive Logo"
-                    className="w-10 h-10 object-contain drop-shadow-[0_0_15px_rgba(255,255,255,0.2)]"
-                  />
-                  <span className="text-xl font-extrabold tracking-tight text-white">
-                    Discotive
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-4xl mx-auto">
+            {/* Broken side */}
+            <motion.div
+              initial={{ opacity: 0, x: -20 }}
+              whileInView={{ opacity: 1, x: 0 }}
+              viewport={{ once: true }}
+              className="p-6 rounded-[1.5rem] border border-[#ef4444]/15"
+              style={{ background: "rgba(239,68,68,0.04)" }}
+            >
+              <div className="text-[8px] font-black text-[#ef4444]/60 uppercase tracking-widest mb-5">
+                The Broken Market
+              </div>
+              {[
+                "Resume inflation: 200+ applicants, keywords over capability",
+                "2–3 year information fog with no execution roadmap",
+                "Unverifiable credentials — anyone can lie",
+                "Generic job boards with zero career infrastructure",
+                "No way to measure or prove execution velocity",
+              ].map((p, i) => (
+                <div key={i} className="flex items-start gap-3 mb-3">
+                  <span className="text-[#ef4444]/60 text-sm shrink-0 mt-0.5">
+                    ✕
                   </span>
-                </Link>
-                <p className="text-sm text-[#666] leading-relaxed max-w-[280px]">
-                  The execution protocol for elite operators. Replace your
-                  resume. Build your monopoly.
-                </p>
+                  <p className="text-xs text-white/40 leading-relaxed">{p}</p>
+                </div>
+              ))}
+            </motion.div>
+            {/* Discotive side */}
+            <motion.div
+              initial={{ opacity: 0, x: 20 }}
+              whileInView={{ opacity: 1, x: 0 }}
+              viewport={{ once: true }}
+              className="p-6 rounded-[1.5rem] border border-[#D4AF37]/15"
+              style={{ background: "rgba(212,175,55,0.04)" }}
+            >
+              <div className="text-[8px] font-black text-[#D4AF37]/60 uppercase tracking-widest mb-5">
+                The Discotive Future
               </div>
+              {[
+                "Verifiable Proof-of-Work DAG — execution is on-chain",
+                "AI-generated 30-day execution map with dependency resolution",
+                "SHA-256 hashed credentials with admin verification pipeline",
+                "Global Arena with mathematical Discotive Score ranking",
+                "Every completed node becomes a permanent career artifact",
+              ].map((p, i) => (
+                <div key={i} className="flex items-start gap-3 mb-3">
+                  <span className="text-[#D4AF37]/70 text-sm shrink-0 mt-0.5">
+                    ◆
+                  </span>
+                  <p className="text-xs text-white/50 leading-relaxed">{p}</p>
+                </div>
+              ))}
+            </motion.div>
+          </div>
+        </div>
+      </section>
 
-              <div className="col-span-1 flex flex-col items-start text-left">
-                <h4 className="text-white font-extrabold text-[10px] sm:text-xs mb-6 uppercase tracking-widest">
-                  Platform
-                </h4>
-                <ul className="space-y-4">
-                  <li>
-                    <Link
-                      to="/features"
-                      className="text-sm font-medium text-[#888] hover:text-white transition-colors"
-                    >
-                      Features
-                    </Link>
-                  </li>
-                  <li>
-                    <Link
-                      to="/session"
-                      className="text-sm font-medium text-[#888] hover:text-white transition-colors"
-                    >
-                      Connective
-                    </Link>
-                  </li>
-                  <li>
-                    <Link
-                      to="/premium"
-                      className="text-sm font-medium text-[#888] hover:text-white transition-colors"
-                    >
-                      Pricing
-                    </Link>
-                  </li>
-                </ul>
-              </div>
+      {/* ════ STATS ════ */}
+      <section className="py-24 px-6 z-10 relative">
+        <div className="max-w-4xl mx-auto grid grid-cols-2 md:grid-cols-4 gap-10">
+          <AnimatedStat value="41000+" label="Registered Operators" delay={0} />
+          <AnimatedStat value="3200000+" label="Execution Nodes" delay={100} />
+          <AnimatedStat value="74%" label="DEM Efficiency Score" delay={200} />
+          <AnimatedStat value="99%" label="Uptime SLA" delay={300} />
+        </div>
+      </section>
 
-              <div className="col-span-1 flex flex-col items-start text-left">
-                <h4 className="text-white font-extrabold text-[10px] sm:text-xs mb-6 uppercase tracking-widest">
-                  Resources
-                </h4>
-                <ul className="space-y-4">
-                  <li>
-                    <Link
-                      to="/about"
-                      className="text-sm font-medium text-white transition-colors"
-                    >
-                      About Us
-                    </Link>
-                  </li>
-                  <li>
-                    <Link
-                      to="/privacy"
-                      className="text-sm font-medium text-[#888] hover:text-white transition-colors"
-                    >
-                      Privacy Policy
-                    </Link>
-                  </li>
-                </ul>
-              </div>
-
-              <div className="col-span-2 md:col-span-1 flex flex-col items-start text-left mt-2 md:mt-0">
-                <h4 className="text-white font-extrabold text-[10px] sm:text-xs mb-6 uppercase tracking-widest">
-                  Contact
-                </h4>
-                <ul className="space-y-4">
-                  <li>
-                    <a
-                      href="mailto:discotive@gmail.com"
-                      className="text-sm font-medium text-[#888] hover:text-white transition-colors flex items-center gap-2"
-                    >
-                      <Mail className="w-4 h-4 text-[#555]" />{" "}
-                      discotive@gmail.com
-                    </a>
-                  </li>
-                </ul>
-              </div>
+      {/* ════ TEAM ════ */}
+      <section
+        className="py-24 px-6 z-10 relative border-y border-white/[0.04]"
+        style={{ background: "rgba(6,6,6,0.95)" }}
+      >
+        <div className="max-w-5xl mx-auto">
+          <div className="text-center mb-14">
+            <div className="text-[9px] font-black text-[#D4AF37]/60 uppercase tracking-[0.3em] mb-4">
+              The Syndicate
             </div>
+            <h2 className="text-3xl md:text-4xl font-black tracking-[-0.03em] mb-4">
+              Operators building
+              <br />
+              <span style={goldText}>for operators.</span>
+            </h2>
+            <p className="text-white/30 text-sm max-w-sm mx-auto">
+              Hover each card to inspect the dossier.
+            </p>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-2xl mx-auto">
+            <TeamCard
+              name="Keshav Bansll"
+              role="Co-Founder & Chief Architect"
+              initials="KB"
+              color="#D4AF37"
+              bio="The visionary behind the Discotive protocol. Engineering the algorithmic death of the traditional resume. Former competitive programmer, now building infrastructure for the next generation of elite operators. Forged in Jaipur."
+              socials={[
+                {
+                  label: "LinkedIn",
+                  url: "https://linkedin.com/in/keshavbansll",
+                },
+                { label: "Twitter", url: "https://twitter.com/keshavbansll" },
+              ]}
+            />
+            <TeamCard
+              name="Reshmi Kumari"
+              role="Co-Founder & CMO"
+              initials="RK"
+              color="#C0C0C0"
+              bio="Architecting the narrative and expanding the syndicate. Forging global alliances to scale the Discotive ecosystem. Expert in growth strategy and community-led product development."
+              socials={[
+                { label: "LinkedIn", url: "https://linkedin.com/in/reshmikri" },
+              ]}
+            />
+          </div>
+        </div>
+      </section>
 
-            <div className="flex flex-col md:flex-row items-start md:items-center justify-between pt-8 border-t border-white/5 gap-6">
-              <p className="text-xs text-[#555] font-medium tracking-wide">
-                © 2026 Discotive. India.
-              </p>
-              <div className="flex items-center gap-6">
-                <a
-                  href="https://www.instagram.com/discotive/"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-[#666] hover:text-white transition-colors"
-                >
-                  <Instagram className="w-5 h-5" />
-                </a>
-                <a
-                  href="https://www.youtube.com/@discotive"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-[#666] hover:text-white transition-colors"
-                >
-                  <Youtube className="w-5 h-5" />
-                </a>
-                <a
-                  href="https://www.linkedin.com/company/discotive"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-[#666] hover:text-white transition-colors"
-                >
-                  <Linkedin className="w-5 h-5" />
-                </a>
-              </div>
+      {/* ════ ORIGIN ════ */}
+      <section className="py-24 px-6 z-10 relative">
+        <div className="max-w-5xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-16 items-start">
+          <div>
+            <div className="text-[9px] font-black text-[#D4AF37]/60 uppercase tracking-[0.3em] mb-5 flex items-center gap-3">
+              <div className="h-[1px] w-8 bg-[#D4AF37]/40" />
+              Protocol Origin
+            </div>
+            <h2 className="text-3xl md:text-4xl font-black tracking-[-0.03em] mb-6 leading-tight">
+              Forged in
+              <br />
+              <span style={goldText}>Jaipur, Rajasthan.</span>
+            </h2>
+            <p className="text-white/40 leading-relaxed mb-8">
+              The Discotive protocol is being architected, engineered, and
+              scaled from Jaipur, India. We are proving that elite global
+              infrastructure can be built from anywhere. The execution map
+              doesn't care about your zip code.
+            </p>
+            <div
+              className="inline-flex items-center gap-3 px-4 py-2 rounded-full border border-[#D4AF37]/20"
+              style={{ background: "rgba(212,175,55,0.05)" }}
+            >
+              <span
+                className="w-2 h-2 rounded-full bg-[#D4AF37] animate-pulse"
+                style={{ boxShadow: "0 0 8px #D4AF37" }}
+              />
+              <span className="text-[8px] font-black text-[#D4AF37]/70 uppercase tracking-widest">
+                📍 Jaipur, Rajasthan · India
+              </span>
             </div>
           </div>
-        </footer>
-      </div>
-    </>
+          {/* Timeline */}
+          <div className="pt-2">
+            <TimelineItem
+              year="2024"
+              title="The Idea"
+              desc="Frustrated by resume culture, Keshav and Reshmi begin designing a proof-of-work career system."
+            />
+            <TimelineItem
+              year="Q1 2025"
+              title="Core Engine Built"
+              desc="Neural Engine using Kahn's topological sort. Score Engine with atomic Firestore transactions. Vault infrastructure."
+            />
+            <TimelineItem
+              year="Q3 2025"
+              title="Closed Beta Launch"
+              desc="First 500 operators onboarded. 40K+ execution nodes deployed. DEM index validated."
+            />
+            <TimelineItem
+              year="2026"
+              title="Global Open Launch"
+              active
+              desc="Full public launch. Gemini 2.5 Flash integration. Global Arena with multi-dimensional leaderboard."
+            />
+          </div>
+        </div>
+      </section>
+
+      {/* ════ TECH STACK ════ */}
+      <section
+        className="py-24 px-6 z-10 relative border-y border-white/[0.04]"
+        style={{ background: "rgba(6,6,6,0.95)" }}
+      >
+        <div className="max-w-5xl mx-auto">
+          <div className="text-center mb-14">
+            <div className="text-[9px] font-black text-[#D4AF37]/60 uppercase tracking-[0.3em] mb-4">
+              The Stack
+            </div>
+            <h2 className="text-3xl md:text-4xl font-black tracking-[-0.03em] mb-3">
+              Built for <span style={goldText}>technical trust.</span>
+            </h2>
+            <p className="text-white/30 text-sm">
+              Every architectural decision is intentional and documented.
+            </p>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <TechItem
+              name="React 19 + Vite 7"
+              desc="Parallel server components, improved hydration. Code-split lazy routes for sub-50ms initial loads."
+              color="#61DAFB"
+              badge="Frontend"
+            />
+            <TechItem
+              name="Firebase Gen 2 (Node 22)"
+              desc="Cloud Functions v2 with secrets management. Firestore multi-region composite indexes."
+              color="#FFCA28"
+              badge="Backend"
+            />
+            <TechItem
+              name="Kahn's Topological Sort"
+              desc="Pure functional DAG compiler. O(V+E) state evaluation. Zero server round-trips for node state."
+              color="#D4AF37"
+              badge="Neural Engine"
+            />
+            <TechItem
+              name="Gemini 2.5 Flash"
+              desc="Structured JSON output mode for map generation. Grace AI career assistant via Cloud Function proxy."
+              color="#4285F4"
+              badge="AI Layer"
+            />
+            <TechItem
+              name="Razorpay Subscriptions"
+              desc="Webhook-verified tier upgrades. HMAC-SHA256 signature validation. No client-side tier escalation."
+              color="#3395FF"
+              badge="Payments"
+            />
+            <TechItem
+              name="Firebase App Check"
+              desc="reCAPTCHA Enterprise provider. Every API call is cryptographically authenticated."
+              color="#FF6F00"
+              badge="Security"
+            />
+          </div>
+        </div>
+      </section>
+
+      {/* ════ PHILOSOPHY ════ */}
+      <section className="py-28 px-6 z-10 relative">
+        <div className="max-w-4xl mx-auto text-center">
+          <div className="text-[9px] font-black text-[#D4AF37]/60 uppercase tracking-[0.3em] mb-6">
+            Core Directive
+          </div>
+          <blockquote className="text-3xl md:text-5xl font-black tracking-[-0.03em] leading-tight mb-8">
+            <span className="text-white/20">"</span>
+            <span style={goldText}>Execution is worth millions.</span>
+            <span className="text-white/70"> Ideas are cheap multipliers.</span>
+            <span className="text-white/20">"</span>
+          </blockquote>
+          <p className="text-white/30 text-sm">
+            — Discotive Operator Directive #001
+          </p>
+        </div>
+      </section>
+
+      {/* CTA */}
+      <section className="py-24 px-6 text-center relative z-10 border-t border-white/[0.04]">
+        <div
+          className="absolute inset-0 pointer-events-none"
+          style={{
+            background:
+              "radial-gradient(ellipse at center, rgba(212,175,55,0.04) 0%, transparent 70%)",
+          }}
+        />
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          className="relative z-10 max-w-xl mx-auto"
+        >
+          <h2 className="text-4xl font-black tracking-[-0.04em] mb-5">
+            Join the Syndicate.
+          </h2>
+          <p className="text-white/30 mb-10 leading-relaxed">
+            41,000+ operators have already booted the OS. The leaderboard is
+            live. The execution map is ready.
+          </p>
+          <motion.button
+            whileHover={{
+              scale: 1.04,
+              boxShadow: "0 0 50px rgba(212,175,55,0.4)",
+            }}
+            whileTap={{ scale: 0.96 }}
+            onClick={() => navigate("/auth")}
+            className="px-12 py-4 text-sm font-black uppercase tracking-widest text-black rounded-2xl"
+            style={{
+              background:
+                "linear-gradient(135deg, #B8960C, #D4AF37, #F5E07A, #D4AF37, #9A7B0A)",
+              boxShadow: "0 0 30px rgba(212,175,55,0.3)",
+            }}
+          >
+            Initialize Protocol
+          </motion.button>
+        </motion.div>
+      </section>
+
+      {/* Footer */}
+      <footer
+        className="border-t border-white/[0.04] py-10 px-6 relative z-10"
+        style={{ background: "rgba(5,5,5,0.9)" }}
+      >
+        <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <img
+              src="/logo.png"
+              alt="Discotive"
+              className="w-7 h-7 object-contain"
+            />
+            <span className="text-sm font-black tracking-tighter text-white/60">
+              DISCOTIVE
+            </span>
+          </div>
+          <p className="text-[9px] font-mono text-white/20">
+            © 2026 Discotive. Forged in Jaipur, India.
+          </p>
+          <div className="flex items-center gap-5">
+            {["Features", "Contact", "Privacy"].map((l) => (
+              <Link
+                key={l}
+                to={`/${l.toLowerCase()}`}
+                className="text-[9px] font-black text-white/25 hover:text-white/60 uppercase tracking-widest transition-colors"
+              >
+                {l}
+              </Link>
+            ))}
+          </div>
+        </div>
+      </footer>
+    </div>
   );
 };
 
-export default About;
+export default AboutPage;

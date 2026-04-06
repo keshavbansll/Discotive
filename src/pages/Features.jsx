@@ -1,1138 +1,1087 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { motion, AnimatePresence } from "framer-motion";
-import ReactFlow, {
-  Background,
-  Controls,
-  applyNodeChanges,
-  applyEdgeChanges,
-  addEdge,
-  Handle,
-  Position,
-  ReactFlowProvider,
-} from "reactflow";
-import "reactflow/dist/style.css";
 import {
-  ChevronRight,
-  Activity,
-  MapPin,
-  Target,
-  Code,
-  Briefcase,
-  Globe,
-  Instagram,
-  Linkedin,
-  Youtube,
-  Zap,
-  Lock,
-  Search,
-  CheckCircle2,
-  GitBranch,
-  Trophy,
-  Crown,
-  ArrowRight,
-  Mail,
-  FolderOpen,
-  Users,
-  ShieldCheck,
-  Eye,
-  Plus,
-  RefreshCw,
-} from "lucide-react";
-import GlobalLoader from "../components/GlobalLoader";
+  motion,
+  AnimatePresence,
+  useScroll,
+  useTransform,
+} from "framer-motion";
 import { cn } from "../lib/cn";
 
-// ============================================================================
-// 1. BACKGROUND & NAVBAR
-// ============================================================================
-const ParticleBackground = () => {
-  const [particles, setParticles] = useState([]);
-  useEffect(() => {
-    setParticles(Array.from({ length: 40 }));
-  }, []);
+// ─── Shared gold gradient text style ──────────────────────────────────────
+const goldText = {
+  background:
+    "linear-gradient(135deg, #8B6914 0%, #B8960C 20%, #D4AF37 35%, #F5E07A 50%, #D4AF37 65%, #B8960C 80%, #7A5C0A 100%)",
+  WebkitBackgroundClip: "text",
+  WebkitTextFillColor: "transparent",
+};
+
+// ─── Score Mutation Tick ───────────────────────────────────────────────────
+const ScoreTick = ({ amount, color, y }) => (
+  <motion.div
+    className="absolute right-2 top-0 text-xs font-black pointer-events-none"
+    style={{ color }}
+    initial={{ opacity: 1, y: y || 0 }}
+    animate={{ opacity: 0, y: (y || 0) - 30 }}
+    transition={{ duration: 1.2, ease: "easeOut" }}
+  >
+    {amount > 0 ? `+${amount}` : amount}
+  </motion.div>
+);
+
+// ─── Live Score Engine Widget ──────────────────────────────────────────────
+const ScoreEngineWidget = () => {
+  const events = [
+    {
+      id: 1,
+      label: "Task Executed",
+      points: 15,
+      color: "#10b981",
+      reason: "executionNode",
+    },
+    {
+      id: 2,
+      label: "Daily Login",
+      points: 10,
+      color: "#3b82f6",
+      reason: "daily",
+    },
+    {
+      id: 3,
+      label: "Vault Verified",
+      points: 30,
+      color: "#a855f7",
+      reason: "vault_strong",
+    },
+    {
+      id: 4,
+      label: "Alliance Forged",
+      points: 15,
+      color: "#f59e0b",
+      reason: "alliance",
+    },
+    {
+      id: 5,
+      label: "Missed Day",
+      points: -15,
+      color: "#ef4444",
+      reason: "penalty",
+    },
+  ];
+  const [score, setScore] = useState(4200);
+  const [ticks, setTicks] = useState([]);
+  const [log, setLog] = useState([]);
+  const [activeEvent, setActiveEvent] = useState(null);
+
+  const fireEvent = (event) => {
+    if (activeEvent) return;
+    setActiveEvent(event.id);
+    const newScore = Math.max(0, score + event.points);
+    setScore(newScore);
+    const tickId = Date.now();
+    setTicks((t) => [
+      ...t.slice(-4),
+      { id: tickId, amount: event.points, color: event.color },
+    ]);
+    setLog((l) => [
+      {
+        id: tickId,
+        label: event.label,
+        points: event.points,
+        color: event.color,
+        time: new Date().toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+        }),
+      },
+      ...l.slice(0, 5),
+    ]);
+    setTimeout(() => {
+      setTicks((t) => t.filter((x) => x.id !== tickId));
+      setActiveEvent(null);
+    }, 1300);
+  };
+
   return (
-    <div className="absolute inset-0 overflow-hidden pointer-events-none z-0 opacity-20 mask-image:linear-gradient(to_bottom,black,transparent)">
-      {particles.map((_, i) => (
+    <div
+      className="rounded-[1.5rem] border border-white/[0.06] overflow-hidden"
+      style={{ background: "#070707" }}
+    >
+      {/* Score display */}
+      <div
+        className="relative p-5 border-b border-white/[0.04]"
+        style={{
+          background:
+            "linear-gradient(135deg, rgba(212,175,55,0.05), transparent)",
+        }}
+      >
+        {ticks.map((t) => (
+          <ScoreTick key={t.id} amount={t.amount} color={t.color} />
+        ))}
+        <div className="text-[8px] font-black text-[#D4AF37]/50 uppercase tracking-widest mb-1">
+          Discotive Score
+        </div>
+        <motion.div
+          key={score}
+          className="text-3xl font-black font-mono"
+          style={goldText}
+        >
+          {score.toLocaleString()}
+        </motion.div>
+        <div className="mt-2 h-1.5 rounded-full bg-white/[0.05] overflow-hidden">
+          <motion.div
+            className="h-full rounded-full"
+            style={{
+              background: "linear-gradient(90deg, #D4AF37, #F5E07A)",
+              width: `${Math.min(100, (score / 10000) * 100)}%`,
+            }}
+            animate={{ width: `${Math.min(100, (score / 10000) * 100)}%` }}
+            transition={{ duration: 0.5 }}
+          />
+        </div>
+      </div>
+      {/* Event buttons */}
+      <div className="p-4 grid grid-cols-2 gap-2">
+        {events.map((ev) => (
+          <motion.button
+            key={ev.id}
+            onClick={() => fireEvent(ev)}
+            whileTap={{ scale: 0.95 }}
+            disabled={!!activeEvent}
+            className="px-3 py-2.5 rounded-xl text-[10px] font-black text-left transition-all border disabled:opacity-40"
+            style={{
+              background: `${ev.color}0d`,
+              borderColor: `${ev.color}30`,
+              color: ev.color,
+            }}
+          >
+            {ev.label}
+            <span className="ml-1.5 text-[9px] opacity-60">
+              {ev.points > 0 ? `+${ev.points}` : ev.points}
+            </span>
+          </motion.button>
+        ))}
+      </div>
+      {/* Log */}
+      {log.length > 0 && (
+        <div className="px-4 pb-4 space-y-1.5">
+          <div className="text-[7px] font-black text-white/20 uppercase tracking-widest mb-2">
+            Transaction Log
+          </div>
+          <AnimatePresence mode="popLayout">
+            {log.map((entry) => (
+              <motion.div
+                key={entry.id}
+                initial={{ opacity: 0, x: -10 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0 }}
+                className="flex items-center justify-between rounded-lg px-3 py-1.5 border border-white/[0.04]"
+                style={{ background: "rgba(255,255,255,0.02)" }}
+              >
+                <span
+                  className="text-[9px] font-bold"
+                  style={{ color: entry.color }}
+                >
+                  {entry.label}
+                </span>
+                <div className="flex items-center gap-3">
+                  <span className="text-[8px] font-mono text-white/20">
+                    {entry.time}
+                  </span>
+                  <span
+                    className="text-[9px] font-black font-mono"
+                    style={{ color: entry.color }}
+                  >
+                    {entry.points > 0 ? `+${entry.points}` : entry.points}
+                  </span>
+                </div>
+              </motion.div>
+            ))}
+          </AnimatePresence>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ─── Vault Asset Widget ────────────────────────────────────────────────────
+const VaultWidget = () => {
+  const [assets, setAssets] = useState([
+    {
+      id: 1,
+      title: "Google Cloud Certificate",
+      category: "Certificate",
+      status: "VERIFIED",
+      strength: "Strong",
+      hash: "a1b2c3d4",
+      score: 30,
+    },
+    {
+      id: 2,
+      title: "GitHub Portfolio",
+      category: "Project",
+      status: "VERIFIED",
+      strength: "Medium",
+      hash: "e5f6a7b8",
+      score: 20,
+    },
+    {
+      id: 3,
+      title: "Internship Letter",
+      category: "Employment",
+      status: "PENDING",
+      strength: null,
+      hash: "c9d0e1f2",
+      score: null,
+    },
+  ]);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [analyzeProgress, setAnalyzeProgress] = useState(0);
+
+  const runAnalysis = () => {
+    if (analyzing) return;
+    setAnalyzing(true);
+    setAnalyzeProgress(0);
+    const steps = [20, 45, 68, 89, 100];
+    let i = 0;
+    const iv = setInterval(() => {
+      if (i >= steps.length) {
+        clearInterval(iv);
+        setAnalyzing(false);
+        setAssets((a) =>
+          a.map((x) =>
+            x.id === 3
+              ? { ...x, status: "VERIFIED", strength: "Medium", score: 20 }
+              : x,
+          ),
+        );
+      } else {
+        setAnalyzeProgress(steps[i++]);
+      }
+    }, 400);
+  };
+
+  const strengthColor = {
+    Strong: "#10b981",
+    Medium: "#f59e0b",
+    Weak: "#3b82f6",
+  };
+
+  return (
+    <div
+      className="rounded-[1.5rem] border border-white/[0.06] overflow-hidden"
+      style={{ background: "#070707" }}
+    >
+      <div className="flex items-center justify-between px-5 py-4 border-b border-white/[0.04]">
+        <div>
+          <div className="text-[8px] font-black text-[#D4AF37]/50 uppercase tracking-widest">
+            Asset Vault
+          </div>
+          <div className="text-xs font-bold text-white/60 mt-0.5">
+            {assets.filter((a) => a.status === "VERIFIED").length} Verified
+          </div>
+        </div>
+        <motion.button
+          onClick={runAnalysis}
+          disabled={analyzing}
+          whileTap={{ scale: 0.95 }}
+          className="px-4 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all"
+          style={{
+            background: analyzing
+              ? "rgba(16,185,129,0.1)"
+              : "rgba(212,175,55,0.1)",
+            border: "1px solid rgba(212,175,55,0.2)",
+            color: analyzing ? "#10b981" : "#D4AF37",
+          }}
+        >
+          {analyzing ? `Hashing ${analyzeProgress}%` : "Run SHA-256"}
+        </motion.button>
+      </div>
+      <div className="p-4 space-y-2">
+        {assets.map((a) => (
+          <div
+            key={a.id}
+            className="flex items-center gap-3 p-3 rounded-xl border border-white/[0.04]"
+            style={{ background: "rgba(255,255,255,0.02)" }}
+          >
+            <div
+              className="w-8 h-8 rounded-lg flex items-center justify-center text-[9px] font-black shrink-0"
+              style={{
+                background:
+                  a.status === "VERIFIED"
+                    ? `${strengthColor[a.strength]}15`
+                    : "rgba(255,255,255,0.05)",
+                border: `1px solid ${a.status === "VERIFIED" ? strengthColor[a.strength] + "40" : "rgba(255,255,255,0.08)"}`,
+                color:
+                  a.status === "VERIFIED"
+                    ? strengthColor[a.strength]
+                    : "rgba(255,255,255,0.3)",
+              }}
+            >
+              {a.category.charAt(0)}
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-[10px] font-bold text-white/70 truncate">
+                {a.title}
+              </div>
+              <div className="text-[8px] font-mono text-white/25 mt-0.5">
+                {a.status === "VERIFIED"
+                  ? `#${a.hash}...`
+                  : analyzing && a.id === 3
+                    ? `Computing SHA-256 [${analyzeProgress}%]`
+                    : "Awaiting verification"}
+              </div>
+            </div>
+            {a.status === "VERIFIED" ? (
+              <div
+                className="text-[9px] font-black"
+                style={{ color: strengthColor[a.strength] }}
+              >
+                +{a.score}pts
+              </div>
+            ) : (
+              <div className="text-[8px] font-bold text-white/25 uppercase tracking-wider">
+                Pending
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+// ─── Neural Engine Widget ──────────────────────────────────────────────────
+const NeuralEngineWidget = () => {
+  const [step, setStep] = useState(0);
+  const [running, setRunning] = useState(false);
+  const steps = [
+    {
+      label: "Initialize adjacency list",
+      detail: "Building edge map O(V+E)",
+      status: "ok",
+    },
+    {
+      label: "Compute in-degrees",
+      detail: "Source node detection",
+      status: "ok",
+    },
+    {
+      label: "Kahn's topological sort",
+      detail: "BFS queue traversal",
+      status: "ok",
+    },
+    {
+      label: "State machine evaluation",
+      detail: "LOCKED → ACTIVE → VERIFIED",
+      status: "ok",
+    },
+    {
+      label: "Cycle detection",
+      detail: "Zero cycles detected ✓",
+      status: "ok",
+    },
+    {
+      label: "Hydrate React Flow nodes",
+      detail: "Injecting _computed states",
+      status: "ok",
+    },
+  ];
+
+  const runSort = () => {
+    if (running) return;
+    setRunning(true);
+    setStep(0);
+    let i = 0;
+    const iv = setInterval(() => {
+      if (i >= steps.length) {
+        clearInterval(iv);
+        setRunning(false);
+      } else setStep(++i);
+    }, 380);
+  };
+
+  return (
+    <div
+      className="rounded-[1.5rem] border border-white/[0.06] overflow-hidden font-mono"
+      style={{ background: "#060606" }}
+    >
+      <div className="flex items-center justify-between px-5 py-4 border-b border-white/[0.04]">
+        <div className="flex items-center gap-2">
+          <div
+            className="w-2 h-2 rounded-full"
+            style={{
+              background: running ? "#D4AF37" : "#10b981",
+              boxShadow: `0 0 6px ${running ? "#D4AF37" : "#10b981"}`,
+            }}
+          />
+          <span className="text-[8px] font-black text-white/30 uppercase tracking-widest">
+            Neural Engine · Kahn's Algorithm
+          </span>
+        </div>
+        <motion.button
+          onClick={runSort}
+          disabled={running}
+          whileTap={{ scale: 0.95 }}
+          className="px-3 py-1.5 text-[8px] font-black uppercase tracking-widest rounded-lg transition-all"
+          style={{
+            background: "rgba(212,175,55,0.1)",
+            border: "1px solid rgba(212,175,55,0.2)",
+            color: "#D4AF37",
+            opacity: running ? 0.5 : 1,
+          }}
+        >
+          {running ? "Running..." : "Execute Sort"}
+        </motion.button>
+      </div>
+      <div className="p-4 space-y-2">
+        {steps.map((s, i) => (
+          <div
+            key={i}
+            className={cn(
+              "flex items-start gap-3 p-2.5 rounded-lg transition-all duration-300",
+              i < step ? "opacity-100" : "opacity-20",
+            )}
+          >
+            <div
+              className="w-4 h-4 rounded flex items-center justify-center shrink-0 mt-0.5"
+              style={{
+                background:
+                  i < step ? "rgba(16,185,129,0.15)" : "rgba(255,255,255,0.04)",
+                border: `1px solid ${i < step ? "rgba(16,185,129,0.4)" : "rgba(255,255,255,0.06)"}`,
+              }}
+            >
+              {i < step && (
+                <div className="w-1.5 h-1.5 rounded-sm bg-emerald-500" />
+              )}
+            </div>
+            <div>
+              <div className="text-[9px] font-bold text-white/60">
+                {s.label}
+              </div>
+              <div className="text-[8px] text-white/25 mt-0.5">{s.detail}</div>
+            </div>
+            {i === step - 1 && running && (
+              <motion.div
+                animate={{ opacity: [1, 0.3, 1] }}
+                transition={{ duration: 0.6, repeat: Infinity }}
+                className="ml-auto text-[8px] text-[#D4AF37]"
+              >
+                ▶
+              </motion.div>
+            )}
+          </div>
+        ))}
+        {step >= steps.length && (
+          <motion.div
+            initial={{ opacity: 0, y: 4 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="mt-3 p-3 rounded-xl border border-emerald-500/20 text-[8px] font-black text-emerald-400 uppercase tracking-widest"
+            style={{ background: "rgba(16,185,129,0.06)" }}
+          >
+            ✓ Graph compiled · O(V+E) · Zero cycles detected
+          </motion.div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// ─── Grace AI Widget ───────────────────────────────────────────────────────
+const GraceWidget = () => {
+  const [messages, setMessages] = useState([
+    {
+      role: "grace",
+      text: "Hey Keshav 👋 Your Discotive Score is up 340pts this week. Top 4% globally. Keep it up.",
+    },
+  ]);
+  const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const messagesEndRef = useRef(null);
+
+  const canned = [
+    "How do I improve my score?",
+    "What should I focus on?",
+    "How does vault verification work?",
+  ];
+
+  const cannedResponses = {
+    "How do I improve my score?":
+      "Complete your pending execution nodes, maintain your daily login streak, and upload verified assets to your vault. Streak multipliers compound significantly after day 7.",
+    "What should I focus on?":
+      "Based on your profile, your execution map has 3 uncompleted core nodes. Complete those first — they yield +30pts each. Your vault also has 2 pending assets awaiting verification.",
+    "How does vault verification work?":
+      "Upload your asset (PDF, image, or link). Our admin team reviews it and assigns Weak (+10), Medium (+20), or Strong (+30) strength. Verification usually takes 2–5 days.",
+  };
+
+  const sendMessage = (text) => {
+    if (loading || !text.trim()) return;
+    const userMsg = text.trim();
+    setInput("");
+    setLoading(true);
+    setMessages((m) => [...m, { role: "user", text: userMsg }]);
+    setTimeout(() => {
+      const reply =
+        cannedResponses[userMsg] ||
+        "That's a great question. I'd recommend checking your Dashboard for real-time telemetry. Your execution map and vault status are the two biggest score levers.";
+      setMessages((m) => [...m, { role: "grace", text: reply }]);
+      setLoading(false);
+    }, 900);
+  };
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  return (
+    <div
+      className="rounded-[1.5rem] border border-white/[0.06] overflow-hidden flex flex-col h-[380px]"
+      style={{ background: "#070707" }}
+    >
+      <div
+        className="flex items-center gap-3 px-5 py-4 border-b border-white/[0.04]"
+        style={{ background: "rgba(12,12,12,0.9)" }}
+      >
+        <div
+          className="w-8 h-8 rounded-full flex items-center justify-center"
+          style={{
+            background: "linear-gradient(135deg, #D4AF37, #F5E07A)",
+            boxShadow: "0 0 12px rgba(212,175,55,0.4)",
+          }}
+        >
+          <span className="text-black text-xs font-black">G</span>
+        </div>
+        <div>
+          <div className="text-xs font-black text-white">Grace</div>
+          <div className="text-[8px] text-emerald-400/70 font-bold uppercase tracking-widest">
+            Online · Gemini 2.5 Flash
+          </div>
+        </div>
+      </div>
+      <div
+        className="flex-1 overflow-y-auto p-4 space-y-3"
+        style={{ scrollbarWidth: "none" }}
+      >
+        {messages.map((m, i) => (
+          <div
+            key={i}
+            className={cn(
+              "flex",
+              m.role === "user" ? "justify-end" : "justify-start",
+            )}
+          >
+            <div
+              className="max-w-[80%] px-3.5 py-2.5 rounded-2xl text-[11px] leading-relaxed"
+              style={
+                m.role === "user"
+                  ? {
+                      background: "rgba(212,175,55,0.12)",
+                      border: "1px solid rgba(212,175,55,0.2)",
+                      color: "rgba(255,255,255,0.8)",
+                      borderTopRightRadius: 4,
+                    }
+                  : {
+                      background: "rgba(255,255,255,0.04)",
+                      border: "1px solid rgba(255,255,255,0.06)",
+                      color: "rgba(255,255,255,0.65)",
+                      borderTopLeftRadius: 4,
+                    }
+              }
+            >
+              {m.text}
+            </div>
+          </div>
+        ))}
+        {loading && (
+          <div className="flex justify-start">
+            <div
+              className="px-4 py-3 rounded-2xl border border-white/[0.06]"
+              style={{
+                background: "rgba(255,255,255,0.04)",
+                borderTopLeftRadius: 4,
+              }}
+            >
+              <div className="flex gap-1">
+                {[0, 1, 2].map((i) => (
+                  <motion.div
+                    key={i}
+                    className="w-1.5 h-1.5 rounded-full bg-[#D4AF37]"
+                    animate={{ opacity: [0.3, 1, 0.3], y: [0, -3, 0] }}
+                    transition={{
+                      duration: 0.9,
+                      repeat: Infinity,
+                      delay: i * 0.18,
+                    }}
+                  />
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+        <div ref={messagesEndRef} />
+      </div>
+      <div
+        className="px-4 pb-2 flex gap-2 overflow-x-auto"
+        style={{ scrollbarWidth: "none" }}
+      >
+        {canned.map((c) => (
+          <button
+            key={c}
+            onClick={() => sendMessage(c)}
+            className="shrink-0 px-3 py-1.5 rounded-full text-[8px] font-bold text-white/30 hover:text-white/60 transition-colors border border-white/[0.06] hover:border-[#D4AF37]/30 whitespace-nowrap"
+          >
+            {c}
+          </button>
+        ))}
+      </div>
+      <div className="px-4 pb-4 flex gap-2">
+        <input
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && sendMessage(input)}
+          placeholder="Ask Grace anything..."
+          className="flex-1 bg-white/[0.03] border border-white/[0.06] rounded-xl px-4 py-2.5 text-xs text-white placeholder-white/20 outline-none focus:border-[#D4AF37]/30 transition-colors"
+        />
+        <motion.button
+          onClick={() => sendMessage(input)}
+          disabled={!input.trim() || loading}
+          whileTap={{ scale: 0.9 }}
+          className="w-9 h-9 rounded-xl flex items-center justify-center transition-all"
+          style={{
+            background: input.trim()
+              ? "linear-gradient(135deg, #D4AF37, #F5E07A)"
+              : "rgba(255,255,255,0.05)",
+          }}
+        >
+          <span className="text-black text-xs">→</span>
+        </motion.button>
+      </div>
+    </div>
+  );
+};
+
+// ─── Feature module card ───────────────────────────────────────────────────
+const FeatureModule = ({
+  num,
+  title,
+  subtitle,
+  description,
+  bullets,
+  widget,
+  reversed = false,
+}) => (
+  <motion.section
+    initial={{ opacity: 0, y: 40 }}
+    whileInView={{ opacity: 1, y: 0 }}
+    viewport={{ once: true, margin: "-80px" }}
+    transition={{ duration: 0.6 }}
+    className="py-28 px-6 border-b border-white/[0.04] max-w-7xl mx-auto"
+  >
+    <div
+      className={cn(
+        "flex flex-col gap-16 items-center",
+        reversed ? "lg:flex-row-reverse" : "lg:flex-row",
+      )}
+    >
+      {/* Text */}
+      <div className="flex-1">
+        <div className="text-[9px] font-black text-[#D4AF37]/60 uppercase tracking-[0.3em] mb-5 flex items-center gap-3">
+          <div className="h-[1px] w-8 bg-[#D4AF37]/40" />
+          {num} // {subtitle}
+        </div>
+        <h2 className="text-4xl md:text-5xl font-black tracking-[-0.03em] mb-4 leading-tight">
+          {title}
+        </h2>
+        <p className="text-white/40 leading-relaxed mb-8 max-w-lg">
+          {description}
+        </p>
+        <div className="space-y-3">
+          {bullets.map((b, i) => (
+            <div key={i} className="flex items-start gap-3">
+              <div
+                className="w-4 h-4 rounded-md mt-0.5 shrink-0 flex items-center justify-center"
+                style={{
+                  background: "rgba(212,175,55,0.08)",
+                  border: "1px solid rgba(212,175,55,0.2)",
+                }}
+              >
+                <div className="w-1.5 h-1.5 rounded-full bg-[#D4AF37]" />
+              </div>
+              <span className="text-sm text-white/50">{b}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+      {/* Widget */}
+      <div className="flex-1 w-full max-w-lg">{widget}</div>
+    </div>
+  </motion.section>
+);
+
+// ─── Bento grid for all 6 modules ─────────────────────────────────────────
+const BentoGrid = () => {
+  const modules = [
+    {
+      title: "Execution Map",
+      desc: "AI-generated ReactFlow DAG with dependency resolution",
+      icon: "◈",
+      color: "#D4AF37",
+    },
+    {
+      title: "Score Engine",
+      desc: "Atomic Firestore transactions across 10+ event types",
+      icon: "⚡",
+      color: "#10b981",
+    },
+    {
+      title: "Asset Vault",
+      desc: "Zero-trust SHA-256 credential storage with admin pipeline",
+      icon: "🔒",
+      color: "#a855f7",
+    },
+    {
+      title: "Global Arena",
+      desc: "Cursor-paginated leaderboard with multi-dimensional filtering",
+      icon: "🏆",
+      color: "#f59e0b",
+    },
+    {
+      title: "Grace AI",
+      desc: "Gemini 2.5 Flash embedded career assistant",
+      icon: "✦",
+      color: "#38bdf8",
+    },
+    {
+      title: "Neural Engine",
+      desc: "Pure functional DAG compiler using Kahn's topological sort",
+      icon: "⬡",
+      color: "#fb7185",
+    },
+  ];
+
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-20">
+      {modules.map((m, i) => (
         <motion.div
           key={i}
-          className="absolute w-1 h-1 bg-amber-500 rounded-full"
-          initial={{
-            x:
-              Math.random() *
-              (typeof window !== "undefined" ? window.innerWidth : 1000),
-            y:
-              Math.random() *
-              (typeof window !== "undefined" ? window.innerHeight : 1000),
-            opacity: Math.random() * 0.5,
+          initial={{ opacity: 0, y: 20 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          transition={{ delay: i * 0.06 }}
+          className="p-6 rounded-[1.5rem] border transition-all hover:scale-[1.02] group"
+          style={{
+            background: "rgba(8,8,8,0.95)",
+            borderColor: `${m.color}20`,
+            boxShadow: `0 0 30px ${m.color}06`,
           }}
-          animate={{
-            y: [null, Math.random() * -100 - 50],
-            opacity: [0, Math.random() * 0.5 + 0.2, 0],
-          }}
-          transition={{
-            duration: Math.random() * 5 + 5,
-            repeat: Infinity,
-            ease: "linear",
-            delay: Math.random() * 5,
-          }}
-        />
+        >
+          <div className="flex items-start justify-between mb-4">
+            <div
+              className="text-2xl"
+              style={{ filter: `drop-shadow(0 0 8px ${m.color}60)` }}
+            >
+              {m.icon}
+            </div>
+            <div
+              className="w-1.5 h-1.5 rounded-full opacity-40 group-hover:opacity-100 transition-opacity"
+              style={{ background: m.color, boxShadow: `0 0 6px ${m.color}` }}
+            />
+          </div>
+          <h3 className="text-sm font-black text-white/80 mb-2">{m.title}</h3>
+          <p className="text-[11px] text-white/35 leading-relaxed">{m.desc}</p>
+          <div className="mt-4 pt-4 border-t border-white/[0.04]">
+            <div
+              className="text-[8px] font-black uppercase tracking-widest"
+              style={{ color: m.color + "80" }}
+            >
+              Live ↗
+            </div>
+          </div>
+        </motion.div>
       ))}
     </div>
   );
 };
 
-const FeaturesNavbar = ({ setIsHoveringCard }) => {
+// ─── Features Page ─────────────────────────────────────────────────────────
+const FeaturesPage = () => {
   const navigate = useNavigate();
-  return (
-    <motion.nav
-      initial={{ y: -100 }}
-      animate={{ y: 0 }}
-      transition={{ type: "spring", stiffness: 100, damping: 20 }}
-      className="fixed top-0 w-full z-50 bg-[#030303]/80 backdrop-blur-2xl border-b border-white/5"
-    >
-      <div className="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
-        <Link
-          to="/"
-          className="flex items-center gap-3 group"
-          onMouseEnter={() => setIsHoveringCard(true)}
-          onMouseLeave={() => setIsHoveringCard(false)}
-        >
-          <img
-            src="/logo.png"
-            alt="Discotive Logo"
-            className="w-10 h-10 object-contain group-hover:scale-105 transition-transform duration-300 drop-shadow-[0_0_15px_rgba(255,255,255,0.2)]"
-          />
-          <span className="text-xl font-extrabold tracking-tight text-white hidden sm:block">
-            Discotive
-          </span>
-        </Link>
-        <div className="flex items-center gap-4">
-          <Link
-            to="/auth"
-            className="text-[11px] font-extrabold text-white hover:text-[#ccc] transition-colors uppercase tracking-[0.2em]"
-          >
-            Sign In
-          </Link>
-          <button
-            onClick={() => navigate("/auth")}
-            onMouseEnter={() => setIsHoveringCard(true)}
-            onMouseLeave={() => setIsHoveringCard(false)}
-            className="px-6 py-2.5 bg-white text-black font-extrabold text-xs uppercase tracking-widest rounded-full hover:bg-[#e5e5e5] transition-transform hover:scale-105"
-          >
-            Boot OS
-          </button>
-        </div>
-      </div>
-    </motion.nav>
-  );
-};
-
-// ============================================================================
-// 2. SANDBOX COMPONENTS (Defined safely outside main render)
-// ============================================================================
-const FeatureExecutionNode = ({ data, selected }) => {
-  const isActive = data.status === "ACTIVE";
-  const isCompleted = data.status === "COMPLETED";
-  return (
-    <div
-      className={cn(
-        "w-[260px] bg-[#0a0a0a]/90 backdrop-blur-xl rounded-2xl p-4 relative overflow-hidden transition-all duration-300 cursor-pointer",
-        isActive &&
-          "border border-amber-500/50 shadow-[0_0_30px_rgba(245,158,11,0.15)] scale-105 z-10",
-        isCompleted && "border border-green-500/30 opacity-80",
-        !isActive && !isCompleted && "border border-[#222]",
-        selected && "border-white/50 shadow-[0_0_20px_rgba(255,255,255,0.1)]",
-      )}
-    >
-      {isActive && (
-        <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-transparent via-amber-500 to-transparent" />
-      )}
-      <Handle
-        type="target"
-        position={Position.Left}
-        className="w-2 h-2 bg-[#222] border border-[#444]"
-      />
-      <div className="flex justify-between items-start mb-3 pointer-events-none">
-        <div>
-          <p className="text-[9px] font-mono text-[#666] uppercase tracking-widest mb-1">
-            {data.date}
-          </p>
-          <h3
-            className={cn(
-              "text-sm font-extrabold tracking-tight",
-              isActive ? "text-amber-500" : "text-white",
-            )}
-          >
-            {data.title}
-          </h3>
-        </div>
-        <div
-          className={cn(
-            "p-1.5 rounded-lg shrink-0",
-            isActive
-              ? "bg-amber-500/10 text-amber-500"
-              : isCompleted
-                ? "bg-green-500/10 text-green-500"
-                : "bg-[#111] text-[#555]",
-          )}
-        >
-          {isCompleted ? (
-            <CheckCircle2 className="w-3 h-3" />
-          ) : isActive ? (
-            <Activity className="w-3 h-3 animate-pulse" />
-          ) : (
-            <Lock className="w-3 h-3" />
-          )}
-        </div>
-      </div>
-      <Handle
-        type="source"
-        position={Position.Right}
-        className="w-2 h-2 bg-[#222] border border-[#444]"
-      />
-    </div>
-  );
-};
-
-const initialFeatureNodes = [
-  {
-    id: "1",
-    type: "executionNode",
-    position: { x: 50, y: 100 },
-    data: { title: "Define Protocol", date: "Phase 1", status: "COMPLETED" },
-  },
-  {
-    id: "2",
-    type: "executionNode",
-    position: { x: 380, y: 100 },
-    data: { title: "Build Architecture", date: "Phase 2", status: "ACTIVE" },
-  },
-];
-const initialFeatureEdges = [
-  {
-    id: "e1-2",
-    source: "1",
-    target: "2",
-    animated: true,
-    style: { stroke: "#f59e0b", strokeWidth: 2 },
-  },
-];
-
-const FeatureRoadmapSandbox = ({ setIsHoveringCard }) => {
-  const [nodes, setNodes] = useState(initialFeatureNodes);
-  const [edges, setEdges] = useState(initialFeatureEdges);
-  const nodeTypes = useMemo(
-    () => ({ executionNode: FeatureExecutionNode }),
-    [],
-  );
-
-  const onNodesChange = useCallback(
-    (changes) => setNodes((nds) => applyNodeChanges(changes, nds)),
-    [],
-  );
-  const onEdgesChange = useCallback(
-    (changes) => setEdges((eds) => applyEdgeChanges(changes, eds)),
-    [],
-  );
-
-  const deployNode = () => {
-    const newNodeId = (nodes.length + 1).toString();
-    const lastNode = nodes[nodes.length - 1];
-    setNodes((nds) =>
-      nds.map((n) =>
-        n.id === lastNode.id
-          ? { ...n, data: { ...n.data, status: "COMPLETED" } }
-          : n,
-      ),
-    );
-    const newNode = {
-      id: newNodeId,
-      type: "executionNode",
-      position: { x: lastNode.position.x + 330, y: 100 },
-      data: {
-        title: `Scale Systems v${newNodeId}`,
-        date: `Phase ${newNodeId}`,
-        status: "ACTIVE",
-      },
-    };
-    setNodes((nds) => [...nds, newNode]);
-    setEdges((eds) => [
-      ...eds.map((e) => ({
-        ...e,
-        style: { stroke: "#22c55e", strokeWidth: 2 },
-      })),
-      {
-        id: `e${lastNode.id}-${newNodeId}`,
-        source: lastNode.id,
-        target: newNodeId,
-        animated: true,
-        style: { stroke: "#f59e0b", strokeWidth: 2 },
-      },
-    ]);
-  };
+  const [isHovering, setIsHovering] = useState(false);
 
   return (
-    <div className="w-full h-[500px] bg-[#050505] rounded-[2rem] border border-[#222] overflow-hidden relative shadow-2xl flex flex-col">
-      <div className="absolute top-6 left-6 right-6 z-10 flex items-center justify-between pointer-events-none">
-        <div className="bg-[#111] border border-[#333] px-4 py-2 rounded-full flex items-center gap-2 shadow-lg pointer-events-auto">
-          <GitBranch className="w-4 h-4 text-[#ccc]" />
-          <span className="text-xs font-bold text-white uppercase tracking-widest">
-            Execution Sandbox
-          </span>
-        </div>
-        <button
-          onClick={deployNode}
-          onMouseEnter={() => setIsHoveringCard(true)}
-          onMouseLeave={() => setIsHoveringCard(false)}
-          className="pointer-events-auto flex items-center gap-2 px-4 py-2 bg-amber-500 text-black font-extrabold text-[10px] uppercase tracking-widest rounded-xl hover:bg-amber-400 transition-transform active:scale-95 shadow-[0_0_20px_rgba(245,158,11,0.2)]"
-        >
-          <Plus className="w-3 h-3" /> Deploy Node
-        </button>
-      </div>
-      <ReactFlowProvider>
-        <ReactFlow
-          nodes={nodes}
-          edges={edges}
-          onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
-          nodeTypes={nodeTypes}
-          fitView
-          className="bg-[#030303]"
-          proOptions={{ hideAttribution: true }}
-        >
-          <Background color="#222" gap={30} size={1.5} />
-        </ReactFlow>
-      </ReactFlowProvider>
-    </div>
-  );
-};
-
-// ============================================================================
-// 3. MORE INTERACTIVE MODULES
-// ============================================================================
-const initialLeaderboard = [
-  {
-    id: 1,
-    name: "Keshav Bansal",
-    handle: "@keshav",
-    score: 8450,
-    initials: "KB",
-    color: "text-[#D4AF37]",
-    border: "border-[#D4AF37]",
-    bg: "bg-[#D4AF37]",
-  },
-  {
-    id: 2,
-    name: "Marcus Webb",
-    handle: "@marcusw",
-    score: 8200,
-    initials: "MW",
-    color: "text-[#C0C0C0]",
-    border: "border-[#C0C0C0]",
-    bg: "bg-[#C0C0C0]",
-  },
-  {
-    id: 3,
-    name: "Elena Rostova",
-    handle: "@elena",
-    score: 7900,
-    initials: "ER",
-    color: "text-[#CD7F32]",
-    border: "border-[#CD7F32]",
-    bg: "bg-[#CD7F32]",
-  },
-  {
-    id: 4,
-    name: "You (Guest)",
-    handle: "@guest",
-    score: 7850,
-    initials: "GU",
-    color: "text-white",
-    border: "border-[#444]",
-    bg: "bg-[#444]",
-  },
-];
-
-const FeatureLeaderboardSimulator = ({ setIsHoveringCard }) => {
-  const [leaders, setLeaders] = useState(initialLeaderboard);
-  const [isSimulating, setIsSimulating] = useState(false);
-
-  const simulateExecution = () => {
-    setIsSimulating(true);
-    const updatedLeaders = leaders.map((leader) => {
-      if (leader.id === 4)
-        return {
-          ...leader,
-          score: leader.score + Math.floor(Math.random() * 500) + 100,
-        };
-      return {
-        ...leader,
-        score: leader.score + Math.floor(Math.random() * 200),
-      };
-    });
-    updatedLeaders.sort((a, b) => b.score - a.score);
-    setLeaders(updatedLeaders);
-    setTimeout(() => setIsSimulating(false), 500);
-  };
-
-  return (
-    <div className="w-full bg-[#050505] rounded-[2rem] border border-[#222] p-6 shadow-2xl relative overflow-hidden">
-      <div className="absolute top-0 right-0 w-64 h-64 bg-amber-500 opacity-[0.03] blur-[80px] rounded-full pointer-events-none" />
-      <div className="flex items-center justify-between mb-8">
-        <h3 className="text-xl font-extrabold text-white tracking-tight flex items-center gap-3">
-          <Trophy className="w-5 h-5 text-amber-500" /> Apex Alpha Rank
-        </h3>
-        <button
-          onClick={simulateExecution}
-          onMouseEnter={() => setIsHoveringCard(true)}
-          onMouseLeave={() => setIsHoveringCard(false)}
-          disabled={isSimulating}
-          className="flex items-center gap-2 px-3 py-1.5 bg-[#111] border border-[#333] hover:bg-[#222] hover:border-amber-500/50 transition-all rounded-lg text-xs font-bold uppercase tracking-widest disabled:opacity-50"
-        >
-          <RefreshCw
-            className={cn(
-              "w-3 h-3 text-amber-500",
-              isSimulating && "animate-spin",
-            )}
-          />{" "}
-          Inject Score
-        </button>
-      </div>
-      <div className="flex flex-col gap-3 relative z-10">
-        <AnimatePresence>
-          {leaders.map((user, index) => (
-            <motion.div
-              key={user.id}
-              layout
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ type: "spring", stiffness: 300, damping: 25 }}
-              className={cn(
-                "flex items-center justify-between p-4 rounded-xl border transition-colors",
-                user.id === 4
-                  ? "bg-amber-500/10 border-amber-500/30"
-                  : "bg-[#0a0a0a] border-[#222]",
-              )}
-            >
-              <div className="flex items-center gap-4">
-                <div
-                  className={cn(
-                    "text-lg font-extrabold w-6 text-center",
-                    user.color,
-                  )}
-                >
-                  {index + 1}
-                </div>
-                <div className="relative">
-                  {index === 0 && (
-                    <Crown
-                      className={cn(
-                        "w-4 h-4 absolute -top-3 -right-2 rotate-12",
-                        user.color,
-                      )}
-                    />
-                  )}
-                  <div
-                    className={cn(
-                      "w-10 h-10 rounded-md bg-[#000] border flex items-center justify-center font-bold",
-                      user.border,
-                      user.color,
-                    )}
-                  >
-                    {user.initials}
-                  </div>
-                </div>
-                <div>
-                  <p className="text-sm font-bold text-white">{user.name}</p>
-                  <p className="text-[10px] text-[#888] font-mono">
-                    {user.handle}
-                  </p>
-                </div>
-              </div>
-              <div className="text-right">
-                <motion.p
-                  key={user.score}
-                  initial={{ scale: 1.2, color: "#f59e0b" }}
-                  animate={{
-                    scale: 1,
-                    color: user.id === 4 ? "#f59e0b" : "#ffffff",
-                  }}
-                  className="text-base font-extrabold"
-                >
-                  {user.score.toLocaleString()}
-                </motion.p>
-                <p className="text-[8px] text-[#666] uppercase tracking-widest">
-                  Score
-                </p>
-              </div>
-            </motion.div>
-          ))}
-        </AnimatePresence>
-      </div>
-    </div>
-  );
-};
-
-const NetworkFlipCard = ({ user, setIsHoveringCard }) => {
-  const [isFlipped, setIsFlipped] = useState(false);
-  return (
-    <div
-      className="w-full h-[220px] cursor-pointer"
-      style={{ perspective: "1000px" }}
-      onMouseEnter={() => {
-        setIsFlipped(true);
-        setIsHoveringCard(true);
-      }}
-      onMouseLeave={() => {
-        setIsFlipped(false);
-        setIsHoveringCard(false);
-      }}
-      onClick={() => setIsFlipped(!isFlipped)}
-    >
-      <motion.div
-        animate={{ rotateY: isFlipped ? 180 : 0 }}
-        transition={{
-          duration: 0.6,
-          type: "spring",
-          stiffness: 200,
-          damping: 20,
+    <div className="min-h-screen bg-[#030303] text-white overflow-x-hidden selection:bg-[#D4AF37]/30">
+      {/* Grain */}
+      <div
+        className="fixed inset-0 pointer-events-none z-[1] opacity-[0.02]"
+        style={{
+          backgroundImage:
+            "url(\"data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E\")",
+          backgroundSize: "200px 200px",
         }}
-        className="w-full h-full relative"
-        style={{ transformStyle: "preserve-3d" }}
+      />
+
+      {/* Navbar */}
+      <nav
+        className="fixed top-0 w-full z-50 border-b border-white/[0.04]"
+        style={{ background: "rgba(3,3,3,0.9)", backdropFilter: "blur(24px)" }}
       >
-        <div
-          className="absolute inset-0 bg-[#0a0a0a] border border-[#222] rounded-2xl p-6 flex flex-col items-center justify-center text-center shadow-xl"
-          style={{ backfaceVisibility: "hidden" }}
-        >
-          <div className="w-16 h-16 rounded-full bg-[#111] border border-[#333] flex items-center justify-center text-xl font-extrabold text-[#666] mb-4">
-            {user.initials}
-          </div>
-          <h4 className="font-bold text-white text-lg">{user.name}</h4>
-          <p className="text-xs text-[#888] font-mono tracking-widest uppercase mt-1">
-            {user.role}
-          </p>
-          <div className="mt-4 flex items-center gap-1 text-[10px] font-bold text-amber-500 uppercase tracking-widest">
-            <Eye className="w-3 h-3" /> Hover to Inspect
-          </div>
-        </div>
-        <div
-          className="absolute inset-0 bg-[#111] border border-amber-500/30 rounded-2xl p-6 flex flex-col items-start justify-center shadow-[0_0_30px_rgba(245,158,11,0.1)]"
-          style={{ backfaceVisibility: "hidden", transform: "rotateY(180deg)" }}
-        >
-          <div className="w-full flex justify-between items-start mb-4">
-            <div className="p-2 bg-amber-500/10 rounded-lg">
-              <ShieldCheck className="w-5 h-5 text-amber-500" />
-            </div>
-            <div className="text-right">
-              <p className="text-[10px] text-[#666] uppercase tracking-widest">
-                Global Rank
-              </p>
-              <p className="text-lg font-extrabold text-white">#{user.rank}</p>
-            </div>
-          </div>
-          <div className="space-y-2 w-full">
-            <div className="flex justify-between text-xs">
-              <span className="text-[#888]">Execution Score:</span>
-              <span className="font-bold text-white">{user.score}</span>
-            </div>
-            <div className="flex justify-between text-xs">
-              <span className="text-[#888]">Nodes Deployed:</span>
-              <span className="font-bold text-white">{user.nodes}</span>
-            </div>
-            <div className="flex justify-between text-xs">
-              <span className="text-[#888]">Status:</span>
-              <span className="font-bold text-green-500 animate-pulse">
-                Online
-              </span>
-            </div>
-          </div>
-        </div>
-      </motion.div>
-    </div>
-  );
-};
-
-const VaultSimulatorCore = ({ setIsHoveringCard }) => {
-  const [analyzing, setAnalyzing] = useState(false);
-  const [progress, setProgress] = useState(0);
-  const [verified, setVerified] = useState(false);
-
-  const handleUpload = () => {
-    setAnalyzing(true);
-    setVerified(false);
-    setProgress(0);
-    let currentProgress = 0;
-    const interval = setInterval(() => {
-      currentProgress += Math.floor(Math.random() * 15) + 5;
-      if (currentProgress >= 100) {
-        currentProgress = 100;
-        clearInterval(interval);
-        setTimeout(() => {
-          setAnalyzing(false);
-          setVerified(true);
-        }, 400);
-      }
-      setProgress(currentProgress);
-    }, 200);
-  };
-
-  if (verified) {
-    return (
-      <div className="flex flex-col items-center justify-center gap-4 w-full">
-        <div className="w-20 h-20 rounded-full bg-green-500/10 border border-green-500/30 flex items-center justify-center mb-2">
-          <ShieldCheck className="w-10 h-10 text-green-500" />
-        </div>
-        <h3 className="text-xl font-extrabold text-white">Asset Verified</h3>
-        <p className="text-xs text-[#888] font-mono mb-4 text-center max-w-xs">
-          Cryptographic proof generated. Execution score updated globally.
-        </p>
-        <button
-          onClick={() => setVerified(false)}
-          onMouseEnter={() => setIsHoveringCard(true)}
-          onMouseLeave={() => setIsHoveringCard(false)}
-          className="text-xs font-bold text-[#666] hover:text-white uppercase tracking-widest transition-colors flex items-center gap-2"
-        >
-          <RefreshCw className="w-3 h-3" /> Deploy Another
-        </button>
-      </div>
-    );
-  }
-
-  if (analyzing) {
-    return (
-      <div className="flex flex-col items-center justify-center gap-6 w-full max-w-xs mx-auto">
-        <div className="relative w-24 h-24">
-          <svg className="w-full h-full -rotate-90" viewBox="0 0 100 100">
-            <circle
-              className="text-[#111] stroke-current"
-              strokeWidth="4"
-              cx="50"
-              cy="50"
-              r="46"
-              fill="transparent"
+        <div className="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
+          <Link to="/" className="flex items-center gap-3">
+            <img
+              src="/logo.png"
+              alt="Discotive"
+              className="w-9 h-9 object-contain"
             />
-            <circle
-              className="text-amber-500 stroke-current transition-all duration-200"
-              strokeWidth="4"
-              strokeLinecap="round"
-              cx="50"
-              cy="50"
-              r="46"
-              fill="transparent"
-              strokeDasharray="289"
-              strokeDashoffset={289 - (289 * progress) / 100}
+            <span className="text-lg font-black tracking-tighter">
+              DISCOTIVE
+            </span>
+          </Link>
+          <div className="flex items-center gap-4">
+            <Link
+              to="/auth"
+              className="hidden md:block text-[10px] font-black text-white/40 hover:text-white transition-colors uppercase tracking-widest"
+            >
+              Sign In
+            </Link>
+            <motion.button
+              whileHover={{ scale: 1.03 }}
+              whileTap={{ scale: 0.97 }}
+              onClick={() => navigate("/auth")}
+              className="px-6 py-2.5 text-[10px] font-black uppercase tracking-widest text-black rounded-full"
+              style={{
+                background:
+                  "linear-gradient(135deg, #B8960C, #D4AF37, #F5E07A, #D4AF37, #9A7B0A)",
+                boxShadow: "0 0 20px rgba(212,175,55,0.25)",
+              }}
+            >
+              Boot OS
+            </motion.button>
+          </div>
+        </div>
+      </nav>
+
+      {/* Hero */}
+      <div className="relative pt-40 pb-24 px-6 text-center z-10">
+        <div
+          className="absolute inset-0 pointer-events-none"
+          style={{
+            background:
+              "radial-gradient(ellipse at top, rgba(212,175,55,0.05) 0%, transparent 60%)",
+          }}
+        />
+        <motion.div
+          initial={{ opacity: 0, y: 30 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6 }}
+          className="relative z-10 max-w-4xl mx-auto"
+        >
+          <div
+            className="inline-flex items-center gap-3 px-4 py-2 rounded-full border border-[#D4AF37]/20 mb-8"
+            style={{ background: "rgba(212,175,55,0.05)" }}
+          >
+            <span
+              className="w-1.5 h-1.5 rounded-full bg-[#D4AF37] animate-pulse"
+              style={{ boxShadow: "0 0 6px #D4AF37" }}
             />
-          </svg>
-          <div className="absolute inset-0 flex items-center justify-center">
-            <span className="text-lg font-extrabold text-white">
-              {progress}%
+            <span className="text-[9px] font-black text-[#D4AF37]/60 uppercase tracking-[0.3em]">
+              The Arsenal · 6 Core Modules
             </span>
           </div>
-        </div>
-        <p className="text-xs font-mono text-amber-500 uppercase tracking-widest animate-pulse">
-          Running DCI Analysis...
-        </p>
+          <h1
+            className="font-black tracking-[-0.04em] leading-[0.9] mb-6"
+            style={{ fontSize: "clamp(48px, 9vw, 100px)" }}
+          >
+            <span className="block text-white/90">The Engine Room.</span>
+          </h1>
+          <p className="text-lg text-white/35 max-w-2xl mx-auto leading-relaxed">
+            Six battle-tested modules forged for operators who build rather than
+            browse. Test them live below.
+          </p>
+        </motion.div>
       </div>
-    );
-  }
 
-  return (
-    <div
-      onClick={handleUpload}
-      onMouseEnter={() => setIsHoveringCard(true)}
-      onMouseLeave={() => setIsHoveringCard(false)}
-      className="w-full h-full min-h-[250px] border-2 border-dashed border-[#333] hover:border-amber-500/50 hover:bg-[#111] rounded-xl flex flex-col items-center justify-center gap-4 cursor-pointer transition-all p-8 group"
-    >
-      <div className="w-16 h-16 rounded-full bg-[#111] group-hover:bg-amber-500/10 transition-colors flex items-center justify-center">
-        <FolderOpen className="w-6 h-6 text-[#666] group-hover:text-amber-500 transition-colors" />
+      {/* Bento overview */}
+      <div className="max-w-7xl mx-auto px-6 z-10 relative">
+        <BentoGrid />
       </div>
-      <div className="text-center">
-        <p className="text-sm font-bold text-white mb-1 group-hover:text-amber-500 transition-colors">
-          Deploy Asset for Verification
-        </p>
-        <p className="text-xs text-[#666]">
-          Click to simulate DCI cryptographic analysis
-        </p>
+
+      {/* Divider */}
+      <div className="max-w-7xl mx-auto px-6">
+        <div className="h-[1px] bg-gradient-to-r from-transparent via-[#D4AF37]/20 to-transparent mb-4" />
+        <div className="text-center mb-4">
+          <span className="text-[9px] font-black text-[#D4AF37]/40 uppercase tracking-[0.3em]">
+            Live Interactive Modules Below
+          </span>
+        </div>
+        <div className="h-[1px] bg-gradient-to-r from-transparent via-[#D4AF37]/20 to-transparent" />
       </div>
+
+      {/* Module 1: Score Engine */}
+      <div className="z-10 relative">
+        <FeatureModule
+          num="01"
+          subtitle="Score Engine"
+          title={
+            <>
+              <span className="text-white/90">Atomic score</span>
+              <br />
+              <span style={goldText}>mutations, live.</span>
+            </>
+          }
+          description="The Discotive Score tracks 10+ event types using atomic Firestore transactions. Streaks, tasks, vault verifications, alliances — every action compounds. Click events below to see it respond."
+          bullets={[
+            "Daily login bonuses with IST timezone enforcement",
+            "Task completion at +5 to +30 based on node type",
+            "Missed day penalties enforced by server-side CRON",
+            "Vault verification yields Weak/Medium/Strong multipliers",
+          ]}
+          widget={<ScoreEngineWidget />}
+        />
+
+        {/* Module 2: Asset Vault */}
+        <FeatureModule
+          num="02"
+          subtitle="Asset Vault"
+          reversed
+          title={
+            <>
+              <span className="text-white/90">SHA-256 proof</span>
+              <br />
+              <span style={goldText}>of work.</span>
+            </>
+          }
+          description="Zero-trust credential storage. Every asset is hashed, reviewed by an admin, and assigned a verified strength rating that directly impacts your Discotive Score and public profile."
+          bullets={[
+            "Firebase Storage with SHA-256 integrity verification",
+            "Admin review pipeline: Weak / Medium / Strong strength",
+            "Verified assets appear on public profile permanently",
+            "Supports PDF, PNG, JPG, DOCX, ZIP up to 25MB",
+          ]}
+          widget={<VaultWidget />}
+        />
+
+        {/* Module 3: Neural Engine */}
+        <FeatureModule
+          num="03"
+          subtitle="Neural Engine"
+          title={
+            <>
+              <span className="text-white/90">Kahn's algorithm.</span>
+              <br />
+              <span style={goldText}>O(V+E) execution.</span>
+            </>
+          }
+          description="The DAG compiler is a pure functional state machine. It traverses your execution graph using Kahn's topological sort, computing every node's state in O(V+E) time with zero server round-trips."
+          bullets={[
+            "Kahn's BFS topological traversal — zero circular dependencies",
+            "6-state machine: LOCKED → ACTIVE → IN_PROGRESS → VERIFIED",
+            "Exponential backoff penalties for failed proof submissions",
+            "Ghost states for free tier with 24h artificial delay",
+          ]}
+          widget={<NeuralEngineWidget />}
+        />
+
+        {/* Module 4: Grace AI */}
+        <FeatureModule
+          num="04"
+          subtitle="Grace AI"
+          reversed
+          title={
+            <>
+              <span className="text-white/90">Your career AI,</span>
+              <br />
+              <span style={goldText}>always on.</span>
+            </>
+          }
+          description="Grace is powered by Gemini 2.5 Flash and deployed through secure Cloud Functions. She knows your score, your nodes, your vault — and gives you direct, actionable career intelligence."
+          bullets={[
+            "Structured Q&A flows for common career scenarios",
+            "Free-form Gemini 2.5 Flash integration via Cloud Functions",
+            "Contextual map generation and expansion assistance",
+            "Zero API keys on client — fully server-gated",
+          ]}
+          widget={<GraceWidget />}
+        />
+      </div>
+
+      {/* Final CTA */}
+      <section className="py-36 px-6 text-center relative z-10">
+        <div
+          className="absolute inset-0 pointer-events-none"
+          style={{
+            background:
+              "radial-gradient(ellipse at center, rgba(212,175,55,0.04) 0%, transparent 70%)",
+          }}
+        />
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          viewport={{ once: true }}
+          className="relative z-10 max-w-2xl mx-auto"
+        >
+          <h2 className="text-4xl md:text-6xl font-black tracking-[-0.04em] mb-6 leading-tight">
+            The engine is ready.
+            <br />
+            <span style={goldText}>Are you?</span>
+          </h2>
+          <p className="text-white/30 mb-10">
+            Boot Discotive OS and generate your first execution map in under 3
+            minutes.
+          </p>
+          <motion.button
+            whileHover={{
+              scale: 1.04,
+              boxShadow: "0 0 50px rgba(212,175,55,0.4)",
+            }}
+            whileTap={{ scale: 0.96 }}
+            onClick={() => navigate("/auth")}
+            className="px-12 py-4 text-sm font-black uppercase tracking-widest text-black rounded-2xl"
+            style={{
+              background:
+                "linear-gradient(135deg, #B8960C, #D4AF37, #F5E07A, #D4AF37, #9A7B0A)",
+              boxShadow: "0 0 30px rgba(212,175,55,0.3)",
+            }}
+          >
+            Start Free
+          </motion.button>
+        </motion.div>
+      </section>
+
+      {/* Footer */}
+      <footer
+        className="border-t border-white/[0.04] py-10 px-6 relative z-10"
+        style={{ background: "rgba(5,5,5,0.9)" }}
+      >
+        <div className="max-w-7xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <img
+              src="/logo.png"
+              alt="Discotive"
+              className="w-7 h-7 object-contain"
+            />
+            <span className="text-sm font-black tracking-tighter text-white/60">
+              DISCOTIVE
+            </span>
+          </div>
+          <p className="text-[9px] font-mono text-white/20">
+            © 2026 Discotive. The Unified Career Engine.
+          </p>
+          <div className="flex items-center gap-5">
+            {["Privacy", "About", "Contact"].map((l) => (
+              <Link
+                key={l}
+                to={`/${l.toLowerCase()}`}
+                className="text-[9px] font-black text-white/25 hover:text-white/60 uppercase tracking-widest transition-colors"
+              >
+                {l}
+              </Link>
+            ))}
+          </div>
+        </div>
+      </footer>
     </div>
   );
 };
 
-// ============================================================================
-// 4. MAIN FEATURES PAGE COMPONENT
-// ============================================================================
-const Features = () => {
-  const [isLoading, setIsLoading] = useState(true);
-  const [mousePosition, setMousePosition] = useState({ x: 0, y: 0 });
-  const [isHoveringCard, setIsHoveringCard] = useState(false);
-  const navigate = useNavigate();
-
-  useEffect(() => {
-    const handleMouseMove = (e) =>
-      setMousePosition({ x: e.clientX, y: e.clientY });
-    window.addEventListener("mousemove", handleMouseMove);
-    const timer = setTimeout(() => setIsLoading(false), 1500);
-    return () => {
-      window.removeEventListener("mousemove", handleMouseMove);
-      clearTimeout(timer);
-    };
-  }, []);
-
-  if (isLoading) return <GlobalLoader onComplete={() => {}} />;
-
-  return (
-    <>
-      <motion.div
-        className="fixed top-0 left-0 w-8 h-8 rounded-full pointer-events-none z-[10000] mix-blend-difference hidden md:block border-2 border-white"
-        animate={{
-          x: mousePosition.x - 16,
-          y: mousePosition.y - 16,
-          scale: isHoveringCard ? 2.5 : 1,
-          backgroundColor: isHoveringCard ? "#ffffff" : "transparent",
-        }}
-        transition={{ type: "spring", stiffness: 150, damping: 15, mass: 0.1 }}
-      />
-
-      <div className="min-h-screen bg-[#030303] text-white selection:bg-white selection:text-black font-sans overflow-x-hidden">
-        <ParticleBackground />
-        <FeaturesNavbar setIsHoveringCard={setIsHoveringCard} />
-
-        {/* HERO */}
-        <div className="relative pt-32 pb-20 md:pt-48 md:pb-32 px-6 flex flex-col items-center justify-center text-center">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.8, ease: "easeOut" }}
-            className="relative z-10 max-w-4xl mx-auto w-full"
-          >
-            <div className="inline-flex items-center gap-3 px-4 py-2 rounded-full border border-white/10 bg-white/5 backdrop-blur-md mb-8 shadow-2xl">
-              <Zap className="w-4 h-4 text-amber-500" />
-              <span className="text-xs font-bold tracking-[0.2em] text-[#ccc] uppercase">
-                Interactive Exhibition
-              </span>
-            </div>
-            <h1 className="text-5xl md:text-7xl lg:text-[90px] font-extrabold tracking-tight leading-[0.9] mb-8">
-              The Engine Room.
-            </h1>
-            <p className="text-lg md:text-xl text-[#888] font-medium max-w-2xl mx-auto mb-12 leading-relaxed tracking-wide">
-              Test the systems. Build nodes, flip network cards, and analyze the
-              leaderboard. Experience the monopoly before you boot the OS.
-            </p>
-          </motion.div>
-        </div>
-
-        {/* FEATURE 01: ROADMAP */}
-        <section className="py-24 px-6 max-w-7xl mx-auto border-t border-white/5 relative">
-          <div className="absolute top-0 left-10 w-[1px] h-full bg-gradient-to-b from-amber-500/50 via-white/5 to-transparent hidden md:block" />
-          <div className="flex flex-col lg:flex-row gap-16 items-center">
-            <motion.div
-              initial={{ opacity: 0, x: -30 }}
-              whileInView={{ opacity: 1, x: 0 }}
-              viewport={{ once: true, margin: "-100px" }}
-              className="flex-1 md:pl-20"
-            >
-              <div className="text-[10px] font-extrabold tracking-[0.3em] text-amber-500 uppercase mb-4">
-                01 // The Trajectory
-              </div>
-              <h2 className="text-4xl md:text-5xl font-extrabold tracking-tight mb-6">
-                Execution Roadmap
-              </h2>
-              <p className="text-[#888] text-lg leading-relaxed mb-8">
-                Your goals are useless without a deployed architecture.
-                Discotive maps your ambition into verifiable, sequential nodes.
-                Connect the dots, execute the tasks, and generate cryptographic
-                Proof of Work.
-              </p>
-              <ul className="space-y-4 mb-10">
-                {[
-                  "Visual Deployment Graph",
-                  "Task-level execution tracking",
-                  "Automated momentum calculation",
-                ].map((item, i) => (
-                  <li
-                    key={i}
-                    className="flex items-center gap-3 text-sm font-bold text-[#ccc]"
-                  >
-                    <CheckCircle2 className="w-4 h-4 text-green-500" /> {item}
-                  </li>
-                ))}
-              </ul>
-              <button
-                onClick={() => navigate("/app/roadmap")}
-                onMouseEnter={() => setIsHoveringCard(true)}
-                onMouseLeave={() => setIsHoveringCard(false)}
-                className="group flex items-center gap-3 text-white font-extrabold text-xs uppercase tracking-widest hover:text-amber-500 transition-colors"
-              >
-                Access Roadmap Module{" "}
-                <ArrowRight className="w-4 h-4 group-hover:translate-x-2 transition-transform" />
-              </button>
-            </motion.div>
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              whileInView={{ opacity: 1, scale: 1 }}
-              viewport={{ once: true, margin: "-100px" }}
-              className="flex-1 w-full"
-            >
-              <FeatureRoadmapSandbox setIsHoveringCard={setIsHoveringCard} />
-            </motion.div>
-          </div>
-        </section>
-
-        {/* FEATURE 02: LEADERBOARD */}
-        <section className="py-24 px-6 max-w-7xl mx-auto border-t border-white/5 relative bg-[#030303]">
-          <div className="absolute top-0 right-10 w-[1px] h-full bg-gradient-to-b from-amber-500/50 via-white/5 to-transparent hidden md:block" />
-          <div className="flex flex-col-reverse lg:flex-row gap-16 items-center">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              whileInView={{ opacity: 1, scale: 1 }}
-              viewport={{ once: true, margin: "-100px" }}
-              className="flex-1 w-full"
-            >
-              <FeatureLeaderboardSimulator
-                setIsHoveringCard={setIsHoveringCard}
-              />
-            </motion.div>
-            <motion.div
-              initial={{ opacity: 0, x: 30 }}
-              whileInView={{ opacity: 1, x: 0 }}
-              viewport={{ once: true, margin: "-100px" }}
-              className="flex-1 md:pr-20 lg:text-right"
-            >
-              <div className="flex lg:justify-end">
-                <div className="text-[10px] font-extrabold tracking-[0.3em] text-amber-500 uppercase mb-4">
-                  02 // The Arena
-                </div>
-              </div>
-              <h2 className="text-4xl md:text-5xl font-extrabold tracking-tight mb-6">
-                Global Leaderboard
-              </h2>
-              <p className="text-[#888] text-lg leading-relaxed mb-8">
-                Execution is measurable. Discotive dynamically calculates your
-                momentum based on roadmap completions, asset verification, and
-                daily protocol compliance. Outwork the competition.
-              </p>
-              <ul className="space-y-4 mb-10 inline-block text-left">
-                {[
-                  "Algorithmic Score Calculation",
-                  "Live Rank Adjustments",
-                  "Top 1% Global Positioning",
-                ].map((item, i) => (
-                  <li
-                    key={i}
-                    className="flex items-center gap-3 text-sm font-bold text-[#ccc]"
-                  >
-                    <Trophy className="w-4 h-4 text-amber-500" /> {item}
-                  </li>
-                ))}
-              </ul>
-              <div className="flex lg:justify-end">
-                <button
-                  onClick={() => navigate("/app/leaderboard")}
-                  onMouseEnter={() => setIsHoveringCard(true)}
-                  onMouseLeave={() => setIsHoveringCard(false)}
-                  className="group flex items-center gap-3 text-white font-extrabold text-xs uppercase tracking-widest hover:text-amber-500 transition-colors"
-                >
-                  Enter Leaderboard{" "}
-                  <ArrowRight className="w-4 h-4 group-hover:translate-x-2 transition-transform" />
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        </section>
-
-        {/* FEATURE 03: NETWORK */}
-        <section className="py-24 px-6 max-w-7xl mx-auto border-t border-white/5 relative">
-          <div className="absolute top-0 left-10 w-[1px] h-full bg-gradient-to-b from-amber-500/50 via-white/5 to-transparent hidden md:block" />
-          <div className="flex flex-col lg:flex-row gap-16 items-center">
-            <motion.div
-              initial={{ opacity: 0, x: -30 }}
-              whileInView={{ opacity: 1, x: 0 }}
-              viewport={{ once: true, margin: "-100px" }}
-              className="flex-1 md:pl-20"
-            >
-              <div className="text-[10px] font-extrabold tracking-[0.3em] text-amber-500 uppercase mb-4">
-                03 // The Syndicate
-              </div>
-              <h2 className="text-4xl md:text-5xl font-extrabold tracking-tight mb-6">
-                High-Signal Networking
-              </h2>
-              <p className="text-[#888] text-lg leading-relaxed mb-8">
-                Stop connecting with noise. Access a verified directory of
-                founders, engineers, and creators. View their execution scores
-                instantly. If they aren't building, they aren't here.
-              </p>
-              <button
-                onClick={() => navigate("/app/network")}
-                onMouseEnter={() => setIsHoveringCard(true)}
-                onMouseLeave={() => setIsHoveringCard(false)}
-                className="group flex items-center gap-3 text-white font-extrabold text-xs uppercase tracking-widest hover:text-amber-500 transition-colors"
-              >
-                Access Network Hub{" "}
-                <ArrowRight className="w-4 h-4 group-hover:translate-x-2 transition-transform" />
-              </button>
-            </motion.div>
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              whileInView={{ opacity: 1, scale: 1 }}
-              viewport={{ once: true, margin: "-100px" }}
-              className="flex-1 w-full grid grid-cols-2 gap-4 md:gap-6"
-            >
-              <NetworkFlipCard
-                setIsHoveringCard={setIsHoveringCard}
-                user={{
-                  initials: "JD",
-                  name: "Jayden Dior",
-                  role: "AI Architect",
-                  rank: 14,
-                  score: 6200,
-                  nodes: 42,
-                }}
-              />
-              <NetworkFlipCard
-                setIsHoveringCard={setIsHoveringCard}
-                user={{
-                  initials: "SV",
-                  name: "Sanya V.",
-                  role: "Founder",
-                  rank: 8,
-                  score: 7150,
-                  nodes: 56,
-                }}
-              />
-            </motion.div>
-          </div>
-        </section>
-
-        {/* FEATURE 04: VAULT */}
-        <section className="py-24 px-6 max-w-7xl mx-auto border-t border-white/5 relative bg-[#030303]">
-          <div className="absolute top-0 right-10 w-[1px] h-full bg-gradient-to-b from-amber-500/50 via-white/5 to-transparent hidden md:block" />
-          <div className="flex flex-col-reverse lg:flex-row gap-16 items-center">
-            <motion.div
-              initial={{ opacity: 0, scale: 0.95 }}
-              whileInView={{ opacity: 1, scale: 1 }}
-              viewport={{ once: true, margin: "-100px" }}
-              className="flex-1 w-full"
-            >
-              <div className="w-full bg-[#0a0a0a] rounded-[2rem] border border-[#222] p-6 shadow-2xl relative overflow-hidden flex flex-col items-center justify-center min-h-[350px]">
-                <VaultSimulatorCore setIsHoveringCard={setIsHoveringCard} />
-              </div>
-            </motion.div>
-            <motion.div
-              initial={{ opacity: 0, x: 30 }}
-              whileInView={{ opacity: 1, x: 0 }}
-              viewport={{ once: true, margin: "-100px" }}
-              className="flex-1 md:pr-20 lg:text-right"
-            >
-              <div className="flex lg:justify-end">
-                <div className="text-[10px] font-extrabold tracking-[0.3em] text-amber-500 uppercase mb-4">
-                  04 // The Proof
-                </div>
-              </div>
-              <h2 className="text-4xl md:text-5xl font-extrabold tracking-tight mb-6">
-                Asset Vault & DCI
-              </h2>
-              <p className="text-[#888] text-lg leading-relaxed mb-8">
-                Talk is cheap. The Discotive Career Index (DCI) requires
-                cryptographic proof of execution. Upload your GitHub commits,
-                deployed links, and certificates. Our engine verifies your
-                claims and generates an immutable portfolio.
-              </p>
-              <ul className="space-y-4 mb-10 inline-block text-left">
-                {[
-                  "Tamper-proof Asset Verification",
-                  "Automated PDF/CSV Exporting",
-                  "Recruiter-Ready Dossiers",
-                ].map((item, i) => (
-                  <li
-                    key={i}
-                    className="flex items-center gap-3 text-sm font-bold text-[#ccc]"
-                  >
-                    <ShieldCheck className="w-4 h-4 text-green-500" /> {item}
-                  </li>
-                ))}
-              </ul>
-              <div className="flex lg:justify-end">
-                <button
-                  onClick={() => navigate("/app/vault")}
-                  onMouseEnter={() => setIsHoveringCard(true)}
-                  onMouseLeave={() => setIsHoveringCard(false)}
-                  className="group flex items-center gap-3 text-white font-extrabold text-xs uppercase tracking-widest hover:text-amber-500 transition-colors"
-                >
-                  Access The Vault{" "}
-                  <ArrowRight className="w-4 h-4 group-hover:translate-x-2 transition-transform" />
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        </section>
-
-        {/* FINAL CTA */}
-        <section className="py-32 px-6 relative border-t border-white/5 overflow-hidden">
-          <div className="absolute inset-0 bg-gradient-to-b from-[#050505] to-[#030303] z-0" />
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[400px] bg-amber-500 opacity-[0.02] blur-[120px] rounded-full pointer-events-none z-0" />
-          <motion.div
-            initial={{ opacity: 0, y: 30 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            className="relative z-10 max-w-4xl mx-auto text-center flex flex-col items-center"
-          >
-            <div className="w-16 h-16 rounded-2xl bg-[#111] border border-[#333] flex items-center justify-center mb-8">
-              <img
-                src="/logo.png"
-                alt="Discotive"
-                className="w-8 h-8 opacity-80"
-              />
-            </div>
-            <h2 className="text-5xl md:text-7xl font-extrabold tracking-tight mb-8">
-              Stop consuming. <br />{" "}
-              <span className="text-amber-500">Start executing.</span>
-            </h2>
-            <p className="text-[#888] text-lg max-w-xl mx-auto mb-12">
-              The tools are built. The leaderboard is live. The only thing
-              missing from the protocol is you.
-            </p>
-            <button
-              onClick={() => navigate("/auth")}
-              onMouseEnter={() => setIsHoveringCard(true)}
-              onMouseLeave={() => setIsHoveringCard(false)}
-              className="px-10 py-5 bg-white text-black text-sm font-extrabold rounded-xl uppercase tracking-widest hover:bg-[#e5e5e5] hover:scale-105 transition-all shadow-[0_0_40px_rgba(255,255,255,0.2)]"
-            >
-              Boot The OS
-            </button>
-          </motion.div>
-        </section>
-
-        {/* FOOTER */}
-        <footer
-          className="border-t border-white/5 bg-[#030303] pt-24 pb-12 px-6 relative overflow-hidden"
-          onMouseEnter={() => setIsHoveringCard(true)}
-          onMouseLeave={() => setIsHoveringCard(false)}
-        >
-          <div className="max-w-7xl mx-auto relative z-10">
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-x-8 gap-y-12 mb-20">
-              <div className="col-span-2 md:col-span-2 flex flex-col items-start text-left">
-                <Link to="/" className="flex items-center gap-3 mb-6">
-                  <img
-                    src="/logo.png"
-                    alt="Discotive Logo"
-                    className="w-10 h-10 object-contain drop-shadow-[0_0_15px_rgba(255,255,255,0.2)]"
-                  />
-                  <span className="text-xl font-extrabold tracking-tight text-white">
-                    Discotive
-                  </span>
-                </Link>
-                <p className="text-sm text-[#666] leading-relaxed max-w-[280px]">
-                  The execution protocol for elite operators. Replace your
-                  resume. Build your monopoly.
-                </p>
-              </div>
-              <div className="col-span-1 flex flex-col items-start text-left">
-                <h4 className="text-white font-extrabold text-[10px] sm:text-xs mb-6 uppercase tracking-widest">
-                  Platform
-                </h4>
-                <ul className="space-y-4">
-                  <li>
-                    <Link
-                      to="/features"
-                      className="text-sm font-medium text-white transition-colors"
-                    >
-                      Features
-                    </Link>
-                  </li>
-                  <li>
-                    <Link
-                      to="/session"
-                      className="text-sm font-medium text-[#888] hover:text-white transition-colors"
-                    >
-                      Connective
-                    </Link>
-                  </li>
-                  <li>
-                    <Link
-                      to="/premium"
-                      className="text-sm font-medium text-[#888] hover:text-white transition-colors"
-                    >
-                      Pricing
-                    </Link>
-                  </li>
-                </ul>
-              </div>
-              <div className="col-span-1 flex flex-col items-start text-left">
-                <h4 className="text-white font-extrabold text-[10px] sm:text-xs mb-6 uppercase tracking-widest">
-                  Resources
-                </h4>
-                <ul className="space-y-4">
-                  <li>
-                    <Link
-                      to="/about"
-                      className="text-sm font-medium text-[#888] hover:text-white transition-colors"
-                    >
-                      About Us
-                    </Link>
-                  </li>
-                  <li>
-                    <Link
-                      to="/privacy"
-                      className="text-sm font-medium text-[#888] hover:text-white transition-colors"
-                    >
-                      Privacy Policy
-                    </Link>
-                  </li>
-                </ul>
-              </div>
-              <div className="col-span-2 md:col-span-1 flex flex-col items-start text-left mt-2 md:mt-0">
-                <h4 className="text-white font-extrabold text-[10px] sm:text-xs mb-6 uppercase tracking-widest">
-                  Contact
-                </h4>
-                <ul className="space-y-4">
-                  <li>
-                    <a
-                      href="mailto:discotive@gmail.com"
-                      className="text-sm font-medium text-[#888] hover:text-white transition-colors flex items-center gap-2"
-                    >
-                      <Mail className="w-4 h-4 text-[#555]" />{" "}
-                      discotive@gmail.com
-                    </a>
-                  </li>
-                </ul>
-              </div>
-            </div>
-            <div className="flex flex-col md:flex-row items-start md:items-center justify-between pt-8 border-t border-white/5 gap-6">
-              <p className="text-xs text-[#555] font-medium tracking-wide">
-                © 2026 Discotive. India.
-              </p>
-              <div className="flex items-center gap-6">
-                <a
-                  href="https://www.instagram.com/discotive/"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-[#666] hover:text-white transition-colors"
-                >
-                  <Instagram className="w-5 h-5" />
-                </a>
-                <a
-                  href="https://www.youtube.com/@discotive"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-[#666] hover:text-white transition-colors"
-                >
-                  <Youtube className="w-5 h-5" />
-                </a>
-                <a
-                  href="https://www.linkedin.com/company/discotive"
-                  target="_blank"
-                  rel="noreferrer"
-                  className="text-[#666] hover:text-white transition-colors"
-                >
-                  <Linkedin className="w-5 h-5" />
-                </a>
-              </div>
-            </div>
-          </div>
-        </footer>
-      </div>
-    </>
-  );
-};
-
-export default Features;
+export default FeaturesPage;
