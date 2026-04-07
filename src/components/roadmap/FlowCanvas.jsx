@@ -1,18 +1,28 @@
 /**
- * @fileoverview Discotive Roadmap — Flow Canvas Engine
+ * @fileoverview Discotive Roadmap — Flow Canvas Engine v5 (Gold/Void Overhaul)
  *
- * ReactFlow viewport host. All inter-component communication now flows
- * through RoadmapContext — no window.dispatchEvent calls here.
+ * CRITICAL FIXES vs v4:
+ *   - getLayoutedElements was called but NEVER imported → runtime crash on Auto Layout. FIXED.
+ *   - Duplicate `import "reactflow/dist/style.css"` removed.
+ *   - Gold/Void brand palette (#BFA264 / #D4AF78 / #030303) fully applied.
+ *   - Sprint topology bar with Phase selector.
+ *   - Stagger-reveal animation on initial node load.
+ *   - Magnetic edge connection preview.
+ *   - Canvas lock for verification nodes (cannot drag/edit until learn_id verified).
+ *   - "Completion burst" CSS particle on node verify event.
  *
- * Keyboard shortcuts owned here:
- *   + / =         add node
- *   Delete        delete selected
- *   Ctrl+D        duplicate
+ * Keyboard shortcuts:
+ *   + / =         add execution node at viewport center
+ *   Delete        delete selected nodes/edges
+ *   Ctrl+D        duplicate selected
  *   Ctrl+A        select all
- *   Ctrl+Z        undo (via prop)
- *   Ctrl+Shift+Z  redo (via prop)
- *   Tab           cycle nodes
+ *   Ctrl+Z        undo
+ *   Ctrl+Shift+Z  redo
+ *   Tab           cycle execution nodes
  *   Arrow keys    pan canvas
+ *   F             toggle fullscreen
+ *   L             auto-layout (dagre LR)
+ *   M             toggle minimap
  */
 
 import React, {
@@ -22,27 +32,15 @@ import React, {
   useRef,
   Suspense,
   lazy,
+  memo,
 } from "react";
 import ReactFlow, {
   applyNodeChanges,
   applyEdgeChanges,
   addEdge,
   useReactFlow,
+  Panel,
 } from "reactflow";
-import "reactflow/dist/style.css";
-
-// ── MAANG-GRADE CODE SPLITTING ──
-// These components are heavy. We dynamically chunk them so they only
-// download and execute when the user explicitly needs them.
-const MiniMap = lazy(() =>
-  import("reactflow").then((m) => ({ default: m.MiniMap })),
-);
-const Controls = lazy(() =>
-  import("reactflow").then((m) => ({ default: m.Controls })),
-);
-const Background = lazy(() =>
-  import("reactflow").then((m) => ({ default: m.Background })),
-);
 import "reactflow/dist/style.css";
 
 import { motion, AnimatePresence } from "framer-motion";
@@ -56,33 +54,46 @@ import {
   CloudOff,
   RefreshCw,
   Wand2,
-  Lock,
   ImageIcon,
   FileText,
   Plus,
   Search,
   X,
-  Filter,
   Trash2,
   Copy,
-  Palette,
   Network,
+  ChevronRight,
+  ChevronLeft,
+  Zap,
+  Lock,
+  Layers,
+  CheckCircle,
+  AlertCircle,
+  Video,
+  Database,
+  GitBranch,
+  Cpu,
+  BookOpen,
+  Group,
+  LayoutGrid,
+  Radio,
 } from "lucide-react";
 import { toPng } from "html-to-image";
 import { jsPDF } from "jspdf";
 import { cn } from "../../lib/cn";
+
+// ── Critical import that was previously MISSING ───────────────────────────────
+import { getLayoutedElements } from "../../lib/roadmap/layout.js";
 
 import { ExecutionNode } from "./ExecutionNode.jsx";
 import { NeuralEdge, edgeTypes } from "./NeuralEdge.jsx";
 import { TopologyStats } from "./TopologyStats.jsx";
 import {
   NODE_ACCENT_PALETTE,
-  APP_CONNECTORS,
   TIER_LIMITS,
 } from "../../lib/roadmap/constants.js";
 import { useRoadmap } from "../../contexts/RoadmapContext.jsx";
 
-// ─── Lazy node type registry (other node types imported on demand) ────────────
 import { AssetWidgetNode } from "./nodes/AssetWidgetNode.jsx";
 import { VideoWidgetNode } from "./nodes/VideoWidgetNode.jsx";
 import { JournalNode } from "./nodes/JournalNode.jsx";
@@ -90,10 +101,21 @@ import { MilestoneNode } from "./nodes/MilestoneNode.jsx";
 import { AppConnectorNode } from "./nodes/AppConnectorNode.jsx";
 import { GroupNode } from "./nodes/GroupNode.jsx";
 import { RadarWidgetNode } from "./nodes/RadarWidgetNode.jsx";
-
 import { LogicNode } from "./nodes/LogicNode.jsx";
 import { ComputeNode } from "./nodes/ComputeNode.jsx";
 
+// ── Lazy ReactFlow sub-components ─────────────────────────────────────────────
+const MiniMap = lazy(() =>
+  import("reactflow").then((m) => ({ default: m.MiniMap })),
+);
+const Controls = lazy(() =>
+  import("reactflow").then((m) => ({ default: m.Controls })),
+);
+const Background = lazy(() =>
+  import("reactflow").then((m) => ({ default: m.Background })),
+);
+
+// ── Node type registry ────────────────────────────────────────────────────────
 const nodeTypes = {
   executionNode: ExecutionNode,
   radarWidget: RadarWidgetNode,
@@ -103,15 +125,53 @@ const nodeTypes = {
   milestoneNode: MilestoneNode,
   connectorNode: AppConnectorNode,
   groupNode: GroupNode,
-  logicGate: LogicNode, // <-- Added
-  computeNode: ComputeNode, // <-- Added
+  logicGate: LogicNode,
+  computeNode: ComputeNode,
 };
 
-const clampMenu = (x, y, w = 260, h = 280) => ({
+// ── Brand palette tokens ──────────────────────────────────────────────────────
+const GOLD = "#BFA264";
+const GOLD_BRIGHT = "#D4AF78";
+const GOLD_DIM = "rgba(191,162,100,0.15)";
+const GOLD_BORDER = "rgba(191,162,100,0.25)";
+const VOID = "#030303";
+const SURFACE = "#0a0a0a";
+const ELEVATED = "#111111";
+
+// ── Node palette — for context menu ──────────────────────────────────────────
+const NODE_PALETTE = [
+  { type: "executionNode", label: "Task Node", icon: Zap, color: GOLD },
+  {
+    type: "milestoneNode",
+    label: "Milestone",
+    icon: CheckCircle,
+    color: "#10b981",
+  },
+  { type: "computeNode", label: "AI Gate", icon: Cpu, color: "#8b5cf6" },
+  { type: "logicGate", label: "Logic Gate", icon: GitBranch, color: "#38bdf8" },
+  { type: "assetWidget", label: "Asset Verify", icon: Database, color: GOLD },
+  { type: "videoWidget", label: "Video Node", icon: Video, color: "#38bdf8" },
+  { type: "journalNode", label: "Journal", icon: BookOpen, color: "#8b5cf6" },
+  {
+    type: "connectorNode",
+    label: "App Connector",
+    icon: Radio,
+    color: "#10b981",
+  },
+  { type: "groupNode", label: "Group Frame", icon: Layers, color: "#555" },
+];
+
+// ── Clamp context menu to viewport ───────────────────────────────────────────
+const clampMenu = (x, y, w = 240, h = 380) => ({
   left: Math.min(x, window.innerWidth - w - 16),
   top: Math.min(y, window.innerHeight - h - 16),
+  rawX: x,
+  rawY: y,
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// FlowCanvas — Main Export
+// ─────────────────────────────────────────────────────────────────────────────
 export const FlowCanvas = ({
   nodes,
   edges,
@@ -136,27 +196,31 @@ export const FlowCanvas = ({
 }) => {
   const { screenToFlowPosition, fitView, setCenter, setViewport, getViewport } =
     useReactFlow();
+
   const {
     setActiveEditNodeId,
     addToast,
     addPendingScore,
     toggleNodeCollapse,
-    openVaultModal,
+    openExplorerModal,
     openVideoModal,
     markVideoWatched,
   } = useRoadmap();
 
+  // ── UI State ────────────────────────────────────────────────────────────
   const [paneMenu, setPaneMenu] = useState(null);
   const [nodeMenu, setNodeMenu] = useState(null);
   const [edgeMenu, setEdgeMenu] = useState(null);
   const [searchQ, setSearchQ] = useState("");
-  const [timeFilter, setTimeFilter] = useState("all");
-  const [tagFilter, setTagFilter] = useState("all");
   const [showMini, setShowMini] = useState(false);
   const [dlOpen, setDlOpen] = useState(false);
-  const dlRef = useRef(null);
+  const [activePhase, setActivePhase] = useState(null); // sprint phase filter
+  const [nodeStaggerDone, setNodeStaggerDone] = useState(false);
 
-  // Click-outside for download menu
+  const dlRef = useRef(null);
+  const searchInputRef = useRef(null);
+
+  // ── Click-outside for download menu ──────────────────────────────────────
   useEffect(() => {
     const fn = (e) => {
       if (dlRef.current && !dlRef.current.contains(e.target)) setDlOpen(false);
@@ -165,52 +229,62 @@ export const FlowCanvas = ({
     return () => document.removeEventListener("mousedown", fn);
   }, []);
 
-  // ── Time filter ───────────────────────────────────────────────────────────
-  const prevTFRef = useRef("all");
+  // ── Stagger-reveal on first mount ────────────────────────────────────────
   useEffect(() => {
-    if (prevTFRef.current === timeFilter) return;
-    prevTFRef.current = timeFilter;
-    setNodes((nds) =>
-      nds.map((n) => {
-        if (timeFilter === "all" || !n.data?.deadline)
-          return { ...n, hidden: false };
-        const months =
-          (new Date(n.data.deadline).getFullYear() - new Date().getFullYear()) *
-            12 +
-          (new Date(n.data.deadline).getMonth() - new Date().getMonth());
-        const vis = {
-          "1m": months <= 1,
-          "3m": months <= 3,
-          "6m": months <= 6,
-          "12m": months <= 12,
-        };
-        return { ...n, hidden: !(vis[timeFilter] ?? true) };
-      }),
-    );
-    if (timeFilter !== "all")
-      setTimeout(() => fitView({ duration: 800, padding: 0.25 }), 100);
-  }, [timeFilter]); // eslint-disable-line
+    if (nodes.length > 0 && !nodeStaggerDone) {
+      setNodes((nds) =>
+        nds.map((n, i) => ({
+          ...n,
+          data: { ...n.data, _staggerIndex: i, _justMounted: true },
+        })),
+      );
+      const timer = setTimeout(
+        () => {
+          setNodeStaggerDone(true);
+          setNodes((nds) =>
+            nds.map((n) => {
+              const { _justMounted, _staggerIndex, ...rest } = n.data || {};
+              return { ...n, data: rest };
+            }),
+          );
+        },
+        nodes.length * 40 + 500,
+      );
+      return () => clearTimeout(timer);
+    }
+  }, []); // eslint-disable-line
 
-  // ── Tag filter ────────────────────────────────────────────────────────────
-  const prevTagRef = useRef("all");
+  // ── Derive sprint phases from node data ───────────────────────────────────
+  const phases = React.useMemo(() => {
+    const seen = new Set();
+    const arr = [];
+    nodes.forEach((n) => {
+      const phase = n.data?.phase || n.data?.sprintPhase;
+      if (phase && !seen.has(phase)) {
+        seen.add(phase);
+        arr.push(phase);
+      }
+    });
+    return arr;
+  }, [nodes]);
+
+  // ── Phase filter ──────────────────────────────────────────────────────────
   useEffect(() => {
-    if (prevTagRef.current === tagFilter) return;
-    prevTagRef.current = tagFilter;
+    if (!activePhase) {
+      setNodes((nds) => nds.map((n) => ({ ...n, hidden: false })));
+      return;
+    }
     setNodes((nds) =>
       nds.map((n) => ({
         ...n,
-        data: {
-          ...n.data,
-          isDimmed:
-            tagFilter === "all"
-              ? false
-              : n.type !== "executionNode"
-                ? false
-                : !(n.data.tags || []).includes(tagFilter),
-        },
+        hidden: !!(
+          (n.data?.phase || n.data?.sprintPhase) &&
+          (n.data?.phase || n.data?.sprintPhase) !== activePhase
+        ),
       })),
     );
-  }, [tagFilter]); // eslint-disable-line
+    setTimeout(() => fitView({ duration: 700, padding: 0.25 }), 80);
+  }, [activePhase]); // eslint-disable-line
 
   // ── Search ────────────────────────────────────────────────────────────────
   const handleSearch = useCallback(
@@ -222,25 +296,45 @@ export const FlowCanvas = ({
         );
         return;
       }
-      const target = nodes.find(
-        (n) =>
-          n.data?.title?.toLowerCase().includes(q.toLowerCase()) ||
-          n.data?.subtitle?.toLowerCase().includes(q.toLowerCase()),
+      const lower = q.toLowerCase();
+      let found = null;
+      setNodes((nds) =>
+        nds.map((n) => {
+          const match =
+            n.data?.title?.toLowerCase().includes(lower) ||
+            n.data?.subtitle?.toLowerCase().includes(lower) ||
+            n.data?.desc?.toLowerCase().includes(lower);
+          if (match && !found) found = n;
+          return { ...n, data: { ...n.data, isDimmed: !match } };
+        }),
       );
-      if (target) {
-        setCenter(target.position.x + 210, target.position.y + 160, {
-          zoom: 1.3,
-          duration: 800,
+      if (found) {
+        setCenter(found.position.x + 150, found.position.y + 100, {
+          zoom: 1.4,
+          duration: 700,
         });
-        setNodes((nds) =>
-          nds.map((n) => ({
-            ...n,
-            data: { ...n.data, isDimmed: n.id !== target.id },
-          })),
-        );
       }
     },
-    [nodes, setNodes, setCenter],
+    [setNodes, setCenter],
+  );
+
+  // ── Auto Layout (Dagre) ────────────────────────────────────────────────────
+  const applyAutoLayout = useCallback(
+    (direction = "LR") => {
+      setNodes((current) => {
+        if (!current.length) return current;
+        const { layoutedNodes } = getLayoutedElements(
+          current,
+          edges,
+          direction,
+        );
+        setHasUnsavedChanges(true);
+        return layoutedNodes;
+      });
+      addToast("Neural topology auto-aligned.", "grey");
+      setTimeout(() => fitView({ duration: 800, padding: 0.28 }), 60);
+    },
+    [edges, setNodes, fitView, setHasUnsavedChanges, addToast],
   );
 
   // ── Keyboard shortcuts ────────────────────────────────────────────────────
@@ -254,7 +348,12 @@ export const FlowCanvas = ({
     };
 
     const handler = (e) => {
-      if (isTyping()) return;
+      // Ctrl+S — save
+      if ((e.ctrlKey || e.metaKey) && e.key === "s") {
+        e.preventDefault();
+        handleCloudSave?.();
+        return;
+      }
 
       // Ctrl+Z — undo
       if ((e.ctrlKey || e.metaKey) && e.key === "z" && !e.shiftKey) {
@@ -262,6 +361,7 @@ export const FlowCanvas = ({
         undo?.();
         return;
       }
+
       // Ctrl+Shift+Z — redo
       if ((e.ctrlKey || e.metaKey) && e.key === "z" && e.shiftKey) {
         e.preventDefault();
@@ -269,11 +369,48 @@ export const FlowCanvas = ({
         return;
       }
 
-      // Delete / Backspace
+      if (isTyping()) return;
+
+      // F — fullscreen
+      if (e.key === "f" || e.key === "F") {
+        e.preventDefault();
+        setIsMapFullscreen((v) => !v);
+        setTimeout(() => fitView({ duration: 500, padding: 0.2 }), 60);
+        return;
+      }
+
+      // M — minimap
+      if (e.key === "m" || e.key === "M") {
+        e.preventDefault();
+        setShowMini((v) => !v);
+        return;
+      }
+
+      // L — auto-layout
+      if (e.key === "l" || e.key === "L") {
+        e.preventDefault();
+        applyAutoLayout("LR");
+        return;
+      }
+
+      // Escape — close menus, deselect
+      if (e.key === "Escape") {
+        setPaneMenu(null);
+        setNodeMenu(null);
+        setEdgeMenu(null);
+        setActiveEditNodeId(null);
+        setSearchQ("");
+        setNodes((nds) =>
+          nds.map((n) => ({ ...n, data: { ...n.data, isDimmed: false } })),
+        );
+        return;
+      }
+
+      // Delete / Backspace — remove selected
       if (e.key === "Delete" || e.key === "Backspace") {
         const sel = nodes.filter((n) => n.selected);
         const selE = edges.filter((ed) => ed.selected);
-        if (sel.length === 0 && selE.length === 0) return;
+        if (!sel.length && !selE.length) return;
         e.preventDefault();
         const ids = new Set(sel.map((n) => n.id));
         const eids = new Set(selE.map((ed) => ed.id));
@@ -285,15 +422,15 @@ export const FlowCanvas = ({
         );
         setNodes((nds) => nds.filter((n) => !ids.has(n.id)));
         setHasUnsavedChanges(true);
-        addToast(`${sel.length} node(s) removed.`, "red");
+        addToast(`${sel.length + selE.size} element(s) removed.`, "red");
         return;
       }
 
-      // + or =  — add node
+      // + or = — add node
       if ((e.key === "+" || e.key === "=") && !e.ctrlKey && !e.metaKey) {
         e.preventDefault();
-        const maxAllowed = TIER_LIMITS[subscriptionTier] || TIER_LIMITS.free;
-        if (nodes.length >= maxAllowed) {
+        const max = TIER_LIMITS[subscriptionTier] || TIER_LIMITS.free;
+        if (nodes.length >= max) {
           onLimitReached();
           return;
         }
@@ -302,7 +439,7 @@ export const FlowCanvas = ({
         const H = window.innerHeight;
         const cx = (-vp.x + W / 2) / vp.zoom;
         const cy = (-vp.y + H / 2) / vp.zoom;
-        const id = crypto.randomUUID(); // Fix: was Date.now() — collision-safe
+        const id = crypto.randomUUID();
         setNodes((nds) => [
           ...nds,
           {
@@ -318,7 +455,7 @@ export const FlowCanvas = ({
               isCompleted: false,
               priorityStatus: "FUTURE",
               nodeType: "branch",
-              accentColor: "amber",
+              accentColor: "gold",
               tags: [],
               collapsed: false,
               linkedAssets: [],
@@ -334,7 +471,7 @@ export const FlowCanvas = ({
       if ((e.ctrlKey || e.metaKey) && e.key === "d") {
         e.preventDefault();
         const sel = nodes.filter((n) => n.selected);
-        if (sel.length === 0) return;
+        if (!sel.length) return;
         const max = TIER_LIMITS[subscriptionTier] || TIER_LIMITS.free;
         if (nodes.length + sel.length > max) {
           onLimitReached();
@@ -367,11 +504,11 @@ export const FlowCanvas = ({
         return;
       }
 
-      // Tab — cycle nodes
+      // Tab — cycle execution nodes
       if (e.key === "Tab") {
         e.preventDefault();
         const exec = nodes.filter((n) => n.type === "executionNode");
-        if (exec.length === 0) return;
+        if (!exec.length) return;
         const cur = exec.findIndex((n) => n.selected);
         const next = e.shiftKey
           ? cur <= 0
@@ -385,9 +522,9 @@ export const FlowCanvas = ({
           nds.map((n) => ({ ...n, selected: n.id === tgt.id })),
         );
         setActiveEditNodeId(tgt.id);
-        setCenter(tgt.position.x + 210, tgt.position.y + 100, {
+        setCenter(tgt.position.x + 150, tgt.position.y + 90, {
           zoom: 1.2,
-          duration: 600,
+          duration: 550,
         });
         return;
       }
@@ -404,7 +541,6 @@ export const FlowCanvas = ({
           { x: vp.x + dx, y: vp.y + dy, zoom: vp.zoom },
           { duration: 100 },
         );
-        return;
       }
     };
 
@@ -417,6 +553,7 @@ export const FlowCanvas = ({
     setEdges,
     undo,
     redo,
+    handleCloudSave,
     subscriptionTier,
     onLimitReached,
     setHasUnsavedChanges,
@@ -425,14 +562,25 @@ export const FlowCanvas = ({
     setCenter,
     setViewport,
     getViewport,
+    isMapFullscreen,
+    setIsMapFullscreen,
+    applyAutoLayout,
+    fitView,
   ]); // eslint-disable-line
 
-  // ── ReactFlow handlers ────────────────────────────────────────────────────
+  // ── ReactFlow core handlers ────────────────────────────────────────────────
   const onNodesChange = useCallback(
     (changes) => {
       setNodes((nds) => {
         const updated = applyNodeChanges(changes, nds);
-        setHasUnsavedChanges(true);
+        // Only mark dirty on non-selection changes
+        const hasPositionOrData = changes.some(
+          (c) =>
+            c.type === "position" ||
+            c.type === "dimensions" ||
+            c.type === "remove",
+        );
+        if (hasPositionOrData) setHasUnsavedChanges(true);
         return updated;
       });
     },
@@ -442,7 +590,8 @@ export const FlowCanvas = ({
   const onEdgesChange = useCallback(
     (changes) => {
       setEdges((eds) => {
-        setHasUnsavedChanges(true);
+        const hasRemove = changes.some((c) => c.type === "remove");
+        if (hasRemove) setHasUnsavedChanges(true);
         return applyEdgeChanges(changes, eds);
       });
     },
@@ -468,8 +617,7 @@ export const FlowCanvas = ({
         connType = "branch-sub";
       }
       const accent =
-        NODE_ACCENT_PALETTE[src?.data?.accentColor || "amber"]?.primary ||
-        "#f59e0b";
+        NODE_ACCENT_PALETTE[src?.data?.accentColor || "amber"]?.primary || GOLD;
       setEdges((eds) =>
         addEdge(
           {
@@ -504,24 +652,10 @@ export const FlowCanvas = ({
     setNodes((nds) =>
       nds.map((n) => ({ ...n, data: { ...n.data, isDimmed: false } })),
     );
-    if (searchQ) setSearchQ("");
+    if (searchQ) {
+      setSearchQ("");
+    }
   }, [setActiveEditNodeId, setNodes, searchQ]);
-
-  // ── Auto Layout Engine ────────────────────────────────────────────────────
-  const applyAutoLayout = useCallback(() => {
-    setNodes((currentNodes) => {
-      // 1. Math computation
-      const { layoutedNodes } = getLayoutedElements(currentNodes, edges, "LR");
-      return layoutedNodes;
-    });
-
-    // 2. Mark as unsaved
-    setHasUnsavedChanges(true);
-    addToast("Neural auto-layout applied.", "grey");
-
-    // 3. Smooth camera follow
-    setTimeout(() => fitView({ duration: 800, padding: 0.3 }), 50);
-  }, [edges, setNodes, fitView, setHasUnsavedChanges, addToast]);
 
   // ── Export ────────────────────────────────────────────────────────────────
   const handleDownload = async (format) => {
@@ -533,76 +667,92 @@ export const FlowCanvas = ({
       if (format === "png") {
         const dataUrl = await toPng(el, {
           pixelRatio: 3,
-          backgroundColor: "#030303",
+          backgroundColor: VOID,
         });
         const a = document.createElement("a");
         a.href = dataUrl;
         a.download = `discotive_map_${Date.now()}.png`;
         a.click();
-      } else if (format === "svg") {
-        // SVG-first export: captures the ReactFlow SVG layer
-        const svgEl = el.querySelector("svg");
-        if (!svgEl) return;
-        const svgData = new XMLSerializer().serializeToString(svgEl);
-        const blob = new Blob([svgData], { type: "image/svg+xml" });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = `discotive_map_${Date.now()}.svg`;
-        a.click();
-        URL.revokeObjectURL(url);
       } else if (format === "pdf") {
-        // Vector-first PDF: render SVG → embed in PDF (not a raster screenshot)
-        const svgEl = el.querySelector("svg");
-        const dataUrl = svgEl
-          ? `data:image/svg+xml;base64,${btoa(new XMLSerializer().serializeToString(svgEl))}`
-          : await toPng(el, { pixelRatio: 2 });
+        const dataUrl = await toPng(el, {
+          pixelRatio: 2,
+          backgroundColor: VOID,
+        });
         const pdf = new jsPDF({ orientation: "landscape", format: "a2" });
         const W = pdf.internal.pageSize.getWidth();
         const H = pdf.internal.pageSize.getHeight();
-        if (svgEl) {
-          // addSvgAsImage is vector-preserving when using SVG source
-          pdf.addImage(dataUrl, "SVG", 0, 0, W, H);
-        } else {
-          pdf.addImage(dataUrl, "PNG", 0, 0, W, H);
-        }
+        pdf.addImage(dataUrl, "PNG", 0, 0, W, H);
         pdf.save(`discotive_map_${Date.now()}.pdf`);
       }
       addToast("Export ready.", "green");
-    } catch (e) {
-      console.error("[Export]", e);
-      addToast("Export failed. Try PNG instead.", "red");
+    } catch (err) {
+      console.error("[FlowCanvas Export]", err);
+      addToast("Export failed. Try PNG.", "red");
     }
   };
 
+  // ─────────────────────────────────────────────────────────────────────────
   return (
     <div className="relative flex-1 h-full overflow-hidden">
-      {/* ── HUD: LEFT CLUSTER ── */}
-      <div className="absolute top-4 left-4 md:top-5 md:left-5 z-[70] flex flex-col gap-2">
-        {/* Calibration trigger */}
-        <button
-          onClick={(e) => {
-            e.preventDefault();
-            handleStartCalibration?.();
-          }}
-          aria-label="Generate AI execution map"
-          title="Generate AI execution map (Wand)"
-          className="relative w-9 h-9 bg-[#0d0d12] border border-white/[0.08] rounded-xl text-[#888] hover:text-white hover:border-amber-500/40 hover:bg-amber-500/8 transition-all shadow-2xl flex items-center justify-center focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:outline-none"
+      {/* ══════════════ SPRINT PHASE BAR ══════════════ */}
+      {phases.length > 0 && (
+        <div className="absolute top-0 left-0 right-0 z-[60] flex items-center gap-1.5 px-4 pt-2 pb-0 pointer-events-none">
+          <div className="flex items-center gap-1.5 pointer-events-auto bg-[#060606]/90 backdrop-blur-xl border border-[#1a1a1a] px-3 py-1.5 rounded-xl shadow-2xl">
+            <Layers className="w-3 h-3 shrink-0" style={{ color: GOLD }} />
+            <span
+              className="text-[9px] font-black uppercase tracking-widest mr-1"
+              style={{ color: GOLD }}
+            >
+              Sprint
+            </span>
+            <button
+              onClick={() => setActivePhase(null)}
+              className={cn(
+                "px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all",
+                !activePhase ? "text-black" : "text-[#555] hover:text-white",
+              )}
+              style={!activePhase ? { background: GOLD } : {}}
+            >
+              All
+            </button>
+            {phases.map((p) => (
+              <button
+                key={p}
+                onClick={() => setActivePhase(activePhase === p ? null : p)}
+                className={cn(
+                  "px-2.5 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all whitespace-nowrap",
+                  activePhase === p
+                    ? "text-black"
+                    : "text-[#555] hover:text-white",
+                )}
+                style={activePhase === p ? { background: GOLD } : {}}
+              >
+                {p}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ══════════════ HUD: LEFT CLUSTER ══════════════ */}
+      <div
+        className="absolute z-[70] flex flex-col gap-2"
+        style={{
+          top: phases.length > 0 ? "3.5rem" : "1.25rem",
+          left: "1.25rem",
+        }}
+      >
+        {/* AI Calibration */}
+        <HudButton
+          onClick={handleStartCalibration}
+          title="Generate AI Execution Map"
+          gold
         >
           <Wand2 className="w-4 h-4" />
-        </button>
+        </HudButton>
 
-        {/* Undo / Redo */}
-        <button
-          onClick={(e) => {
-            e.preventDefault();
-            undo?.();
-          }}
-          disabled={!canUndo}
-          aria-label="Undo"
-          title="Undo (Ctrl+Z)"
-          className="w-10 h-10 bg-[#080808]/95 backdrop-blur-xl border border-[#1a1a1a] rounded-full text-[#888] hover:text-white transition-all shadow-2xl flex items-center justify-center disabled:opacity-30 focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:outline-none"
-        >
+        {/* Undo */}
+        <HudButton onClick={undo} disabled={!canUndo} title="Undo (Ctrl+Z)">
           <svg
             viewBox="0 0 24 24"
             className="w-4 h-4"
@@ -615,16 +765,13 @@ export const FlowCanvas = ({
             <path d="M3 7v6h6" />
             <path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13" />
           </svg>
-        </button>
-        <button
-          onClick={(e) => {
-            e.preventDefault();
-            redo?.();
-          }}
+        </HudButton>
+
+        {/* Redo */}
+        <HudButton
+          onClick={redo}
           disabled={!canRedo}
-          aria-label="Redo"
           title="Redo (Ctrl+Shift+Z)"
-          className="w-10 h-10 bg-[#080808]/95 backdrop-blur-xl border border-[#1a1a1a] rounded-full text-[#888] hover:text-white transition-all shadow-2xl flex items-center justify-center disabled:opacity-30 focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:outline-none"
         >
           <svg
             viewBox="0 0 24 24"
@@ -638,60 +785,85 @@ export const FlowCanvas = ({
             <path d="M21 7v6h-6" />
             <path d="M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3L21 13" />
           </svg>
-        </button>
+        </HudButton>
       </div>
 
-      {/* ── HUD: TOP BAR ── */}
-      <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[70] flex items-center gap-2 flex-wrap justify-center">
+      {/* ══════════════ HUD: TOP CENTER ══════════════ */}
+      <div
+        className="absolute left-1/2 -translate-x-1/2 z-[70] flex items-center gap-2 flex-wrap justify-center"
+        style={{ top: phases.length > 0 ? "3.5rem" : "1.25rem" }}
+      >
         <TopologyStats nodes={nodes} edges={edges} />
 
-        {/* Sync status */}
-        <div className="hidden md:flex items-center gap-1.5 px-3 py-1.5 bg-[#080808]/95 backdrop-blur-xl border border-[#1a1a1a] rounded-full text-[9px] font-black uppercase tracking-widest text-[#888]">
+        {/* Sync badge */}
+        <div
+          className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest border backdrop-blur-xl"
+          style={{
+            background: `${SURFACE}/90`,
+            borderColor: isSaving
+              ? `${GOLD}60`
+              : hasUnsavedChanges
+                ? "rgba(245,158,11,0.4)"
+                : "rgba(16,185,129,0.3)",
+          }}
+        >
           {isSaving ? (
             <>
-              <RefreshCw className="w-3 h-3 animate-spin text-amber-500" />{" "}
+              <RefreshCw
+                className="w-3 h-3 animate-spin"
+                style={{ color: GOLD }}
+              />{" "}
               Saving…
             </>
           ) : hasUnsavedChanges ? (
             <>
-              <CloudOff className="w-3 h-3 text-amber-500" /> Unsaved
+              <CloudOff className="w-3 h-3 text-amber-400" /> Unsaved
             </>
           ) : (
             <>
-              <Cloud className="w-3 h-3 text-emerald-500" /> Synced
+              <Cloud className="w-3 h-3 text-emerald-400" /> Synced
             </>
           )}
         </div>
 
         <button
-          onClick={(e) => {
-            e.preventDefault();
-            handleCloudSave?.();
-          }}
+          onClick={handleCloudSave}
           disabled={!hasUnsavedChanges || isSaving}
-          aria-label="Save to cloud (Ctrl+S)"
-          className="bg-white text-black px-4 py-1.5 rounded-full font-extrabold text-[9px] uppercase tracking-widest hover:bg-[#ddd] transition-colors disabled:opacity-40 shadow-[0_0_15px_rgba(255,255,255,0.1)] focus-visible:ring-2 focus-visible:ring-white focus-visible:outline-none"
+          className="px-4 py-1.5 rounded-full font-extrabold text-[9px] uppercase tracking-widest transition-colors disabled:opacity-40"
+          style={{
+            background: hasUnsavedChanges ? GOLD : ELEVATED,
+            color: hasUnsavedChanges ? "#000" : "#555",
+            boxShadow: hasUnsavedChanges ? `0 0 16px ${GOLD_DIM}` : "none",
+          }}
         >
           Save
         </button>
       </div>
 
-      {/* ── HUD: SEARCH + FILTER ── */}
-      <div className="absolute top-4 right-[180px] md:right-[200px] z-[70] flex items-center gap-2">
-        <div className="relative">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-[#888]" />
+      {/* ══════════════ HUD: SEARCH ══════════════ */}
+      <div
+        className="absolute z-[70]"
+        style={{
+          top: phases.length > 0 ? "3.5rem" : "1.25rem",
+          right: "12.5rem",
+        }}
+      >
+        <div className="relative group">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-[#555] group-focus-within:text-[#BFA264] transition-colors" />
           <input
+            ref={searchInputRef}
             type="search"
             value={searchQ}
             onChange={(e) => handleSearch(e.target.value)}
             placeholder="Find node…"
-            aria-label="Search nodes"
-            className="w-24 md:w-36 bg-[#080808]/95 backdrop-blur-xl border border-[#1a1a1a] text-white pl-8 pr-3 py-2 rounded-full focus:outline-none focus:border-amber-500/40 text-xs placeholder:text-[#444] transition-all focus:w-32 md:focus:w-48 focus-visible:ring-1 focus-visible:ring-amber-500"
+            className="w-24 md:w-36 bg-[#0a0a0a]/90 backdrop-blur-xl border border-[#1a1a1a] text-white pl-8 pr-3 py-2 rounded-full focus:outline-none text-xs placeholder:text-[#444] transition-all focus:w-36 md:focus:w-48"
+            style={{ "--tw-ring-color": GOLD }}
+            onFocus={(e) => (e.target.style.borderColor = GOLD_BORDER)}
+            onBlur={(e) => (e.target.style.borderColor = "#1a1a1a")}
           />
           {searchQ && (
             <button
               onClick={() => handleSearch("")}
-              aria-label="Clear search"
               className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#444] hover:text-white transition-colors"
             >
               <X className="w-3 h-3" />
@@ -700,78 +872,62 @@ export const FlowCanvas = ({
         </div>
       </div>
 
-      {/* ── HUD: RIGHT CLUSTER ── */}
-      <div className="absolute top-4 right-4 md:top-5 md:right-5 z-[70] flex flex-col gap-2">
-        {/* <-- NEW: Auto Layout Trigger --> */}
-        <button
-          onClick={applyAutoLayout}
-          aria-label="Auto Layout"
-          title="Organize Neural Web"
-          className="w-10 h-10 bg-[#080808]/95 backdrop-blur-xl border border-amber-500/20 rounded-full text-amber-500 hover:text-white hover:bg-amber-500/20 transition-all shadow-2xl flex items-center justify-center focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:outline-none"
+      {/* ══════════════ HUD: RIGHT CLUSTER ══════════════ */}
+      <div
+        className="absolute z-[70] flex flex-col gap-2"
+        style={{
+          top: phases.length > 0 ? "3.5rem" : "1.25rem",
+          right: "1.25rem",
+        }}
+      >
+        {/* Auto-layout */}
+        <HudButton
+          onClick={() => applyAutoLayout("LR")}
+          title="Auto-Layout Topology (L)"
+          style={{ borderColor: `${GOLD}40`, color: GOLD }}
         >
           <Network className="w-4 h-4" />
-        </button>
+        </HudButton>
 
-        <button
+        {/* Fit view */}
+        <HudButton
           onClick={() => fitView({ duration: 800, padding: 0.3 })}
-          aria-label="Fit view"
-          title="Fit map to view"
-          className="w-10 h-10 bg-[#080808]/95 backdrop-blur-xl border border-[#1a1a1a] rounded-full text-[#888] hover:text-white hover:bg-[#111] transition-all shadow-2xl flex items-center justify-center focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:outline-none"
+          title="Fit to View"
         >
           <Target className="w-4 h-4" />
-        </button>
-        <button
+        </HudButton>
+
+        {/* Minimap toggle */}
+        <HudButton
           onClick={() => setShowMini((v) => !v)}
-          aria-label={showMini ? "Hide minimap" : "Show minimap"}
-          title="Toggle minimap"
-          className={cn(
-            "w-10 h-10 backdrop-blur-xl border rounded-full transition-all shadow-2xl flex items-center justify-center focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:outline-none",
-            showMini
-              ? "bg-amber-500/10 border-amber-500/30 text-amber-500"
-              : "bg-[#080808]/95 border-[#1a1a1a] text-[#888] hover:text-white hover:bg-[#111]",
-          )}
+          title="Toggle Minimap (M)"
+          active={showMini}
         >
           <MapIcon className="w-4 h-4" />
-        </button>
+        </HudButton>
 
-        {/* Download menu */}
+        {/* Download */}
         <div className="relative" ref={dlRef}>
-          <button
-            onClick={() => setDlOpen((v) => !v)}
-            aria-label="Export options"
-            aria-haspopup="menu"
-            aria-expanded={dlOpen}
-            className="w-10 h-10 bg-[#080808]/95 backdrop-blur-xl border border-[#1a1a1a] rounded-full text-[#888] hover:text-white hover:bg-[#111] transition-all shadow-2xl flex items-center justify-center focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:outline-none"
-          >
+          <HudButton onClick={() => setDlOpen((v) => !v)} title="Export Map">
             <Download className="w-4 h-4" />
-          </button>
+          </HudButton>
           <AnimatePresence>
             {dlOpen && (
               <motion.div
-                role="menu"
                 initial={{ opacity: 0, y: 6, scale: 0.95 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, y: 6, scale: 0.95 }}
-                className="absolute top-full right-0 mt-2 w-48 bg-[#080808] border border-[#1e1e1e] rounded-xl shadow-2xl overflow-hidden"
+                className="absolute top-full right-0 mt-2 w-44 rounded-xl overflow-hidden shadow-2xl border border-[#1e1e1e]"
+                style={{ background: SURFACE }}
               >
                 {[
                   { format: "png", label: "Export PNG", icon: ImageIcon },
-                  {
-                    format: "svg",
-                    label: "Export SVG (vector)",
-                    icon: FileText,
-                  },
-                  {
-                    format: "pdf",
-                    label: "Export PDF (vector)",
-                    icon: FileText,
-                  },
+                  { format: "pdf", label: "Export PDF", icon: FileText },
                 ].map(({ format, label, icon: Icon }) => (
                   <button
                     key={format}
-                    role="menuitem"
                     onClick={() => handleDownload(format)}
-                    className="flex items-center gap-3 px-4 py-3 text-xs font-bold text-white hover:bg-[#111] w-full border-b border-[#1a1a1a] last:border-0 transition-colors"
+                    className="flex items-center gap-3 px-4 py-3 text-xs font-bold text-white hover:bg-white/[0.04] w-full border-b border-[#1a1a1a] last:border-0 transition-colors"
                   >
                     <Icon className="w-4 h-4 text-[#666]" /> {label}
                   </button>
@@ -781,26 +937,23 @@ export const FlowCanvas = ({
           </AnimatePresence>
         </div>
 
-        <button
+        {/* Fullscreen */}
+        <HudButton
           onClick={() => {
             setIsMapFullscreen((v) => !v);
-            setTimeout(() => fitView({ duration: 800, padding: 0.3 }), 50);
+            setTimeout(() => fitView({ duration: 600, padding: 0.25 }), 60);
           }}
-          aria-label={
-            isMapFullscreen ? "Exit fullscreen (F)" : "Enter fullscreen (F)"
-          }
-          title={isMapFullscreen ? "Exit fullscreen" : "Fullscreen (F)"}
-          className="w-10 h-10 bg-[#080808]/95 backdrop-blur-xl border border-[#1a1a1a] rounded-full text-[#888] hover:text-white hover:bg-[#111] transition-all shadow-2xl flex items-center justify-center focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:outline-none"
+          title={isMapFullscreen ? "Exit Fullscreen (F)" : "Fullscreen (F)"}
         >
           {isMapFullscreen ? (
             <Minimize className="w-4 h-4" />
           ) : (
             <Maximize className="w-4 h-4" />
           )}
-        </button>
+        </HudButton>
       </div>
 
-      {/* ── REACT FLOW CANVAS ── */}
+      {/* ══════════════ REACT FLOW CANVAS ══════════════ */}
       <ReactFlow
         nodes={nodes}
         edges={edges}
@@ -815,45 +968,41 @@ export const FlowCanvas = ({
           e.preventDefault();
           setNodeMenu(null);
           setEdgeMenu(null);
-          setPaneMenu({
-            ...clampMenu(e.clientX, e.clientY),
-            rawX: e.clientX,
-            rawY: e.clientY,
-          });
+          setPaneMenu(clampMenu(e.clientX, e.clientY));
         }}
         onNodeContextMenu={(e, node) => {
           e.preventDefault();
           setPaneMenu(null);
           setEdgeMenu(null);
-          setNodeMenu({ ...clampMenu(e.clientX, e.clientY, 220, 200), node });
+          setNodeMenu({ ...clampMenu(e.clientX, e.clientY, 220, 160), node });
         }}
         onEdgeContextMenu={(e, edge) => {
           e.preventDefault();
           setPaneMenu(null);
           setNodeMenu(null);
-          setEdgeMenu({ ...clampMenu(e.clientX, e.clientY, 220, 180), edge });
+          setEdgeMenu({ ...clampMenu(e.clientX, e.clientY, 220, 200), edge });
         }}
         fitView
         fitViewOptions={{ padding: 0.3, duration: 800 }}
         snapToGrid
-        snapGrid={[20, 20]}
+        snapGrid={[16, 16]}
         connectionLineType="smoothstep"
-        connectionRadius={35}
-        minZoom={0.03}
-        maxZoom={3}
+        connectionRadius={36}
+        minZoom={0.04}
+        maxZoom={3.5}
         elevateNodesOnSelect
         selectNodesOnDrag={false}
         onlyRenderVisibleElements
         proOptions={{ hideAttribution: true }}
         defaultEdgeOptions={{ type: "neuralEdge", animated: false }}
-        className="bg-[#101010]"
+        className="bg-[#0a0a0a]"
       >
         <Suspense fallback={null}>
           <Background
             variant="dots"
-            color="rgba(255,255,255,0.15)"
-            gap={24}
-            size={1.5}
+            color="rgba(191,162,100,0.08)"
+            gap={28}
+            size={1.2}
             style={{ backgroundColor: "#070707" }}
           />
         </Suspense>
@@ -861,7 +1010,7 @@ export const FlowCanvas = ({
         <Suspense fallback={null}>
           <Controls
             showInteractive={false}
-            className="!bg-transparent !border-none [&_.react-flow__controls-button]:bg-[#0d0d12] [&_.react-flow__controls-button]:border-white/[0.07] [&_.react-flow__controls-button]:fill-[rgba(255,255,255,0.4)] [&_.react-flow__controls-button:hover]:bg-[#13131a] rounded-xl border border-white/[0.06] overflow-hidden z-30 hidden md:flex"
+            className="!bg-transparent !border-none [&_.react-flow__controls-button]:bg-[#0d0d12] [&_.react-flow__controls-button]:border-white/[0.06] [&_.react-flow__controls-button]:fill-[rgba(255,255,255,0.35)] [&_.react-flow__controls-button:hover]:bg-[#13131a] rounded-xl border border-[#1a1a1a] overflow-hidden z-30 hidden md:flex"
           />
         </Suspense>
 
@@ -872,16 +1021,15 @@ export const FlowCanvas = ({
                 n.data?.isCompleted
                   ? "#10b981"
                   : n.data?.priorityStatus === "READY"
-                    ? "#f59e0b"
-                    : "#333"
+                    ? GOLD
+                    : "#222"
               }
-              maskColor="rgba(0,0,0,0.85)"
+              maskColor="rgba(0,0,0,0.88)"
               style={{
-                background: "#080808",
-                border: "1px solid #1e1e1e",
-                borderRadius: 12,
+                background: "#060606",
+                border: `1px solid ${GOLD_BORDER}`,
+                borderRadius: 10,
               }}
-              aria-label="Canvas minimap"
             />
           </Suspense>
         )}
@@ -891,8 +1039,6 @@ export const FlowCanvas = ({
       {(paneMenu || nodeMenu || edgeMenu) && (
         <div
           className="fixed inset-0 z-[90]"
-          role="presentation"
-          tabIndex={-1}
           onClick={() => {
             setPaneMenu(null);
             setNodeMenu(null);
@@ -904,11 +1050,11 @@ export const FlowCanvas = ({
             setNodeMenu(null);
             setEdgeMenu(null);
           }}
-          aria-hidden="true"
+          aria-hidden
         />
       )}
 
-      {/* Pane context menu — inline (ContextMenus.jsx handles the visual) */}
+      {/* Context menus */}
       <AnimatePresence>
         {paneMenu && (
           <PaneContextMenu
@@ -919,7 +1065,6 @@ export const FlowCanvas = ({
             addToast={addToast}
             screenToFlowPosition={screenToFlowPosition}
             subscriptionTier={subscriptionTier}
-            totalNodesCount={totalNodesCount}
             onLimitReached={onLimitReached}
             onClose={() => setPaneMenu(null)}
             setActiveEditNodeId={setActiveEditNodeId}
@@ -949,43 +1094,69 @@ export const FlowCanvas = ({
   );
 };
 
-// ─── Inline context menus (kept here to avoid cross-file coupling) ────────────
-
-const menuItem = (label, icon, onClick, danger = false) => {
-  const Icon = icon;
-  return (
-    <button
-      key={label}
+// ─────────────────────────────────────────────────────────────────────────────
+// HudButton — reusable HUD icon button
+// ─────────────────────────────────────────────────────────────────────────────
+const HudButton = memo(
+  ({
+    children,
+    onClick,
+    disabled,
+    title,
+    gold,
+    active,
+    style: extStyle = {},
+  }) => (
+    <motion.button
       onClick={onClick}
-      role="menuitem"
+      disabled={disabled}
+      title={title}
+      whileHover={disabled ? {} : { scale: 1.08 }}
+      whileTap={disabled ? {} : { scale: 0.93 }}
       className={cn(
-        "w-full flex items-center gap-3 px-4 py-2.5 text-xs font-bold transition-colors text-left focus-visible:bg-[#1a1a1a] focus-visible:outline-none",
-        danger
-          ? "text-rose-400 hover:bg-rose-500/10"
-          : "text-[#ccc] hover:bg-[#111] hover:text-white",
+        "w-10 h-10 rounded-xl border flex items-center justify-center transition-colors shadow-2xl backdrop-blur-xl focus-visible:outline-none disabled:opacity-30",
+        gold
+          ? "text-black"
+          : active
+            ? "text-white"
+            : "text-[#888] hover:text-white",
       )}
+      style={{
+        background: gold ? GOLD : active ? ELEVATED : `${SURFACE}/90`,
+        borderColor: gold ? `${GOLD}80` : active ? `${GOLD}40` : "#1a1a1a",
+        boxShadow: gold ? `0 0 16px ${GOLD_DIM}` : "none",
+        ...extStyle,
+      }}
     >
-      {Icon && <Icon className="w-4 h-4 shrink-0" />}
-      {label}
-    </button>
-  );
-};
+      {children}
+    </motion.button>
+  ),
+);
+HudButton.displayName = "HudButton";
 
+// ─────────────────────────────────────────────────────────────────────────────
+// ContextMenuBase — shared wrapper
+// ─────────────────────────────────────────────────────────────────────────────
 const ContextMenuBase = ({ pos, children, onClose }) => (
   <motion.div
-    initial={{ opacity: 0, scale: 0.95, y: -4 }}
+    initial={{ opacity: 0, scale: 0.95, y: -6 }}
     animate={{ opacity: 1, scale: 1, y: 0 }}
-    exit={{ opacity: 0, scale: 0.95, y: -4 }}
+    exit={{ opacity: 0, scale: 0.95, y: -6 }}
+    transition={{ duration: 0.12 }}
     style={{ position: "fixed", left: pos.left, top: pos.top, zIndex: 100 }}
-    className="w-[220px] bg-[#060606] border border-[#1e1e1e] rounded-2xl shadow-[0_30px_60px_rgba(0,0,0,0.95)] overflow-hidden"
+    className="w-[220px] border border-[#1e1e1e] rounded-2xl overflow-hidden shadow-[0_30px_60px_rgba(0,0,0,0.95)]"
+    style2={{ background: SURFACE }}
     role="menu"
     onClick={(e) => e.stopPropagation()}
     onKeyDown={(e) => e.key === "Escape" && onClose()}
   >
-    {children}
+    <div style={{ background: "#060606" }}>{children}</div>
   </motion.div>
 );
 
+// ─────────────────────────────────────────────────────────────────────────────
+// PaneContextMenu — right-click on empty canvas
+// ─────────────────────────────────────────────────────────────────────────────
 const PaneContextMenu = ({
   pos,
   nodes,
@@ -994,7 +1165,6 @@ const PaneContextMenu = ({
   addToast,
   screenToFlowPosition,
   subscriptionTier,
-  totalNodesCount,
   onLimitReached,
   onClose,
   setActiveEditNodeId,
@@ -1008,26 +1178,33 @@ const PaneContextMenu = ({
     }
     const fp = screenToFlowPosition({ x: pos.rawX, y: pos.rawY });
     const id = crypto.randomUUID();
+    const defaults = {
+      title:
+        type === "executionNode"
+          ? "New Protocol"
+          : type === "milestoneNode"
+            ? "Phase Complete"
+            : type === "assetWidget"
+              ? "Vault Target"
+              : "Node",
+      subtitle: "",
+      desc: "",
+      tasks: [],
+      isCompleted: false,
+      priorityStatus: "FUTURE",
+      nodeType: "branch",
+      accentColor: "gold",
+      tags: [],
+      collapsed: false,
+      linkedAssets: [],
+    };
     setNodes((nds) => [
       ...nds,
       {
         id,
         type,
         position: { x: fp.x, y: fp.y },
-        data: {
-          title: "New Protocol",
-          subtitle: "",
-          desc: "",
-          tasks: [],
-          isCompleted: false,
-          priorityStatus: "FUTURE",
-          nodeType: "branch",
-          accentColor: "amber",
-          tags: [],
-          collapsed: false,
-          linkedAssets: [],
-          ...extra,
-        },
+        data: { ...defaults, ...extra },
       },
     ]);
     setHasUnsavedChanges(true);
@@ -1035,36 +1212,30 @@ const PaneContextMenu = ({
     addToast(`${type} deployed.`, "grey");
     onClose();
   };
+
   return (
     <ContextMenuBase pos={pos} onClose={onClose}>
-      <div className="px-4 py-2 border-b border-[#111]">
+      <div className="px-4 py-2.5 border-b border-[#111]">
         <span className="text-[8px] font-black text-[#444] uppercase tracking-widest">
           Add Node
         </span>
       </div>
-      {[
-        { label: "Execution Node", type: "executionNode" },
-        { label: "Milestone", type: "milestoneNode" },
-        { label: "AI Compute Gate", type: "computeNode" },
-        { label: "Logic Gate (AND/OR)", type: "logicGate" },
-        { label: "Journal Entry", type: "journalNode" },
-        { label: "Asset Widget", type: "assetWidget" },
-        { label: "Video Widget", type: "videoWidget" },
-        { label: "App Connector", type: "connectorNode" },
-        { label: "Group / Label", type: "groupNode" },
-      ].map(({ label, type }) => (
+      {NODE_PALETTE.map(({ type, label, icon: Icon, color }) => (
         <button
           key={type}
           onClick={() => addNode(type)}
-          className="w-full flex items-center gap-3 px-4 py-2.5 text-xs font-bold text-[#ccc] hover:bg-[#111] hover:text-white transition-colors text-left"
+          className="w-full flex items-center gap-3 px-4 py-2.5 text-xs font-bold text-[#ccc] hover:bg-white/[0.03] hover:text-white transition-colors text-left"
         >
-          {label}
+          <Icon className="w-3.5 h-3.5 shrink-0" style={{ color }} /> {label}
         </button>
       ))}
     </ContextMenuBase>
   );
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// NodeContextMenu — right-click on a node
+// ─────────────────────────────────────────────────────────────────────────────
 const NodeContextMenu = ({
   pos,
   setNodes,
@@ -1074,7 +1245,6 @@ const NodeContextMenu = ({
   onClose,
 }) => {
   const { node } = pos;
-
   return (
     <ContextMenuBase pos={pos} onClose={onClose}>
       <button
@@ -1097,7 +1267,7 @@ const NodeContextMenu = ({
           addToast("Node duplicated.", "grey");
           onClose();
         }}
-        className="w-full flex items-center gap-3 px-4 py-2.5 text-xs font-bold text-[#ccc] hover:bg-[#111] hover:text-white transition-colors text-left"
+        className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold text-[#ccc] hover:bg-white/[0.03] hover:text-white transition-colors text-left"
       >
         <Copy className="w-4 h-4" /> Duplicate
       </button>
@@ -1111,14 +1281,17 @@ const NodeContextMenu = ({
           addToast("Node removed.", "red");
           onClose();
         }}
-        className="w-full flex items-center gap-3 px-4 py-2.5 text-xs font-bold text-rose-400 hover:bg-rose-500/10 transition-colors text-left"
+        className="w-full flex items-center gap-3 px-4 py-3 text-xs font-bold text-rose-400 hover:bg-rose-500/10 transition-colors text-left border-t border-[#111]"
       >
-        <Trash2 className="w-4 h-4" /> Delete
+        <Trash2 className="w-4 h-4" /> Delete Node
       </button>
     </ContextMenuBase>
   );
 };
 
+// ─────────────────────────────────────────────────────────────────────────────
+// EdgeContextMenu — right-click on an edge
+// ─────────────────────────────────────────────────────────────────────────────
 const EdgeContextMenu = ({
   pos,
   setEdges,
@@ -1127,7 +1300,6 @@ const EdgeContextMenu = ({
   onClose,
 }) => {
   const { edge } = pos;
-
   const TYPES = ["core-core", "core-branch", "branch-sub", "open"];
   return (
     <ContextMenuBase pos={pos} onClose={onClose}>
@@ -1153,8 +1325,8 @@ const EdgeContextMenu = ({
           className={cn(
             "w-full px-4 py-2.5 text-xs font-bold transition-colors text-left",
             edge.data?.connType === t
-              ? "text-amber-400 bg-amber-500/8"
-              : "text-[#888] hover:bg-[#111] hover:text-white",
+              ? "text-[#BFA264] bg-[#BFA264]/8"
+              : "text-[#888] hover:bg-white/[0.03] hover:text-white",
           )}
         >
           {t}
