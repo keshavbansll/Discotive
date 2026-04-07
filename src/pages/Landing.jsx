@@ -7,6 +7,7 @@ import {
   useInView,
   useMotionValue,
   useSpring,
+  useMotionTemplate,
 } from "framer-motion";
 import {
   collection,
@@ -2170,6 +2171,93 @@ function ExecutionNode({
   );
 }
 
+// ─── INTERACTIVE HEADLINE (3D Parallax Tilt) ─────────────────────────────────
+function InteractiveHeadline() {
+  const ref = useRef(null);
+  const x = useMotionValue(0);
+  const y = useMotionValue(0);
+
+  // Smooth springs for the buttery Apple-like rotation
+  const mouseXSpring = useSpring(x, { stiffness: 150, damping: 20 });
+  const mouseYSpring = useSpring(y, { stiffness: 150, damping: 20 });
+
+  // Map mouse coordinates (-0.5 to 0.5) to rotation angles (max 12 degrees)
+  const rotateX = useTransform(mouseYSpring, [-0.5, 0.5], [12, -12]);
+  const rotateY = useTransform(mouseXSpring, [-0.5, 0.5], [-12, 12]);
+
+  // Create a dynamic drop-shadow that moves away from the cursor
+  const shadowX = useTransform(mouseXSpring, [-0.5, 0.5], [20, -20]);
+  const shadowY = useTransform(mouseYSpring, [-0.5, 0.5], [20, -20]);
+  const textShadow = useMotionTemplate`drop-shadow(${shadowX}px ${shadowY}px 25px rgba(191,162,100,0.25))`;
+
+  const handleMouseMove = (e) => {
+    if (!ref.current) return;
+    const rect = ref.current.getBoundingClientRect();
+    const width = rect.width;
+    const height = rect.height;
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+    x.set(mouseX / width - 0.5);
+    y.set(mouseY / height - 0.5);
+  };
+
+  const handleMouseLeave = () => {
+    x.set(0);
+    y.set(0);
+  };
+
+  return (
+    <div style={{ perspective: 1200, display: "inline-block", zIndex: 10 }}>
+      <motion.div
+        ref={ref}
+        onMouseMove={handleMouseMove}
+        onMouseLeave={handleMouseLeave}
+        style={{
+          rotateX,
+          rotateY,
+          transformStyle: "preserve-3d",
+          filter: textShadow,
+          cursor: "default",
+        }}
+        initial={{ opacity: 0, y: 30 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 1, delay: 0.5, ease: [0.23, 1, 0.32, 1] }}
+      >
+        <h1
+          style={{
+            fontFamily: "var(--font-display)",
+            fontStyle: "italic",
+            fontSize: "clamp(44px, 10vw, 108px)",
+            fontWeight: 400,
+            lineHeight: 0.92,
+            letterSpacing: "-0.03em",
+            color: "var(--text-primary)",
+            marginBottom: 16,
+            transform: "translateZ(30px)", // Pops off the screen slightly
+          }}
+        >
+          Build Your
+        </h1>
+        <h1
+          className="gold-text"
+          style={{
+            fontFamily: "var(--font-display)",
+            fontStyle: "normal",
+            fontSize: "clamp(44px, 10vw, 108px)",
+            fontWeight: 800,
+            lineHeight: 0.92,
+            letterSpacing: "-0.03em",
+            marginBottom: 28,
+            transform: "translateZ(60px)", // Pops off the screen even more
+          }}
+        >
+          Monopoly.
+        </h1>
+      </motion.div>
+    </div>
+  );
+}
+
 // ─── MAIN LANDING PAGE ────────────────────────────────────────────────────────
 export default function DiscotiveLanding() {
   const navigate = useNavigate();
@@ -2608,41 +2696,8 @@ export default function DiscotiveLanding() {
               </div>
             </motion.div>
 
-            {/* Headline */}
-            <motion.div
-              initial={{ opacity: 0, y: 30 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ duration: 1, delay: 0.5, ease: [0.23, 1, 0.32, 1] }}
-            >
-              <h1
-                style={{
-                  fontFamily: "var(--font-display)",
-                  fontStyle: "italic",
-                  fontSize: "clamp(44px, 10vw, 108px)",
-                  fontWeight: 400,
-                  lineHeight: 0.92,
-                  letterSpacing: "-0.03em",
-                  color: "var(--text-primary)",
-                  marginBottom: 16,
-                }}
-              >
-                Build Your
-              </h1>
-              <h1
-                style={{
-                  fontFamily: "var(--font-display)",
-                  fontStyle: "normal",
-                  fontSize: "clamp(44px, 10vw, 108px)",
-                  fontWeight: 800,
-                  lineHeight: 0.92,
-                  letterSpacing: "-0.03em",
-                  marginBottom: 28,
-                }}
-                className="gold-text"
-              >
-                Monopoly.
-              </h1>
-            </motion.div>
+            {/* Headline - Replaced with Interactive 3D Component */}
+            <InteractiveHeadline />
 
             {/* Subtitle */}
             <motion.p

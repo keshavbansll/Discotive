@@ -1340,13 +1340,16 @@ const QUOTES = [
     author: "Sonny Hayes",
   },
   {
-    text: "Elite operators don't send resumes. They send coordinates.",
-    author: "Score Engine",
+    text: "The future is real. The past is all made up.",
+    author: "Logan Roy",
   },
-  { text: "The fog ends the moment you initialize.", author: "Discotive Core" },
   {
-    text: "Clarity is the rarest advantage in a world full of noise.",
-    author: "Discotive AI",
+    text: "I want you to deal with your problems by becoming rich!",
+    author: "Jordan Belfort",
+  },
+  {
+    text: "it's all a Fugazzi",
+    author: "Mark Hanna",
   },
 ];
 
