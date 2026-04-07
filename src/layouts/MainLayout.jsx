@@ -82,7 +82,13 @@ const lowerMiddleNavItems = [
   // { icon: Compass, label: "Discover Hubs", path: "/app/hubs" },
 ];
 
-const contentNavItems = [
+const upperContentNavItems = [
+  { icon: BookOpen, label: "Learn", path: "/app/learn" },
+  // { icon: Users, label: "Networking", path: "/app/network" },
+  // { icon: Compass, label: "Discover Hubs", path: "/app/hubs" },
+];
+
+const lowerContentNavItems = [
   // { icon: BookOpen, label: "Learn", path: "/app/learn" },
   // { icon: Mic, label: "Podcasts", path: "/app/podcasts" },
   // { icon: FileText, label: "Assessments", path: "/app/assessments" },
@@ -528,6 +534,20 @@ const MainLayout = () => {
               </p>
             )}
             {lowerMiddleNavItems.map((item) => (
+              <NavItem
+                key={item.path}
+                item={item}
+                isCollapsed={!isSidebarOpen}
+              />
+            ))}
+          </div>
+          <div className="space-y-1">
+            {isSidebarOpen && (
+              <p className="px-3 text-[10px] font-bold text-[#555] uppercase tracking-[0.2em] mb-2">
+                Content
+              </p>
+            )}
+            {upperContentNavItems.map((item) => (
               <NavItem
                 key={item.path}
                 item={item}
