@@ -34,6 +34,7 @@ const Checkout = lazy(() => import("./pages/Checkout"));
 const VerifyAsset = lazy(() => import("./pages/VerifyAsset"));
 const Contact = lazy(() => import("./pages/Contact"));
 const PrivacyPage = lazy(() => import("./pages/PrivacyPage"));
+const LearnDatabase = lazy(() => import("./pages/LearnDatabase"));
 
 // Stubbed/Coming Soon Modules
 const Opportunities = lazy(() => import("./pages/Opportunities"));
@@ -181,7 +182,7 @@ function App() {
                   path="network"
                   element={<ComingSoon title="Network" />}
                 />
-                <Route path="learn" element={<ComingSoon title="learn" />} />
+                <Route path="learn" element={<LearnDatabase />} />
                 <Route
                   path="podcasts"
                   element={<ComingSoon title="Podcasts & Media" />}

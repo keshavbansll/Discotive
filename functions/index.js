@@ -503,9 +503,9 @@ const getMapLimits = (tier = "free") => {
 };
 
 exports.generateNeuralMap = onCall(
-  { secrets: ["GEMINI_API_KEY"] },
+  { secrets: ["GEMINI_API_KEY"], timeoutSeconds: 120, memory: "512MiB" },
   async (request) => {
-    // V2: request.auth and request.data
+    // ── 1. Auth & Input Validation ───────────────────────────────────────────
     if (!request.auth) {
       throw new HttpsError(
         "unauthenticated",
@@ -521,134 +521,152 @@ exports.generateNeuralMap = onCall(
     }
 
     const userRef = db.collection("users").doc(uid);
+    const mapRef = userRef.collection("execution_map");
 
-    return await db.runTransaction(async (transaction) => {
-      const userDoc = await transaction.get(userRef);
-      if (!userDoc.exists) {
-        throw new HttpsError("not-found", "User ledger missing.");
-      }
+    // ── 2. Optimistic State Validation (OUTSIDE Transaction) ──────────────────
+    const userDoc = await userRef.get();
+    if (!userDoc.exists) {
+      throw new HttpsError("not-found", "User ledger missing.");
+    }
 
-      const userData = userDoc.data();
-      const tier = userData.tier || "ESSENTIAL";
-      const limits = getMapLimits(tier);
+    const userData = userDoc.data();
+    const tier = userData.tier || "ESSENTIAL";
+    const limits = getMapLimits(tier);
 
-      if (generationType === "EXPAND" && tier === "ESSENTIAL") {
-        throw new HttpsError(
-          "permission-denied",
-          "System Lock: Map expansion (continuation) requires Discotive Pro clearance.",
-        );
-      }
-
-      // Cooldown enforcement
-      const mapInfo = userData.execution_map_info || {};
-      const lastGeneratedMs = mapInfo.lastGeneratedAt?.toMillis() || 0;
-      const cooldownMs = limits.regen_cooldown_days * 24 * 60 * 60 * 1000;
-      const nowMs = Date.now();
-
-      if (generationType === "NEW" && nowMs - lastGeneratedMs < cooldownMs) {
-        const daysLeft = Math.ceil(
-          (cooldownMs - (nowMs - lastGeneratedMs)) / (1000 * 60 * 60 * 24),
-        );
-        throw new HttpsError(
-          "resource-exhausted",
-          `Cooldown active. Wait ${daysLeft} days or upgrade tier.`,
-        );
-      }
-
-      // Node cap enforcement
-      const nodesSnap = await transaction.get(
-        userRef.collection("execution_map"),
+    if (generationType === "EXPAND" && tier === "ESSENTIAL") {
+      throw new HttpsError(
+        "permission-denied",
+        "System Lock: Expansion requires Pro clearance.",
       );
-      const currentAutoNodes = nodesSnap.docs.filter(
-        (d) =>
-          ![
-            "assetWidget",
-            "videoWidget",
-            "computeNode",
-            "logicGate",
-            "telemetryNode",
-          ].includes(d.data().type),
-      ).length;
+    }
 
-      const availableNodes =
-        limits.auto_nodes -
-        (generationType === "EXPAND" ? currentAutoNodes : 0);
+    const mapInfo = userData.execution_map_info || {};
+    const lastGeneratedMs = mapInfo.lastGeneratedAt?.toMillis() || 0;
+    const cooldownMs = limits.regen_cooldown_days * 24 * 60 * 60 * 1000;
+    const nowMs = Date.now();
 
-      if (availableNodes <= 0) {
-        throw new HttpsError(
-          "resource-exhausted",
-          `Map limit reached (${limits.auto_nodes} nodes). Complete existing or upgrade.`,
-        );
-      }
+    if (generationType === "NEW" && nowMs - lastGeneratedMs < cooldownMs) {
+      const daysLeft = Math.ceil(
+        (cooldownMs - (nowMs - lastGeneratedMs)) / (1000 * 60 * 60 * 24),
+      );
+      throw new HttpsError(
+        "resource-exhausted",
+        `Cooldown active. Wait ${daysLeft} days.`,
+      );
+    }
 
-      // Gemini AI call
-      console.log(`[AI_GATEWAY] Generating map for ${uid} (Tier: ${tier}).`);
-      let generatedNodes = [];
+    const nodesSnap = await mapRef.get();
+    const currentAutoNodes = nodesSnap.docs.filter(
+      (d) =>
+        ![
+          "assetWidget",
+          "videoWidget",
+          "computeNode",
+          "logicGate",
+          "telemetryNode",
+        ].includes(d.data().type),
+    ).length;
 
-      try {
-        const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-        const model = genAI.getGenerativeModel({
-          model: "gemini-1.5-flash",
-          generationConfig: {
-            responseMimeType: "application/json",
-            responseSchema: {
-              type: SchemaType.ARRAY,
-              items: {
-                type: SchemaType.OBJECT,
-                properties: {
-                  id: { type: SchemaType.STRING },
-                  type: { type: SchemaType.STRING },
-                  dependsOn: {
-                    type: SchemaType.ARRAY,
-                    items: { type: SchemaType.STRING },
-                  },
-                  data: {
-                    type: SchemaType.OBJECT,
-                    properties: {
-                      title: { type: SchemaType.STRING },
-                      subtitle: { type: SchemaType.STRING },
-                      desc: { type: SchemaType.STRING },
-                      nodeType: { type: SchemaType.STRING },
-                      minimumTimeMinutes: { type: SchemaType.NUMBER },
-                      xpReward: { type: SchemaType.NUMBER },
-                      logicType: { type: SchemaType.STRING },
-                    },
-                    required: ["title", "nodeType"],
-                  },
+    const availableNodes =
+      limits.auto_nodes - (generationType === "EXPAND" ? currentAutoNodes : 0);
+
+    if (availableNodes <= 0) {
+      throw new HttpsError(
+        "resource-exhausted",
+        `Map limit reached (${limits.auto_nodes} nodes).`,
+      );
+    }
+
+    // ── 3. External AI Compute (OUTSIDE Transaction) ──────────────────────────
+    console.log(`[AI_GATEWAY] Generating map for ${uid} (Tier: ${tier}).`);
+    let generatedNodes = [];
+
+    try {
+      const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+      const model = genAI.getGenerativeModel({
+        model: "gemini-2clau.5-flash",
+        generationConfig: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: SchemaType.ARRAY,
+            items: {
+              type: SchemaType.OBJECT,
+              properties: {
+                id: { type: SchemaType.STRING },
+                type: { type: SchemaType.STRING },
+                dependsOn: {
+                  type: SchemaType.ARRAY,
+                  items: { type: SchemaType.STRING },
                 },
-                required: ["id", "type", "dependsOn", "data"],
+                data: {
+                  type: SchemaType.OBJECT,
+                  properties: {
+                    title: { type: SchemaType.STRING },
+                    subtitle: { type: SchemaType.STRING },
+                    desc: { type: SchemaType.STRING },
+                    nodeType: { type: SchemaType.STRING },
+                    minimumTimeMinutes: { type: SchemaType.NUMBER },
+                    xpReward: { type: SchemaType.NUMBER },
+                    logicType: { type: SchemaType.STRING },
+                  },
+                  required: ["title", "nodeType"],
+                },
               },
+              required: ["id", "type", "dependsOn", "data"],
             },
           },
-        });
+        },
+      });
 
-        const systemPrompt = `You are an elite MAANG-level Career Architect building a DAG execution map.
+      const systemPrompt = `You are an elite MAANG-level Career Architect building a DAG execution map.
 User prompt: "${userPrompt}".
 Generate maximum ${Math.min(availableNodes, 10)} nodes.
 Rules: 1) Create logical progressive roadmap. 2) Use milestoneNode for phases, executionNode for tasks. 3) Use dependsOn for sequential links. 4) NO circular dependencies. 5) Be technically precise.`;
 
-        const result = await model.generateContent(systemPrompt);
-        generatedNodes = JSON.parse(result.response.text());
-      } catch (aiError) {
-        console.error("[AI_COMPUTE_FAULT]", aiError);
+      const result = await model.generateContent(systemPrompt);
+
+      // CRITICAL FIX: Use regex extraction to bypass Markdown wrapping crashes
+      generatedNodes = extractJSON(result.response.text());
+    } catch (aiError) {
+      console.error("[AI_COMPUTE_FAULT]", aiError);
+      throw new HttpsError(
+        "internal",
+        `Neural compilation failed: ${aiError.message || "Unknown Engine Fault"}`,
+      );
+    }
+
+    if (
+      !generatedNodes ||
+      !Array.isArray(generatedNodes) ||
+      generatedNodes.length === 0
+    ) {
+      throw new HttpsError(
+        "internal",
+        "AI generated an empty or malformed roadmap DAG.",
+      );
+    }
+
+    // ── 4. ACID Database Commit (Fast, local IO only) ─────────────────────────
+    await db.runTransaction(async (transaction) => {
+      // Re-verify cooldown in case of concurrent execution
+      const freshDoc = await transaction.get(userRef);
+      const freshInfo = freshDoc.data().execution_map_info || {};
+      if (
+        generationType === "NEW" &&
+        Date.now() - (freshInfo.lastGeneratedAt?.toMillis() || 0) < cooldownMs
+      ) {
         throw new HttpsError(
-          "internal",
-          "Neural compilation failed. Try again.",
+          "aborted",
+          "Race condition prevented: Cooldown lock triggered.",
         );
       }
 
-      if (!generatedNodes || generatedNodes.length === 0) {
-        throw new HttpsError(
-          "internal",
-          "AI generated empty roadmap. Use a more descriptive prompt.",
-        );
-      }
-
-      // Write to Firestore
+      // Wipe old nodes if generating anew
       if (generationType === "NEW") {
         nodesSnap.docs.forEach((doc) => transaction.delete(doc.ref));
       }
 
+      // Inject new nodes into transaction
       generatedNodes.forEach((nodeObj) => {
         const finalNode = {
           ...nodeObj,
@@ -658,12 +676,10 @@ Rules: 1) Create logical progressive roadmap. 2) Use milestoneNode for phases, e
             stateData: { isVerifiedPublic: false, isVerifying: false },
           },
         };
-        transaction.set(
-          userRef.collection("execution_map").doc(finalNode.id),
-          finalNode,
-        );
+        transaction.set(mapRef.doc(finalNode.id), finalNode);
       });
 
+      // Update Ledger
       transaction.update(userRef, {
         "execution_map_info.lastGeneratedAt":
           admin.firestore.FieldValue.serverTimestamp(),
@@ -673,14 +689,14 @@ Rules: 1) Create logical progressive roadmap. 2) Use milestoneNode for phases, e
             : currentAutoNodes + generatedNodes.length,
         "execution_map_info.activePrompt": userPrompt,
       });
-
-      return {
-        status: "SUCCESS",
-        message: "Neural map compiled securely.",
-        nodes: generatedNodes,
-        edges: [],
-      };
     });
+
+    return {
+      status: "SUCCESS",
+      message: "Neural map compiled securely.",
+      nodes: generatedNodes,
+      edges: [],
+    };
   },
 );
 
