@@ -1437,17 +1437,15 @@ const { Resend } = require("resend");
 exports.sendVerificationEmail = onCall(
   { secrets: ["RESEND_API_KEY"], timeoutSeconds: 30 },
   async (request) => {
-    if (!request.auth) throw new HttpsError("unauthenticated", "Unauthorized.");
     const { email, firstName } = request.data;
     if (!email) throw new HttpsError("invalid-argument", "Email required.");
 
-    const uid = request.auth.uid;
     // Generate a 6-digit OTP
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     const expiresAt = Date.now() + 10 * 60 * 1000; // 10 minutes
 
-    // Store OTP in Firestore
-    await db.collection("email_verifications").doc(uid).set({
+    // Store OTP in Firestore using the EMAIL as the document ID
+    await db.collection("email_verifications").doc(email).set({
       otp,
       email,
       expiresAt,
@@ -1459,53 +1457,83 @@ exports.sendVerificationEmail = onCall(
     const resend = new Resend(process.env.RESEND_API_KEY);
 
     await resend.emails.send({
-      from: "Discotive <noreply@discotive.in>",
+      from: "Discotive OS <onboarding@discotive.in>",
+      reply_to: "discotive@gmail.com",
       to: email,
-      subject: "Your Discotive Verification Code",
+      subject: "Verify your identity — Discotive OS",
       html: `
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Verify your identity</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@700;800&family=Poppins:wght@400;500;600&display=swap');
+    body {
+      margin: 0;
+      padding: 0;
+      background-color: #030303;
+      font-family: 'Poppins', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+      -webkit-font-smoothing: antialiased;
+      color: #F5F0E8;
+    }
+  </style>
 </head>
-<body style="margin:0;padding:0;background:#030303;font-family:'Helvetica Neue',Arial,sans-serif;">
-  <table width="100%" cellpadding="0" cellspacing="0" style="background:#030303;min-height:100vh;">
+<body style="margin: 0; padding: 0; background-color: #030303; font-family: 'Poppins', -apple-system, sans-serif; -webkit-font-smoothing: antialiased; color: #F5F0E8;">
+  
+  <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color: #030303; padding: 40px 20px;">
     <tr>
-      <td align="center" style="padding:60px 20px;">
-        <table width="560" cellpadding="0" cellspacing="0" style="background:#0a0a0a;border:1px solid #1a1a1a;border-radius:24px;overflow:hidden;max-width:100%;">
+      <td align="center">
+        
+        <table width="100%" max-width="480" border="0" cellspacing="0" cellpadding="0" style="max-width: 480px; width: 100%; background-color: #111111; border: 1px solid rgba(255,255,255,0.07); border-radius: 24px; overflow: hidden; box-shadow: 0 24px 48px rgba(0,0,0,0.6);">
+          
           <tr>
-            <td style="padding:40px 40px 0;text-align:center;">
-              <div style="width:48px;height:48px;background:linear-gradient(135deg,#8B7240,#D4AF78);clip-path:polygon(50% 0%,100% 38%,82% 100%,18% 100%,0% 38%);margin:0 auto 16px;"></div>
-              <p style="margin:0;font-size:10px;letter-spacing:0.3em;text-transform:uppercase;color:#888;font-weight:700;">DISCOTIVE OS</p>
+            <td align="center" style="padding: 40px 30px 10px 30px;">
+              <span style="font-family: 'Montserrat', sans-serif; font-weight: 800; font-size: 16px; letter-spacing: 0.15em; color: #F5F0E8;">DISCOTIVE</span>
             </td>
           </tr>
+
           <tr>
-            <td style="padding:32px 40px 0;text-align:center;">
-              <h1 style="margin:0 0 8px;font-size:28px;font-weight:900;color:#ffffff;letter-spacing:-0.02em;">Verify your email.</h1>
-              <p style="margin:0;font-size:14px;color:#666;line-height:1.6;">Hi ${firstName || "Operator"}, enter this code to complete your Discotive OS initialization.</p>
+            <td align="center" style="padding: 20px 40px;">
+              <h1 style="margin: 0 0 16px 0; font-family: 'Montserrat', sans-serif; font-weight: 700; font-size: 24px; color: #F5F0E8; letter-spacing: -0.02em;">Identity Verification</h1>
+              <p style="margin: 0 0 32px 0; font-size: 14px; line-height: 1.6; color: rgba(245,240,232,0.6); font-weight: 400;">
+                Welcome to the system, ${firstName || "Operator"}. To initialize your OS and secure your account, please enter the following 6-digit code.
+              </p>
+
+              <table border="0" cellspacing="0" cellpadding="0" style="background-color: #0a0a0a; border: 1px solid rgba(191,162,100,0.28); border-radius: 16px; padding: 20px 32px;">
+                <tr>
+                  <td align="center">
+                    <span style="font-family: 'Montserrat', monospace; font-size: 36px; font-weight: 800; letter-spacing: 0.25em; color: #D4AF78;">${otp}</span>
+                  </td>
+                </tr>
+              </table>
+
+              <p style="margin: 32px 0 0 0; font-size: 12px; color: rgba(245,240,232,0.4);">
+                This code expires in 10 minutes.<br>If you didn't request this, you can safely ignore this transmission.
+              </p>
             </td>
           </tr>
+
           <tr>
-            <td style="padding:32px 40px;">
-              <div style="background:#111;border:1px solid #222;border-radius:16px;padding:24px;text-align:center;">
-                <p style="margin:0 0 8px;font-size:9px;letter-spacing:0.25em;text-transform:uppercase;color:#555;font-weight:700;">Your verification code</p>
-                <p style="margin:0;font-size:48px;font-weight:900;color:#f59e0b;letter-spacing:0.15em;font-family:'Courier New',monospace;">${otp}</p>
-                <p style="margin:8px 0 0;font-size:10px;color:#444;">Expires in 10 minutes</p>
-              </div>
+            <td align="center" style="padding: 0 40px;">
+              <div style="height: 1px; width: 100%; background: linear-gradient(90deg, transparent, rgba(255,255,255,0.07), transparent);"></div>
             </td>
           </tr>
+
           <tr>
-            <td style="padding:0 40px 40px;text-align:center;">
-              <p style="margin:0;font-size:11px;color:#444;line-height:1.6;">If you didn't create a Discotive account, you can safely ignore this email. This code will expire automatically.</p>
+            <td align="center" style="padding: 24px 40px 40px 40px;">
+              <p style="margin: 0; font-size: 10px; text-transform: uppercase; letter-spacing: 0.2em; color: rgba(191,162,100,0.5); font-weight: 600;">
+                Built by operators. For operators.
+              </p>
+              <p style="margin: 12px 0 0 0; font-size: 10px; color: rgba(245,240,232,0.3);">
+                © 2026 Discotive. All rights reserved.
+              </p>
             </td>
           </tr>
-          <tr>
-            <td style="padding:20px 40px;border-top:1px solid #1a1a1a;text-align:center;">
-              <p style="margin:0;font-size:10px;color:#333;letter-spacing:0.1em;text-transform:uppercase;">Built by operators. For operators. &mdash; discotive.in</p>
-            </td>
-          </tr>
+
         </table>
+
       </td>
     </tr>
   </table>
@@ -1519,12 +1547,14 @@ exports.sendVerificationEmail = onCall(
 );
 
 exports.verifyEmailOTP = onCall(async (request) => {
-  if (!request.auth) throw new HttpsError("unauthenticated", "Unauthorized.");
-  const { otp } = request.data;
-  if (!otp) throw new HttpsError("invalid-argument", "OTP required.");
+  // Now expecting email to be passed from the frontend
+  const { otp, email } = request.data;
 
-  const uid = request.auth.uid;
-  const verRef = db.collection("email_verifications").doc(uid);
+  if (!otp) throw new HttpsError("invalid-argument", "OTP required.");
+  if (!email) throw new HttpsError("invalid-argument", "Email required.");
+
+  // Look up by email instead of UID
+  const verRef = db.collection("email_verifications").doc(email);
   const verDoc = await verRef.get();
 
   if (!verDoc.exists) {
@@ -1564,10 +1594,6 @@ exports.verifyEmailOTP = onCall(async (request) => {
 
   // Mark verified
   await verRef.update({ verified: true });
-  await db
-    .collection("users")
-    .doc(uid)
-    .set({ emailVerified: true }, { merge: true });
 
   return { status: "VERIFIED" };
 });

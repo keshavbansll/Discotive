@@ -18,7 +18,7 @@ import {
   where,
 } from "firebase/firestore";
 import { db } from "../firebase";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useLocation } from "react-router-dom";
 import ReactFlow, { Background, Controls } from "reactflow";
 import "reactflow/dist/style.css";
 
@@ -641,6 +641,22 @@ const GLOBAL_CSS = `
     border-radius: 8px;
   }
 
+  /* ── PREMIUM BANNER ── */
+  .premium-banner {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 40px;
+  }
+  @media (min-width: 768px) {
+    .premium-banner {
+      flex-direction: row;
+      text-align: left;
+      justify-content: space-between;
+    }
+  }
+
   /* ── HERO NUMBER ── */
   .hero-number {
     font-variant-numeric: tabular-nums;
@@ -653,6 +669,8 @@ const GLOBAL_CSS = `
       min-height: 44px;
       -webkit-tap-highlight-color: transparent;
     }
+
+    
   }
 `;
 
@@ -2155,6 +2173,7 @@ function ExecutionNode({
 // ─── MAIN LANDING PAGE ────────────────────────────────────────────────────────
 export default function DiscotiveLanding() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { scrollY } = useScroll();
   const heroOpacity = useTransform(scrollY, [0, 600], [1, 0]);
   const heroScale = useTransform(scrollY, [0, 600], [1, 0.97]);
@@ -2343,6 +2362,36 @@ export default function DiscotiveLanding() {
   // Tab content rendered separately so LeaderboardPreview only mounts when needed
   const TAB_LABELS = ["Execution Map", "Vault", "Global Arena"];
 
+  // Add this near your other state declarations
+  const premiumFeatures = [
+    "Infinite Execution Nodes",
+    "X-Ray Competitor Analysis",
+    "Priority Vault Verification",
+    "Daily Execution Journal",
+    "Grace AI Pro-Mode",
+    "Advanced Network Telemetry",
+  ];
+  const [premiumIndex, setPremiumIndex] = useState(0);
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setPremiumIndex((prev) => (prev + 1) % premiumFeatures.length);
+    }, 2500); // Cycles every 2.5 seconds
+    return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    if (location.hash) {
+      const id = location.hash.replace("#", "");
+      const element = document.getElementById(id);
+      if (element) {
+        setTimeout(() => {
+          element.scrollIntoView({ behavior: "smooth", block: "start" });
+        }, 100);
+      }
+    }
+  }, [location]);
+
   return (
     <div
       style={{
@@ -2395,9 +2444,9 @@ export default function DiscotiveLanding() {
             }}
           >
             {[
-              { name: "Features", route: "#" },
+              { name: "Features", route: "/about#features" },
               { name: "Connective", route: "/connective" },
-              { name: "Pricing", route: "#" },
+              { name: "Pricing", route: "/about#premium" },
             ].map((item) => (
               <Link
                 key={item.name}
@@ -2424,7 +2473,7 @@ export default function DiscotiveLanding() {
             <button
               className="btn-outline hide-on-mobile"
               style={{ padding: "8px 20px", fontSize: 10 }}
-              onClick={() => navigate("/auth")}
+              onClick={() => navigate("/auth", { state: { isLogin: true } })}
             >
               Sign In
             </button>
@@ -2435,7 +2484,7 @@ export default function DiscotiveLanding() {
                 fontSize: 10,
                 whiteSpace: "nowrap",
               }}
-              onClick={() => navigate("/auth")}
+              onClick={() => navigate("/auth", { state: { isLogin: false } })}
             >
               <span className="hide-on-mobile" style={{ display: "inline" }}>
                 Initialize Protocol
@@ -2631,7 +2680,7 @@ export default function DiscotiveLanding() {
               <button
                 className="btn-primary"
                 style={{ fontSize: 11 }}
-                onClick={() => navigate("/auth")}
+                onClick={() => navigate("/auth", { state: { isLogin: false } })}
               >
                 Initialize Your OS <span style={{ opacity: 0.7 }}>→</span>
               </button>
@@ -3184,6 +3233,7 @@ export default function DiscotiveLanding() {
 
       {/* ─── FEATURES GRID ────────────────────────────────────────────────── */}
       <section
+        id="features"
         style={{ maxWidth: 1200, margin: "0 auto" }}
         className="section-py section-px"
       >
@@ -3263,11 +3313,11 @@ export default function DiscotiveLanding() {
             {
               number: 5,
               title: "Grace AI",
-              subtitle: "Gemini 2.5 Flash",
+              subtitle: "AI Assistant",
               description:
-                "Embedded career assistant powered by Gemini 2.5 Flash. Structured flow for common queries, free-form chat for everything else. Zero idle cost — fires only on demand.",
+                "Embedded career assistant powered by AI. Structured flow for common queries, free-form chat for everything else. Zero idle cost — fires only on demand.",
               metrics: [
-                { value: "2.5 Flash", label: "Model" },
+                { value: "2.5", label: "Model" },
                 { value: "<1s", label: "Response" },
               ],
             },
@@ -3564,271 +3614,158 @@ export default function DiscotiveLanding() {
         </div>
       </section>
 
-      {/* ─── PRICING ──────────────────────────────────────────────────────── */}
+      {/* ─── PREMIUM BANNER ────────────────────────────────────────────────── */}
       <section
+        id="premium"
         style={{
           padding: "80px 0 120px",
           borderTop: "0.5px solid var(--border)",
         }}
       >
         <div
-          style={{ maxWidth: 1200, margin: "0 auto" }}
+          style={{ maxWidth: 1000, margin: "0 auto" }}
           className="section-px"
         >
-          <SectionDivider label="Clearance Tiers" />
-          <div className="pricing-row" style={{ marginTop: 52 }}>
-            {[
-              {
-                tier: "Essential",
-                price: "Free",
-                caption: "Begin the protocol",
-                features: [
-                  "15-node execution map",
-                  "5 vault assets",
-                  "Global leaderboard access",
-                  "Discotive Score engine",
-                  "Grace AI assistant",
-                ],
-                cta: "Boot the OS",
-                highlight: false,
-              },
-              {
-                tier: "Pro",
-                price: "₹99",
-                priceSub: "/month",
-                caption: "Unlimited execution",
-                features: [
-                  "∞ execution nodes",
-                  "50 vault assets (100MB)",
-                  "Daily Execution Journal",
-                  "X-Ray competitor analysis",
-                  "Priority verification",
-                  "Grace AI Pro-mode",
-                ],
-                cta: "Upgrade Clearance",
-                highlight: true,
-              },
-              {
-                tier: "Enterprise",
-                price: null,
-                caption: null,
-                features: [],
-                cta: null,
-                highlight: false,
-                comingSoon: true,
-              },
-            ].map((plan, i) => (
-              <motion.div
-                key={i}
-                initial={{ opacity: 0, y: 30 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true }}
-                transition={{
-                  duration: 0.8,
-                  delay: i * 0.1,
-                  ease: [0.23, 1, 0.32, 1],
-                }}
+          <SectionDivider label="Clearance Upgrade" />
+
+          <motion.div
+            initial={{ opacity: 0, y: 30 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            transition={{ duration: 0.8 }}
+            className="premium-banner glow-card"
+            style={{
+              marginTop: 52,
+              background:
+                "linear-gradient(135deg, rgba(10,10,10,0.95) 0%, rgba(191,162,100,0.06) 50%, rgba(10,10,10,0.95) 100%)",
+              border: "0.5px solid rgba(191,162,100,0.3)",
+              borderRadius: 16,
+              padding: "48px 40px",
+              position: "relative",
+              overflow: "hidden",
+            }}
+          >
+            {/* Left: Text & Animated Features */}
+            <div style={{ flex: 1, minWidth: 260 }}>
+              <div
                 style={{
-                  background: plan.highlight
-                    ? "rgba(191,162,100,0.06)"
-                    : "rgba(255,255,255,0.015)",
-                  border: `0.5px solid ${plan.highlight ? "rgba(191,162,100,0.35)" : "rgba(255,255,255,0.06)"}`,
-                  borderRadius: 4,
-                  padding: "32px",
-                  position: "relative",
-                  overflow: "hidden",
-                  boxShadow: plan.highlight
-                    ? "0 0 60px rgba(191,162,100,0.08), inset 0 0 60px rgba(191,162,100,0.03)"
-                    : "none",
+                  fontSize: 10,
+                  letterSpacing: "0.2em",
+                  textTransform: "uppercase",
+                  color: "var(--gold-3)",
+                  fontFamily: "var(--font-body)",
+                  marginBottom: 16,
                 }}
               >
-                {plan.highlight && (
-                  <div
+                Unlock Discotive Pro
+              </div>
+              <div style={{ height: 40, position: "relative" }}>
+                <AnimatePresence mode="wait">
+                  <motion.div
+                    key={premiumIndex}
+                    initial={{ opacity: 0, y: 15 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -15 }}
+                    transition={{ duration: 0.4 }}
                     style={{
                       position: "absolute",
-                      top: 0,
-                      left: 0,
-                      right: 0,
-                      height: 1,
-                      background:
-                        "linear-gradient(90deg, transparent, var(--gold-1), transparent)",
+                      width: "100%",
+                      fontFamily: "var(--font-display)",
+                      fontSize: "clamp(20px, 4vw, 28px)",
+                      fontWeight: 400,
+                      fontStyle: "italic",
+                      color: "var(--text-primary)",
+                      letterSpacing: "0.01em",
                     }}
-                  />
-                )}
-                {plan.highlight && (
-                  <div
-                    className="badge"
-                    style={{ marginBottom: 16, fontSize: 8 }}
                   >
-                    Most Chosen
-                  </div>
-                )}
-                <div
+                    {premiumFeatures[premiumIndex]}
+                  </motion.div>
+                </AnimatePresence>
+              </div>
+            </div>
+
+            {/* Center: Premium Visual Matrix */}
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "center",
+                alignItems: "center",
+                flex: 1,
+                minWidth: 150,
+              }}
+            >
+              <div style={{ position: "relative", width: 70, height: 70 }}>
+                {/* Outer Dashed Ring */}
+                <motion.div
+                  animate={{ rotate: 360 }}
+                  transition={{
+                    duration: 12,
+                    repeat: Infinity,
+                    ease: "linear",
+                  }}
                   style={{
-                    fontSize: 9,
-                    letterSpacing: "0.25em",
-                    textTransform: "uppercase",
-                    color: plan.highlight ? "var(--gold-2)" : "var(--text-dim)",
-                    fontFamily: "var(--font-body)",
-                    marginBottom: 10,
+                    position: "absolute",
+                    inset: 0,
+                    border: "1px dashed var(--gold-3)",
+                    borderRadius: "50%",
+                    opacity: 0.5,
+                  }}
+                />
+                {/* Inner Pulsing Ring */}
+                <motion.div
+                  animate={{ scale: [1, 1.15, 1], opacity: [0.5, 1, 0.5] }}
+                  transition={{
+                    duration: 3,
+                    repeat: Infinity,
+                    ease: "easeInOut",
+                  }}
+                  style={{
+                    position: "absolute",
+                    inset: 12,
+                    border: "1.5px solid var(--gold-1)",
+                    borderRadius: "50%",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    background: "rgba(191,162,100,0.1)",
+                    boxShadow: "0 0 20px rgba(191,162,100,0.2)",
                   }}
                 >
-                  {plan.tier}
-                </div>
-                {!plan.comingSoon && (
-                  <>
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "baseline",
-                        gap: 4,
-                        marginBottom: 5,
-                      }}
-                    >
-                      <span
-                        style={{
-                          fontFamily: "var(--font-display)",
-                          fontSize: 40,
-                          fontWeight: plan.highlight ? 700 : 400,
-                          ...(plan.highlight
-                            ? {
-                                background:
-                                  "linear-gradient(135deg, #BFA264, #D4AF78)",
-                                WebkitBackgroundClip: "text",
-                                WebkitTextFillColor: "transparent",
-                              }
-                            : { color: "var(--text-primary)" }),
-                        }}
-                      >
-                        {plan.price}
-                      </span>
-                      {plan.priceSub && (
-                        <span
-                          style={{
-                            fontSize: 12,
-                            color: "var(--text-dim)",
-                            fontFamily: "var(--font-body)",
-                          }}
-                        >
-                          {plan.priceSub}
-                        </span>
-                      )}
-                    </div>
-                    <p
-                      style={{
-                        fontSize: 12,
-                        color: "var(--text-dim)",
-                        fontFamily: "var(--font-body)",
-                        marginBottom: 24,
-                      }}
-                    >
-                      {plan.caption}
-                    </p>
-                    <div
-                      style={{
-                        borderTop: "0.5px solid var(--border)",
-                        paddingTop: 20,
-                        marginBottom: 24,
-                      }}
-                    >
-                      {plan.features.map((f, j) => (
-                        <div
-                          key={j}
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 9,
-                            marginBottom: 10,
-                            fontSize: 12,
-                            color: "var(--text-secondary)",
-                            fontFamily: "var(--font-body)",
-                          }}
-                        >
-                          <span
-                            style={{
-                              color: plan.highlight
-                                ? "var(--gold-2)"
-                                : "var(--text-dim)",
-                              fontSize: 10,
-                            }}
-                          >
-                            ✦
-                          </span>
-                          {f}
-                        </div>
-                      ))}
-                    </div>
-                    <button
-                      className={plan.highlight ? "btn-primary" : "btn-outline"}
-                      style={{ width: "100%", justifyContent: "center" }}
-                    >
-                      {plan.cta}
-                    </button>
-                  </>
-                )}
-                {plan.comingSoon && (
-                  <div
-                    style={{
-                      display: "flex",
-                      flexDirection: "column",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      padding: "32px 0",
-                      gap: 14,
-                      opacity: 0.5,
-                    }}
-                  >
-                    <div
-                      style={{
-                        width: 44,
-                        height: 44,
-                        borderRadius: "50%",
-                        border: "1px solid rgba(255,255,255,0.1)",
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                      }}
-                    >
-                      <span style={{ fontSize: 20 }}>🔒</span>
-                    </div>
-                    <span
-                      style={{
-                        fontSize: 11,
-                        letterSpacing: "0.2em",
-                        textTransform: "uppercase",
-                        color: "var(--text-dim)",
-                        fontFamily: "var(--font-body)",
-                      }}
-                    >
-                      Coming Soon
-                    </span>
-                    <span
-                      style={{
-                        fontSize: 10,
-                        color: "var(--text-dim)",
-                        fontFamily: "var(--font-body)",
-                        textAlign: "center",
-                        lineHeight: 1.6,
-                      }}
-                    >
-                      Enterprise deployment is in development. Signal your
-                      interest.
-                    </span>
-                    <button
-                      className="btn-outline"
-                      style={{ marginTop: 8, opacity: 0.6 }}
-                      onClick={() =>
-                        (window.location.href =
-                          "mailto:enterprise@discotive.in")
-                      }
-                    >
-                      Signal Interest
-                    </button>
-                  </div>
-                )}
-              </motion.div>
-            ))}
-          </div>
+                  <span style={{ fontSize: 18, color: "var(--gold-2)" }}>
+                    ✦
+                  </span>
+                </motion.div>
+              </div>
+            </div>
+
+            {/* Right: CTA Button */}
+            <div
+              style={{
+                flex: 1,
+                display: "flex",
+                justifyContent: "center", // Centered on mobile
+                minWidth: 200,
+              }}
+              // Inline override for desktop right-alignment
+              ref={(el) => {
+                if (el && window.innerWidth >= 768) {
+                  el.style.justifyContent = "flex-end";
+                }
+              }}
+            >
+              <button
+                className="btn-primary"
+                onClick={() => navigate("/premium")}
+                style={{
+                  padding: "16px 36px",
+                  fontSize: 11,
+                  whiteSpace: "nowrap",
+                }}
+              >
+                Explore Premium
+              </button>
+            </div>
+          </motion.div>
         </div>
       </section>
 
@@ -4179,7 +4116,7 @@ export default function DiscotiveLanding() {
             proof of work. Your career DAG is waiting.
           </p>
           <button
-            onClick={() => navigate("/auth")}
+            onClick={() => navigate("/auth", { state: { isLogin: false } })}
             className="btn-primary"
             style={{ padding: "16px 40px", fontSize: "12px" }}
           >
@@ -4240,32 +4177,79 @@ export default function DiscotiveLanding() {
               <div
                 style={{
                   display: "flex",
-                  gap: 12,
-                  marginTop: 16,
+                  gap: 16,
+                  marginTop: 18,
                   flexWrap: "wrap",
+                  alignItems: "center",
                 }}
               >
-                {["LinkedIn", "Instagram", "X", "YouTube"].map((s) => (
+                {[
+                  {
+                    name: "Instagram",
+                    url: "https://instagram.com/discotive",
+                    icon: (
+                      <svg
+                        viewBox="0 0 24 24"
+                        width="18"
+                        height="18"
+                        fill="currentColor"
+                      >
+                        <path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.07zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z" />
+                      </svg>
+                    ),
+                  },
+                  {
+                    name: "LinkedIn",
+                    url: "https://linkedin.com/company/discotive",
+                    icon: (
+                      <svg
+                        viewBox="0 0 24 24"
+                        width="18"
+                        height="18"
+                        fill="currentColor"
+                      >
+                        <path d="M19 0h-14c-2.761 0-5 2.239-5 5v14c0 2.761 2.239 5 5 5h14c2.762 0 5-2.239 5-5v-14c0-2.761-2.238-5-5-5zm-11 19h-3v-11h3v11zm-1.5-12.268c-.966 0-1.75-.79-1.75-1.764s.784-1.764 1.75-1.764 1.75.79 1.75 1.764-.783 1.764-1.75 1.764zm13.5 12.268h-3v-5.604c0-3.368-4-3.113-4 0v5.604h-3v-11h3v1.765c1.396-2.586 7-2.777 7 2.476v6.759z" />
+                      </svg>
+                    ),
+                  },
+                  {
+                    name: "YouTube",
+                    url: "https://youtube.com/@discotive",
+                    icon: (
+                      <svg
+                        viewBox="0 0 24 24"
+                        width="18"
+                        height="18"
+                        fill="currentColor"
+                      >
+                        <path d="M23.498 6.186a3.016 3.016 0 0 0-2.122-2.136C19.505 3.5 12 3.5 12 3.5s-7.505 0-9.377.55a3.015 3.015 0 0 0-2.122 2.136C0 8.07 0 12 0 12s0 3.93.501 5.814a3.016 3.016 0 0 0 2.122 2.136c1.871.55 9.377.55 9.377.55s7.505 0 9.377-.55a3.015 3.015 0 0 0 2.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z" />
+                      </svg>
+                    ),
+                  },
+                ].map((social) => (
                   <a
-                    key={s}
-                    href="#"
+                    key={social.name}
+                    href={social.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    aria-label={social.name}
                     style={{
-                      fontSize: 9,
-                      letterSpacing: "0.15em",
-                      textTransform: "uppercase",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
                       color: "var(--text-dim)",
-                      textDecoration: "none",
-                      fontFamily: "var(--font-body)",
-                      transition: "color 0.3s",
+                      transition: "color 0.3s, transform 0.3s",
                     }}
-                    onMouseEnter={(e) =>
-                      (e.target.style.color = "var(--gold-2)")
-                    }
-                    onMouseLeave={(e) =>
-                      (e.target.style.color = "var(--text-dim)")
-                    }
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.color = "var(--gold-2)";
+                      e.currentTarget.style.transform = "translateY(-2px)";
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.color = "var(--text-dim)";
+                      e.currentTarget.style.transform = "translateY(0)";
+                    }}
                   >
-                    {s}
+                    {social.icon}
                   </a>
                 ))}
               </div>
@@ -4277,7 +4261,7 @@ export default function DiscotiveLanding() {
                   { label: "Execution Map", href: "/auth" },
                   { label: "Asset Vault", href: "/auth" },
                   { label: "Leaderboard", href: "/auth" },
-                  { label: "Pricing", href: "/premium" },
+                  { label: "Pricing", href: "#premium" },
                 ],
               },
               {

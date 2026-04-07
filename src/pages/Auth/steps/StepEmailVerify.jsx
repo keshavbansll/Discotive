@@ -65,7 +65,7 @@ export default function StepEmailVerify({
     setError("");
     try {
       const verifyFn = httpsCallable(functions, "verifyEmailOTP");
-      await verifyFn({ otp: code });
+      await verifyFn({ otp: code, email: email });
       setSuccess(true);
       setTimeout(() => onVerified(), 1200);
     } catch (err) {

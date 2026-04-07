@@ -131,13 +131,18 @@ function App() {
           <PageTracker />
           <Suspense fallback={<RouteChunkLoader />}>
             <Routes>
+              <Route path="/" element={<Navigate to="/about" replace />} />
               <Route
-                path="/"
+                path="/about"
                 element={
                   <PublicRoute>
                     <Landing />
                   </PublicRoute>
                 }
+              />
+              <Route
+                path="connective"
+                element={<ComingSoon title="connective" />}
               />
               <Route path="/auth" element={<Auth />} />
               <Route path="/:handle" element={<PublicProfile />} />
