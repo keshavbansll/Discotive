@@ -17,6 +17,7 @@ import GlobalLoader from "./components/GlobalLoader";
 import PageTracker from "./components/PageTracker";
 import SystemFailure from "./components/SystemFailure";
 import AdminRoute from "./components/AdminRoute";
+import ComingSoon from "./components/ComingSoon";
 
 // ── LAZY IMPORTS (Code-Split Chunks) ──
 // These are chunked into separate files and downloaded ONLY when the route is hit.
@@ -59,19 +60,6 @@ const PublicRoute = ({ children }) => {
   if (currentUser) return <Navigate to="/app" replace />;
   return children;
 };
-
-// Reusable dummy component for coming soon pages
-const ComingSoon = ({ title }) => (
-  <div className="flex flex-col items-center justify-center h-full text-center p-10 animate-pulse">
-    <div className="w-16 h-16 bg-white/5 rounded-2xl flex items-center justify-center mb-6">
-      <div className="w-8 h-8 border-2 border-slate-600 rounded-full" />
-    </div>
-    <h1 className="text-3xl font-extrabold text-white mb-2">{title}</h1>
-    <p className="text-slate-500 font-medium">
-      This module is currently in development.
-    </p>
-  </div>
-);
 
 const RouteChunkLoader = () => (
   <div className="fixed inset-0 z-[9998] bg-[#030303] flex items-center justify-center">
@@ -163,7 +151,10 @@ function App() {
                 }
               >
                 <Route index element={<Dashboard />} />
-                <Route path="roadmap" element={<Roadmap />} />
+                <Route
+                  path="roadmap"
+                  element={<ComingSoon title="Execution Agent" />}
+                />
                 <Route path="leaderboard" element={<Leaderboard />} />
                 <Route
                   path="opportunities"

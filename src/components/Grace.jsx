@@ -42,7 +42,7 @@ const TOPICS = [
     emoji: "🗺️",
     label: "Execution Map",
     icon: Map,
-    color: "amber",
+    color: "gold",
   },
   {
     id: "score",
@@ -220,47 +220,47 @@ const FLOWS = {
 
 // ─── Color maps ───────────────────────────────────────────────────────────────
 const COLOR = {
-  amber: {
-    bg: "bg-amber-500/10",
-    border: "border-amber-500/20",
-    text: "text-amber-400",
-    glow: "shadow-[0_0_12px_rgba(245,158,11,0.3)]",
+  gold: {
+    bg: "bg-[rgba(191,162,100,0.08)]",
+    border: "border-[rgba(191,162,100,0.25)]",
+    text: "text-[#D4AF78]",
+    glow: "shadow-[0_0_15px_rgba(191,162,100,0.15)]",
   },
   emerald: {
-    bg: "bg-emerald-500/10",
-    border: "border-emerald-500/20",
-    text: "text-emerald-400",
-    glow: "shadow-[0_0_12px_rgba(16,185,129,0.3)]",
+    bg: "bg-[#22C55E]/10",
+    border: "border-[#22C55E]/20",
+    text: "text-[#4ADE80]",
+    glow: "shadow-[0_0_12px_rgba(74,222,128,0.15)]",
   },
   violet: {
     bg: "bg-violet-500/10",
     border: "border-violet-500/20",
     text: "text-violet-400",
-    glow: "shadow-[0_0_12px_rgba(139,92,246,0.3)]",
+    glow: "shadow-[0_0_12px_rgba(139,92,246,0.15)]",
   },
   sky: {
     bg: "bg-sky-500/10",
     border: "border-sky-500/20",
     text: "text-sky-400",
-    glow: "shadow-[0_0_12px_rgba(56,189,248,0.3)]",
+    glow: "shadow-[0_0_12px_rgba(56,189,248,0.15)]",
   },
   rose: {
-    bg: "bg-rose-500/10",
-    border: "border-rose-500/20",
-    text: "text-rose-400",
-    glow: "shadow-[0_0_12px_rgba(244,63,94,0.3)]",
+    bg: "bg-[#EF4444]/10",
+    border: "border-[#EF4444]/20",
+    text: "text-[#F87171]",
+    glow: "shadow-[0_0_12px_rgba(248,113,113,0.15)]",
   },
 };
 
 // ─── Typing animation ─────────────────────────────────────────────────────────
 const TypingDots = () => (
-  <div className="flex items-center gap-1 px-3 py-2">
+  <div className="flex items-center gap-1.5 px-3 py-2.5">
     {[0, 1, 2].map((i) => (
       <motion.div
         key={i}
         animate={{ opacity: [0.3, 1, 0.3], y: [0, -3, 0] }}
         transition={{ duration: 0.9, repeat: Infinity, delay: i * 0.18 }}
-        className="w-1.5 h-1.5 rounded-full bg-amber-500"
+        className="w-1.5 h-1.5 rounded-full bg-[#BFA264]"
       />
     ))}
   </div>
@@ -299,12 +299,15 @@ const Grace = ({ userData }) => {
     setTimeout(reset, 350);
   }, [reset]);
 
-  // Scroll to bottom when messages update
+  // MAANG UX: Smooth scroll to bottom when messages or loading states update
   useEffect(() => {
     if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+      scrollRef.current.scrollTo({
+        top: scrollRef.current.scrollHeight,
+        behavior: "smooth",
+      });
     }
-  }, [aiMessages, step, activeAnswer]);
+  }, [aiMessages, step, activeAnswer, isAiLoading]);
 
   // Focus input on freeform
   useEffect(() => {
@@ -633,11 +636,11 @@ const Grace = ({ userData }) => {
           >
             {aiMessages.length === 0 && (
               <div className="flex items-start gap-3">
-                <div className="w-7 h-7 rounded-full bg-gradient-to-br from-amber-500 to-amber-600 flex items-center justify-center shrink-0">
-                  <Sparkles className="w-3.5 h-3.5 text-black" />
+                <div className="w-7 h-7 rounded-full bg-gradient-to-br from-[#D4AF78] to-[#8B7240] flex items-center justify-center shrink-0 shadow-[0_0_10px_rgba(191,162,100,0.2)]">
+                  <Sparkles className="w-3.5 h-3.5 text-[#030303]" />
                 </div>
-                <div className="flex-1 bg-[#111] border border-white/[0.06] rounded-2xl rounded-tl-sm p-3.5">
-                  <p className="text-sm text-white/70 leading-relaxed">
+                <div className="flex-1 bg-[#0F0F0F] border border-white/5 rounded-2xl rounded-tl-sm p-3.5 shadow-sm">
+                  <p className="text-sm text-[#F5F0E8]/80 leading-relaxed font-medium">
                     I can answer questions about your score, execution map,
                     vault, Pro features, or anything else on Discotive. What
                     would you like to know?
@@ -655,16 +658,16 @@ const Grace = ({ userData }) => {
                 )}
               >
                 {msg.role === "grace" && (
-                  <div className="w-7 h-7 rounded-full bg-gradient-to-br from-amber-500 to-amber-600 flex items-center justify-center shrink-0">
-                    <Sparkles className="w-3.5 h-3.5 text-black" />
+                  <div className="w-7 h-7 rounded-full bg-gradient-to-br from-[#D4AF78] to-[#8B7240] flex items-center justify-center shrink-0 shadow-[0_0_10px_rgba(191,162,100,0.2)]">
+                    <Sparkles className="w-3.5 h-3.5 text-[#030303]" />
                   </div>
                 )}
                 <div
                   className={cn(
-                    "max-w-[80%] px-3.5 py-2.5 rounded-2xl text-sm leading-relaxed",
+                    "max-w-[80%] px-3.5 py-2.5 rounded-2xl text-sm leading-relaxed font-medium",
                     msg.role === "user"
-                      ? "bg-amber-500/15 border border-amber-500/25 text-white rounded-tr-sm"
-                      : "bg-[#111] border border-white/[0.06] text-white/80 rounded-tl-sm",
+                      ? "bg-[rgba(191,162,100,0.08)] border border-[rgba(191,162,100,0.25)] text-[#D4AF78] rounded-tr-sm shadow-[0_4px_15px_rgba(191,162,100,0.05)]"
+                      : "bg-[#0F0F0F] border border-white/5 text-[#F5F0E8]/80 rounded-tl-sm shadow-sm",
                   )}
                 >
                   {msg.text}
@@ -674,10 +677,10 @@ const Grace = ({ userData }) => {
 
             {isAiLoading && (
               <div className="flex items-start gap-3">
-                <div className="w-7 h-7 rounded-full bg-gradient-to-br from-amber-500 to-amber-600 flex items-center justify-center shrink-0">
-                  <Sparkles className="w-3.5 h-3.5 text-black" />
+                <div className="w-7 h-7 rounded-full bg-gradient-to-br from-[#D4AF78] to-[#8B7240] flex items-center justify-center shrink-0 shadow-[0_0_10px_rgba(191,162,100,0.2)]">
+                  <Sparkles className="w-3.5 h-3.5 text-[#030303]" />
                 </div>
-                <div className="bg-[#111] border border-white/[0.06] rounded-2xl rounded-tl-sm">
+                <div className="bg-[#0F0F0F] border border-white/5 rounded-2xl rounded-tl-sm shadow-sm">
                   <TypingDots />
                 </div>
               </div>
@@ -685,8 +688,8 @@ const Grace = ({ userData }) => {
           </div>
 
           {/* Input */}
-          <div className="px-5 py-4 border-t border-white/[0.05]">
-            <div className="flex items-center gap-2 bg-[#111] border border-white/[0.08] rounded-2xl px-4 py-2.5 focus-within:border-amber-500/40 transition-colors">
+          <div className="px-5 py-4 border-t border-white/5 pb-[env(safe-area-inset-bottom)]">
+            <div className="flex items-center gap-2 bg-[#0A0A0A] border border-[rgba(191,162,100,0.2)] rounded-2xl px-4 py-2.5 focus-within:border-[#D4AF78] focus-within:shadow-[0_0_15px_rgba(191,162,100,0.1)] transition-all">
               <input
                 ref={inputRef}
                 type="text"
@@ -694,18 +697,18 @@ const Grace = ({ userData }) => {
                 onChange={(e) => setFreeInput(e.target.value)}
                 onKeyDown={handleKeyDown}
                 placeholder="Ask anything..."
-                className="flex-1 bg-transparent text-sm text-white placeholder-white/25 focus:outline-none"
+                className="flex-1 bg-transparent text-sm text-[#F5F0E8] placeholder-[#F5F0E8]/40 focus:outline-none font-medium"
                 disabled={isAiLoading}
               />
               <button
                 onClick={handleFreeformSend}
                 disabled={!freeInput.trim() || isAiLoading}
-                className="w-8 h-8 rounded-xl bg-amber-500 flex items-center justify-center disabled:opacity-30 hover:bg-amber-400 transition-all shrink-0 shadow-[0_0_10px_rgba(245,158,11,0.3)]"
+                className="w-8 h-8 rounded-xl bg-[#BFA264] flex items-center justify-center disabled:opacity-30 hover:bg-[#D4AF78] transition-all shrink-0 shadow-[0_0_10px_rgba(191,162,100,0.3)]"
               >
                 {isAiLoading ? (
-                  <Loader2 className="w-3.5 h-3.5 text-black animate-spin" />
+                  <Loader2 className="w-3.5 h-3.5 text-[#030303] animate-spin" />
                 ) : (
-                  <Send className="w-3.5 h-3.5 text-black" />
+                  <Send className="w-3.5 h-3.5 text-[#030303]" />
                 )}
               </button>
             </div>
@@ -735,7 +738,7 @@ const Grace = ({ userData }) => {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={close}
-              className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[490] md:hidden"
+              className="fixed inset-0 bg-black/60 backdrop-blur-md z-[9998] md:hidden"
             />
 
             {/* Panel */}
@@ -745,31 +748,31 @@ const Grace = ({ userData }) => {
               exit={{ opacity: 0, scale: 0.92, y: 16 }}
               transition={{ type: "spring", damping: 26, stiffness: 320 }}
               className={cn(
-                "fixed z-[500] bg-[#0a0a0c] border border-white/[0.08] rounded-[2rem] shadow-[0_30px_80px_rgba(0,0,0,0.95)] overflow-hidden flex flex-col",
+                "fixed z-[9999] bg-[#0A0A0A] border border-white/5 rounded-[2rem] shadow-[0_30px_80px_rgba(0,0,0,0.95)] overflow-hidden flex flex-col",
                 // Desktop: bottom-right above buttons
-                "bottom-20 right-5 w-[360px] h-[500px]",
+                "bottom-24 right-6 w-[380px] h-[550px]",
                 // Mobile: full-width bottom sheet
-                "max-md:bottom-0 max-md:right-0 max-md:left-0 max-md:w-full max-md:rounded-b-none max-md:h-[70vh]",
+                "max-md:bottom-0 max-md:right-0 max-md:left-0 max-md:w-full max-md:rounded-b-none max-md:h-[80vh]",
               )}
             >
               {/* Header */}
-              <div className="flex items-center justify-between px-5 py-4 border-b border-white/[0.05] bg-[#050505]/60 backdrop-blur-xl shrink-0">
+              <div className="flex items-center justify-between px-5 py-4 border-b border-white/5 bg-[#0A0A0A]/80 backdrop-blur-xl shrink-0">
                 <div className="flex items-center gap-3">
-                  <div className="relative w-8 h-8 rounded-full bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center shadow-[0_0_14px_rgba(245,158,11,0.5)]">
-                    <Sparkles className="w-4 h-4 text-black" />
+                  <div className="relative w-8 h-8 rounded-full bg-gradient-to-br from-[#D4AF78] to-[#8B7240] flex items-center justify-center shadow-[0_0_14px_rgba(191,162,100,0.3)]">
+                    <Sparkles className="w-4 h-4 text-[#030303]" />
                     {/* Live pulse */}
-                    <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-emerald-500 rounded-full border-2 border-[#0a0a0c] shadow-[0_0_6px_rgba(16,185,129,0.6)]" />
+                    <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-[#4ADE80] rounded-full border-2 border-[#0A0A0A] shadow-[0_0_6px_rgba(74,222,128,0.6)]" />
                   </div>
                   <div>
-                    <p className="text-sm font-black text-white">Grace</p>
-                    <p className="text-[9px] text-emerald-400/70 font-bold uppercase tracking-widest">
+                    <p className="text-sm font-black text-[#F5F0E8]">Grace</p>
+                    <p className="text-[9px] text-[#4ADE80]/80 font-bold uppercase tracking-widest">
                       Online · Discotive AI
                     </p>
                   </div>
                 </div>
                 <button
                   onClick={close}
-                  className="w-8 h-8 rounded-full bg-white/[0.05] border border-white/[0.08] flex items-center justify-center text-white/40 hover:text-white hover:bg-white/10 transition-all"
+                  className="w-8 h-8 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-[#F5F0E8]/40 hover:text-[#F5F0E8] hover:bg-white/10 transition-all"
                   aria-label="Close Grace"
                 >
                   <X className="w-3.5 h-3.5" />
@@ -794,11 +797,11 @@ const Grace = ({ userData }) => {
           isOpen ? "Close Grace" : "Open Grace — Discotive AI Assistant"
         }
         className={cn(
-          "fixed bottom-20 right-16 z-[500] w-14 h-14 rounded-full flex items-center justify-center transition-all duration-300 focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:outline-none",
-          "bg-gradient-to-br from-amber-400 via-amber-500 to-amber-600",
-          "shadow-[0_0_0_4px_rgba(245,158,11,0.15),0_8px_32px_rgba(245,158,11,0.35)]",
+          "fixed bottom-24 right-6 md:right-8 z-[9999] w-14 h-14 rounded-full flex items-center justify-center transition-all duration-300 focus-visible:ring-2 focus-visible:ring-[#BFA264] focus-visible:outline-none",
+          "bg-gradient-to-br from-[#E8D5A3] via-[#D4AF78] to-[#8B7240]",
+          "shadow-[0_0_0_4px_rgba(191,162,100,0.15),0_8px_32px_rgba(191,162,100,0.35)]",
           isOpen &&
-            "shadow-[0_0_0_4px_rgba(245,158,11,0.25),0_8px_32px_rgba(245,158,11,0.5)]",
+            "shadow-[0_0_0_4px_rgba(191,162,100,0.25),0_8px_32px_rgba(191,162,100,0.5)]",
         )}
       >
         <AnimatePresence mode="wait">
@@ -810,7 +813,7 @@ const Grace = ({ userData }) => {
               exit={{ rotate: 90, opacity: 0 }}
               transition={{ duration: 0.15 }}
             >
-              <X className="w-5 h-5 text-black" />
+              <X className="w-5 h-5 text-[#030303]" />
             </motion.div>
           ) : (
             <motion.div
@@ -820,7 +823,7 @@ const Grace = ({ userData }) => {
               exit={{ rotate: -90, opacity: 0 }}
               transition={{ duration: 0.15 }}
             >
-              <Sparkles className="w-5 h-5 text-black" />
+              <Sparkles className="w-5 h-5 text-[#030303]" />
             </motion.div>
           )}
         </AnimatePresence>
@@ -833,7 +836,7 @@ const Grace = ({ userData }) => {
               opacity: [0.5, 0, 0],
             }}
             transition={{ duration: 2.5, repeat: Infinity, ease: "easeOut" }}
-            className="absolute inset-0 rounded-full bg-amber-500/30 pointer-events-none"
+            className="absolute inset-0 rounded-full bg-[#BFA264]/30 pointer-events-none"
           />
         )}
       </motion.button>

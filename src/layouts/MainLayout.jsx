@@ -17,6 +17,7 @@ import Grace from "../components/Grace";
 import {
   LayoutDashboard,
   Target,
+  LaptopMinimalCheck,
   Trophy,
   LineChart,
   Users,
@@ -57,6 +58,7 @@ import {
   Command,
   Ticket,
 } from "lucide-react";
+
 import { cn } from "../lib/cn";
 import { processDailyConsistency } from "../lib/scoreEngine";
 import FeedbackModal from "../components/FeedbackModal";
@@ -71,7 +73,11 @@ const topNavItems = [
 ];
 
 const upperMiddleNavItems = [
-  { icon: Target, label: "Execution Timeline", path: "/app/roadmap" },
+  {
+    icon: LaptopMinimalCheck,
+    label: "Execution Timeline",
+    path: "/app/roadmap",
+  },
   { icon: Trophy, label: "Leaderboard", path: "/app/leaderboard" },
   // { icon: Briefcase, label: "Opportunities", path: "/app/opportunities" },
 ];
@@ -586,410 +592,413 @@ const MainLayout = () => {
       {/* ========================================================= */}
       <div className="flex-1 flex flex-col h-full min-w-0 relative z-10">
         {/* TOPBAR (Strict z-[90] to sit above pages but below dropdowns) */}
-        <header className="safe-area-pt h-[calc(4rem+env(safe-area-inset-top))] md:h-[calc(5rem+env(safe-area-inset-top))] bg-[#030303]/80 backdrop-blur-xl border-b border-[#222] flex items-center justify-between px-4 md:px-8 shrink-0 sticky top-0 z-[90]">
-          {" "}
-          <div className="flex items-center gap-4">
-            <span className="md:hidden font-extrabold text-xl tracking-tight text-white">
-              DISCOTIVE
-            </span>
-            <div className="flex-1 max-w-md relative hidden md:block">
-              <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
-                <Search className="w-4 h-4 text-white/40" />
-              </div>
-              <input
-                type="text"
-                // MAANG-GRADE FIX: Set correct user expectations
-                placeholder="Search operators..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                onKeyDown={handleSearch}
-                className="w-full bg-transparent border-none text-sm text-white placeholder-white/30 focus:outline-none pl-10 pr-4 py-2.5 font-medium"
-              />
-              <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
-                <div className="hidden lg:flex items-center gap-1 px-2 py-1 rounded bg-white/5 border border-white/10">
-                  <Command className="w-3 h-3 text-white/40" />
-                  <span className="text-[10px] font-medium text-white/40">
-                    K
-                  </span>
-                </div>
+        <header className="safe-area-pt h-[calc(4rem+env(safe-area-inset-top))] md:h-[calc(5rem+env(safe-area-inset-top))] bg-[#0A0A0A]/90 backdrop-blur-xl border-b border-white/5 flex items-center gap-3 md:gap-5 px-4 md:px-8 shrink-0 sticky top-0 z-[90]">
+          {/* SEARCH BAR (Mobile: Center, Desktop: Left) */}
+          <div className="flex-1 w-full max-w-md relative order-2 md:order-1 bg-[rgba(191,162,100,0.04)] rounded-full md:rounded-xl overflow-hidden border border-[rgba(191,162,100,0.1)] focus-within:border-[rgba(191,162,100,0.4)] focus-within:shadow-[0_0_15px_rgba(191,162,100,0.1)] transition-all">
+            <div className="absolute inset-y-0 left-0 pl-3 md:pl-4 flex items-center pointer-events-none">
+              <Search className="w-4 h-4 text-[#D4AF78]/50" />
+            </div>
+            <input
+              type="text"
+              placeholder="Discover"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={handleSearch}
+              className="w-full bg-transparent border-none text-xs md:text-sm text-[#F5F0E8] placeholder-[#F5F0E8]/40 focus:outline-none pl-9 md:pl-10 pr-4 py-2.5 font-medium"
+            />
+            <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
+              <div className="hidden lg:flex items-center gap-1 px-2 py-1 rounded bg-black/20 border border-[rgba(191,162,100,0.15)]">
+                <Command className="w-3 h-3 text-[#D4AF78]/50" />
+                <span className="text-[10px] font-medium text-[#D4AF78]/50">
+                  K
+                </span>
               </div>
             </div>
-            {isInstallable && (
-              <button
-                onClick={handleInstallClick}
-                className="hidden lg:flex items-center gap-2 px-4 py-2 bg-amber-500 text-black font-extrabold text-[10px] uppercase tracking-widest rounded-xl hover:bg-amber-400 transition-all shadow-[0_0_20px_rgba(245,158,11,0.2)]"
-              >
-                <Zap className="w-3 h-3 fill-current" />
-                Install App
-              </button>
-            )}
           </div>
-          <div className="flex items-center gap-3 md:gap-5">
-            {/* NOTIFICATIONS DROPDOWN */}
-            <div className="relative" ref={notifMenuRef}>
-              <button
-                onClick={() => setShowNotifMenu(!showNotifMenu)}
-                className={cn(
-                  "p-2 md:p-2.5 rounded-full transition-all relative border",
-                  showNotifMenu
-                    ? "bg-white text-black border-white"
-                    : "bg-[#0a0a0a] border-[#222] text-[#888] hover:text-white hover:border-[#444]",
-                )}
-              >
-                <Bell className="w-4 h-4 md:w-5 md:h-5" />
-                {/* Only show the red dot if there are actual notifications */}
-                {userData?.notifications?.length > 0 && (
-                  <span className="absolute top-0 right-0 w-2.5 h-2.5 bg-red-500 border-2 border-[#030303] rounded-full" />
-                )}
-              </button>
-              {/* --- NOTIFICATIONS DROPDOWN CONTENT --- */}
-              <AnimatePresence>
-                {showNotifMenu && (
-                  <motion.div
-                    initial={{ opacity: 0, y: 10, scale: 0.95 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                    transition={{ duration: 0.15 }}
-                    className="absolute right-0 top-full mt-3 w-[320px] md:w-[380px] bg-[#0a0a0a] border border-[#222] rounded-2xl shadow-[0_30px_60px_rgba(0,0,0,0.9)] overflow-hidden z-[120] flex flex-col max-h-[80dvh]"
-                  >
-                    <div className="flex items-center justify-between p-4 border-b border-[#222] bg-[#050505] shrink-0">
-                      <h3 className="font-extrabold text-white text-sm md:text-base">
-                        Notifications
-                      </h3>
-                      <div className="flex items-center gap-2">
-                        {userData?.notifications?.length > 0 && (
-                          <button
-                            onClick={handleClearAllNotifications}
-                            className="text-[10px] font-bold text-[#888] hover:text-red-400 transition-colors uppercase tracking-widest px-2"
-                            title="Clear All"
-                          >
-                            Clear All
-                          </button>
-                        )}
-                        <button
-                          className="p-1.5 hover:bg-[#111] rounded-lg transition-colors"
-                          title="Settings"
-                        >
-                          <Settings className="w-4 h-4 text-[#888]" />
-                        </button>
-                      </div>
-                    </div>
 
-                    <div className="flex-1 overflow-y-auto custom-scrollbar">
-                      {/* Empty State */}
-                      {!userData?.notifications ||
-                      userData.notifications.length === 0 ? (
-                        <div className="flex flex-col items-center justify-center py-12 px-6 text-center">
-                          <BellOff className="w-10 h-10 text-[#222] mb-4" />
-                          <p className="text-sm font-bold text-white mb-1">
-                            You're all caught up
-                          </p>
-                          <p className="text-xs text-[#666] leading-relaxed">
-                            System alerts, alliance requests, and protocol
-                            updates will appear here.
-                          </p>
-                        </div>
-                      ) : (
-                        <div className="divide-y divide-[#111]">
-                          {userData.notifications.map((notif, i) => (
-                            <div
-                              key={i}
-                              className="p-4 hover:bg-[#111] transition-colors flex gap-3 relative group"
-                            >
-                              <div className="w-2 h-2 mt-1.5 rounded-full bg-blue-500 shrink-0" />
-                              <div className="flex-1 min-w-0 pr-6">
-                                {/* Scrollable container for long messages */}
-                                <div className="max-h-[80px] overflow-y-auto custom-scrollbar pr-2">
-                                  <p className="text-xs md:text-sm text-[#ccc] leading-relaxed whitespace-pre-wrap">
-                                    {notif.message}
-                                  </p>
-                                </div>
-                                <p className="text-[10px] text-[#666] font-mono mt-2 uppercase">
-                                  {notif.time || "Just now"}
+          {/* INSTALL APP (Desktop Only) */}
+          {isInstallable && (
+            <button
+              onClick={handleInstallClick}
+              className="hidden lg:flex items-center gap-2 px-4 py-2 bg-[#BFA264] text-[#030303] font-extrabold text-[10px] uppercase tracking-widest rounded-xl hover:bg-[#D4AF78] transition-all shadow-[0_0_20px_rgba(191,162,100,0.2)] order-none md:order-2 shrink-0"
+            >
+              <Zap className="w-3 h-3 fill-current" />
+              Install App
+            </button>
+          )}
+
+          {/* DESKTOP SPACER */}
+          <div className="hidden md:block flex-1 order-none md:order-3"></div>
+
+          {/* NOTIFICATIONS DROPDOWN (Mobile: Right, Desktop: Right) */}
+          <div
+            className="relative order-3 md:order-4 shrink-0"
+            ref={notifMenuRef}
+          >
+            <button
+              onClick={() => setShowNotifMenu(!showNotifMenu)}
+              className={cn(
+                "p-2 md:p-2.5 rounded-full transition-all relative border active:scale-95 duration-150",
+                showNotifMenu
+                  ? "bg-[rgba(191,162,100,0.15)] text-[#D4AF78] border-[rgba(191,162,100,0.3)] shadow-[0_0_15px_rgba(191,162,100,0.1)]"
+                  : "bg-[#0A0A0A] border-white/5 text-[#F5F0E8]/60 hover:text-[#D4AF78] hover:border-[rgba(191,162,100,0.2)]",
+              )}
+            >
+              <Bell className="w-4 h-4 md:w-5 md:h-5" />
+              {/* Only show the red dot if there are actual notifications */}
+              {userData?.notifications?.length > 0 && (
+                <span className="absolute top-0 right-0 w-2.5 h-2.5 bg-[#4ADE80] border-2 border-[#0A0A0A] rounded-full shadow-[0_0_8px_rgba(74,222,128,0.5)]" />
+              )}
+            </button>
+            {/* --- NOTIFICATIONS DROPDOWN CONTENT --- */}
+            <AnimatePresence>
+              {showNotifMenu && (
+                <motion.div
+                  initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                  transition={{ duration: 0.15 }}
+                  className="absolute right-0 top-full mt-3 w-[320px] md:w-[380px] bg-[#0A0A0A] border border-white/5 rounded-2xl shadow-[0_30px_80px_rgba(0,0,0,0.95)] overflow-hidden z-[120] flex flex-col max-h-[80dvh]"
+                >
+                  <div className="flex items-center justify-between p-4 border-b border-white/5 bg-[#0F0F0F] shrink-0">
+                    <h3 className="font-extrabold text-[#F5F0E8] text-sm md:text-base">
+                      Notifications
+                    </h3>
+                    <div className="flex items-center gap-2">
+                      {userData?.notifications?.length > 0 && (
+                        <button
+                          onClick={handleClearAllNotifications}
+                          className="text-[10px] font-bold text-[#F5F0E8]/40 hover:text-[#F87171] transition-colors uppercase tracking-widest px-2"
+                          title="Clear All"
+                        >
+                          Clear All
+                        </button>
+                      )}
+                      <button
+                        className="p-1.5 hover:bg-[rgba(191,162,100,0.08)] hover:text-[#D4AF78] text-[#F5F0E8]/40 rounded-lg transition-colors"
+                        title="Settings"
+                      >
+                        <Settings className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="flex-1 overflow-y-auto custom-scrollbar">
+                    {/* Empty State */}
+                    {!userData?.notifications ||
+                    userData.notifications.length === 0 ? (
+                      <div className="flex flex-col items-center justify-center py-12 px-6 text-center">
+                        <BellOff className="w-10 h-10 text-[#F5F0E8]/10 mb-4" />
+                        <p className="text-sm font-bold text-[#F5F0E8]/80 mb-1">
+                          You're all caught up
+                        </p>
+                        <p className="text-xs text-[#F5F0E8]/40 leading-relaxed">
+                          System alerts, alliance requests, and protocol updates
+                          will appear here.
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="divide-y divide-white/5">
+                        {userData.notifications.map((notif, i) => (
+                          <div
+                            key={i}
+                            className="p-4 hover:bg-[rgba(191,162,100,0.04)] transition-colors flex gap-3 relative group"
+                          >
+                            <div className="w-2 h-2 mt-1.5 rounded-full bg-[#BFA264] shrink-0 shadow-[0_0_8px_rgba(191,162,100,0.6)]" />
+                            <div className="flex-1 min-w-0 pr-6">
+                              {/* Scrollable container for long messages */}
+                              <div className="max-h-[80px] overflow-y-auto custom-scrollbar pr-2">
+                                <p className="text-xs md:text-sm text-[#F5F0E8]/80 leading-relaxed whitespace-pre-wrap font-medium">
+                                  {notif.message}
                                 </p>
                               </div>
-
-                              {/* Hover Delete Button */}
-                              <button
-                                onClick={(e) => handleDeleteNotification(i, e)}
-                                className="absolute right-3 top-3 p-1.5 text-[#555] hover:text-red-500 hover:bg-[#222] rounded-md transition-all opacity-0 group-hover:opacity-100"
-                                title="Delete notification"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
+                              <p className="text-[10px] text-[#F5F0E8]/40 font-mono mt-2 uppercase">
+                                {notif.time || "Just now"}
+                              </p>
                             </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
 
-            {/* --- PROFILE DROPDOWN ENGINE --- */}
-            <div className="relative" ref={profileMenuRef}>
-              <button
-                onClick={() => {
-                  setShowProfileMenu(!showProfileMenu);
-                  setShowNotifMenu(false);
-                  setShowLanguageMenu(false);
-                }}
-                className={cn(
-                  "group flex items-center transition-all duration-200 outline-none",
-                  // Mobile: tightly hugs the circle. Desktop: Pill styling with padding and borders.
-                  "gap-0 lg:gap-2 lg:p-1 lg:pr-3 lg:rounded-full lg:border",
-                  showProfileMenu
-                    ? "lg:bg-[#1a1a1a] lg:border-[#444] shadow-none lg:shadow-[0_4px_12px_rgba(0,0,0,0.3)]"
-                    : "lg:bg-[#0a0a0a] lg:border-[#222] hover:lg:border-[#444]",
-                )}
-              >
-                {/* Avatar circle */}
-                <div
-                  className={cn(
-                    "w-8 h-8 rounded-full flex items-center justify-center text-xs font-extrabold tracking-wide shrink-0 transition-all border",
-                    isGhostUser
-                      ? "bg-amber-500/15 text-amber-400 border-amber-500/30"
-                      : showProfileMenu
-                        ? "bg-[#2a2a2a] text-white border-[#555] shadow-[0_0_10px_rgba(255,255,255,0.03)]"
-                        : "bg-[#111] text-[#ccc] border-[#333] group-hover:border-[#555] group-hover:text-white",
-                  )}
-                >
-                  {isGhostUser
-                    ? "?"
-                    : `${userData?.identity?.firstName?.charAt(0) || ""}${userData?.identity?.lastName?.charAt(0) || ""}` ||
-                      "U"}
-                </div>
-
-                {/* Name — desktop only */}
-                <span
-                  className={cn(
-                    "hidden lg:block text-xs font-bold tracking-wide max-w-[80px] truncate transition-colors",
-                    showProfileMenu
-                      ? "text-white"
-                      : "text-[#888] group-hover:text-white",
-                  )}
-                >
-                  {isGhostUser
-                    ? "Setup"
-                    : userData?.identity?.firstName || "Operator"}
-                </span>
-
-                {/* Tier badge */}
-                {userData?.tier === "PRO" && !isGhostUser && (
-                  <div className="hidden lg:flex items-center">
-                    <span className="text-[8px] font-black text-amber-500 uppercase tracking-widest">
-                      PRO
-                    </span>
-                  </div>
-                )}
-              </button>
-
-              <AnimatePresence mode="wait">
-                {/* 1. MAIN PROFILE MENU */}
-                {showProfileMenu && !showLanguageMenu && (
-                  <motion.div
-                    key="main-menu"
-                    initial={{ opacity: 0, y: 10, scale: 0.95 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                    transition={{ duration: 0.15 }}
-                    className="absolute right-0 top-full mt-3 w-[280px] md:w-[320px] bg-[#0a0a0a] border border-[#222] rounded-2xl shadow-[0_30px_60px_rgba(0,0,0,0.9)] overflow-hidden z-[120] flex flex-col py-2"
-                  >
-                    {/* Header: User Info — Ghost-aware */}
-                    <div className="px-4 py-3 flex items-center gap-3">
-                      <div
-                        className={cn(
-                          "w-10 h-10 rounded-full border flex items-center justify-center text-sm font-bold shrink-0",
-                          isGhostUser
-                            ? "bg-amber-500/10 border-amber-500/30 text-amber-500"
-                            : "bg-[#111] border-[#333] text-[#666]",
-                        )}
-                      >
-                        {isGhostUser
-                          ? "?"
-                          : userData?.identity?.firstName?.charAt(0) || "U"}
-                      </div>
-                      <div className="min-w-0">
-                        {isGhostUser ? (
-                          <>
-                            <p className="font-extrabold text-sm text-amber-400 truncate">
-                              Incomplete Profile
-                            </p>
-                            <p className="text-[10px] text-[#666] font-mono truncate">
-                              Onboarding required
-                            </p>
-                          </>
-                        ) : (
-                          <>
-                            <p className="font-extrabold text-sm text-white truncate">
-                              {userData?.identity?.firstName}{" "}
-                              {userData?.identity?.lastName}
-                            </p>
-                            <p className="text-[10px] md:text-xs text-[#888] font-mono truncate">
-                              @{userData?.identity?.username || "—"}
-                            </p>
-                          </>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="px-4 pb-2 border-b border-[#222]">
-                      {isGhostUser ? (
-                        <button
-                          onClick={() => {
-                            setShowProfileMenu(false);
-                            navigate("/auth?step=2");
-                          }}
-                          className="flex items-center gap-1.5 text-amber-400 text-xs font-bold hover:text-amber-300 transition-colors"
-                        >
-                          <ArrowRight className="w-3 h-3" />
-                          Complete Onboarding to unlock profile
-                        </button>
-                      ) : (
-                        <Link
-                          to="/app/profile"
-                          onClick={() => setShowProfileMenu(false)}
-                          className="text-blue-400 text-xs font-bold hover:text-blue-300 transition-colors"
-                        >
-                          View full profile
-                        </Link>
-                      )}
-                    </div>
-
-                    {/* Admin Dashboard — only visible to admins */}
-                    {isAdmin && (
-                      <div className="px-4 py-2 border-b border-[#222]">
-                        <Link
-                          to="/app/admin"
-                          onClick={() => setShowProfileMenu(false)}
-                          className="flex items-center gap-2 text-[10px] font-black text-rose-400 hover:text-rose-300 transition-colors uppercase tracking-widest"
-                        >
-                          <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" />
-                          Admin Dashboard
-                        </Link>
+                            {/* Hover Delete Button */}
+                            <button
+                              onClick={(e) => handleDeleteNotification(i, e)}
+                              className="absolute right-3 top-3 p-1.5 text-[#F5F0E8]/40 hover:text-[#F87171] hover:bg-[#F87171]/10 rounded-md transition-all opacity-0 group-hover:opacity-100"
+                              title="Delete notification"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ))}
                       </div>
                     )}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
 
-                    {/* Section 1: Localization */}
-                    <div className="py-2 border-b border-[#222]">
-                      <div className="px-4 py-2.5 flex items-center gap-3 text-[#ccc] text-xs md:text-sm pointer-events-none">
-                        <MapPin className="w-4 h-4 text-[#888]" />
-                        <span>
-                          Location:{" "}
-                          {userData?.footprint?.location || "Unmapped"}
-                        </span>
-                      </div>
-                      <button
-                        onClick={() => setShowLanguageMenu(true)}
-                        className="w-full px-4 py-2.5 flex items-center justify-between text-[#ccc] hover:bg-[#111] transition-colors text-xs md:text-sm text-left"
-                      >
-                        <div className="flex items-center gap-3">
-                          <Languages className="w-4 h-4 text-[#888]" />
-                          <span>Language: English</span>
-                        </div>
-                        <ChevronRightIcon className="w-4 h-4 text-[#666]" />
-                      </button>
+          {/* --- PROFILE DROPDOWN ENGINE (Mobile: Left, Desktop: Right) --- */}
+          <div
+            className="relative order-1 md:order-5 shrink-0"
+            ref={profileMenuRef}
+          >
+            <button
+              onClick={() => {
+                setShowProfileMenu(!showProfileMenu);
+                setShowNotifMenu(false);
+                setShowLanguageMenu(false);
+              }}
+              className={cn(
+                "group flex items-center transition-all duration-200 outline-none active:scale-95",
+                // Mobile: tightly hugs the circle. Desktop: Pill styling with padding and borders.
+                "gap-0 lg:gap-2 lg:p-1 lg:pr-3 lg:rounded-full lg:border",
+                showProfileMenu
+                  ? "lg:bg-[rgba(191,162,100,0.08)] lg:border-[rgba(191,162,100,0.25)] shadow-[0_0_15px_rgba(191,162,100,0.05)]"
+                  : "lg:bg-[#0A0A0A] lg:border-white/5 hover:lg:border-[rgba(191,162,100,0.2)]",
+              )}
+            >
+              {/* Avatar circle */}
+              <div
+                className={cn(
+                  "w-8 h-8 rounded-full flex items-center justify-center text-xs font-extrabold tracking-wide shrink-0 transition-all border",
+                  isGhostUser
+                    ? "bg-amber-500/15 text-amber-400 border-amber-500/30"
+                    : showProfileMenu
+                      ? "bg-[#D4AF78] text-[#030303] border-[rgba(191,162,100,0.5)] shadow-[0_0_10px_rgba(191,162,100,0.2)]"
+                      : "bg-[#111] text-[#F5F0E8]/60 border-white/5 group-hover:border-[#D4AF78]/50 group-hover:text-[#D4AF78]",
+                )}
+              >
+                {isGhostUser
+                  ? "?"
+                  : `${userData?.identity?.firstName?.charAt(0) || ""}${userData?.identity?.lastName?.charAt(0) || ""}` ||
+                    "U"}
+              </div>
+
+              {/* Name — desktop only */}
+              <span
+                className={cn(
+                  "hidden lg:block text-xs font-bold tracking-wide max-w-[80px] truncate transition-colors",
+                  showProfileMenu
+                    ? "text-white"
+                    : "text-[#888] group-hover:text-white",
+                )}
+              >
+                {isGhostUser
+                  ? "Setup"
+                  : userData?.identity?.firstName || "Operator"}
+              </span>
+
+              {/* Tier badge */}
+              {userData?.tier === "PRO" && !isGhostUser && (
+                <div className="hidden lg:flex items-center">
+                  <span className="text-[8px] font-black text-amber-500 uppercase tracking-widest">
+                    PRO
+                  </span>
+                </div>
+              )}
+            </button>
+
+            <AnimatePresence mode="wait">
+              {/* 1. MAIN PROFILE MENU */}
+              {showProfileMenu && !showLanguageMenu && (
+                <motion.div
+                  key="main-menu"
+                  initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                  transition={{ duration: 0.15 }}
+                  className="absolute left-0 md:left-auto md:right-0 top-full mt-3 w-[280px] md:w-[320px] bg-[#0A0A0A] border border-white/5 rounded-2xl shadow-[0_30px_80px_rgba(0,0,0,0.95)] overflow-hidden z-[120] flex flex-col py-2"
+                >
+                  {/* Header: User Info — Ghost-aware */}
+                  <div className="px-4 py-3 flex items-center gap-3">
+                    <div
+                      className={cn(
+                        "w-10 h-10 rounded-full border flex items-center justify-center text-sm font-bold shrink-0",
+                        isGhostUser
+                          ? "bg-amber-500/10 border-amber-500/30 text-amber-500"
+                          : "bg-[#111] border-[#333] text-[#666]",
+                      )}
+                    >
+                      {isGhostUser
+                        ? "?"
+                        : userData?.identity?.firstName?.charAt(0) || "U"}
                     </div>
-
-                    {/* Section 2: Account Controls */}
-                    <div className="py-2 border-b border-[#222]">
-                      <Link
-                        to="/app/settings"
-                        onClick={() => setShowProfileMenu(false)}
-                        className="px-4 py-2.5 flex items-center gap-3 text-[#ccc] hover:bg-[#111] transition-colors text-xs md:text-sm"
-                      >
-                        <Settings className="w-4 h-4 text-[#888]" /> Settings
-                      </Link>
-                      <Link
-                        to="/premium"
-                        onClick={() => setShowProfileMenu(false)}
-                        className="px-4 py-2.5 flex items-center gap-3 text-[#ccc] hover:bg-[#111] transition-colors text-xs md:text-sm"
-                      >
-                        <Shield className="w-4 h-4 text-[#888]" /> Discotive Pro
-                      </Link>
-                      <button className="w-full px-4 py-2.5 flex items-center justify-between text-[#ccc] hover:bg-[#111] transition-colors text-xs md:text-sm text-left">
-                        <div className="flex items-center gap-3">
-                          <Moon className="w-4 h-4 text-[#888]" /> Appearance:
-                          Dark
-                        </div>
-                      </button>
+                    <div className="min-w-0">
+                      {isGhostUser ? (
+                        <>
+                          <p className="font-extrabold text-sm text-amber-400 truncate">
+                            Incomplete Profile
+                          </p>
+                          <p className="text-[10px] text-[#666] font-mono truncate">
+                            Onboarding required
+                          </p>
+                        </>
+                      ) : (
+                        <>
+                          <p className="font-extrabold text-sm text-white truncate">
+                            {userData?.identity?.firstName}{" "}
+                            {userData?.identity?.lastName}
+                          </p>
+                          <p className="text-[10px] md:text-xs text-[#888] font-mono truncate">
+                            @{userData?.identity?.username || "—"}
+                          </p>
+                        </>
+                      )}
                     </div>
+                  </div>
 
-                    {/* Section 3: Support */}
-                    <div className="py-2 border-b border-[#222]">
+                  <div className="px-4 pb-2 border-b border-[#222]">
+                    {isGhostUser ? (
                       <button
                         onClick={() => {
                           setShowProfileMenu(false);
-                          setIsSupportTicketOpen(true);
+                          navigate("/auth?step=2");
                         }}
-                        className="w-full px-4 py-2.5 flex items-center gap-3 text-[#ccc] hover:bg-[#111] transition-colors text-xs md:text-sm text-left"
+                        className="flex items-center gap-1.5 text-amber-400 text-xs font-bold hover:text-amber-300 transition-colors"
                       >
-                        <Ticket className="w-4 h-4 text-[#888]" /> Raise a
-                        Support Ticket
+                        <ArrowRight className="w-3 h-3" />
+                        Complete Onboarding to unlock profile
                       </button>
+                    ) : (
                       <Link
-                        onClick={() => setIsFeedbackOpen(true)}
-                        className="px-4 py-2.5 flex items-center gap-3 text-[#ccc] hover:bg-[#111] transition-colors text-xs md:text-sm"
+                        to="/app/profile"
+                        onClick={() => setShowProfileMenu(false)}
+                        className="text-blue-400 text-xs font-bold hover:text-blue-300 transition-colors"
                       >
-                        <MessageSquare className="w-4 h-4 text-[#888]" /> Send
-                        Feedback
+                        View full profile
+                      </Link>
+                    )}
+                  </div>
+
+                  {/* Admin Dashboard — only visible to admins */}
+                  {isAdmin && (
+                    <div className="px-4 py-2 border-b border-[#222]">
+                      <Link
+                        to="/app/admin"
+                        onClick={() => setShowProfileMenu(false)}
+                        className="flex items-center gap-2 text-[10px] font-black text-rose-400 hover:text-rose-300 transition-colors uppercase tracking-widest"
+                      >
+                        <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" />
+                        Admin Dashboard
                       </Link>
                     </div>
+                  )}
 
-                    {/* Section 4: Sign Out */}
-                    <div className="py-2">
-                      <button
-                        onClick={handleLogout}
-                        className="w-full px-4 py-2.5 flex items-center gap-3 text-[#ccc] hover:bg-[#111] transition-colors text-xs md:text-sm text-left"
-                      >
-                        <LogOut className="w-4 h-4 text-[#888]" /> Sign out
-                      </button>
-                    </div>
-                  </motion.div>
-                )}
-
-                {/* 2. NESTED LANGUAGE MENU */}
-                {showProfileMenu && showLanguageMenu && (
-                  <motion.div
-                    key="language-menu"
-                    initial={{ opacity: 0, x: 20 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: 20 }}
-                    transition={{ duration: 0.15 }}
-                    className="absolute right-0 top-full mt-3 w-[280px] md:w-[320px] bg-[#0a0a0a] border border-[#222] rounded-2xl shadow-[0_30px_60px_rgba(0,0,0,0.9)] overflow-hidden z-[120] flex flex-col py-2"
-                  >
-                    <div className="flex items-center gap-2 px-2 pb-2 border-b border-[#222]">
-                      <button
-                        onClick={() => setShowLanguageMenu(false)}
-                        className="p-2 hover:bg-[#111] rounded-full transition-colors"
-                      >
-                        <ChevronLeft className="w-5 h-5 text-white" />
-                      </button>
-                      <span className="font-bold text-sm text-white">
-                        Choose Language
+                  {/* Section 1: Localization */}
+                  <div className="py-2 border-b border-[#222]">
+                    <div className="px-4 py-2.5 flex items-center gap-3 text-[#ccc] text-xs md:text-sm pointer-events-none">
+                      <MapPin className="w-4 h-4 text-[#888]" />
+                      <span>
+                        Location: {userData?.footprint?.location || "Unmapped"}
                       </span>
                     </div>
+                    <button
+                      onClick={() => setShowLanguageMenu(true)}
+                      className="w-full px-4 py-2.5 flex items-center justify-between text-[#ccc] hover:bg-[#111] transition-colors text-xs md:text-sm text-left"
+                    >
+                      <div className="flex items-center gap-3">
+                        <Languages className="w-4 h-4 text-[#888]" />
+                        <span>Language: English</span>
+                      </div>
+                      <ChevronRightIcon className="w-4 h-4 text-[#666]" />
+                    </button>
+                  </div>
 
-                    <div className="py-2">
-                      <button className="w-full px-4 py-3 flex items-center justify-between hover:bg-[#111] transition-colors">
-                        <span className="text-sm text-white font-medium">
-                          English (US)
-                        </span>
-                        <Check className="w-4 h-4 text-white" />
-                      </button>
-                    </div>
+                  {/* Section 2: Account Controls */}
+                  <div className="py-2 border-b border-[#222]">
+                    <Link
+                      to="/app/settings"
+                      onClick={() => setShowProfileMenu(false)}
+                      className="px-4 py-2.5 flex items-center gap-3 text-[#ccc] hover:bg-[#111] transition-colors text-xs md:text-sm"
+                    >
+                      <Settings className="w-4 h-4 text-[#888]" /> Settings
+                    </Link>
+                    <Link
+                      to="/premium"
+                      onClick={() => setShowProfileMenu(false)}
+                      className="px-4 py-2.5 flex items-center gap-3 text-[#ccc] hover:bg-[#111] transition-colors text-xs md:text-sm"
+                    >
+                      <Shield className="w-4 h-4 text-[#888]" /> Discotive Pro
+                    </Link>
+                    <button className="w-full px-4 py-2.5 flex items-center justify-between text-[#ccc] hover:bg-[#111] transition-colors text-xs md:text-sm text-left">
+                      <div className="flex items-center gap-3">
+                        <Moon className="w-4 h-4 text-[#888]" /> Appearance:
+                        Dark
+                      </div>
+                    </button>
+                  </div>
 
-                    <div className="px-4 py-6 text-center border-t border-[#222]">
-                      <Globe className="w-8 h-8 text-[#333] mx-auto mb-3" />
-                      <p className="text-xs font-bold text-[#888] uppercase tracking-widest">
-                        More languages coming soon
-                      </p>
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
+                  {/* Section 3: Support */}
+                  <div className="py-2 border-b border-[#222]">
+                    <button
+                      onClick={() => {
+                        setShowProfileMenu(false);
+                        setIsSupportTicketOpen(true);
+                      }}
+                      className="w-full px-4 py-2.5 flex items-center gap-3 text-[#ccc] hover:bg-[#111] transition-colors text-xs md:text-sm text-left"
+                    >
+                      <Ticket className="w-4 h-4 text-[#888]" /> Raise a Support
+                      Ticket
+                    </button>
+                    <Link
+                      onClick={() => setIsFeedbackOpen(true)}
+                      className="px-4 py-2.5 flex items-center gap-3 text-[#ccc] hover:bg-[#111] transition-colors text-xs md:text-sm"
+                    >
+                      <MessageSquare className="w-4 h-4 text-[#888]" /> Send
+                      Feedback
+                    </Link>
+                  </div>
+
+                  {/* Section 4: Sign Out */}
+                  <div className="py-2">
+                    <button
+                      onClick={handleLogout}
+                      className="w-full px-4 py-2.5 flex items-center gap-3 text-[#ccc] hover:bg-[#111] transition-colors text-xs md:text-sm text-left"
+                    >
+                      <LogOut className="w-4 h-4 text-[#888]" /> Sign out
+                    </button>
+                  </div>
+                </motion.div>
+              )}
+
+              {/* 2. NESTED LANGUAGE MENU */}
+              {showProfileMenu && showLanguageMenu && (
+                <motion.div
+                  key="language-menu"
+                  initial={{ opacity: 0, x: 20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: 20 }}
+                  transition={{ duration: 0.15 }}
+                  className="absolute left-0 md:left-auto md:right-0 top-full mt-3 w-[280px] md:w-[320px] bg-[#0A0A0A] border border-white/5 rounded-2xl shadow-[0_30px_80px_rgba(0,0,0,0.95)] overflow-hidden z-[120] flex flex-col py-2"
+                >
+                  <div className="flex items-center gap-2 px-2 pb-2 border-b border-[#222]">
+                    <button
+                      onClick={() => setShowLanguageMenu(false)}
+                      className="p-2 hover:bg-[#111] rounded-full transition-colors"
+                    >
+                      <ChevronLeft className="w-5 h-5 text-white" />
+                    </button>
+                    <span className="font-bold text-sm text-white">
+                      Choose Language
+                    </span>
+                  </div>
+
+                  <div className="py-2">
+                    <button className="w-full px-4 py-3 flex items-center justify-between hover:bg-[#111] transition-colors">
+                      <span className="text-sm text-white font-medium">
+                        English (US)
+                      </span>
+                      <Check className="w-4 h-4 text-white" />
+                    </button>
+                  </div>
+
+                  <div className="px-4 py-6 text-center border-t border-[#222]">
+                    <Globe className="w-8 h-8 text-[#333] mx-auto mb-3" />
+                    <p className="text-xs font-bold text-[#888] uppercase tracking-widest">
+                      More languages coming soon
+                    </p>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
         </header>
 
@@ -1104,7 +1113,7 @@ const MainLayout = () => {
       <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-[#0A0A0A]/90 backdrop-blur-2xl border-t border-white/5 z-[100] flex items-center justify-around px-2 pb-[env(safe-area-inset-bottom)] pt-1 min-h-[calc(4rem+env(safe-area-inset-bottom))]">
         {[
           { icon: LayoutDashboard, path: "/app", label: "Dashboard" },
-          { icon: Target, path: "/app/roadmap", label: "Roadmap" },
+          { icon: LaptopMinimalCheck, path: "/app/roadmap", label: "Roadmap" },
           { icon: Trophy, path: "/app/leaderboard", label: "Arena" },
           { icon: FolderOpen, path: "/app/vault", label: "Vault" },
         ].map((item) => {
@@ -1128,7 +1137,7 @@ const MainLayout = () => {
               {isActive && (
                 <motion.div
                   layoutId="mobile-nav-indicator"
-                  className="absolute top-0 w-8 h-0.5 bg-[#BFA264] rounded-b-full shadow-[0_2px_10px_rgba(191,162,100,0.5)]"
+                  className="absolute -top-[5px] w-8 h-[3px] bg-[#BFA264] rounded-b-full shadow-[0_2px_15px_rgba(191,162,100,0.6)]"
                 />
               )}
               <div className="relative">
