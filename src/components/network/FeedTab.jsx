@@ -27,6 +27,7 @@ import {
   AlertTriangle,
   Crown,
   Send,
+  Check,
 } from "lucide-react";
 import { cn } from "../../lib/cn";
 
@@ -354,8 +355,20 @@ const PostComposer = ({ userData, onPost, isPosting }) => {
 
 // ─── Post Card (Telemetry Node) ───────────────────────────────────────────────
 const PostCard = ({ post, uid, onLike }) => {
+  const [isCopied, setIsCopied] = useState(false);
   const isLiked = (post.likedBy || []).includes(uid);
   const initials = `${post.authorName?.charAt(0) || ""}`.toUpperCase() || "O";
+
+  const handleShare = async () => {
+    const url = `${window.location.origin}/@${post.authorUsername || "operator"}/network/post/${post.id}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      setIsCopied(true);
+      setTimeout(() => setIsCopied(false), 2000);
+    } catch (err) {
+      console.error("Failed to copy link to clipboard");
+    }
+  };
 
   // Psychological Hook: Pseudo-algorithmic relevance match based on ID hash
   const matchPrc = useMemo(() => {
@@ -455,33 +468,72 @@ const PostCard = ({ post, uid, onLike }) => {
           {parseRichText(post.textContent)}
         </div>
 
-        {/* Actions - Pushed to right for cleaner lines */}
-        <div className="flex items-center justify-end gap-1.5 pl-0 md:pl-[58px]">
+        {/* Actions - Minimalist Bare Icons */}
+        <div className="flex items-center justify-end gap-2 pl-0 md:pl-[58px] select-none">
           <button
             onClick={() => onLike(post.id)}
             className={cn(
-              "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-black tracking-widest uppercase transition-all group/like",
+              "flex items-center gap-1.5 px-2 py-1.5 text-[11px] font-black tracking-widest uppercase transition-all group/like outline-none",
               isLiked
-                ? "text-red-400 bg-red-500/10 border border-red-500/20"
-                : "text-[rgba(245,240,232,0.30)] border border-transparent hover:text-red-400 hover:bg-red-500/10 hover:border-red-500/20",
+                ? "text-red-500 drop-shadow-[0_0_12px_rgba(239,68,68,0.4)]"
+                : "text-[rgba(245,240,232,0.30)] hover:text-red-400",
             )}
           >
             <Heart
               className={cn(
-                "w-3.5 h-3.5 transition-transform group-hover/like:scale-110",
-                isLiked && "fill-current",
+                "w-4 h-4 transition-all duration-300 group-hover/like:scale-110",
+                isLiked ? "fill-current" : "fill-transparent",
               )}
             />
-            <span>{post.likesCount || 0}</span>
+            <span className="w-3 text-left">
+              {post.likesCount > 0 ? post.likesCount : ""}
+            </span>
           </button>
 
-          <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-black tracking-widest uppercase text-[rgba(245,240,232,0.30)] border border-transparent hover:text-[#BFA264] hover:bg-[rgba(191,162,100,0.10)] hover:border-[rgba(191,162,100,0.20)] transition-all">
-            <MessageSquare className="w-3.5 h-3.5" />
-            <span>{post.replyCount || 0}</span>
+          <button
+            onClick={() =>
+              alert(
+                "Comms restricted. Threaded replies deploying in next cycle.",
+              )
+            }
+            className="flex items-center gap-1.5 px-2 py-1.5 text-[11px] font-black tracking-widest uppercase text-[rgba(245,240,232,0.30)] hover:text-[#BFA264] transition-all group/comment outline-none"
+          >
+            <MessageSquare className="w-4 h-4 transition-transform duration-300 group-hover/comment:scale-110" />
+            <span className="w-3 text-left">
+              {post.replyCount > 0 ? post.replyCount : ""}
+            </span>
           </button>
 
-          <button className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-[rgba(245,240,232,0.30)] hover:text-[#F5F0E8] hover:bg-[rgba(255,255,255,0.05)] transition-all ml-2">
-            <Share2 className="w-3.5 h-3.5" />
+          <div className="w-px h-3 bg-[rgba(255,255,255,0.1)] mx-1" />
+
+          <button
+            onClick={handleShare}
+            className={cn(
+              "flex items-center gap-1.5 px-2 py-1.5 transition-all group/share outline-none relative",
+              isCopied
+                ? "text-emerald-400 drop-shadow-[0_0_8px_rgba(52,211,153,0.4)]"
+                : "text-[rgba(245,240,232,0.30)] hover:text-[#BFA264]",
+            )}
+          >
+            {isCopied ? (
+              <Check className="w-4 h-4" />
+            ) : (
+              <Share2 className="w-4 h-4 transition-transform duration-300 group-hover/share:scale-110" />
+            )}
+
+            {/* Inline Copy Tooltip */}
+            <AnimatePresence>
+              {isCopied && (
+                <motion.span
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -4 }}
+                  className="absolute -top-6 right-0 text-[8px] font-black text-emerald-400 uppercase tracking-widest bg-[#0A0A0A] border border-emerald-500/20 px-2 py-1 rounded-md"
+                >
+                  Linked
+                </motion.span>
+              )}
+            </AnimatePresence>
           </button>
         </div>
       </div>
