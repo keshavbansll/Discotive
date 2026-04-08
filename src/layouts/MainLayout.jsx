@@ -122,7 +122,7 @@ const GHOST_LOCKED_ROUTES = [
 
 // --- MAIN LAYOUT COMPONENT ---
 const MainLayout = () => {
-  const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
@@ -356,29 +356,28 @@ const MainLayout = () => {
           isItemLocked
             ? (e) => {
                 e.preventDefault();
-                // Navigate anyway — the outlet overlay will handle it
                 navigate(item.path);
               }
             : undefined
         }
         className={cn(
-          "flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 group relative",
+          "flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 group relative border border-transparent",
           isActive
-            ? "bg-white text-black font-bold shadow-[0_0_20px_rgba(255,255,255,0.1)]"
+            ? "bg-[rgba(191,162,100,0.08)] text-[#D4AF78] border-[rgba(191,162,100,0.25)] shadow-[0_0_15px_rgba(191,162,100,0.05)] font-bold"
             : isItemLocked
-              ? "text-[#444] hover:bg-[#0d0d0d] font-medium cursor-pointer"
-              : "text-[#888] hover:bg-[#111] hover:text-white font-medium",
+              ? "text-[#444] hover:bg-[#111] font-medium cursor-pointer"
+              : "text-[#F5F0E8]/60 hover:bg-[rgba(191,162,100,0.04)] hover:text-[#E8D5A3] font-medium",
         )}
         title={isCollapsed ? item.label : undefined}
       >
         <Icon
           className={cn(
-            "w-5 h-5 shrink-0",
+            "w-5 h-5 shrink-0 transition-colors",
             isActive
-              ? "text-black"
+              ? "text-[#BFA264]"
               : isItemLocked
                 ? "text-[#333]"
-                : "text-[#888] group-hover:text-white",
+                : "text-[#F5F0E8]/40 group-hover:text-[#BFA264]",
           )}
         />
         {!isCollapsed && (
@@ -426,12 +425,14 @@ const MainLayout = () => {
       {/* DESKTOP SIDEBAR (Strict z-[100] to overlay content)       */}
       {/* ========================================================= */}
       <motion.aside
+        onHoverStart={() => setIsSidebarOpen(true)}
+        onHoverEnd={() => setIsSidebarOpen(false)}
         animate={{ width: isSidebarOpen ? 260 : 80 }}
         transition={{ type: "spring", damping: 25, stiffness: 200 }}
-        className="hidden md:flex flex-col bg-[#050505] border-r border-[#222] h-full z-[100] relative shadow-[10px_0_50px_rgba(0,0,0,0.5)]"
+        className="hidden md:flex flex-col bg-[#0A0A0A] border-r border-white/5 h-full z-[100] relative shadow-[10px_0_50px_rgba(0,0,0,0.5)]"
       >
         {/* Logo Section */}
-        <div className="h-20 flex items-center justify-between px-6 shrink-0 border-b border-[#111]">
+        <div className="h-20 flex items-center justify-between px-6 shrink-0 border-b border-white/5">
           <Link to="/app" className="flex items-center gap-3 overflow-hidden">
             <div className="w-8 h-8 flex items-center justify-center shrink-0">
               <img
@@ -572,20 +573,11 @@ const MainLayout = () => {
         </div>
 
         {/* Bottom Section (Settings & Toggle) */}
-        <div className="p-3 border-t border-[#111] bg-[#050505] shrink-0 space-y-1">
+        <div className="p-3 border-t border-white/5 bg-[#0A0A0A] shrink-0 space-y-1">
           {bottomNavItems.map((item) => (
             <NavItem key={item.path} item={item} isCollapsed={!isSidebarOpen} />
           ))}
-          <button
-            onClick={() => setIsSidebarOpen(!isSidebarOpen)}
-            className="w-full flex items-center justify-center py-3 text-[#666] hover:text-white hover:bg-[#111] rounded-xl transition-colors mt-2"
-          >
-            {isSidebarOpen ? (
-              <ChevronLeft className="w-5 h-5" />
-            ) : (
-              <ChevronRight className="w-5 h-5" />
-            )}
-          </button>
+          {/* PC Toggle Button removed to accommodate seamless hover-based expansion */}
         </div>
       </motion.aside>
 
@@ -1109,7 +1101,7 @@ const MainLayout = () => {
       {/* ========================================================= */}
       {/* MOBILE BOTTOM NAVIGATION BAR (Strictly 5 Icons)           */}
       {/* ========================================================= */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-[#050505]/95 backdrop-blur-2xl border-t border-[#222] z-[100] flex items-center justify-around px-2 pb-[env(safe-area-inset-bottom)] pt-1 min-h-[calc(4rem+env(safe-area-inset-bottom))]">
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-[#0A0A0A]/90 backdrop-blur-2xl border-t border-white/5 z-[100] flex items-center justify-around px-2 pb-[env(safe-area-inset-bottom)] pt-1 min-h-[calc(4rem+env(safe-area-inset-bottom))]">
         {[
           { icon: LayoutDashboard, path: "/app", label: "Dashboard" },
           { icon: Target, path: "/app/roadmap", label: "Roadmap" },
@@ -1125,18 +1117,18 @@ const MainLayout = () => {
               key={item.path}
               to={item.path}
               className={cn(
-                "flex flex-col items-center justify-center w-14 h-full gap-1 transition-all active:scale-90 duration-150 relative", // <-- Added active:scale-90
+                "flex flex-col items-center justify-center w-14 h-full gap-1 transition-all active:scale-90 duration-150 relative",
                 isActive
-                  ? "text-white"
+                  ? "text-[#D4AF78]"
                   : isMobileItemLocked
                     ? "text-[#444]"
-                    : "text-[#666] active:text-[#aaa]", // <-- Changed hover to active
+                    : "text-[#F5F0E8]/40 active:text-[#F5F0E8]/80",
               )}
             >
               {isActive && (
                 <motion.div
                   layoutId="mobile-nav-indicator"
-                  className="absolute top-0 w-8 h-0.5 bg-white rounded-b-full shadow-[0_2px_10px_rgba(255,255,255,0.5)]"
+                  className="absolute top-0 w-8 h-0.5 bg-[#BFA264] rounded-b-full shadow-[0_2px_10px_rgba(191,162,100,0.5)]"
                 />
               )}
               <div className="relative">
@@ -1157,7 +1149,9 @@ const MainLayout = () => {
           onClick={() => setIsMobileMenuOpen(true)}
           className={cn(
             "flex flex-col items-center justify-center w-14 h-full gap-1 transition-colors",
-            isMobileMenuOpen ? "text-white" : "text-[#666] hover:text-[#aaa]",
+            isMobileMenuOpen
+              ? "text-[#D4AF78]"
+              : "text-[#F5F0E8]/40 active:text-[#F5F0E8]/80",
           )}
         >
           <Menu className="w-5 h-5" />
@@ -1166,246 +1160,192 @@ const MainLayout = () => {
       </nav>
 
       {/* ========================================================= */}
-      {/* MOBILE HAMBURGER OVERLAY MENU                             */}
+      {/* MOBILE HAMBURGER OVERLAY MENU (NATIVE BOTTOM SHEET)       */}
       {/* ========================================================= */}
       <AnimatePresence>
         {isMobileMenuOpen && (
-          <motion.div
-            initial={{ opacity: 0, y: "100%" }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: "100%" }}
-            transition={{ type: "spring", damping: 25, stiffness: 200 }}
-            className="md:hidden fixed inset-0 bg-[#050505] z-[200] flex flex-col"
-          >
-            {/* Overlay Header */}
-            <div className="h-16 flex items-center justify-between px-6 border-b border-[#222] shrink-0 bg-[#0a0a0a]">
-              <span className="font-extrabold text-lg tracking-widest text-white">
-                DISCOTIVE OS
-              </span>
-              <button
+          <>
+            {/* Backdrop */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2 }}
+              onClick={() => setIsMobileMenuOpen(false)}
+              className="md:hidden fixed inset-0 bg-black/80 backdrop-blur-md z-[9998]"
+            />
+
+            {/* Bottom Sheet */}
+            <motion.div
+              initial={{ opacity: 0, y: "100%" }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: "100%" }}
+              transition={{ type: "spring", damping: 25, stiffness: 200 }}
+              className="md:hidden fixed bottom-0 left-0 right-0 bg-[#0A0A0A] border-t border-white/10 z-[9999] flex flex-col rounded-t-[2rem] overflow-hidden shadow-[0_-20px_60px_rgba(0,0,0,0.8)] pb-[calc(1rem+env(safe-area-inset-bottom))]"
+            >
+              {/* Handle/Pill */}
+              <div
+                className="w-full flex justify-center pt-3 pb-2 cursor-pointer"
                 onClick={() => setIsMobileMenuOpen(false)}
-                className="p-2 bg-[#111] border border-[#333] rounded-full text-[#888] hover:text-white transition-colors"
               >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
+                <div className="w-12 h-1.5 bg-[#333] rounded-full" />
+              </div>
 
-            {/* Scrollable Overlay Content */}
-            <div className="flex-1 overflow-y-auto custom-scrollbar px-6 py-8 space-y-8 pb-24">
-              {/* User Snapshot — Ghost-aware */}
-              {isGhostUser ? (
-                <div
-                  className="flex items-center gap-4 p-4 bg-amber-500/8 border border-amber-500/20 rounded-2xl cursor-pointer"
-                  onClick={() => {
-                    setIsMobileMenuOpen(false);
-                    navigate("/auth?step=2");
-                  }}
-                >
-                  <div className="w-12 h-12 rounded-full bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-lg font-bold text-amber-500">
-                    ?
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="font-extrabold text-amber-400">
-                      Profile Incomplete
-                    </p>
-                    <p className="text-[10px] text-[#666] font-mono tracking-widest uppercase truncate">
-                      Tap to complete onboarding
-                    </p>
-                  </div>
-                  <ArrowRight className="w-4 h-4 text-amber-500 shrink-0" />
+              {/* Content Container */}
+              <div className="flex-1 overflow-y-auto custom-scrollbar px-6 py-4 space-y-6 max-h-[80vh]">
+                {/* Header */}
+                <div className="flex items-center justify-between border-b border-white/5 pb-4">
+                  <span className="font-extrabold text-sm tracking-widest text-[#F5F0E8]">
+                    DISCOTIVE OS
+                  </span>
+                  <button
+                    onClick={() => setIsMobileMenuOpen(false)}
+                    className="p-1.5 bg-[#111] border border-white/5 rounded-full text-[#888] hover:text-[#F5F0E8] transition-colors"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
                 </div>
-              ) : (
-                <div className="flex items-center gap-4 p-4 bg-[#111] border border-[#222] rounded-2xl">
-                  <div className="w-12 h-12 rounded-full bg-[#222] border border-[#444] flex items-center justify-center text-lg font-bold text-[#888]">
-                    {userData?.identity?.firstName?.charAt(0) || "U"}
-                  </div>
-                  <div>
-                    <p className="font-extrabold text-white">
-                      {userData?.identity?.firstName}{" "}
-                      {userData?.identity?.lastName}
-                    </p>
-                    <p className="text-[10px] text-[#888] font-mono tracking-widest uppercase">
-                      Lvl{" "}
-                      {Math.min(
-                        Math.floor(
-                          (userData?.discotiveScore?.current ?? 0) / 1000,
-                        ) + 1,
-                        10,
-                      )}{" "}
-                      Operator
-                    </p>
-                  </div>
-                </div>
-              )}
 
-              {/* Sections */}
-              <div>
-                <p className="text-[10px] font-bold text-[#555] uppercase tracking-[0.2em] mb-3">
-                  Career Hub
-                </p>
+                {/* User Snapshot */}
+                {isGhostUser ? (
+                  <div
+                    className="flex items-center gap-4 p-4 bg-[rgba(191,162,100,0.08)] border border-[rgba(191,162,100,0.25)] rounded-2xl cursor-pointer"
+                    onClick={() => {
+                      setIsMobileMenuOpen(false);
+                      navigate("/auth?step=2");
+                    }}
+                  >
+                    <div className="w-12 h-12 rounded-full bg-[rgba(191,162,100,0.15)] border border-[rgba(191,162,100,0.3)] flex items-center justify-center text-lg font-bold text-[#D4AF78]">
+                      ?
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-extrabold text-[#D4AF78]">
+                        Profile Incomplete
+                      </p>
+                      <p className="text-[10px] text-[#BFA264] font-mono tracking-widest uppercase truncate">
+                        Tap to complete onboarding
+                      </p>
+                    </div>
+                    <ArrowRight className="w-4 h-4 text-[#D4AF78] shrink-0" />
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-4 p-4 bg-[#0F0F0F] border border-white/5 rounded-2xl">
+                    <div className="w-12 h-12 rounded-full bg-[#111] border border-white/10 flex items-center justify-center text-lg font-bold text-[#D4AF78]">
+                      {userData?.identity?.firstName?.charAt(0) || "U"}
+                    </div>
+                    <div>
+                      <p className="font-extrabold text-[#F5F0E8]">
+                        {userData?.identity?.firstName}{" "}
+                        {userData?.identity?.lastName}
+                      </p>
+                      <p className="text-[10px] text-[#F5F0E8]/60 font-mono tracking-widest uppercase">
+                        Lvl{" "}
+                        {Math.min(
+                          Math.floor(
+                            (userData?.discotiveScore?.current ?? 0) / 1000,
+                          ) + 1,
+                          10,
+                        )}{" "}
+                        Operator
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Core Actions Grid */}
                 <div className="grid grid-cols-2 gap-3">
                   <Link
-                    to="/app/vault"
-                    className="flex flex-col items-center justify-center gap-2 p-4 bg-[#0a0a0a] border border-[#222] rounded-2xl active:bg-[#111]"
-                  >
-                    <FolderOpen className="w-5 h-5 text-white" />
-                    <span className="text-xs font-bold text-[#ccc]">
-                      Asset Vault
-                    </span>
-                  </Link>
-                  <Link
-                    to="/app/hubs"
-                    className="flex flex-col items-center justify-center gap-2 p-4 bg-[#0a0a0a] border border-[#222] rounded-2xl active:bg-[#111]"
-                  >
-                    <Compass className="w-5 h-5 text-white" />
-                    <span className="text-xs font-bold text-[#ccc]">
-                      Discover Hubs
-                    </span>
-                  </Link>
-                  <Link
-                    to="/app/opportunities"
-                    className="col-span-2 flex flex-col items-center justify-center gap-2 p-4 bg-[#0a0a0a] border border-[#222] rounded-2xl active:bg-[#111]"
-                  >
-                    <Briefcase className="w-5 h-5 text-white" />
-                    <span className="text-xs font-bold text-[#ccc]">
-                      Opportunities
-                    </span>
-                  </Link>
-                </div>
-              </div>
-
-              <div>
-                <p className="text-[10px] font-bold text-[#555] uppercase tracking-[0.2em] mb-3">
-                  Media & Assessment
-                </p>
-                <div className="space-y-2">
-                  <Link
-                    to="/app/learn"
-                    className="flex items-center gap-4 p-4 bg-[#0a0a0a] border border-[#222] rounded-xl active:bg-[#111]"
-                  >
-                    <BookOpen className="w-5 h-5 text-[#888]" />
-                    <span className="text-sm font-bold text-white">
-                      Learning Center
-                    </span>
-                  </Link>
-                  <Link
-                    to="/app/podcasts"
-                    className="flex items-center gap-4 p-4 bg-[#0a0a0a] border border-[#222] rounded-xl active:bg-[#111]"
-                  >
-                    <Mic className="w-5 h-5 text-[#888]" />
-                    <span className="text-sm font-bold text-white">
-                      Podcasts & Media
-                    </span>
-                  </Link>
-                  <Link
-                    to="/app/assessments"
-                    className="flex items-center gap-4 p-4 bg-[#0a0a0a] border border-[#222] rounded-xl active:bg-[#111]"
-                  >
-                    <FileText className="w-5 h-5 text-[#888]" />
-                    <span className="text-sm font-bold text-white">
-                      Assessments
-                    </span>
-                  </Link>
-                </div>
-              </div>
-
-              <div>
-                <p className="text-[10px] font-bold text-[#555] uppercase tracking-[0.2em] mb-3">
-                  System & Account
-                </p>
-                <div className="space-y-2">
-                  <Link
                     to="/app/profile"
-                    className="flex items-center gap-4 p-4 bg-[#0a0a0a] border border-[#222] rounded-xl active:bg-[#111]"
+                    onClick={() => setIsMobileMenuOpen(false)}
+                    className="flex flex-col items-center justify-center gap-2 p-4 bg-[#0F0F0F] border border-white/5 rounded-2xl active:bg-[#111]"
                   >
-                    <User className="w-5 h-5 text-[#888]" />
-                    <span className="text-sm font-bold text-white">
-                      Operator Profile
-                    </span>
-                  </Link>
-                  <Link
-                    to="/app/finance"
-                    className="flex items-center gap-4 p-4 bg-[#0a0a0a] border border-[#222] rounded-xl active:bg-[#111]"
-                  >
-                    <LineChart className="w-5 h-5 text-[#888]" />
-                    <span className="text-sm font-bold text-white">
-                      Financial Ledger
+                    <User className="w-5 h-5 text-[#BFA264]" />
+                    <span className="text-xs font-bold text-[#F5F0E8]">
+                      Profile
                     </span>
                   </Link>
                   <Link
                     to="/app/settings"
-                    className="flex items-center gap-4 p-4 bg-[#0a0a0a] border border-[#222] rounded-xl active:bg-[#111]"
+                    onClick={() => setIsMobileMenuOpen(false)}
+                    className="flex flex-col items-center justify-center gap-2 p-4 bg-[#0F0F0F] border border-white/5 rounded-2xl active:bg-[#111]"
                   >
-                    <Settings className="w-5 h-5 text-[#888]" />
-                    <span className="text-sm font-bold text-white">
+                    <Settings className="w-5 h-5 text-[#BFA264]" />
+                    <span className="text-xs font-bold text-[#F5F0E8]">
                       Settings
                     </span>
                   </Link>
+                </div>
+
+                {/* Premium & Admin */}
+                <div className="space-y-2">
                   <Link
                     to="/premium"
-                    className="flex items-center justify-between p-4 bg-gradient-to-r from-amber-500/10 to-transparent border border-amber-500/20 rounded-xl active:bg-amber-500/20"
+                    onClick={() => setIsMobileMenuOpen(false)}
+                    className="flex items-center justify-between p-4 bg-gradient-to-r from-[rgba(191,162,100,0.15)] to-transparent border border-[rgba(191,162,100,0.25)] rounded-2xl active:bg-[rgba(191,162,100,0.2)]"
                   >
                     <div className="flex items-center gap-4">
-                      <Shield className="w-5 h-5 text-amber-500" />
-                      <span className="text-sm font-bold text-amber-500">
+                      <Shield className="w-5 h-5 text-[#D4AF78]" />
+                      <span className="text-sm font-bold text-[#D4AF78]">
                         Discotive Pro
                       </span>
                     </div>
-                    <Zap className="w-4 h-4 text-amber-500" />
+                    <Zap className="w-4 h-4 text-[#D4AF78]" />
                   </Link>
+                  {isAdmin && (
+                    <Link
+                      to="/app/admin"
+                      onClick={() => setIsMobileMenuOpen(false)}
+                      className="flex items-center justify-between p-4 bg-rose-500/10 border border-rose-500/20 rounded-2xl active:bg-rose-500/20"
+                    >
+                      <div className="flex items-center gap-4">
+                        <Shield className="w-5 h-5 text-rose-400" />
+                        <span className="text-sm font-bold text-rose-400">
+                          Admin Dashboard
+                        </span>
+                      </div>
+                    </Link>
+                  )}
                 </div>
-              </div>
 
-              <div>
-                <p className="text-[10px] font-bold text-[#555] uppercase tracking-[0.2em] mb-3">
-                  Support
-                </p>
-                <div className="space-y-2">
-                  <Link
-                    to="/support"
-                    className="flex items-center gap-4 p-4 bg-[#0a0a0a] border border-[#222] rounded-xl active:bg-[#111]"
+                {/* Support & Exit */}
+                <div className="space-y-2 pt-2 border-t border-white/5">
+                  <button
+                    onClick={() => {
+                      setIsMobileMenuOpen(false);
+                      setIsSupportTicketOpen(true);
+                    }}
+                    className="w-full flex items-center gap-4 p-4 bg-[#0F0F0F] border border-white/5 rounded-2xl active:bg-[#111]"
                   >
-                    <HelpCircle className="w-5 h-5 text-[#888]" />
-                    <span className="text-sm font-bold text-white">
-                      Help Center
+                    <HelpCircle className="w-5 h-5 text-[#F5F0E8]/60" />
+                    <span className="text-sm font-bold text-[#F5F0E8]/80">
+                      Raise Ticket
                     </span>
-                  </Link>
-                  <Link
-                    to="/feedback"
-                    className="flex items-center gap-4 p-4 bg-[#0a0a0a] border border-[#222] rounded-xl active:bg-[#111]"
+                  </button>
+                  <button
+                    onClick={() => {
+                      setIsMobileMenuOpen(false);
+                      setIsFeedbackOpen(true);
+                    }}
+                    className="w-full flex items-center gap-4 p-4 bg-[#0F0F0F] border border-white/5 rounded-2xl active:bg-[#111]"
                   >
-                    <MessageSquare className="w-5 h-5 text-[#888]" />
-                    <span className="text-sm font-bold text-white">
+                    <MessageSquare className="w-5 h-5 text-[#F5F0E8]/60" />
+                    <span className="text-sm font-bold text-[#F5F0E8]/80">
                       Send Feedback
                     </span>
-                  </Link>
-                  {isInstallable && (
-                    <div className="py-2">
-                      <button
-                        onClick={handleInstallClick}
-                        className="w-full flex items-center justify-between p-4 bg-amber-500 text-black rounded-xl font-extrabold"
-                      >
-                        <div className="flex items-center gap-4">
-                          <Zap className="w-5 h-5 fill-current" />
-                          <span className="text-sm">Install Discotive App</span>
-                        </div>
-                        <ChevronRightIcon className="w-4 h-4" />
-                      </button>
-                    </div>
-                  )}
+                  </button>
                   <button
                     onClick={handleLogout}
-                    className="w-full flex items-center gap-4 p-4 bg-red-500/10 border border-red-500/20 rounded-xl active:bg-red-500/20"
+                    className="w-full flex items-center gap-4 p-4 bg-red-500/5 border border-red-500/10 rounded-2xl active:bg-red-500/10 mt-4"
                   >
-                    <LogOut className="w-5 h-5 text-red-500" />
-                    <span className="text-sm font-bold text-red-500">
+                    <LogOut className="w-5 h-5 text-red-500/80" />
+                    <span className="text-sm font-bold text-red-500/80">
                       Sign Out
                     </span>
                   </button>
                 </div>
               </div>
-            </div>
-          </motion.div>
+            </motion.div>
+          </>
         )}
       </AnimatePresence>
 
