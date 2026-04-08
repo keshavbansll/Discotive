@@ -352,58 +352,80 @@ const PostComposer = ({ userData, onPost, isPosting }) => {
   );
 };
 
-// ─── Post Card ────────────────────────────────────────────────────────────────
+// ─── Post Card (Telemetry Node) ───────────────────────────────────────────────
 const PostCard = ({ post, uid, onLike }) => {
   const isLiked = (post.likedBy || []).includes(uid);
   const initials = `${post.authorName?.charAt(0) || ""}`.toUpperCase() || "O";
 
+  // Psychological Hook: Pseudo-algorithmic relevance match based on ID hash
+  const matchPrc = useMemo(() => {
+    if (!post.id) return 99;
+    const charCode = post.id.charCodeAt(post.id.length - 1) || 50;
+    return Math.max(72, Math.min(99, charCode));
+  }, [post.id]);
+
+  const isPro = post.authorTier === "PRO";
+
   return (
     <motion.article
       layout
-      initial={{ opacity: 0, y: 12 }}
-      animate={{ opacity: 1, y: 0 }}
+      initial={{ opacity: 0, y: 12, scale: 0.98 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
       className={cn(
-        "group relative rounded-[1.5rem] border transition-all duration-200 overflow-hidden",
+        "group relative rounded-[1.5rem] border transition-all duration-300 overflow-hidden",
         post._optimistic
           ? "bg-[#0A0A0A] border-[rgba(191,162,100,0.20)] opacity-70"
-          : "bg-[#0A0A0A] border-[rgba(255,255,255,0.06)] hover:border-[rgba(191,162,100,0.18)] hover:bg-[#0D0D0D]",
+          : isPro
+            ? "bg-gradient-to-b from-[#0F0F0F] to-[#050505] border-[rgba(191,162,100,0.15)] hover:border-[rgba(191,162,100,0.40)] hover:shadow-[0_8px_32px_rgba(191,162,100,0.08)]"
+            : "bg-gradient-to-b from-[#0A0A0A] to-[#030303] border-[rgba(255,255,255,0.06)] hover:border-[rgba(255,255,255,0.15)] hover:shadow-[0_8px_24px_rgba(0,0,0,0.8)]",
       )}
     >
-      <div className="p-4 md:p-5">
+      {/* Dynamic Pro Glow Bar */}
+      {isPro && (
+        <div className="absolute top-0 left-0 w-full h-[2px] bg-gradient-to-r from-transparent via-[#BFA264] to-transparent opacity-50 group-hover:opacity-100 transition-opacity" />
+      )}
+
+      <div className="p-4 md:p-5 relative z-10">
         {/* Author row */}
-        <div className="flex items-start justify-between mb-3.5">
-          <div className="flex items-center gap-3">
+        <div className="flex items-start justify-between mb-4">
+          <div className="flex items-center gap-3.5">
             <div className="relative">
-              <div className="w-10 h-10 rounded-full bg-[#111] border border-[rgba(255,255,255,0.08)] flex items-center justify-center text-sm font-black text-[#BFA264] shrink-0">
+              <div
+                className={cn(
+                  "w-11 h-11 rounded-full flex items-center justify-center text-[15px] font-black shrink-0 transition-transform group-hover:scale-105",
+                  isPro
+                    ? "bg-[#111] border border-[#BFA264]/40 text-[#BFA264] shadow-[inset_0_0_12px_rgba(191,162,100,0.15)]"
+                    : "bg-[#111] border border-[rgba(255,255,255,0.08)] text-[#BFA264]",
+                )}
+              >
                 {initials}
               </div>
-              {post.authorTier === "PRO" && (
-                <div className="absolute -bottom-0.5 -right-0.5 w-4 h-4 bg-amber-500 rounded-full border-2 border-[#0A0A0A] flex items-center justify-center">
-                  <Crown className="w-2 h-2 text-black" />
+              {isPro && (
+                <div className="absolute -bottom-1 -right-1 w-4.5 h-4.5 bg-gradient-to-br from-amber-400 to-amber-600 rounded-full border-[2.5px] border-[#0A0A0A] flex items-center justify-center shadow-lg">
+                  <Crown className="w-2.5 h-2.5 text-[#030303]" />
                 </div>
               )}
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <p className="text-sm font-bold text-[#F5F0E8] leading-tight">
+                <p className="text-sm font-bold text-[#F5F0E8] leading-tight tracking-tight">
                   {post.authorName || "Operator"}
                 </p>
-                {post.authorTier === "PRO" && (
-                  <span className="text-[8px] font-black text-amber-500 uppercase tracking-widest">
-                    PRO
-                  </span>
-                )}
+                {/* Visual execution badge */}
+                <span className="hidden sm:inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-[rgba(255,255,255,0.04)] border border-[rgba(255,255,255,0.05)] text-[9px] font-black text-[rgba(245,240,232,0.40)] uppercase tracking-widest">
+                  <Zap className="w-2.5 h-2.5 text-[#BFA264]" /> ACTIVE
+                </span>
               </div>
-              <div className="flex items-center gap-1.5 mt-0.5">
+              <div className="flex items-center gap-1.5 mt-1">
                 {post.authorUsername && (
-                  <span className="text-[10px] text-[rgba(245,240,232,0.30)] font-mono">
+                  <span className="text-[10px] text-[rgba(245,240,232,0.35)] font-mono tracking-tight">
                     @{post.authorUsername}
                   </span>
                 )}
                 {post.authorDomain && (
                   <>
-                    <span className="text-[rgba(245,240,232,0.15)]">·</span>
-                    <span className="text-[10px] text-[rgba(245,240,232,0.30)]">
+                    <span className="text-[rgba(245,240,232,0.15)]">/</span>
+                    <span className="text-[10px] font-bold text-[rgba(245,240,232,0.50)]">
                       {post.authorDomain}
                     </span>
                   </>
@@ -411,60 +433,68 @@ const PostCard = ({ post, uid, onLike }) => {
               </div>
             </div>
           </div>
-          <span className="text-[10px] text-[rgba(245,240,232,0.25)] font-mono mt-1 shrink-0">
-            {timeAgo(post.timestamp)}
-          </span>
+
+          {/* Telemetry Output */}
+          <div className="flex flex-col items-end gap-1 shrink-0">
+            <span className="text-[9px] text-[rgba(245,240,232,0.20)] font-mono tracking-widest uppercase">
+              SYS.T-{timeAgo(post.timestamp).replace(" ", "")}
+            </span>
+            <span
+              className={cn(
+                "text-[9px] font-black font-mono",
+                matchPrc > 90 ? "text-emerald-400/80" : "text-[#BFA264]/70",
+              )}
+            >
+              {matchPrc}% MATCH
+            </span>
+          </div>
         </div>
 
         {/* Content */}
-        <div className="space-y-1.5 mb-4">
+        <div className="space-y-1.5 mb-5 pl-0 md:pl-[58px]">
           {parseRichText(post.textContent)}
         </div>
 
-        {/* Separator */}
-        <div className="h-px bg-[rgba(255,255,255,0.04)] mb-3.5" />
-
-        {/* Actions */}
-        <div className="flex items-center gap-1">
-          {/* Like */}
+        {/* Actions - Pushed to right for cleaner lines */}
+        <div className="flex items-center justify-end gap-1.5 pl-0 md:pl-[58px]">
           <button
             onClick={() => onLike(post.id)}
             className={cn(
-              "flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all group/like",
+              "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-black tracking-widest uppercase transition-all group/like",
               isLiked
-                ? "text-red-400 bg-red-500/8"
-                : "text-[rgba(245,240,232,0.35)] hover:text-red-400 hover:bg-red-500/8",
+                ? "text-red-400 bg-red-500/10 border border-red-500/20"
+                : "text-[rgba(245,240,232,0.30)] border border-transparent hover:text-red-400 hover:bg-red-500/10 hover:border-red-500/20",
             )}
           >
             <Heart
               className={cn(
-                "w-3.5 h-3.5 transition-all group-hover/like:scale-110",
+                "w-3.5 h-3.5 transition-transform group-hover/like:scale-110",
                 isLiked && "fill-current",
               )}
             />
             <span>{post.likesCount || 0}</span>
           </button>
 
-          {/* Replies */}
-          <button className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold text-[rgba(245,240,232,0.35)] hover:text-[#BFA264] hover:bg-[rgba(191,162,100,0.08)] transition-all">
+          <button className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-black tracking-widest uppercase text-[rgba(245,240,232,0.30)] border border-transparent hover:text-[#BFA264] hover:bg-[rgba(191,162,100,0.10)] hover:border-[rgba(191,162,100,0.20)] transition-all">
             <MessageSquare className="w-3.5 h-3.5" />
             <span>{post.replyCount || 0}</span>
           </button>
 
-          {/* Share */}
-          <button className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold text-[rgba(245,240,232,0.35)] hover:text-[#BFA264] hover:bg-[rgba(191,162,100,0.08)] transition-all ml-auto">
+          <button className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-[rgba(245,240,232,0.30)] hover:text-[#F5F0E8] hover:bg-[rgba(255,255,255,0.05)] transition-all ml-2">
             <Share2 className="w-3.5 h-3.5" />
           </button>
         </div>
       </div>
 
-      {/* Optimistic indicator */}
+      {/* Optimistic indicator overlay */}
       {post._optimistic && (
-        <div className="absolute top-3 right-4 flex items-center gap-1.5">
-          <Loader2 className="w-3 h-3 animate-spin text-[#BFA264]" />
-          <span className="text-[9px] font-bold text-[#BFA264] uppercase tracking-widest">
-            Transmitting
-          </span>
+        <div className="absolute inset-0 bg-[#0A0A0A]/40 backdrop-blur-[1px] flex items-center justify-center z-20">
+          <div className="flex items-center gap-2 px-4 py-2 bg-[#111] border border-[#BFA264]/30 rounded-full shadow-xl">
+            <Loader2 className="w-3 h-3 animate-spin text-[#BFA264]" />
+            <span className="text-[10px] font-black text-[#BFA264] uppercase tracking-widest">
+              Transmitting...
+            </span>
+          </div>
         </div>
       )}
     </motion.article>

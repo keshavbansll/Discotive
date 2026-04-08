@@ -38,9 +38,15 @@ import { awardAllianceAction } from "../lib/scoreEngine";
 const FEED_PAGE_SIZE = 12;
 const NETWORK_PAGE_SIZE = 20;
 
-// ─── Session-scoped caches ───────────────────────────────────────────────────
-const FEED_CACHE = new Map();
-const ALLIANCE_CACHE = new Map();
+// ─── Session-scoped caches (Memory Layer) ────────────────────────────────────
+// Prevents quota bleed on tab switching.
+const MEMORY_CACHE = {
+  feed: null,
+  lastDoc: null,
+  network: null,
+  timestamp: 0,
+};
+const CACHE_TTL = 1000 * 60 * 5; // 5 minutes
 
 // ─── Score mutation stub (real impl in scoreEngine.js) ──────────────────────
 const updateDiscotiveScore = async (userId, points, reason) => {
@@ -87,7 +93,23 @@ export const useNetwork = (currentUser, userData) => {
 
       try {
         let q;
-        if (reset || !lastPostDocRef.current) {
+        const now = Date.now();
+        const isInitialLoad = reset || !lastPostDocRef.current;
+
+        // Quota Protection: Serve from memory cache if valid
+        if (
+          isInitialLoad &&
+          MEMORY_CACHE.feed &&
+          now - MEMORY_CACHE.timestamp < CACHE_TTL
+        ) {
+          setPosts(MEMORY_CACHE.feed);
+          lastPostDocRef.current = MEMORY_CACHE.lastDoc;
+          setFeedLoading(false);
+          // Background sync omitted for strict read minimization on free tier
+          return;
+        }
+
+        if (isInitialLoad) {
           q = query(
             collection(db, "posts"),
             orderBy("timestamp", "desc"),
@@ -120,7 +142,16 @@ export const useNetwork = (currentUser, userData) => {
           likedBy: d.data().likedBy || [],
         }));
 
-        setPosts((prev) => (reset ? fetched : [...prev, ...fetched]));
+        setPosts((prev) => {
+          const newPosts = reset ? fetched : [...prev, ...fetched];
+          // Update Cache
+          if (reset) {
+            MEMORY_CACHE.feed = newPosts;
+            MEMORY_CACHE.lastDoc = lastPostDocRef.current;
+            MEMORY_CACHE.timestamp = Date.now();
+          }
+          return newPosts;
+        });
       } catch (err) {
         console.error("[useNetwork] fetchFeed failed:", err);
         setFeedError("Transmission lost. Reconnecting to the network...");

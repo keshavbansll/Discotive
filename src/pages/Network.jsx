@@ -126,10 +126,10 @@ const MainTabButton = ({ id, label, icon: Icon, badge, active, onClick }) => (
   <button
     onClick={() => onClick(id)}
     className={cn(
-      "relative flex items-center gap-2.5 px-5 py-3 rounded-2xl text-[11px] font-black uppercase tracking-wider transition-all shrink-0",
+      "relative flex items-center gap-2.5 px-5 py-3 rounded-2xl text-[11px] font-black uppercase tracking-wider transition-all duration-300 shrink-0",
       active
-        ? "bg-white text-black shadow-[0_0_30px_rgba(255,255,255,0.08)]"
-        : "text-[rgba(245,240,232,0.40)] hover:text-[rgba(245,240,232,0.75)] hover:bg-[rgba(255,255,255,0.04)]",
+        ? "bg-gradient-to-r from-[#BFA264] to-[#D4AF78] text-[#030303] shadow-[0_4px_24px_rgba(191,162,100,0.35)] border border-transparent"
+        : "text-[rgba(245,240,232,0.40)] hover:text-[rgba(245,240,232,0.75)] hover:bg-[rgba(255,255,255,0.04)] border border-transparent",
     )}
   >
     <Icon className="w-4 h-4" />
@@ -137,8 +137,10 @@ const MainTabButton = ({ id, label, icon: Icon, badge, active, onClick }) => (
     {badge > 0 && (
       <span
         className={cn(
-          "min-w-[16px] h-4 px-1 rounded-full text-[8px] font-black flex items-center justify-center",
-          active ? "bg-black text-white" : "bg-[#BFA264] text-[#030303]",
+          "min-w-[16px] h-4 px-1 rounded-full text-[8px] font-black flex items-center justify-center transition-colors duration-300",
+          active
+            ? "bg-[#030303] text-[#BFA264] shadow-inner"
+            : "bg-[#BFA264] text-[#030303]",
         )}
       >
         {badge}
