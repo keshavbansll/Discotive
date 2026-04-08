@@ -170,10 +170,7 @@ function App() {
                   path="finance"
                   element={<ComingSoon title="Financial Ledger" />}
                 />
-                <Route
-                  path="network"
-                  element={<ComingSoon title="Network" />}
-                />
+                <Route path="network" element={<Network />} />
                 <Route path="learn" element={<LearnDatabase />} />
                 <Route
                   path="podcasts"

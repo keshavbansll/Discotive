@@ -248,5 +248,100 @@ service cloud.firestore {
         || isOwner(userId) || isAdmin();
       allow write: if isOwner(userId) || isAdmin();
     }
+
+    // =========================================================================
+    // NETWORK MODULE FIRESTORE RULES
+    // =========================================================================
+
+    // =========================================================================
+    // N1. POSTS — Authenticated write, public read within auth scope
+    // =========================================================================
+    match /posts/{postId} {
+      // Any authenticated user can read posts (feed is visible to all operators)
+      allow read: if isAuthenticated();
+
+      // Create: only the owner, must carry their own uid as authorId
+      allow create: if isAuthenticated()
+        && request.resource.data.authorId == request.auth.uid
+        && request.resource.data.textContent is string
+        && request.resource.data.textContent.size() >= 1
+        && request.resource.data.textContent.size() <= 2000
+        && request.resource.data.likedBy is list
+        && request.resource.data.likedBy.size() == 0;  // No pre-seeding likes
+
+      // Update: ONLY allow changes to likedBy and likesCount (like/unlike).
+      // Author cannot edit post content after publishing (integrity).
+      allow update: if isAuthenticated()
+        && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['likedBy', 'likesCount']);
+
+      // Delete: only the author
+      allow delete: if isAuthenticated()
+        && resource.data.authorId == request.auth.uid;
+    }
+
+    // =========================================================================
+    // N2. CONNECTIONS — Strict requester-ownership, both parties can read
+    // =========================================================================
+    match /connections/{connectionId} {
+      // Both parties involved can read the connection document
+      allow read: if isAuthenticated()
+        && (resource.data.requesterId == request.auth.uid
+          || resource.data.receiverId == request.auth.uid);
+
+      // Create: only the requester, status MUST be PENDING (no self-alliances)
+      allow create: if isAuthenticated()
+        && request.resource.data.requesterId == request.auth.uid
+        && request.resource.data.receiverId != request.auth.uid
+        && request.resource.data.status == "PENDING"
+        && request.resource.data.requesterName is string
+        && request.resource.data.receiverName is string;
+
+      // Update: ONLY the receiver can accept (PENDING → ALLIANCE) or
+      //         either party can set to DECLINED (receiver) or delete (requester cancel)
+      allow update: if isAuthenticated()
+        && (
+          // Receiver accepts: PENDING → ALLIANCE
+          (resource.data.receiverId == request.auth.uid
+            && resource.data.status == "PENDING"
+            && request.resource.data.status == "ALLIANCE"
+            && request.resource.data.diff(resource.data)
+                .affectedKeys().hasOnly(['status', 'acceptedAt']))
+          // Receiver declines: PENDING → DECLINED
+          || (resource.data.receiverId == request.auth.uid
+            && resource.data.status == "PENDING"
+            && request.resource.data.status == "DECLINED"
+            && request.resource.data.diff(resource.data)
+                .affectedKeys().hasOnly(['status', 'declinedAt']))
+        );
+
+      // Delete: requester can cancel PENDING requests, either party can remove ALLIANCE
+      allow delete: if isAuthenticated()
+        && (resource.data.requesterId == request.auth.uid
+          || resource.data.receiverId == request.auth.uid);
+    }
+
+    // =========================================================================
+    // N3. COMPETITORS — Tracker owns the document (one-way tracking)
+    // =========================================================================
+    match /competitors/{competitorId} {
+      // Only the tracker can read their competitor list
+      allow read: if isAuthenticated()
+        && resource.data.trackerId == request.auth.uid;
+
+      // Create: tracker must be the authenticated user, no self-tracking
+      allow create: if isAuthenticated()
+        && request.resource.data.trackerId == request.auth.uid
+        && request.resource.data.targetId != request.auth.uid
+        && request.resource.data.targetId is string;
+
+      // Delete: only the tracker (untrack)
+      allow delete: if isAuthenticated()
+        && resource.data.trackerId == request.auth.uid;
+
+      // No updates — immutable. Delete and recreate if needed.
+      allow update: if false;
+    }
   }
 }
+

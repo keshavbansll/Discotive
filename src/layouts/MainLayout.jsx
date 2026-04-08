@@ -89,13 +89,12 @@ const lowerMiddleNavItems = [
 ];
 
 const upperContentNavItems = [
-  { icon: BookOpen, label: "Learn", path: "/app/learn" },
-  // { icon: Users, label: "Networking", path: "/app/network" },
+  { icon: Users, label: "Networking", path: "/app/network" },
   // { icon: Compass, label: "Discover Hubs", path: "/app/hubs" },
 ];
 
 const lowerContentNavItems = [
-  // { icon: BookOpen, label: "Learn", path: "/app/learn" },
+  { icon: BookOpen, label: "Learn", path: "/app/learn" },
   // { icon: Mic, label: "Podcasts", path: "/app/podcasts" },
   // { icon: FileText, label: "Assessments", path: "/app/assessments" },
 ];
@@ -505,12 +504,16 @@ const MainLayout = () => {
         )}
 
         {/* Navigation Sections */}
-        <div className="flex-1 overflow-y-auto custom-scrollbar px-3 py-6 space-y-8">
+        <div className="flex-1 overflow-y-auto custom-scrollbar px-3 py-6 space-y-6">
           <div className="space-y-1">
-            {isSidebarOpen && (
+            {isSidebarOpen ? (
               <p className="px-3 text-[10px] font-bold text-[#555] uppercase tracking-[0.2em] mb-2">
                 Home
               </p>
+            ) : (
+              <div className="flex justify-center mb-2 px-2">
+                <div className="w-6 h-[1px] bg-white/10 rounded-full" />
+              </div>
             )}
             {topNavItems.map((item) => (
               <NavItem
@@ -520,11 +523,16 @@ const MainLayout = () => {
               />
             ))}
           </div>
+
           <div className="space-y-1">
-            {isSidebarOpen && (
-              <p className="px-3 text-[10px] font-bold text-[#555] uppercase tracking-[0.2em] mb-2">
+            {isSidebarOpen ? (
+              <p className="px-3 text-[10px] font-bold text-[#555] uppercase tracking-[0.2em] mb-2 mt-4">
                 Execution
               </p>
+            ) : (
+              <div className="flex justify-center mb-2 mt-4 px-2">
+                <div className="w-6 h-[1px] bg-white/10 rounded-full" />
+              </div>
             )}
             {upperMiddleNavItems.map((item) => (
               <NavItem
@@ -534,11 +542,16 @@ const MainLayout = () => {
               />
             ))}
           </div>
+
           <div className="space-y-1">
-            {isSidebarOpen && (
-              <p className="px-3 text-[10px] font-bold text-[#555] uppercase tracking-[0.2em] mb-2">
+            {isSidebarOpen ? (
+              <p className="px-3 text-[10px] font-bold text-[#555] uppercase tracking-[0.2em] mb-2 mt-4">
                 Transparency
               </p>
+            ) : (
+              <div className="flex justify-center mb-2 mt-4 px-2">
+                <div className="w-6 h-[1px] bg-white/10 rounded-full" />
+              </div>
             )}
             {lowerMiddleNavItems.map((item) => (
               <NavItem
@@ -548,11 +561,16 @@ const MainLayout = () => {
               />
             ))}
           </div>
+
           <div className="space-y-1">
-            {isSidebarOpen && (
-              <p className="px-3 text-[10px] font-bold text-[#555] uppercase tracking-[0.2em] mb-2">
-                Content
+            {isSidebarOpen ? (
+              <p className="px-3 text-[10px] font-bold text-[#555] uppercase tracking-[0.2em] mb-2 mt-4">
+                Social
               </p>
+            ) : (
+              <div className="flex justify-center mb-2 mt-4 px-2">
+                <div className="w-6 h-[1px] bg-white/10 rounded-full" />
+              </div>
             )}
             {upperContentNavItems.map((item) => (
               <NavItem
@@ -562,20 +580,25 @@ const MainLayout = () => {
               />
             ))}
           </div>
-          {/* <div className="space-y-1">
-            {isSidebarOpen && (
-              <p className="px-3 text-[10px] font-bold text-[#555] uppercase tracking-[0.2em] mb-2">
-                Media & Tests
+
+          <div className="space-y-1">
+            {isSidebarOpen ? (
+              <p className="px-3 text-[10px] font-bold text-[#555] uppercase tracking-[0.2em] mb-2 mt-4">
+                Content
               </p>
+            ) : (
+              <div className="flex justify-center mb-2 mt-4 px-2">
+                <div className="w-6 h-[1px] bg-white/10 rounded-full" />
+              </div>
             )}
-            {contentNavItems.map((item) => (
+            {lowerContentNavItems.map((item) => (
               <NavItem
                 key={item.path}
                 item={item}
                 isCollapsed={!isSidebarOpen}
               />
             ))}
-          </div> */}
+          </div>
         </div>
 
         {/* Bottom Section (Settings & Toggle) */}

@@ -5,6 +5,8 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from "react";
+// 1. IMPORT THE WORKER EXPLICITLY WITH ?worker SUFFIX
+import ExecutionWorker from "../components/roadmap/ExecutionWorker?worker";
 
 export const useAgenticScheduler = (nodes, edges, setNodes, userVault = []) => {
   const workerRef = useRef(null);
@@ -13,10 +15,9 @@ export const useAgenticScheduler = (nodes, edges, setNodes, userVault = []) => {
 
   // 1. Initialize the Worker
   useEffect(() => {
-    workerRef.current = new Worker(
-      new URL("../lib/roadmap/ExecutionWorker.js", import.meta.url),
-      { type: "module" },
-    );
+    // 2. INSTANTIATE THE IMPORTED WORKER directly
+    // (Vite handles the module bundling automatically under the hood)
+    workerRef.current = new ExecutionWorker();
 
     workerRef.current.onmessage = (e) => {
       const { success, nodes: hydratedNodes, nextEventMs, error } = e.data;

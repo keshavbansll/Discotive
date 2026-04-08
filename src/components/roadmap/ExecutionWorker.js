@@ -4,7 +4,7 @@
  * * Handles O(V+E) graph traversal and state transitions.
  */
 
-import { compileExecutionGraph } from "./graphEngine.js";
+import { compileExecutionGraph } from "../../lib/roadmap/graphEngine.js";
 
 self.onmessage = (e) => {
   const { nodes, edges, serverTimeMs, userVault } = e.data;
