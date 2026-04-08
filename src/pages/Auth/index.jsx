@@ -3869,11 +3869,15 @@ export default function AuthOrchestrator() {
   // Auth state observer
   useEffect(() => {
     const unsub = auth.onAuthStateChanged(async (user) => {
+      // 🔴 MAANG-GRADE FIX: Observer Trap
+      // If the user is actively progressing through onboarding, do not force them back to Step 2.
       if (
         !user ||
         systemStatus.isBooting ||
         systemStatus.showSetupSequence ||
-        step === "premium_prompt"
+        step === "premium_prompt" ||
+        step === "verify_email" ||
+        (typeof step === "number" && step > 1)
       )
         return;
       try {

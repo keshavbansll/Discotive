@@ -94,7 +94,8 @@ export const DEFAULT_MAP_META = {
 // HOOK
 // ═══════════════════════════════════════════════════════════════════════════════
 
-export const useMapLimits = ({ uid, tier, nodes = [] }) => {
+export const useMapLimits = ({ uid, tier, role, nodes = [] }) => {
+  const isAdmin = String(tier).toUpperCase() === "ADMIN" || role === "admin";
   const limits = getMapLimits(tier);
 
   const [mapMeta, setMapMeta] = useState(DEFAULT_MAP_META);
@@ -172,13 +173,17 @@ export const useMapLimits = ({ uid, tier, nodes = [] }) => {
 
   // Regeneration: measured from lastRegeneratedAt, falling back to generatedAt
   const regenBaseline = mapMeta.lastRegeneratedAt || mapMeta.generatedAt;
-  const regenLeft = daysLeft(regenBaseline, limits.regen_cooldown_days);
-  const canRegenerate = regenLeft === 0 && !!mapMeta.generatedAt;
+  const regenLeft = isAdmin
+    ? 0
+    : daysLeft(regenBaseline, limits.regen_cooldown_days);
+  const canRegenerate = (isAdmin || regenLeft === 0) && !!mapMeta.generatedAt;
 
   // Expansion: measured from lastExpandedAt, falling back to generatedAt
   const expandBaseline = mapMeta.lastExpandedAt || mapMeta.generatedAt;
-  const expandLeft = daysLeft(expandBaseline, limits.expand_cooldown_days);
-  const canExpand = expandLeft === 0 && !!mapMeta.generatedAt;
+  const expandLeft = isAdmin
+    ? 0
+    : daysLeft(expandBaseline, limits.expand_cooldown_days);
+  const canExpand = (isAdmin || expandLeft === 0) && !!mapMeta.generatedAt;
 
   // Can generate: user has never generated a map
   const canGenerate = !mapMeta.generatedAt;

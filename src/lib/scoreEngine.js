@@ -310,7 +310,7 @@ export const awardOnboardingComplete = async (userId) => {
 
     // 2. MUTATION: Safe to execute outside the lock because the lock prevents duplicates
     if (isFirstCompletion) {
-      await mutateScore(userId, 50, "Onboarding Complete — OS Initialized");
+      await mutateScore(userId, 70, "Onboarding Complete — OS Initialized");
     }
   } catch (err) {
     console.error("[ScoreEngine] Onboarding award failed:", err);

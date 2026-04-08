@@ -32,9 +32,9 @@ import {
   AlertCircle,
   Shield,
 } from "lucide-react";
-import { cn } from "../../lib/cn";
-import { NODE_STATES } from "../../lib/roadmap/constants.js";
-import { useRoadmap } from "../../contexts/RoadmapContext.jsx";
+import { cn } from "../../../lib/cn.js";
+import { NODE_STATES } from "../../../lib/roadmap/constants.js";
+import { useRoadmap } from "../../../contexts/RoadmapContext.jsx";
 
 // ── Brand palette ─────────────────────────────────────────────────────────────
 const GOLD = "#BFA264";

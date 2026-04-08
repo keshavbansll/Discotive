@@ -41,10 +41,8 @@ import {
   TIER_LIMITS,
   EDGE_KEYFRAMES,
 } from "../lib/roadmap/constants.js";
-import {
-  RoadmapContext,
-  useNeuralEngine,
-} from "../contexts/RoadmapContext.jsx";
+import { RoadmapContext } from "../contexts/RoadmapContext.jsx";
+import { AgenticEngineProvider } from "../contexts/AgenticExecutionEngine.jsx";
 import { mutateScore } from "../lib/scoreEngine";
 import {
   generateExecutionMap,
@@ -191,7 +189,11 @@ const Roadmap = () => {
     [nodes2, activeEditNodeId],
   );
 
-  const isPro = subscriptionTier === "pro" || subscriptionTier === "PRO";
+  const isAdmin =
+    userData?.role === "admin" ||
+    String(subscriptionTier).toUpperCase() === "ADMIN";
+  const isPro =
+    subscriptionTier === "pro" || subscriptionTier === "PRO" || isAdmin;
 
   // ── Toast system ───────────────────────────────────────────────────────────
   const addToast = useCallback((msg, type = "grey") => {
@@ -207,7 +209,6 @@ const Roadmap = () => {
 
   // ── INJECT THE ENTERPRISE ENGINES ──
   const { requestMapGeneration } = useAIGateway({ addToast });
-  const { forceEvaluate } = useNeuralEngine(edges2, setNodes2);
 
   // ── Context actions ────────────────────────────────────────────────────────
   const toggleNodeCollapse = useCallback((nodeId, collapsed) => {
@@ -538,8 +539,9 @@ const Roadmap = () => {
         setEdges2(rawEdges);
         setHasUnsavedChanges(true);
 
-        // 4. Force the Neural Engine to compile time-locks and states
-        forceEvaluate();
+        // 4. Time-locks and states auto-compile via AgenticEngineProvider watching edges2.
+
+        setAiPhase("done");
 
         setAiPhase("done");
         setShowCalibrationOverlay(false);
@@ -555,7 +557,7 @@ const Roadmap = () => {
       addToast("AI generation failed. Try again.", "red");
       setAiPhase("questions");
     }
-  }, [aiAnswers, requestMapGeneration, forceEvaluate, addToast]);
+  }, [aiAnswers, requestMapGeneration, addToast]);
 
   // ── Node edit actions ──────────────────────────────────────────────────────
   const updateActiveNode = useCallback(
@@ -623,7 +625,6 @@ const Roadmap = () => {
       openVideoModal,
       openExplorerModal,
       markVideoWatched,
-      forceEvaluate,
     }),
     [
       addToast,
@@ -633,7 +634,6 @@ const Roadmap = () => {
       openVideoModal,
       openExplorerModal,
       markVideoWatched,
-      forceEvaluate,
     ],
   );
 
@@ -666,454 +666,462 @@ const Roadmap = () => {
 
   // ── MAIN CANVAS RENDER ─────────────────────────────────────────────────────
   return (
-    <RoadmapContext.Provider value={ctxValue}>
-      <div
-        className={cn(
-          "flex bg-[#030303] text-white font-sans overflow-hidden selection:bg-amber-500/20",
-          isMapFullscreen ? "fixed inset-0 z-[9999]" : "h-screen",
-        )}
-      >
-        <ReactFlowProvider>
-          {/* ── Canvas ── */}
-          <FlowCanvas
-            nodes={nodes2}
-            edges={edges2}
-            setNodes={setNodes2}
-            setEdges={setEdges2}
-            hasUnsavedChanges={hasUnsavedChanges}
-            setHasUnsavedChanges={setHasUnsavedChanges}
-            isSaving={isSaving}
-            handleCloudSave={handleCloudSave}
-            isMapFullscreen={isMapFullscreen}
-            setIsMapFullscreen={setIsMapFullscreen}
-            subscriptionTier={subscriptionTier}
-            totalNodesCount={
-              nodes2.filter((n) => n.type === "executionNode").length
-            }
-            onLimitReached={() => {
-              setProModalReason("nodes");
-              setIsProModalOpen(true);
-            }}
-            isFirstTime={showFirstTimeSplash}
-            handleStartCalibration={handleStartCalibration}
-            canUndo={canUndo}
-            canRedo={canRedo}
-            undo={undo}
-            redo={redo}
-            commit={commit}
-          />
-
-          {/* ── Desktop node edit panel ── */}
-          {activeNode && !isMobile && !isMapFullscreen && (
-            <NodeEditPanel
-              node={activeNode}
-              onUpdate={updateActiveNode}
-              onDelete={deleteActiveNode}
-              onSubtaskToggle={toggleSubtask}
-              pendingScoreDelta={pendingScoreDelta}
-              addToast={addToast}
-              userData={userData}
+    <AgenticEngineProvider
+      uid={uid}
+      userVault={userData?.vault || []}
+      edges={edges2}
+      setNodes={setNodes2}
+    >
+      <RoadmapContext.Provider value={ctxValue}>
+        <div
+          className={cn(
+            "flex bg-[#030303] text-white font-sans overflow-hidden selection:bg-amber-500/20",
+            isMapFullscreen ? "fixed inset-0 z-[9999]" : "h-screen",
+          )}
+        >
+          <ReactFlowProvider>
+            {/* ── Canvas ── */}
+            <FlowCanvas
+              nodes={nodes2}
+              edges={edges2}
+              setNodes={setNodes2}
+              setEdges={setEdges2}
+              hasUnsavedChanges={hasUnsavedChanges}
+              setHasUnsavedChanges={setHasUnsavedChanges}
+              isSaving={isSaving}
+              handleCloudSave={handleCloudSave}
+              isMapFullscreen={isMapFullscreen}
+              setIsMapFullscreen={setIsMapFullscreen}
               subscriptionTier={subscriptionTier}
+              totalNodesCount={
+                nodes2.filter((n) => n.type === "executionNode").length
+              }
+              onLimitReached={() => {
+                setProModalReason("nodes");
+                setIsProModalOpen(true);
+              }}
+              isFirstTime={showFirstTimeSplash}
+              handleStartCalibration={handleStartCalibration}
+              canUndo={canUndo}
+              canRedo={canRedo}
+              undo={undo}
+              redo={redo}
+              commit={commit}
             />
-          )}
-        </ReactFlowProvider>
 
-        {/* ── Mobile node edit bottom sheet ── */}
-        <AnimatePresence>
-          {activeNode && isMobile && (
-            <Suspense fallback={null}>
-              <MobileEditSheet
-                activeNode={activeNode}
+            {/* ── Desktop node edit panel ── */}
+            {activeNode && !isMobile && !isMapFullscreen && (
+              <NodeEditPanel
+                node={activeNode}
                 onUpdate={updateActiveNode}
-                onClose={() => setActiveEditNodeId(null)}
                 onDelete={deleteActiveNode}
-                pendingScoreDelta={pendingScoreDelta}
                 onSubtaskToggle={toggleSubtask}
+                pendingScoreDelta={pendingScoreDelta}
+                addToast={addToast}
+                userData={userData}
+                subscriptionTier={subscriptionTier}
               />
-            </Suspense>
-          )}
-        </AnimatePresence>
+            )}
+          </ReactFlowProvider>
 
-        {/* ══════════════════════════════════════════════════════════════
+          {/* ── Mobile node edit bottom sheet ── */}
+          <AnimatePresence>
+            {activeNode && isMobile && (
+              <Suspense fallback={null}>
+                <MobileEditSheet
+                  activeNode={activeNode}
+                  onUpdate={updateActiveNode}
+                  onClose={() => setActiveEditNodeId(null)}
+                  onDelete={deleteActiveNode}
+                  pendingScoreDelta={pendingScoreDelta}
+                  onSubtaskToggle={toggleSubtask}
+                />
+              </Suspense>
+            )}
+          </AnimatePresence>
+
+          {/* ══════════════════════════════════════════════════════════════
             CALIBRATION OVERLAY (no longer replaces the page)
         ══════════════════════════════════════════════════════════════ */}
-        <AnimatePresence>
-          {showCalibrationOverlay && (
-            <div className="fixed inset-0 z-[400] flex items-center justify-center p-4">
-              {/* Backdrop */}
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                className="absolute inset-0 bg-[#030303]/90 backdrop-blur-xl"
-              />
-
-              {/* Generating loader */}
-              {aiPhase === "generating" && (
+          <AnimatePresence>
+            {showCalibrationOverlay && (
+              <div className="fixed inset-0 z-[400] flex items-center justify-center p-4">
+                {/* Backdrop */}
                 <motion.div
-                  initial={{ opacity: 0, scale: 0.95 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={{ opacity: 0, scale: 0.95 }}
-                  className="relative z-10 flex flex-col items-center gap-6"
-                >
-                  <AILoader phase="roadmap" />
-                  <p className="text-[10px] text-white/30 font-bold uppercase tracking-widest">
-                    Press Esc to cancel
-                  </p>
-                </motion.div>
-              )}
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="absolute inset-0 bg-[#030303]/90 backdrop-blur-xl"
+                />
 
-              {/* Questions */}
-              {(aiPhase === "questions" || aiQuestions.length > 0) &&
-                aiPhase !== "generating" && (
+                {/* Generating loader */}
+                {aiPhase === "generating" && (
                   <motion.div
-                    key={aiQIdx}
-                    initial={{ opacity: 0, x: 24 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: -24 }}
-                    className="relative z-10 w-full max-w-lg"
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.95 }}
+                    className="relative z-10 flex flex-col items-center gap-6"
                   >
-                    {/* Close button */}
-                    <button
-                      onClick={() => {
-                        setShowCalibrationOverlay(false);
-                        setAiPhase("idle");
-                      }}
-                      className="absolute -top-12 right-0 flex items-center gap-2 text-[10px] font-black text-white/30 hover:text-white uppercase tracking-widest transition-colors"
-                    >
-                      <X className="w-4 h-4" /> Close
-                    </button>
-
-                    {/* Loading questions */}
-                    {aiQuestions.length === 0 ? (
-                      <div className="bg-[#080808] border border-[#1e1e1e] rounded-[2rem] p-8 text-center">
-                        <Loader2 className="w-8 h-8 text-amber-500 animate-spin mx-auto mb-4" />
-                        <p className="text-sm font-bold text-white/50 uppercase tracking-widest">
-                          Generating calibration questions...
-                        </p>
-                      </div>
-                    ) : (
-                      <div className="bg-[#080808] border border-[#1e1e1e] rounded-[2rem] p-6 md:p-8 shadow-[0_0_80px_rgba(0,0,0,0.9)]">
-                        {/* Progress */}
-                        <div className="mb-6">
-                          <div className="flex items-center justify-between mb-3">
-                            <span className="text-[9px] font-black text-amber-500 uppercase tracking-widest">
-                              Calibration {aiQIdx + 1} of {aiQuestions.length}
-                            </span>
-                            <div className="flex items-center gap-1.5">
-                              <Sparkles className="w-3.5 h-3.5 text-amber-500" />
-                              <span className="text-[9px] font-black text-white/30 uppercase tracking-widest">
-                                Discotive AI
-                              </span>
-                            </div>
-                          </div>
-                          <div className="h-1 bg-[#111] rounded-full overflow-hidden">
-                            <motion.div
-                              className="h-full bg-amber-500 rounded-full"
-                              animate={{
-                                width: `${((aiQIdx + 1) / aiQuestions.length) * 100}%`,
-                              }}
-                              transition={{ duration: 0.4 }}
-                            />
-                          </div>
-                        </div>
-
-                        {/* Question */}
-                        <h2 className="text-xl font-black text-white mb-5 leading-tight">
-                          {aiQuestions[aiQIdx]?.question || aiQuestions[aiQIdx]}
-                        </h2>
-
-                        {/* MCQ options */}
-                        {aiQuestions[aiQIdx]?.type === "mcq" ? (
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-5">
-                            {(aiQuestions[aiQIdx]?.options || []).map(
-                              (opt, oi) => {
-                                const isSelected = aiAnswers[aiQIdx] === opt;
-                                return (
-                                  <button
-                                    key={oi}
-                                    onClick={() =>
-                                      setAiAnswers((a) => ({
-                                        ...a,
-                                        [aiQIdx]: opt,
-                                      }))
-                                    }
-                                    className={cn(
-                                      "p-3.5 rounded-xl text-sm font-bold text-left border transition-all",
-                                      isSelected
-                                        ? "bg-amber-500/15 border-amber-500/40 text-amber-300"
-                                        : "bg-[#0d0d0d] border-[#1e1e1e] text-white/70 hover:border-[#333] hover:text-white",
-                                    )}
-                                  >
-                                    {opt}
-                                  </button>
-                                );
-                              },
-                            )}
-                          </div>
-                        ) : (
-                          <textarea
-                            autoFocus
-                            value={aiAnswers[aiQIdx] || ""}
-                            onChange={(e) =>
-                              setAiAnswers((a) => ({
-                                ...a,
-                                [aiQIdx]: e.target.value,
-                              }))
-                            }
-                            placeholder="Be specific — the AI uses this verbatim."
-                            rows={4}
-                            className="w-full bg-[#0d0d0d] border border-[#1e1e1e] rounded-2xl px-5 py-4 text-sm text-white placeholder-[#444] focus:outline-none focus:border-amber-500/50 transition-colors resize-none mb-5 custom-scrollbar"
-                          />
-                        )}
-
-                        {/* Nav buttons */}
-                        <div className="flex gap-3">
-                          {aiQIdx > 0 && (
-                            <button
-                              onClick={() => setAiQIdx((i) => i - 1)}
-                              className="px-5 py-3 bg-[#111] border border-[#222] text-white text-sm font-bold rounded-xl hover:bg-[#1a1a1a] transition-colors"
-                            >
-                              Back
-                            </button>
-                          )}
-                          <button
-                            onClick={() =>
-                              aiQIdx < aiQuestions.length - 1
-                                ? setAiQIdx((i) => i + 1)
-                                : handleAiSubmit()
-                            }
-                            disabled={!aiAnswers[aiQIdx]?.toString().trim()}
-                            className="flex-1 py-3 bg-amber-500 text-black text-sm font-black rounded-xl hover:bg-amber-400 disabled:opacity-40 transition-colors uppercase tracking-widest flex items-center justify-center gap-2"
-                          >
-                            {aiQIdx < aiQuestions.length - 1 ? (
-                              <>
-                                Next
-                                <ChevronRight className="w-4 h-4" />
-                              </>
-                            ) : (
-                              <>
-                                <Wand2 className="w-4 h-4" />
-                                Generate My Map
-                              </>
-                            )}
-                          </button>
-                        </div>
-                      </div>
-                    )}
+                    <AILoader phase="roadmap" />
+                    <p className="text-[10px] text-white/30 font-bold uppercase tracking-widest">
+                      Press Esc to cancel
+                    </p>
                   </motion.div>
                 )}
-            </div>
-          )}
-        </AnimatePresence>
 
-        {/* ══════════════════════════════════════════════════════════════
+                {/* Questions */}
+                {(aiPhase === "questions" || aiQuestions.length > 0) &&
+                  aiPhase !== "generating" && (
+                    <motion.div
+                      key={aiQIdx}
+                      initial={{ opacity: 0, x: 24 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      exit={{ opacity: 0, x: -24 }}
+                      className="relative z-10 w-full max-w-lg"
+                    >
+                      {/* Close button */}
+                      <button
+                        onClick={() => {
+                          setShowCalibrationOverlay(false);
+                          setAiPhase("idle");
+                        }}
+                        className="absolute -top-12 right-0 flex items-center gap-2 text-[10px] font-black text-white/30 hover:text-white uppercase tracking-widest transition-colors"
+                      >
+                        <X className="w-4 h-4" /> Close
+                      </button>
+
+                      {/* Loading questions */}
+                      {aiQuestions.length === 0 ? (
+                        <div className="bg-[#080808] border border-[#1e1e1e] rounded-[2rem] p-8 text-center">
+                          <Loader2 className="w-8 h-8 text-amber-500 animate-spin mx-auto mb-4" />
+                          <p className="text-sm font-bold text-white/50 uppercase tracking-widest">
+                            Generating calibration questions...
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="bg-[#080808] border border-[#1e1e1e] rounded-[2rem] p-6 md:p-8 shadow-[0_0_80px_rgba(0,0,0,0.9)]">
+                          {/* Progress */}
+                          <div className="mb-6">
+                            <div className="flex items-center justify-between mb-3">
+                              <span className="text-[9px] font-black text-amber-500 uppercase tracking-widest">
+                                Calibration {aiQIdx + 1} of {aiQuestions.length}
+                              </span>
+                              <div className="flex items-center gap-1.5">
+                                <Sparkles className="w-3.5 h-3.5 text-amber-500" />
+                                <span className="text-[9px] font-black text-white/30 uppercase tracking-widest">
+                                  Discotive AI
+                                </span>
+                              </div>
+                            </div>
+                            <div className="h-1 bg-[#111] rounded-full overflow-hidden">
+                              <motion.div
+                                className="h-full bg-amber-500 rounded-full"
+                                animate={{
+                                  width: `${((aiQIdx + 1) / aiQuestions.length) * 100}%`,
+                                }}
+                                transition={{ duration: 0.4 }}
+                              />
+                            </div>
+                          </div>
+
+                          {/* Question */}
+                          <h2 className="text-xl font-black text-white mb-5 leading-tight">
+                            {aiQuestions[aiQIdx]?.question ||
+                              aiQuestions[aiQIdx]}
+                          </h2>
+
+                          {/* MCQ options */}
+                          {aiQuestions[aiQIdx]?.type === "mcq" ? (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-5">
+                              {(aiQuestions[aiQIdx]?.options || []).map(
+                                (opt, oi) => {
+                                  const isSelected = aiAnswers[aiQIdx] === opt;
+                                  return (
+                                    <button
+                                      key={oi}
+                                      onClick={() =>
+                                        setAiAnswers((a) => ({
+                                          ...a,
+                                          [aiQIdx]: opt,
+                                        }))
+                                      }
+                                      className={cn(
+                                        "p-3.5 rounded-xl text-sm font-bold text-left border transition-all",
+                                        isSelected
+                                          ? "bg-amber-500/15 border-amber-500/40 text-amber-300"
+                                          : "bg-[#0d0d0d] border-[#1e1e1e] text-white/70 hover:border-[#333] hover:text-white",
+                                      )}
+                                    >
+                                      {opt}
+                                    </button>
+                                  );
+                                },
+                              )}
+                            </div>
+                          ) : (
+                            <textarea
+                              autoFocus
+                              value={aiAnswers[aiQIdx] || ""}
+                              onChange={(e) =>
+                                setAiAnswers((a) => ({
+                                  ...a,
+                                  [aiQIdx]: e.target.value,
+                                }))
+                              }
+                              placeholder="Be specific — the AI uses this verbatim."
+                              rows={4}
+                              className="w-full bg-[#0d0d0d] border border-[#1e1e1e] rounded-2xl px-5 py-4 text-sm text-white placeholder-[#444] focus:outline-none focus:border-amber-500/50 transition-colors resize-none mb-5 custom-scrollbar"
+                            />
+                          )}
+
+                          {/* Nav buttons */}
+                          <div className="flex gap-3">
+                            {aiQIdx > 0 && (
+                              <button
+                                onClick={() => setAiQIdx((i) => i - 1)}
+                                className="px-5 py-3 bg-[#111] border border-[#222] text-white text-sm font-bold rounded-xl hover:bg-[#1a1a1a] transition-colors"
+                              >
+                                Back
+                              </button>
+                            )}
+                            <button
+                              onClick={() =>
+                                aiQIdx < aiQuestions.length - 1
+                                  ? setAiQIdx((i) => i + 1)
+                                  : handleAiSubmit()
+                              }
+                              disabled={!aiAnswers[aiQIdx]?.toString().trim()}
+                              className="flex-1 py-3 bg-amber-500 text-black text-sm font-black rounded-xl hover:bg-amber-400 disabled:opacity-40 transition-colors uppercase tracking-widest flex items-center justify-center gap-2"
+                            >
+                              {aiQIdx < aiQuestions.length - 1 ? (
+                                <>
+                                  Next
+                                  <ChevronRight className="w-4 h-4" />
+                                </>
+                              ) : (
+                                <>
+                                  <Wand2 className="w-4 h-4" />
+                                  Generate My Map
+                                </>
+                              )}
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </motion.div>
+                  )}
+              </div>
+            )}
+          </AnimatePresence>
+
+          {/* ══════════════════════════════════════════════════════════════
             FIRST-TIME SPLASH OVERLAY
         ══════════════════════════════════════════════════════════════ */}
-        <AnimatePresence>
-          {showFirstTimeSplash && !showCalibrationOverlay && (
-            <div className="fixed inset-0 z-[350] flex items-center justify-center p-6">
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                className="absolute inset-0 bg-[#030303]/85 backdrop-blur-xl"
-              />
-              <motion.div
-                initial={{ opacity: 0, scale: 0.95, y: 20 }}
-                animate={{ opacity: 1, scale: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.95, y: 20 }}
-                className="relative z-10 max-w-md w-full text-center"
-              >
-                <div className="relative w-20 h-20 mx-auto mb-6">
-                  <motion.div
-                    animate={{ rotate: 360, scale: [1, 1.1, 1] }}
-                    transition={{
-                      duration: 4,
-                      repeat: Infinity,
-                      ease: "linear",
-                    }}
-                    className="absolute inset-0 border border-amber-500/30 rounded-full"
-                  />
-                  <motion.div
-                    animate={{ rotate: -360 }}
-                    transition={{
-                      duration: 6,
-                      repeat: Infinity,
-                      ease: "linear",
-                    }}
-                    className="absolute inset-3 border-2 border-dashed border-white/20 rounded-lg"
-                  />
-                  <div className="absolute inset-0 flex items-center justify-center">
-                    <Wand2 className="w-8 h-8 text-amber-500" />
-                  </div>
-                </div>
-
-                <h1 className="text-2xl md:text-3xl font-black tracking-tight text-white mb-3">
-                  Your Execution Map Awaits
-                </h1>
-                <p className="text-sm text-[#666] leading-relaxed mb-3">
-                  Answer 3 calibration questions and our AI will generate your
-                  personalised career execution DAG — nodes, milestones,
-                  deadlines, and learning resources all mapped out for you.
-                </p>
-                <p className="text-[10px] text-[#444] uppercase tracking-widest font-bold mb-8">
-                  Or start manually by right-clicking the canvas
-                </p>
-
-                <div className="flex flex-col sm:flex-row gap-3">
-                  <button
-                    onClick={handleStartCalibration}
-                    className="flex-1 py-4 bg-amber-500 text-black font-black text-sm uppercase tracking-widest rounded-2xl hover:bg-amber-400 transition-colors shadow-[0_0_30px_rgba(245,158,11,0.25)] flex items-center justify-center gap-2"
-                  >
-                    <Wand2 className="w-5 h-5" />
-                    Generate AI Map
-                  </button>
-                  <button
-                    onClick={() => setShowFirstTimeSplash(false)}
-                    className="flex-1 py-4 bg-[#0a0a0a] border border-[#222] text-white/60 hover:text-white text-sm font-bold rounded-2xl transition-colors"
-                  >
-                    Start Manually
-                  </button>
-                </div>
-              </motion.div>
-            </div>
-          )}
-        </AnimatePresence>
-
-        {/* ── Toast notifications ── */}
-        <div
-          className="fixed bottom-24 md:bottom-6 left-1/2 -translate-x-1/2 z-[800] flex flex-col gap-2 items-center pointer-events-none"
-          aria-live="polite"
-        >
           <AnimatePresence>
-            {toasts.map((t) => (
-              <motion.div
-                key={t.id}
-                initial={{ opacity: 0, y: 20, scale: 0.9 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: -10, scale: 0.9 }}
-                className={cn(
-                  "px-5 py-3 rounded-2xl border shadow-2xl backdrop-blur-xl text-xs font-bold flex items-center gap-2.5 max-w-xs pointer-events-auto",
-                  t.type === "green"
-                    ? "bg-emerald-900/80 border-emerald-500/30 text-emerald-300"
-                    : t.type === "red"
-                      ? "bg-rose-900/80 border-rose-500/30 text-rose-300"
-                      : "bg-[#111]/90 border-white/10 text-white/80",
-                )}
+            {showFirstTimeSplash && !showCalibrationOverlay && (
+              <div className="fixed inset-0 z-[350] flex items-center justify-center p-6">
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="absolute inset-0 bg-[#030303]/85 backdrop-blur-xl"
+                />
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.95, y: 20 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.95, y: 20 }}
+                  className="relative z-10 max-w-md w-full text-center"
+                >
+                  <div className="relative w-20 h-20 mx-auto mb-6">
+                    <motion.div
+                      animate={{ rotate: 360, scale: [1, 1.1, 1] }}
+                      transition={{
+                        duration: 4,
+                        repeat: Infinity,
+                        ease: "linear",
+                      }}
+                      className="absolute inset-0 border border-amber-500/30 rounded-full"
+                    />
+                    <motion.div
+                      animate={{ rotate: -360 }}
+                      transition={{
+                        duration: 6,
+                        repeat: Infinity,
+                        ease: "linear",
+                      }}
+                      className="absolute inset-3 border-2 border-dashed border-white/20 rounded-lg"
+                    />
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <Wand2 className="w-8 h-8 text-amber-500" />
+                    </div>
+                  </div>
+
+                  <h1 className="text-2xl md:text-3xl font-black tracking-tight text-white mb-3">
+                    Your Execution Map Awaits
+                  </h1>
+                  <p className="text-sm text-[#666] leading-relaxed mb-3">
+                    Answer 3 calibration questions and our AI will generate your
+                    personalised career execution DAG — nodes, milestones,
+                    deadlines, and learning resources all mapped out for you.
+                  </p>
+                  <p className="text-[10px] text-[#444] uppercase tracking-widest font-bold mb-8">
+                    Or start manually by right-clicking the canvas
+                  </p>
+
+                  <div className="flex flex-col sm:flex-row gap-3">
+                    <button
+                      onClick={handleStartCalibration}
+                      className="flex-1 py-4 bg-amber-500 text-black font-black text-sm uppercase tracking-widest rounded-2xl hover:bg-amber-400 transition-colors shadow-[0_0_30px_rgba(245,158,11,0.25)] flex items-center justify-center gap-2"
+                    >
+                      <Wand2 className="w-5 h-5" />
+                      Generate AI Map
+                    </button>
+                    <button
+                      onClick={() => setShowFirstTimeSplash(false)}
+                      className="flex-1 py-4 bg-[#0a0a0a] border border-[#222] text-white/60 hover:text-white text-sm font-bold rounded-2xl transition-colors"
+                    >
+                      Start Manually
+                    </button>
+                  </div>
+                </motion.div>
+              </div>
+            )}
+          </AnimatePresence>
+
+          {/* ── Toast notifications ── */}
+          <div
+            className="fixed bottom-24 md:bottom-6 left-1/2 -translate-x-1/2 z-[800] flex flex-col gap-2 items-center pointer-events-none"
+            aria-live="polite"
+          >
+            <AnimatePresence>
+              {toasts.map((t) => (
+                <motion.div
+                  key={t.id}
+                  initial={{ opacity: 0, y: 20, scale: 0.9 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: -10, scale: 0.9 }}
+                  className={cn(
+                    "px-5 py-3 rounded-2xl border shadow-2xl backdrop-blur-xl text-xs font-bold flex items-center gap-2.5 max-w-xs pointer-events-auto",
+                    t.type === "green"
+                      ? "bg-emerald-900/80 border-emerald-500/30 text-emerald-300"
+                      : t.type === "red"
+                        ? "bg-rose-900/80 border-rose-500/30 text-rose-300"
+                        : "bg-[#111]/90 border-white/10 text-white/80",
+                  )}
+                >
+                  {t.type === "green" ? (
+                    <Check className="w-3.5 h-3.5 shrink-0" />
+                  ) : t.type === "red" ? (
+                    <X className="w-3.5 h-3.5 shrink-0" />
+                  ) : (
+                    <Zap className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                  )}
+                  {t.msg}
+                </motion.div>
+              ))}
+            </AnimatePresence>
+          </div>
+
+          {/* ── Shortcuts hint button ── */}
+          <button
+            onClick={() => setIsShortcutsOpen(true)}
+            aria-label="Show keyboard shortcuts (?)"
+            className="fixed bottom-6 right-6 z-[100] w-9 h-9 bg-[#0a0a0a]/90 border border-[#1e1e1e] rounded-full flex items-center justify-center text-[#555] hover:text-white hover:border-[#333] transition-all backdrop-blur-xl shadow-2xl focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:outline-none"
+          >
+            <span className="text-xs font-black font-mono">?</span>
+          </button>
+
+          {/* ── All modals ── */}
+          <ShortcutsPanel
+            isOpen={isShortcutsOpen}
+            onClose={() => setIsShortcutsOpen(false)}
+          />
+
+          {isJournalOpen && (
+            <JournalModal
+              userId={uid}
+              onClose={() => setIsJournalOpen(false)}
+              addToast={addToast}
+            />
+          )}
+
+          <ExplorerModal
+            isOpen={explorerModal.isOpen}
+            onClose={() =>
+              setExplorerModal({
+                isOpen: false,
+                targetNodeId: null,
+                defaultTab: "vault_certificate",
+                requiredLearnId: null,
+              })
+            }
+            onSelect={(item) =>
+              handleExplorerSelect(explorerModal.targetNodeId, item)
+            }
+            defaultTab={explorerModal.defaultTab}
+            requiredLearnId={explorerModal.requiredLearnId}
+            vault={userData?.vault || []}
+          />
+
+          {/* ── Pro gate modal ── */}
+          <AnimatePresence>
+            {isProModalOpen && (
+              <div
+                className="fixed inset-0 z-[500] flex items-center justify-center p-4"
+                role="dialog"
+                aria-modal="true"
+                aria-label="Pro feature required"
               >
-                {t.type === "green" ? (
-                  <Check className="w-3.5 h-3.5 shrink-0" />
-                ) : t.type === "red" ? (
-                  <X className="w-3.5 h-3.5 shrink-0" />
-                ) : (
-                  <Zap className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-                )}
-                {t.msg}
-              </motion.div>
-            ))}
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  onClick={() => setIsProModalOpen(false)}
+                  className="absolute inset-0 bg-black/90 backdrop-blur-xl"
+                />
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.93, y: 20 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.93, y: 20 }}
+                  className="relative w-full max-w-sm bg-[#060606] border border-[#1e1e1e] rounded-[2rem] p-8 text-center shadow-2xl"
+                >
+                  <div className="w-14 h-14 rounded-2xl bg-amber-500/8 border border-amber-500/20 flex items-center justify-center mx-auto mb-5">
+                    <Crown className="w-7 h-7 text-amber-500" />
+                  </div>
+                  <h3 className="text-xl font-black text-white mb-3">
+                    {proModalReason === "nodes"
+                      ? "Node Limit Reached"
+                      : "Pro Feature"}
+                  </h3>
+                  <p className="text-[#666] text-sm mb-7 leading-relaxed">
+                    {proModalReason === "nodes"
+                      ? `Free tier supports up to ${TIER_LIMITS.free} nodes. Upgrade Pro for unlimited neural expansion.`
+                      : proModalReason === "regenerate"
+                        ? "AI map regeneration requires Discotive Pro clearance."
+                        : "This feature requires an active Discotive Pro subscription."}
+                  </p>
+                  <div className="flex gap-3">
+                    <button
+                      onClick={() => setIsProModalOpen(false)}
+                      className="flex-1 py-3 bg-[#0d0d0d] border border-[#1e1e1e] text-white text-xs font-bold rounded-xl hover:bg-[#111] transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={() => navigate("/premium")}
+                      className="flex-1 py-3 bg-amber-500 text-black text-xs font-black uppercase tracking-widest rounded-xl hover:bg-amber-400 transition-colors shadow-[0_0_25px_rgba(245,158,11,0.25)] flex items-center justify-center gap-2"
+                    >
+                      <Crown className="w-3.5 h-3.5" />
+                      Upgrade
+                    </button>
+                  </div>
+                </motion.div>
+              </div>
+            )}
           </AnimatePresence>
         </div>
-
-        {/* ── Shortcuts hint button ── */}
-        <button
-          onClick={() => setIsShortcutsOpen(true)}
-          aria-label="Show keyboard shortcuts (?)"
-          className="fixed bottom-6 right-6 z-[100] w-9 h-9 bg-[#0a0a0a]/90 border border-[#1e1e1e] rounded-full flex items-center justify-center text-[#555] hover:text-white hover:border-[#333] transition-all backdrop-blur-xl shadow-2xl focus-visible:ring-2 focus-visible:ring-amber-500 focus-visible:outline-none"
-        >
-          <span className="text-xs font-black font-mono">?</span>
-        </button>
-
-        {/* ── All modals ── */}
-        <ShortcutsPanel
-          isOpen={isShortcutsOpen}
-          onClose={() => setIsShortcutsOpen(false)}
-        />
-
-        {isJournalOpen && (
-          <JournalModal
-            userId={uid}
-            onClose={() => setIsJournalOpen(false)}
-            addToast={addToast}
-          />
-        )}
-
-        <ExplorerModal
-          isOpen={explorerModal.isOpen}
-          onClose={() =>
-            setExplorerModal({
-              isOpen: false,
-              targetNodeId: null,
-              defaultTab: "vault_certificate",
-              requiredLearnId: null,
-            })
-          }
-          onSelect={(item) =>
-            handleExplorerSelect(explorerModal.targetNodeId, item)
-          }
-          defaultTab={explorerModal.defaultTab}
-          requiredLearnId={explorerModal.requiredLearnId}
-          vault={userData?.vault || []}
-        />
-
-        {/* ── Pro gate modal ── */}
-        <AnimatePresence>
-          {isProModalOpen && (
-            <div
-              className="fixed inset-0 z-[500] flex items-center justify-center p-4"
-              role="dialog"
-              aria-modal="true"
-              aria-label="Pro feature required"
-            >
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                onClick={() => setIsProModalOpen(false)}
-                className="absolute inset-0 bg-black/90 backdrop-blur-xl"
-              />
-              <motion.div
-                initial={{ opacity: 0, scale: 0.93, y: 20 }}
-                animate={{ opacity: 1, scale: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.93, y: 20 }}
-                className="relative w-full max-w-sm bg-[#060606] border border-[#1e1e1e] rounded-[2rem] p-8 text-center shadow-2xl"
-              >
-                <div className="w-14 h-14 rounded-2xl bg-amber-500/8 border border-amber-500/20 flex items-center justify-center mx-auto mb-5">
-                  <Crown className="w-7 h-7 text-amber-500" />
-                </div>
-                <h3 className="text-xl font-black text-white mb-3">
-                  {proModalReason === "nodes"
-                    ? "Node Limit Reached"
-                    : "Pro Feature"}
-                </h3>
-                <p className="text-[#666] text-sm mb-7 leading-relaxed">
-                  {proModalReason === "nodes"
-                    ? `Free tier supports up to ${TIER_LIMITS.free} nodes. Upgrade Pro for unlimited neural expansion.`
-                    : proModalReason === "regenerate"
-                      ? "AI map regeneration requires Discotive Pro clearance."
-                      : "This feature requires an active Discotive Pro subscription."}
-                </p>
-                <div className="flex gap-3">
-                  <button
-                    onClick={() => setIsProModalOpen(false)}
-                    className="flex-1 py-3 bg-[#0d0d0d] border border-[#1e1e1e] text-white text-xs font-bold rounded-xl hover:bg-[#111] transition-colors"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={() => navigate("/premium")}
-                    className="flex-1 py-3 bg-amber-500 text-black text-xs font-black uppercase tracking-widest rounded-xl hover:bg-amber-400 transition-colors shadow-[0_0_25px_rgba(245,158,11,0.25)] flex items-center justify-center gap-2"
-                  >
-                    <Crown className="w-3.5 h-3.5" />
-                    Upgrade
-                  </button>
-                </div>
-              </motion.div>
-            </div>
-          )}
-        </AnimatePresence>
-      </div>
-    </RoadmapContext.Provider>
+      </RoadmapContext.Provider>
+    </AgenticEngineProvider>
   );
 };
 

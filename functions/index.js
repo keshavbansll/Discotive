@@ -531,9 +531,11 @@ exports.generateNeuralMap = onCall(
 
     const userData = userDoc.data();
     const tier = userData.tier || "ESSENTIAL";
+    const isAdmin =
+      userData.role === "admin" || String(tier).toUpperCase() === "ADMIN";
     const limits = getMapLimits(tier);
 
-    if (generationType === "EXPAND" && tier === "ESSENTIAL") {
+    if (!isAdmin && generationType === "EXPAND" && tier === "ESSENTIAL") {
       throw new HttpsError(
         "permission-denied",
         "System Lock: Expansion requires Pro clearance.",
@@ -545,7 +547,11 @@ exports.generateNeuralMap = onCall(
     const cooldownMs = limits.regen_cooldown_days * 24 * 60 * 60 * 1000;
     const nowMs = Date.now();
 
-    if (generationType === "NEW" && nowMs - lastGeneratedMs < cooldownMs) {
+    if (
+      !isAdmin &&
+      generationType === "NEW" &&
+      nowMs - lastGeneratedMs < cooldownMs
+    ) {
       const daysLeft = Math.ceil(
         (cooldownMs - (nowMs - lastGeneratedMs)) / (1000 * 60 * 60 * 24),
       );
@@ -570,7 +576,7 @@ exports.generateNeuralMap = onCall(
     const availableNodes =
       limits.auto_nodes - (generationType === "EXPAND" ? currentAutoNodes : 0);
 
-    if (availableNodes <= 0) {
+    if (!isAdmin && availableNodes <= 0) {
       throw new HttpsError(
         "resource-exhausted",
         `Map limit reached (${limits.auto_nodes} nodes).`,
@@ -584,7 +590,7 @@ exports.generateNeuralMap = onCall(
     try {
       const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
       const model = genAI.getGenerativeModel({
-        model: "gemini-2clau.5-flash",
+        model: "gemini-2.5-flash",
         generationConfig: {
           responseMimeType: "application/json",
           responseSchema: {
@@ -944,8 +950,8 @@ const fmtDate = (iso) =>
 exports.discotiveAIGateway = onCall(
   {
     secrets: ["GEMINI_API_KEY"],
-    timeoutSeconds: 120,
-    memory: "512MiB",
+    timeoutSeconds: 540,
+    memory: "1GB",
   },
   async (request) => {
     if (!request.auth) {
