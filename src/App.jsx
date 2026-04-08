@@ -79,11 +79,13 @@ const RouteChunkLoader = () => (
   </div>
 );
 const AppInitializer = ({ children }) => {
-  const { loading } = useAuth(); // Ensure your AuthContext provides this!
+  const { loading } = useAuth();
   const [showBootScreen, setShowBootScreen] = useState(true);
 
   return (
     <>
+      {/* Mount the cursor globally, outside the boot screen conditional */}
+
       <AnimatePresence>
         {showBootScreen && (
           <GlobalLoader
@@ -93,7 +95,6 @@ const AppInitializer = ({ children }) => {
         )}
       </AnimatePresence>
 
-      {/* Only render the actual router paths once the boot screen is gone */}
       {!showBootScreen && children}
     </>
   );
