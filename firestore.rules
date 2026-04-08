@@ -1,142 +1,251 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    
+
     // =========================================================================
     // SECURITY UTILS
     // =========================================================================
     function isAdmin() {
-      return request.auth != null && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
+      return request.auth != null
+        && exists(/databases/$(database)/documents/admins/$(request.auth.uid));
     }
-
     function isAuthenticated() {
       return request.auth != null;
     }
-
     function isOwner(userId) {
       return isAuthenticated() && request.auth.uid == userId;
     }
 
-    // DEEP SCHEMA VALIDATION: Prevent Denial of Wallet (DoW) attacks
-    function isValidNode(node) {
-      return node.size() < 10 // Limit number of fields
-        && node.data.title.size() < 100 // Limit string lengths
-        && node.data.description.size() < 500
-        && node.data.minimumTimeMinutes is int
-        && node.data.minimumTimeMinutes >= 0
-        && node.data.minimumTimeMinutes <= 43200; // Max 30 days
+    // ── Validates the TOP-LEVEL execution map document (nodes[] + edges[]) ──
+    // Does NOT try to validate individual node fields — that's the Cloud Function's job.
+    function isValidMapDocument(doc) {
+      return doc.keys().hasAll(['nodes', 'edges', 'updatedAt'])
+        && doc.nodes is list
+        && doc.edges is list
+        && doc.nodes.size() <= 200
+        && doc.edges.size() <= 500;
+    }
+
+    // ── Validates a score mutation from the client (scoreEngine.js) ──
+    // Only allows changes to fields that score engine legitimately updates.
+    function isLegitScoreWrite(incoming, existing) {
+      let allowedScoreKeys = [
+        'discotiveScore.current', 'discotiveScore.lastLoginDate',
+        'discotiveScore.streak', 'discotiveScore.lastAmount',
+        'discotiveScore.lastReason', 'discotiveScore.lastUpdatedAt',
+        'discotiveScore.last24h', 'daily_scores', 'monthly_scores',
+        'consistency_log', 'login_history'
+      ];
+      let changedKeys = incoming.data.diff(existing.data).affectedKeys();
+      return changedKeys.hasOnly(allowedScoreKeys);
     }
 
     // =========================================================================
-    // 0. EMAIL VERIFICATION
+    // 1. ADMIN REGISTRY — Read-only for owner/admin, never writable by client
     // =========================================================================
-    match /email_verifications/{uid} {
-      allow read: if isOwner(uid);
-      allow write: if false; // Only Cloud Functions write here
-    }
-    match /whitelisted_emails/{document=**} {
-      allow read, write: if false; 
-    }
-
     match /admins/{adminId} {
-      allow read: if isOwner(adminId) || isAdmin(); 
-      allow write: if false; 
+      allow read: if isOwner(adminId) || isAdmin();
+      allow write: if false;
     }
 
     // =========================================================================
-    // 2. DISCOTIVE LEARN ENGINE
+    // 2. EMAIL VERIFICATIONS — Owned by email address, written by CF only
+    // =========================================================================
+    match /email_verifications/{email} {
+      allow read: if isAuthenticated()
+        && request.auth.token.email == email;
+      allow write: if false;
+    }
+
+    // =========================================================================
+    // 3. DISCOTIVE LEARN ENGINE — Read-authenticated, write admin-only
     // =========================================================================
     match /discotive_videos/{document=**} {
-      allow read: if isAuthenticated(); 
-      allow write: if isAdmin();        
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
     }
-
     match /discotive_certificates/{document=**} {
-      allow read: if isAuthenticated(); 
-      allow write: if isAdmin();        
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
     }
 
     // =========================================================================
-    // 3. TELEMETRY (TICKETS/REPORTS/FEEDBACK)
+    // 4. TELEMETRY — Sanitized writes via Cloud Functions preferred;
+    //    direct client writes allowed but strictly validated
     // =========================================================================
     match /support_tickets/{ticketId} {
-      allow read: if isAdmin() || (isAuthenticated() && resource.data.uid == request.auth.uid);
-      allow create: if isAuthenticated() && request.resource.data.uid == request.auth.uid; 
-      allow update: if isAdmin() || 
-        (isAuthenticated() && 
-         resource.data.uid == request.auth.uid &&
-         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status']));
+      allow read: if isAdmin()
+        || (isAuthenticated() && resource.data.uid == request.auth.uid);
+      allow create: if isAuthenticated()
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.subject is string
+        && request.resource.data.subject.size() <= 200
+        && request.resource.data.message is string
+        && request.resource.data.message.size() <= 2000;
+      allow update: if isAdmin()
+        || (isAuthenticated()
+          && resource.data.uid == request.auth.uid
+          && request.resource.data.diff(resource.data)
+              .affectedKeys().hasOnly(['status']));
       allow delete: if isAdmin();
     }
-    
+
     match /reports/{reportId} {
-      allow read: if isAdmin() || (isAuthenticated() && resource.data.reporterUid == request.auth.uid);
-      allow create: if isAuthenticated() && request.resource.data.reporterUid == request.auth.uid;
+      allow read: if isAdmin()
+        || (isAuthenticated() && resource.data.reporterUid == request.auth.uid);
+      allow create: if isAuthenticated()
+        && request.resource.data.reporterUid == request.auth.uid
+        && request.resource.data.reason is string
+        && request.resource.data.reason.size() <= 200;
       allow update, delete: if isAdmin();
     }
 
     match /feedback/{userId} {
       allow read: if isAdmin() || isOwner(userId);
-      allow write: if isOwner(userId);
+      allow write: if isOwner(userId)
+        && request.resource.data.uid == userId
+        && request.resource.data.rating is number
+        && request.resource.data.rating >= 0
+        && request.resource.data.rating <= 5;
     }
-  
+
     // =========================================================================
-    // 4. CORE USER LEDGER (FIELD-LEVEL SECURITY)
+    // 5. CORE USER LEDGER — Strict field-level security
     // =========================================================================
     match /users/{userId} {
-      allow read: if isAuthenticated(); 
+      // Anyone authenticated can read public profile data
+      allow read: if isAuthenticated();
+
+      // User creation: owner only, must set their own UID
       allow create: if isOwner(userId);
+
+      // Soft-delete: owner only
       allow delete: if isOwner(userId);
-      
-      allow update: if 
-        (isOwner(userId) && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['tier', 'isGhostUser', 'score']))
-        || 
-        (isAuthenticated() && 
-         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['inboundRequests', 'outboundRequests', 'allies'])) 
-        ||
-        (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['profileViews']) &&
-         request.resource.data.profileViews == resource.data.profileViews + 1)
-        ||
-        isAdmin();
+
+      // Update: Four distinct allowed paths
+      allow update: if
+        // Path A: Owner updates personal data (BLOCKS score escalation & tier changes)
+        (isOwner(userId)
+          && !request.resource.data.diff(resource.data)
+              .affectedKeys().hasAny([
+                'tier', 'isGhostUser', 'discotiveScore', 'score',
+                'profileViews', 'onboardingScoreAwarded', 'precomputed'
+              ]))
+
+        // Path B: Score engine writes (client-side scoreEngine.js transactions)
+        || (isOwner(userId) && isLegitScoreWrite(request.resource, resource))
+
+        // Path C: Alliance cross-writes (another user sending/accepting requests)
+        || (isAuthenticated()
+          && request.resource.data.diff(resource.data)
+              .affectedKeys().hasOnly([
+                'inboundRequests', 'outboundRequests', 'allies',
+                'dailyAllianceSent'
+              ]))
+
+        // Path D: Profile view counter (any authenticated user, increment-only)
+        || (isAuthenticated()
+          && request.resource.data.diff(resource.data)
+              .affectedKeys().hasOnly(['profileViews'])
+          && request.resource.data.profileViews
+              == resource.data.profileViews + 1)
+
+        // Path E: Onboarding completion (owner only, one-time flag)
+        || (isOwner(userId)
+          && request.resource.data.diff(resource.data)
+              .affectedKeys().hasOnly([
+                'onboardingComplete', 'isGhostUser',
+                'identity', 'vision', 'skills', 'baseline',
+                'footprint', 'links', 'settings'
+              ]))
+
+        // Path F: Compare/leaderboard metadata (owner only)
+        || (isOwner(userId)
+          && request.resource.data.diff(resource.data)
+              .affectedKeys().hasOnly(['dailyComparisons']))
+
+        // Path G: Notification writes (owner or ally cross-write)
+        || (isAuthenticated()
+          && request.resource.data.diff(resource.data)
+              .affectedKeys().hasOnly(['notifications']))
+
+        // Path H: Admin override (superuser)
+        || isAdmin();
     }
-    
+
     // =========================================================================
-    // 5. USER NESTED SUBCOLLECTIONS
+    // 6. EXECUTION MAP — Single document at /current, array-based
     // =========================================================================
-    match /users/{userId}/execution_map/{nodeId} {
+    // The execution map is ONE document: users/{uid}/execution_map/current
+    // It contains { nodes: [], edges: [], updatedAt: timestamp, mapMeta: {} }
+    match /users/{userId}/execution_map/current {
       allow read: if isOwner(userId);
-      allow write: if isOwner(userId) && isValidNode(request.resource);
+      allow write: if isOwner(userId) && isValidMapDocument(request.resource.data);
     }
-    
+    // Block any other documents in this subcollection
+    match /users/{userId}/execution_map/{docId} {
+      allow read, write: if docId == "current" && isOwner(userId);
+    }
+
+    // =========================================================================
+    // 7. VERIFICATION REQUESTS — Owner create, admin update
+    // =========================================================================
     match /users/{userId}/verification_requests/{reqId} {
-      allow read: if isOwner(userId);
-      allow create: if isOwner(userId) 
-                    && request.resource.data.status == "PENDING"
-                    && !("ai_grade" in request.resource.data);
-      allow update, delete: if isAdmin(); 
+      allow read: if isOwner(userId) || isAdmin();
+      allow create: if isOwner(userId)
+        && request.resource.data.status == "PENDING"
+        && !("ai_grade" in request.resource.data)
+        && !("ghostUnlockTimeMs" in request.resource.data)
+        && request.resource.data.payload is string
+        && request.resource.data.payload.size() >= 5
+        && request.resource.data.payload.size() <= 5000;
+      allow update, delete: if isAdmin();
     }
-    
+
+    // =========================================================================
+    // 8. SUBSCRIPTION — Read owner, write CF only (no client writes)
+    // =========================================================================
     match /users/{userId}/subscription/{document=**} {
       allow read: if isOwner(userId);
       allow write: if false;
     }
-    
-    match /users/{userId}/journal_entries/{document=**} {
-      allow read, write: if isOwner(userId) && 
-                         get(/databases/$(database)/documents/users/$(userId)).data.tier in ["PRO", "ENTERPRISE"];
+
+    // =========================================================================
+    // 9. JOURNAL — PRO/ENTERPRISE only, owner-scoped
+    // =========================================================================
+    // JournalModal writes to /users/{uid}/journal/{dateStr}
+    match /users/{userId}/journal/{entryId} {
+      allow read, write: if isOwner(userId)
+        && get(/databases/$(database)/documents/users/$(userId))
+            .data.tier in ["PRO", "ENTERPRISE"];
     }
-    
-    match /users/{userId}/score_log/{document=**} {
-      allow read: if isOwner(userId);
-      allow create: if isOwner(userId); 
-      allow update, delete: if isAdmin(); 
+    // Legacy path (journal_entries) — keep for backward compat
+    match /users/{userId}/journal_entries/{document=**} {
+      allow read, write: if isOwner(userId)
+        && get(/databases/$(database)/documents/users/$(userId))
+            .data.tier in ["PRO", "ENTERPRISE"];
     }
 
     // =========================================================================
-    // 6. ASSET VAULT
+    // 10. SCORE LOG — Owner read/create, admin modify
+    // =========================================================================
+    match /users/{userId}/score_log/{document=**} {
+      allow read: if isOwner(userId);
+      allow create: if isOwner(userId)
+        && request.resource.data.change is number
+        && request.resource.data.reason is string
+        && request.resource.data.score is number;
+      allow update, delete: if isAdmin();
+    }
+
+    // =========================================================================
+    // 11. ASSET VAULT (array field on user doc, not subcollection)
+    // Vault assets are stored in users/{userId}.vault[] array.
+    // The subcollection path below is legacy/unused — kept for migration safety.
     // =========================================================================
     match /users/{userId}/vault/{assetId} {
-      allow read: if (resource.data.isPublic == true) || isOwner(userId) || isAdmin();
+      allow read: if (resource.data.isPublic == true)
+        || isOwner(userId) || isAdmin();
       allow write: if isOwner(userId) || isAdmin();
     }
   }

@@ -1,558 +1,470 @@
 /**
- * @fileoverview ExecutionNode v5 — Hyper-Dense Agentic Aesthetic
- * @description
- * Inspired by n8n/Anthropic agent canvas but executed in Discotive's
- * "Void + Gold" design language. Every pixel earns its place.
+ * @fileoverview ExecutionNode — v5 Definitive
  *
- * Visual language:
- * - 3px left accent bar: state-colored, no wasted space
- * - Header row: status pulse dot + title + collapse toggle
- * - Sub-header: node type tag + deadline
- * - Body: tasks mini-list at 10px, truncated to 3 items
- * - Footer: score reward + verification type badge
- * - Zero rounded excess — border-radius 8px max, feels mechanical
- * - Background: #0D0D12 with 1px border, elevated on select
+ * FIXES:
+ * 1. Gold color system: #BFA264 / #D4AF78 (not amber #f59e0b)
+ * 2. Reads `data._computed` (not `_computed`) — consistent with graphEngine v5
+ * 3. `timeLeft` (not `timeRemaining`) — consistent with graphEngine v5
+ * 4. Node background: #0d0d0d warm black (no blue tint)
+ * 5. State transition pulse animation on LOCKED→ACTIVE
+ * 6. Font family explicitly Poppins on all text elements
+ * 7. Correct `useRoadmap` context usage
  */
 
-import React, { useState, useEffect, memo, useCallback } from "react";
+import React, { useState, useEffect, useRef, memo } from "react";
 import { Handle, Position, NodeResizer } from "reactflow";
 import {
   Check,
   ChevronDown,
   ChevronUp,
-  Calendar,
+  Calendar as CalendarIcon,
   Zap,
   ShieldCheck,
+  AlertTriangle,
   Lock,
   Clock,
   RefreshCw,
   AlertCircle,
-  GitBranch,
 } from "lucide-react";
 import { cn } from "../../../lib/cn";
-import { NODE_STATES } from "../../../stores/useRoadmapStore";
-import { useRoadmapStore } from "../../../stores/useRoadmapStore";
+import {
+  NODE_ACCENT_PALETTE,
+  NODE_STATES,
+} from "../../../lib/roadmap/constants.js";
+import { useRoadmap } from "../../../contexts/RoadmapContext.jsx";
 
-// ── Design tokens ─────────────────────────────────────────────────────────────
-const STATE_CONFIG = {
-  [NODE_STATES.VERIFIED]: {
-    bar: "#4ADE80",
-    dot: "#4ADE80",
-    glow: "rgba(74,222,128,0.4)",
-    label: "VERIFIED",
-    icon: ShieldCheck,
-  },
-  [NODE_STATES.ACTIVE]: {
-    bar: "#BFA264",
-    dot: "#D4AF78",
-    glow: "rgba(191,162,100,0.4)",
-    label: "READY",
-    icon: Zap,
-  },
-  [NODE_STATES.IN_PROGRESS]: {
-    bar: "#BFA264",
-    dot: "#D4AF78",
-    glow: "rgba(191,162,100,0.4)",
-    label: "EXECUTING",
-    icon: RefreshCw,
-  },
-  [NODE_STATES.VERIFYING]: {
-    bar: "#A78BFA",
-    dot: "#A78BFA",
-    glow: "rgba(167,139,250,0.4)",
-    label: "VERIFYING",
-    icon: RefreshCw,
-  },
-  [NODE_STATES.VERIFIED_GHOST]: {
-    bar: "#4ADE80",
-    dot: "#4ADE80",
-    glow: "rgba(74,222,128,0.15)",
-    label: "PROPAGATING",
-    icon: Clock,
-  },
-  [NODE_STATES.FAILED_BACKOFF]: {
-    bar: "#F87171",
-    dot: "#F87171",
-    glow: "rgba(248,113,113,0.4)",
-    label: "BACKOFF",
-    icon: AlertCircle,
-  },
-  [NODE_STATES.LOCKED]: {
-    bar: "#2A2A35",
-    dot: "#333344",
-    glow: "none",
-    label: "LOCKED",
-    icon: Lock,
-  },
-  [NODE_STATES.CORRUPTED]: {
-    bar: "#F87171",
-    dot: "#F87171",
-    glow: "rgba(248,113,113,0.4)",
-    label: "CYCLE ERR",
-    icon: AlertCircle,
+// ── Design system gold tokens ─────────────────────────────────────────────────
+const GOLD_CORE = "#BFA264";
+const GOLD_BRIGHT = "#D4AF78";
+const GOLD_DIM = "rgba(191,162,100,0.10)";
+const GOLD_BORDER = "rgba(191,162,100,0.25)";
+
+// Corrected palette — overrides amber with brand gold
+const RESOLVED_PALETTE = {
+  ...NODE_ACCENT_PALETTE,
+  amber: {
+    primary: GOLD_CORE,
+    glow: "rgba(191,162,100,0.25)",
+    bg: "rgba(191,162,100,0.07)",
   },
 };
-const DEFAULT_CFG = STATE_CONFIG[NODE_STATES.LOCKED];
 
-const formatTime = (ms) => {
-  if (!ms || ms <= 0) return null;
-  const s = Math.floor(ms / 1000);
-  const h = Math.floor(s / 3600);
-  const m = Math.floor((s % 3600) / 60)
+// ── Handle style ──────────────────────────────────────────────────────────────
+const HANDLE_S = {
+  width: 10,
+  height: 10,
+  background: "#1a1a1a",
+  border: "1.5px solid rgba(255,255,255,0.12)",
+  borderRadius: "50%",
+};
+
+// ── Format countdown ──────────────────────────────────────────────────────────
+const fmt = (ms) => {
+  if (!ms || ms <= 0) return "00:00";
+  const t = Math.floor(ms / 1000);
+  const h = Math.floor(t / 3600);
+  const m = Math.floor((t % 3600) / 60)
     .toString()
     .padStart(2, "0");
-  const sec = (s % 60).toString().padStart(2, "0");
-  return h > 0 ? `${h}:${m}:${sec}` : `${m}:${sec}`;
-};
-
-const HANDLE_STYLE = {
-  width: 8,
-  height: 8,
-  background: "#0D0D12",
-  border: "1.5px solid rgba(191,162,100,0.35)",
-  borderRadius: "50%",
-  transition: "border-color 0.15s, transform 0.15s",
-};
-
-const AccentPalette = {
-  amber: "#BFA264",
-  emerald: "#4ADE80",
-  violet: "#A78BFA",
-  cyan: "#22D3EE",
-  rose: "#F87171",
-  orange: "#FB923C",
-  sky: "#38BDF8",
-  white: "#E8D5A3",
+  const s = (t % 60).toString().padStart(2, "0");
+  return h > 0 ? `${h}:${m}:${s}` : `${m}:${s}`;
 };
 
 export const ExecutionNode = memo(
-  ({ id, data, selected, style: nodeStyle }) => {
-    const selectNode = useRoadmapStore((s) => s.selectNode);
-    const collapseNode = useRoadmapStore((s) => s.collapseNode);
-
-    const computedState = data._computed?.state || NODE_STATES.LOCKED;
-    const timeLeft = data._computed?.timeLeft || 0;
-    const cfg = STATE_CONFIG[computedState] || DEFAULT_CFG;
-    const Icon = cfg.icon;
-    const accent = AccentPalette[data.accentColor] || AccentPalette.amber;
-
-    const [localTimer, setLocalTimer] = useState(timeLeft);
+  ({ data, selected, id, style: nodeStyle }) => {
     const [collapsed, setCollapsed] = useState(data.collapsed ?? false);
+    const [timeLeft, setTimeLeft] = useState(0);
+    const [justUnlocked, setJustUnlocked] = useState(false);
+    const prevStateRef = useRef(null);
+    const { toggleNodeCollapse, setActiveEditNodeId } = useRoadmap();
 
+    // ── Read computed state from data._computed ───────────────────────────────
+    const computed = data._computed || {};
+    const computedState =
+      computed.state ||
+      (data.isCompleted ? NODE_STATES.VERIFIED : NODE_STATES.LOCKED);
+    const baseTimeLeft = computed.timeLeft || 0;
+
+    // ── Sync timer from engine ─────────────────────────────────────────────────
     useEffect(() => {
-      setLocalTimer(timeLeft);
+      setTimeLeft(baseTimeLeft);
+    }, [baseTimeLeft]);
+
+    // ── Live countdown ─────────────────────────────────────────────────────────
+    useEffect(() => {
+      if (timeLeft <= 0) return;
+      const id_ = setInterval(() => {
+        setTimeLeft((p) => Math.max(0, p - 1000));
+      }, 1000);
+      return () => clearInterval(id_);
     }, [timeLeft]);
-    useEffect(() => {
-      if (localTimer <= 0) return;
-      const t = setInterval(
-        () => setLocalTimer((p) => Math.max(0, p - 1000)),
-        1000,
-      );
-      return () => clearInterval(t);
-    }, [localTimer]);
 
+    // ── Unlock animation trigger ───────────────────────────────────────────────
+    useEffect(() => {
+      const prev = prevStateRef.current;
+      if (prev === NODE_STATES.LOCKED && computedState === NODE_STATES.ACTIVE) {
+        setJustUnlocked(true);
+        const t = setTimeout(() => setJustUnlocked(false), 800);
+        return () => clearTimeout(t);
+      }
+      prevStateRef.current = computedState;
+    }, [computedState]);
+
+    // ── Derived booleans ───────────────────────────────────────────────────────
     const isLocked = computedState === NODE_STATES.LOCKED;
-    const isVerified = [
-      NODE_STATES.VERIFIED,
-      NODE_STATES.VERIFIED_GHOST,
-    ].includes(computedState);
+    const isVerified =
+      computedState === NODE_STATES.VERIFIED ||
+      computedState === NODE_STATES.VERIFIED_GHOST;
+    const isBackoff = computedState === NODE_STATES.FAILED_BACKOFF;
+    const isVerifying = computedState === NODE_STATES.VERIFYING;
+    const isInProgress = computedState === NODE_STATES.IN_PROGRESS;
     const isActive = computedState === NODE_STATES.ACTIVE;
     const isOverdue =
       !isVerified && data.deadline && new Date(data.deadline) < new Date();
 
+    const accent = RESOLVED_PALETTE[data.accentColor || "amber"];
+
+    // ── State → visual mapping ─────────────────────────────────────────────────
+    let statusColor, statusLabel, accentBarColor;
+    switch (computedState) {
+      case NODE_STATES.LOCKED:
+        statusColor = "rgba(255,255,255,0.18)";
+        statusLabel = "Locked";
+        accentBarColor = "#1a1a1a";
+        break;
+      case NODE_STATES.ACTIVE:
+        statusColor = accent.primary;
+        statusLabel = "Ready";
+        accentBarColor = accent.primary;
+        break;
+      case NODE_STATES.IN_PROGRESS:
+        statusColor = GOLD_BRIGHT;
+        statusLabel = "In Progress";
+        accentBarColor = GOLD_BRIGHT;
+        break;
+      case NODE_STATES.VERIFYING:
+        statusColor = "#A78BFA";
+        statusLabel = "Verifying…";
+        accentBarColor = "#A78BFA";
+        break;
+      case NODE_STATES.FAILED_BACKOFF:
+        statusColor = "#F87171";
+        statusLabel = "Penalty Lock";
+        accentBarColor = "#F87171";
+        break;
+      case NODE_STATES.VERIFIED:
+      case NODE_STATES.VERIFIED_GHOST:
+        statusColor = "#4ADE80";
+        statusLabel = "Verified";
+        accentBarColor = "#4ADE80";
+        break;
+      case NODE_STATES.CORRUPTED:
+        statusColor = "#F87171";
+        statusLabel = "Cycle Error";
+        accentBarColor = "#F87171";
+        break;
+      default:
+        statusColor = "rgba(255,255,255,0.18)";
+        statusLabel = "Pending";
+        accentBarColor = "#222";
+    }
+
+    if (isOverdue && !isVerified && !isLocked && !isBackoff) {
+      statusColor = "#F87171";
+      statusLabel = "Overdue";
+    }
+
+    const nodeWidth = nodeStyle?.width ?? 300;
+    const nodeHeight = nodeStyle?.height ?? "auto";
+
+    const borderColor = selected
+      ? `${accentBarColor}90`
+      : isBackoff
+        ? `${statusColor}35`
+        : justUnlocked
+          ? `${accent.primary}80`
+          : "rgba(255,255,255,0.06)";
+
+    const nodeShadow = selected
+      ? `0 4px 24px rgba(0,0,0,0.9), 0 0 0 1px ${accentBarColor}20`
+      : isBackoff
+        ? `0 0 16px ${statusColor}15`
+        : justUnlocked
+          ? `0 0 24px ${accent.primary}30`
+          : "0 1px 6px rgba(0,0,0,0.6)";
+
     const tasks = data.tasks || [];
     const doneTasks = tasks.filter((t) => t.completed).length;
-
-    const nodeW = nodeStyle?.width ?? 240;
-
-    const handleCollapse = useCallback(
-      (e) => {
-        e.stopPropagation();
-        const next = !collapsed;
-        setCollapsed(next);
-        collapseNode(id, next);
-      },
-      [collapsed, collapseNode, id],
-    );
 
     return (
       <div
         role="article"
-        aria-label={`${data.title || "Node"} — ${cfg.label}`}
+        aria-label={`${data.title || "Untitled"} — ${statusLabel}`}
         aria-selected={selected}
-        onClick={() => selectNode(id)}
+        className={cn(
+          "relative flex flex-col overflow-hidden transition-all duration-200",
+          isLocked && "opacity-35 grayscale pointer-events-none",
+          isBackoff && "animate-pulse",
+          selected ? "scale-[1.012] z-50" : "z-10",
+          justUnlocked && "scale-[1.04]",
+        )}
         style={{
-          width: nodeW,
-          minWidth: 200,
-          borderRadius: 8,
-          background: "#0D0D12",
-          border: `1px solid ${selected ? `${accent}50` : isLocked ? "rgba(255,255,255,0.05)" : "rgba(191,162,100,0.15)"}`,
-          boxShadow: selected
-            ? `0 0 0 1px ${accent}30, 0 8px 24px rgba(0,0,0,0.7)`
-            : "0 2px 8px rgba(0,0,0,0.6)",
-          opacity: isLocked ? 0.45 : 1,
-          filter: isLocked ? "grayscale(0.6)" : "none",
-          transition: "border-color 0.2s, box-shadow 0.2s, opacity 0.2s",
-          overflow: "hidden",
-          cursor: "pointer",
-          userSelect: "none",
+          width: nodeWidth,
+          height: nodeHeight,
+          minWidth: 220,
+          minHeight: 100,
+          borderRadius: 13,
+          // Warm void background — no blue tint
+          background: "#0d0d0d",
+          border: `1px solid ${borderColor}`,
+          boxShadow: nodeShadow,
+          fontFamily: "'Poppins', sans-serif",
+          transition:
+            "transform 0.2s cubic-bezier(0.34,1.56,0.64,1), box-shadow 0.3s, border-color 0.3s",
         }}
+        onClick={() => setActiveEditNodeId?.(id)}
       >
         <NodeResizer
-          minWidth={200}
-          minHeight={80}
+          minWidth={220}
+          minHeight={100}
           isVisible={selected}
-          lineStyle={{ border: `1px dashed ${accent}40` }}
+          lineStyle={{ border: `1px dashed ${accent.primary}50` }}
           handleStyle={{
-            backgroundColor: accent,
-            width: 6,
-            height: 6,
+            backgroundColor: accent.primary,
+            width: 7,
+            height: 7,
             borderRadius: 2,
-            border: "2px solid #0D0D12",
+            border: "2px solid #0d0d0d",
           }}
         />
 
         {/* Handles */}
-        {["top", "bottom", "left", "right"].map((pos) => (
+        {[
+          { type: "target", position: Position.Top, id: "top" },
+          { type: "target", position: Position.Left, id: "left" },
+          { type: "source", position: Position.Bottom, id: "bottom" },
+          { type: "source", position: Position.Right, id: "right" },
+        ].map(({ type, position, id: hId }) => (
           <Handle
-            key={pos}
-            type={["top", "left"].includes(pos) ? "target" : "source"}
-            position={Position[pos.charAt(0).toUpperCase() + pos.slice(1)]}
-            id={pos}
-            style={{ ...HANDLE_STYLE, borderColor: `${cfg.bar}50` }}
-            className="hover:!scale-150 hover:!border-current transition-transform"
+            key={hId}
+            type={type}
+            position={position}
+            id={hId}
+            className="hover:!scale-150 transition-transform before:absolute before:-inset-5 before:content-[''] before:z-50 relative"
+            style={{ ...HANDLE_S, borderColor: `${accent.primary}50` }}
           />
         ))}
 
-        {/* Left accent bar */}
+        {/* Top accent bar — brand gold, state-driven color */}
         <div
           style={{
-            position: "absolute",
-            left: 0,
-            top: 0,
-            bottom: 0,
-            width: 3,
-            background: cfg.bar,
-            transition: "background 0.3s",
-            boxShadow: cfg.glow !== "none" ? `2px 0 8px ${cfg.glow}` : "none",
+            height: 2,
+            background: accentBarColor,
+            opacity: selected ? 1 : 0.7,
+            flexShrink: 0,
+            transition: "background 0.4s, opacity 0.2s",
           }}
         />
 
+        {/* Unlock pulse overlay */}
+        {justUnlocked && (
+          <div
+            className="absolute inset-0 rounded-[13px] pointer-events-none z-20 animate-ping"
+            style={{
+              border: `2px solid ${accent.primary}`,
+              opacity: 0.6,
+            }}
+          />
+        )}
+
         {/* Content */}
         <div
+          className="pointer-events-none select-none"
           style={{
-            paddingLeft: 11,
-            paddingRight: 10,
-            paddingTop: 9,
-            paddingBottom: 9,
+            padding: "10px 12px 10px",
+            fontFamily: "'Poppins', sans-serif",
           }}
         >
-          {/* ── ROW 1: Status + Title + Collapse ── */}
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 6,
-              marginBottom: 5,
-            }}
-          >
-            {/* Pulse dot */}
-            <div
-              style={{
-                position: "relative",
-                width: 7,
-                height: 7,
-                flexShrink: 0,
-              }}
-            >
-              <div
-                style={{
-                  width: 7,
-                  height: 7,
-                  borderRadius: "50%",
-                  background: cfg.dot,
-                  boxShadow:
-                    cfg.glow !== "none" ? `0 0 5px ${cfg.glow}` : "none",
-                }}
-              />
-              {(isActive || computedState === NODE_STATES.IN_PROGRESS) && (
+          {/* Header row */}
+          <div className="flex items-center justify-between mb-2">
+            <div className="flex items-center gap-1.5">
+              {/* State indicator */}
+              {isLocked ? (
+                <Lock style={{ width: 10, height: 10, color: statusColor }} />
+              ) : isVerifying ? (
+                <RefreshCw
+                  className="animate-spin"
+                  style={{ width: 10, height: 10, color: statusColor }}
+                />
+              ) : isBackoff ? (
+                <AlertCircle
+                  style={{ width: 10, height: 10, color: statusColor }}
+                />
+              ) : (
                 <div
                   style={{
-                    position: "absolute",
-                    inset: -2,
+                    width: 6,
+                    height: 6,
                     borderRadius: "50%",
-                    border: `1px solid ${cfg.dot}`,
-                    animation: "nodeStatePulse 1.8s ease-out infinite",
-                    opacity: 0.5,
+                    background: statusColor,
+                    boxShadow:
+                      isActive || isInProgress
+                        ? `0 0 5px ${statusColor}90`
+                        : undefined,
                   }}
                 />
               )}
+              <span
+                style={{
+                  fontSize: 9,
+                  fontWeight: 700,
+                  textTransform: "uppercase",
+                  letterSpacing: "0.1em",
+                  color: `${statusColor}b0`,
+                  fontFamily: "'Poppins', sans-serif",
+                }}
+              >
+                {statusLabel}
+              </span>
             </div>
 
-            {/* Title */}
-            <span
-              style={{
-                flex: 1,
-                minWidth: 0,
-                fontSize: 12,
-                fontWeight: 700,
-                color: isVerified
-                  ? "rgba(245,240,232,0.35)"
-                  : "rgba(245,240,232,0.92)",
-                textDecoration: isVerified ? "line-through" : "none",
-                whiteSpace: "nowrap",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                fontFamily: "'Poppins', sans-serif",
-              }}
-            >
-              {data.title || "Untitled"}
-            </span>
-
-            {/* Timer / collapse */}
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 4,
-                flexShrink: 0,
-              }}
-            >
-              {localTimer > 0 && (
+            <div className="flex items-center gap-2">
+              {/* Node type label */}
+              {data.nodeType && (
                 <span
                   style={{
                     fontSize: 8,
-                    fontWeight: 700,
-                    fontFamily: "monospace",
-                    color: cfg.dot,
-                    background: `${cfg.dot}15`,
-                    padding: "1px 5px",
-                    borderRadius: 4,
-                    border: `1px solid ${cfg.dot}25`,
+                    fontWeight: 600,
+                    textTransform: "uppercase",
+                    letterSpacing: "0.1em",
+                    color: "rgba(255,255,255,0.2)",
+                    fontFamily: "'Poppins', sans-serif",
                   }}
                 >
-                  {formatTime(localTimer)}
+                  {data.nodeType}
                 </span>
               )}
+
+              {/* Countdown or deadline */}
+              {timeLeft > 0 && (isInProgress || isBackoff) ? (
+                <span
+                  className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-white/[0.04] border border-white/[0.05]"
+                  style={{
+                    fontSize: 9,
+                    fontWeight: 700,
+                    letterSpacing: "0.08em",
+                    color: statusColor,
+                    fontFamily: "monospace",
+                  }}
+                >
+                  <Clock className="w-2.5 h-2.5" />
+                  {fmt(timeLeft)}
+                </span>
+              ) : data.deadline ? (
+                <span
+                  className="flex items-center gap-0.5"
+                  style={{
+                    fontSize: 8,
+                    fontWeight: 600,
+                    color:
+                      isOverdue && !isVerified
+                        ? "rgba(248,113,113,0.75)"
+                        : "rgba(255,255,255,0.22)",
+                  }}
+                >
+                  <CalendarIcon className="w-2.5 h-2.5" />
+                  {new Date(data.deadline).toLocaleDateString([], {
+                    month: "short",
+                    day: "numeric",
+                  })}
+                  {isOverdue && !isVerified && (
+                    <AlertTriangle className="w-2.5 h-2.5 ml-0.5" />
+                  )}
+                </span>
+              ) : null}
+
+              {/* Collapse toggle */}
               <button
-                onClick={handleCollapse}
-                style={{
-                  background: "none",
-                  border: "none",
-                  cursor: "pointer",
-                  color: "rgba(245,240,232,0.25)",
-                  padding: 0,
-                  display: "flex",
-                  alignItems: "center",
+                aria-label={collapsed ? "Expand node" : "Collapse node"}
+                onMouseDown={(e) => e.stopPropagation()}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const next = !collapsed;
+                  setCollapsed(next);
+                  toggleNodeCollapse?.(id, next);
                 }}
+                className="pointer-events-auto w-5 h-5 flex items-center justify-center text-white/20 hover:text-white/60 transition-colors focus-visible:ring-1 rounded"
+                style={{ focusRing: accent.primary }}
               >
                 {collapsed ? (
-                  <ChevronDown style={{ width: 12, height: 12 }} />
+                  <ChevronDown className="w-3.5 h-3.5" />
                 ) : (
-                  <ChevronUp style={{ width: 12, height: 12 }} />
+                  <ChevronUp className="w-3.5 h-3.5" />
                 )}
               </button>
             </div>
           </div>
 
-          {/* ── ROW 2: Type tag + Status label + Deadline ── */}
-          <div
+          {/* Title */}
+          <h3
             style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 5,
-              marginBottom: collapsed ? 0 : 7,
+              fontSize: 13,
+              fontWeight: 700,
+              lineHeight: 1.35,
+              marginBottom: 2,
+              color: isVerified
+                ? "rgba(255,255,255,0.30)"
+                : "rgba(245,240,232,0.92)",
+              textDecoration: isVerified ? "line-through" : "none",
+              wordBreak: "break-word",
+              hyphens: "auto",
+              fontFamily: "'Poppins', sans-serif",
             }}
           >
-            {data.nodeType && (
-              <span
-                style={{
-                  fontSize: 8,
-                  fontWeight: 800,
-                  textTransform: "uppercase",
-                  letterSpacing: "0.1em",
-                  color: `${accent}90`,
-                  background: `${accent}12`,
-                  padding: "1px 6px",
-                  borderRadius: 3,
-                  border: `1px solid ${accent}25`,
-                  flexShrink: 0,
-                }}
-              >
-                {data.nodeType}
-              </span>
-            )}
-            <span
+            {data.title || "Unnamed Protocol"}
+          </h3>
+
+          {/* Subtitle */}
+          {data.subtitle && (
+            <p
+              className="mb-1.5 truncate"
               style={{
-                fontSize: 8,
-                fontWeight: 800,
-                textTransform: "uppercase",
-                letterSpacing: "0.08em",
-                color: `${cfg.dot}90`,
-                flexShrink: 0,
+                fontSize: 10,
+                color: "rgba(245,240,232,0.28)",
+                fontFamily: "'Poppins', sans-serif",
               }}
             >
-              {cfg.label}
-            </span>
-            <div style={{ flex: 1 }} />
-            {data.deadline && (
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 3,
-                  flexShrink: 0,
-                }}
-              >
-                <Calendar
-                  style={{
-                    width: 8,
-                    height: 8,
-                    color: isOverdue ? "#F87171" : "rgba(245,240,232,0.25)",
-                  }}
-                />
-                <span
-                  style={{
-                    fontSize: 8,
-                    fontWeight: 600,
-                    color: isOverdue ? "#F87171" : "rgba(245,240,232,0.25)",
-                    fontFamily: "monospace",
-                  }}
-                >
-                  {new Date(data.deadline).toLocaleDateString([], {
-                    month: "short",
-                    day: "numeric",
-                  })}
-                </span>
-              </div>
-            )}
-          </div>
+              {data.subtitle}
+            </p>
+          )}
 
-          {/* ── EXPANDED CONTENT ── */}
+          {/* Expanded body */}
           {!collapsed && (
             <>
-              {/* Subtitle */}
-              {data.subtitle && (
+              {data.desc && (
                 <p
+                  className="mb-2 line-clamp-2 leading-relaxed"
                   style={{
                     fontSize: 10,
                     color: "rgba(245,240,232,0.38)",
-                    marginBottom: 6,
-                    whiteSpace: "nowrap",
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
                     fontFamily: "'Poppins', sans-serif",
                   }}
                 >
-                  {data.subtitle}
+                  {data.desc}
                 </p>
               )}
 
-              {/* Tasks mini-list (max 3) */}
-              {tasks.length > 0 && (
-                <div style={{ marginBottom: 6 }}>
-                  {tasks.slice(0, 3).map((task, i) => (
-                    <div
-                      key={task.id || i}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 6,
-                        marginBottom: 3,
-                      }}
-                    >
-                      <div
-                        style={{
-                          width: 11,
-                          height: 11,
-                          borderRadius: 2,
-                          flexShrink: 0,
-                          border: `1px solid ${task.completed ? "#4ADE80" : "rgba(255,255,255,0.12)"}`,
-                          background: task.completed
-                            ? "rgba(74,222,128,0.12)"
-                            : "transparent",
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "center",
-                        }}
-                      >
-                        {task.completed && (
-                          <Check
-                            style={{ width: 7, height: 7, color: "#4ADE80" }}
-                          />
-                        )}
-                      </div>
-                      <span
-                        style={{
-                          fontSize: 10,
-                          lineHeight: 1.3,
-                          flex: 1,
-                          minWidth: 0,
-                          color: task.completed
-                            ? "rgba(245,240,232,0.22)"
-                            : "rgba(245,240,232,0.58)",
-                          textDecoration: task.completed
-                            ? "line-through"
-                            : "none",
-                          whiteSpace: "nowrap",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          fontFamily: "'Poppins', sans-serif",
-                        }}
-                      >
-                        {task.text || <em style={{ opacity: 0.4 }}>Empty</em>}
-                      </span>
-                      {(task.points ?? 0) > 0 && (
-                        <span
-                          style={{
-                            fontSize: 8,
-                            fontWeight: 800,
-                            color: "rgba(191,162,100,0.4)",
-                            flexShrink: 0,
-                          }}
-                        >
-                          +{task.points}
-                        </span>
-                      )}
-                    </div>
-                  ))}
-                  {tasks.length > 3 && (
-                    <span
-                      style={{
-                        fontSize: 9,
-                        color: "rgba(245,240,232,0.2)",
-                        paddingLeft: 17,
-                      }}
-                    >
-                      +{tasks.length - 3} more
-                    </span>
-                  )}
-                </div>
-              )}
-
               {/* Tags */}
-              {data.tags?.length > 0 && (
-                <div
-                  style={{
-                    display: "flex",
-                    flexWrap: "wrap",
-                    gap: 3,
-                    marginBottom: 6,
-                  }}
-                >
+              {(data.tags || []).length > 0 && (
+                <div className="flex flex-wrap gap-1 mb-2">
                   {data.tags.slice(0, 4).map((tag) => (
                     <span
                       key={tag}
+                      className="text-[8px] font-bold px-1.5 py-0.5 rounded"
                       style={{
-                        fontSize: 8,
-                        fontWeight: 700,
-                        textTransform: "uppercase",
-                        letterSpacing: "0.06em",
-                        background: `${accent}10`,
-                        color: `${accent}70`,
-                        padding: "1px 5px",
-                        borderRadius: 3,
-                        border: `1px solid ${accent}18`,
+                        background: `${accent.primary}14`,
+                        color: `${accent.primary}75`,
+                        fontFamily: "'Poppins', sans-serif",
                       }}
                     >
                       {tag}
@@ -561,97 +473,185 @@ export const ExecutionNode = memo(
                 </div>
               )}
 
-              {/* Footer: score + VC type */}
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  borderTop: "1px solid rgba(255,255,255,0.04)",
-                  paddingTop: 6,
-                  marginTop: 4,
-                }}
-              >
-                <div style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                  <Zap
-                    style={{
-                      width: 9,
-                      height: 9,
-                      color: "rgba(191,162,100,0.5)",
-                    }}
-                  />
-                  <span
-                    style={{
-                      fontSize: 8,
-                      fontWeight: 800,
-                      color: "rgba(191,162,100,0.5)",
-                    }}
-                  >
-                    +{data.verificationContract?.scoreReward || 25}
-                  </span>
-                </div>
-                {data.verificationContract?.type && (
-                  <span
-                    style={{
-                      fontSize: 7,
-                      fontWeight: 800,
-                      textTransform: "uppercase",
-                      letterSpacing: "0.1em",
-                      color: "rgba(245,240,232,0.2)",
-                      background: "rgba(255,255,255,0.03)",
-                      padding: "1px 5px",
-                      borderRadius: 3,
-                    }}
-                  >
-                    {data.verificationContract.type.replace("_", " ")}
-                  </span>
-                )}
-                {tasks.length > 0 && (
-                  <div
-                    style={{ display: "flex", alignItems: "center", gap: 3 }}
-                  >
+              {/* Tasks */}
+              {tasks.length > 0 && (
+                <div className="space-y-1 mb-2">
+                  {tasks.slice(0, 4).map((task, i) => (
                     <div
-                      style={{
-                        width: 40,
-                        height: 2,
-                        borderRadius: 2,
-                        background: "rgba(255,255,255,0.05)",
-                        overflow: "hidden",
-                      }}
+                      key={task.id || i}
+                      className="flex items-start gap-1.5"
                     >
                       <div
+                        className="shrink-0 flex items-center justify-center"
                         style={{
-                          height: "100%",
-                          borderRadius: 2,
-                          width: `${tasks.length > 0 ? Math.round((doneTasks / tasks.length) * 100) : 0}%`,
-                          background: accent,
-                          transition: "width 0.4s",
+                          width: 13,
+                          height: 13,
+                          marginTop: 1,
+                          borderRadius: 3,
+                          border: `1px solid ${task.completed ? "#4ADE80" : "rgba(255,255,255,0.13)"}`,
+                          background: task.completed
+                            ? "rgba(74,222,128,0.10)"
+                            : "transparent",
                         }}
-                      />
+                      >
+                        {task.completed && (
+                          <Check
+                            style={{ width: 8, height: 8, color: "#4ADE80" }}
+                          />
+                        )}
+                      </div>
+                      <span
+                        className="flex-1 leading-snug"
+                        style={{
+                          fontSize: 10,
+                          fontFamily: "'Poppins', sans-serif",
+                          color: task.completed
+                            ? "rgba(255,255,255,0.22)"
+                            : "rgba(245,240,232,0.62)",
+                          textDecoration: task.completed
+                            ? "line-through"
+                            : "none",
+                        }}
+                      >
+                        {task.text || (
+                          <em style={{ color: "rgba(255,255,255,0.15)" }}>
+                            Empty task
+                          </em>
+                        )}
+                      </span>
+                      {(task.points ?? 0) > 0 && (
+                        <div
+                          className="shrink-0 flex items-center gap-0.5"
+                          style={{
+                            fontSize: 8,
+                            color: `${GOLD_CORE}45`,
+                            fontWeight: 800,
+                          }}
+                        >
+                          <Zap style={{ width: 7, height: 7 }} />
+                          {task.points}
+                        </div>
+                      )}
                     </div>
-                    <span
-                      style={{
-                        fontSize: 8,
-                        color: "rgba(245,240,232,0.25)",
-                        fontFamily: "monospace",
-                      }}
+                  ))}
+                  {tasks.length > 4 && (
+                    <p
+                      className="pl-5"
+                      style={{ fontSize: 9, color: "rgba(255,255,255,0.18)" }}
                     >
-                      {doneTasks}/{tasks.length}
-                    </span>
-                  </div>
-                )}
-              </div>
+                      +{tasks.length - 4} more tasks
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {/* Linked assets / delegates footer */}
+              {(data.linkedAssets?.length > 0 ||
+                data.delegates?.length > 0) && (
+                <div
+                  className="flex items-center justify-between mt-2 pt-2"
+                  style={{ borderTop: "1px solid rgba(255,255,255,0.05)" }}
+                >
+                  {data.linkedAssets?.length > 0 && (
+                    <div className="flex items-center gap-1">
+                      <ShieldCheck
+                        style={{ width: 11, height: 11, color: "#4ADE8070" }}
+                      />
+                      <span
+                        style={{
+                          fontSize: 9,
+                          color: "#4ADE8070",
+                          fontWeight: 700,
+                        }}
+                      >
+                        {data.linkedAssets.length} verified
+                      </span>
+                    </div>
+                  )}
+                  {data.delegates?.length > 0 && (
+                    <div className="flex items-center gap-0.5">
+                      {data.delegates.slice(0, 3).map((d, i) => (
+                        <div
+                          key={i}
+                          style={{
+                            width: 18,
+                            height: 18,
+                            borderRadius: "50%",
+                            background: "#1a1a20",
+                            border: "1px solid rgba(255,255,255,0.07)",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            fontSize: 7,
+                            fontWeight: 800,
+                            color: "rgba(255,255,255,0.35)",
+                          }}
+                        >
+                          {d.charAt(0).toUpperCase()}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </>
           )}
         </div>
 
-        <style>{`
-        @keyframes nodeStatePulse {
-          0%   { transform: scale(1);   opacity: 0.5; }
-          70%  { transform: scale(2.5); opacity: 0; }
-          100% { transform: scale(2.5); opacity: 0; }
-        }
-      `}</style>
+        {/* Active state footer prompt */}
+        {!collapsed && isActive && (
+          <div
+            className="mt-auto flex justify-between items-center px-3 py-2"
+            style={{
+              borderTop: "1px solid rgba(255,255,255,0.04)",
+              background: "rgba(191,162,100,0.03)",
+            }}
+          >
+            <span
+              style={{
+                fontSize: 8,
+                fontWeight: 600,
+                textTransform: "uppercase",
+                letterSpacing: "0.12em",
+                color: "rgba(191,162,100,0.40)",
+                fontFamily: "'Poppins', sans-serif",
+              }}
+            >
+              Dependencies Met
+            </span>
+            <span
+              className="animate-pulse"
+              style={{
+                fontSize: 8,
+                fontWeight: 700,
+                color: "rgba(191,162,100,0.55)",
+                fontFamily: "'Poppins', sans-serif",
+              }}
+            >
+              Tap to Begin ↗
+            </span>
+          </div>
+        )}
+
+        {/* Progress bar at bottom (tasks) */}
+        {!collapsed && tasks.length > 0 && (
+          <div
+            style={{
+              height: 2,
+              background: "rgba(255,255,255,0.04)",
+              flexShrink: 0,
+            }}
+          >
+            <div
+              style={{
+                height: "100%",
+                width: `${Math.round((doneTasks / tasks.length) * 100)}%`,
+                background: accentBarColor,
+                transition: "width 0.7s cubic-bezier(0.22, 1, 0.36, 1)",
+              }}
+            />
+          </div>
+        )}
       </div>
     );
   },
