@@ -781,18 +781,26 @@ const MainLayout = () => {
               {/* Avatar circle */}
               <div
                 className={cn(
-                  "w-8 h-8 rounded-full flex items-center justify-center text-xs font-extrabold tracking-wide shrink-0 transition-all border",
+                  "w-8 h-8 rounded-full flex items-center justify-center text-xs font-extrabold tracking-wide shrink-0 transition-all border overflow-hidden",
                   isGhostUser
                     ? "bg-amber-500/15 text-amber-400 border-amber-500/30"
                     : showProfileMenu
                       ? "bg-[#D4AF78] text-[#030303] border-[rgba(191,162,100,0.5)] shadow-[0_0_10px_rgba(191,162,100,0.2)]"
-                      : "bg-[#111] text-[#F5F0E8]/60 border-white/5 group-hover:border-[#D4AF78]/50 group-hover:text-[#D4AF78]",
+                      : "bg-[#111] text-[#F5F0E8]/60 border-[#BFA264]/40 group-hover:border-[#D4AF78]/50 group-hover:text-[#D4AF78]",
                 )}
               >
-                {isGhostUser
-                  ? "?"
-                  : `${userData?.identity?.firstName?.charAt(0) || ""}${userData?.identity?.lastName?.charAt(0) || ""}` ||
-                    "U"}
+                {isGhostUser ? (
+                  "?"
+                ) : userData?.identity?.avatarUrl ? (
+                  <img
+                    src={userData.identity.avatarUrl}
+                    alt="Avatar"
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  `${userData?.identity?.firstName?.charAt(0) || ""}${userData?.identity?.lastName?.charAt(0) || ""}` ||
+                  "U"
+                )}
               </div>
 
               {/* Name — desktop only */}
@@ -834,15 +842,23 @@ const MainLayout = () => {
                   <div className="px-4 py-3 flex items-center gap-3">
                     <div
                       className={cn(
-                        "w-10 h-10 rounded-full border flex items-center justify-center text-sm font-bold shrink-0",
+                        "w-10 h-10 rounded-full border flex items-center justify-center text-sm font-bold shrink-0 overflow-hidden",
                         isGhostUser
                           ? "bg-amber-500/10 border-amber-500/30 text-amber-500"
-                          : "bg-[#111] border-[#333] text-[#666]",
+                          : "bg-[#111] border-[#BFA264]/40 text-[#BFA264]",
                       )}
                     >
-                      {isGhostUser
-                        ? "?"
-                        : userData?.identity?.firstName?.charAt(0) || "U"}
+                      {isGhostUser ? (
+                        "?"
+                      ) : userData?.identity?.avatarUrl ? (
+                        <img
+                          src={userData.identity.avatarUrl}
+                          alt="Avatar"
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        userData?.identity?.firstName?.charAt(0) || "U"
+                      )}
                     </div>
                     <div className="min-w-0">
                       {isGhostUser ? (
@@ -1262,8 +1278,16 @@ const MainLayout = () => {
                   </div>
                 ) : (
                   <div className="flex items-center gap-4 p-4 bg-[#0F0F0F] border border-white/5 rounded-2xl">
-                    <div className="w-12 h-12 rounded-full bg-[#111] border border-white/10 flex items-center justify-center text-lg font-bold text-[#D4AF78]">
-                      {userData?.identity?.firstName?.charAt(0) || "U"}
+                    <div className="w-12 h-12 rounded-full bg-[#111] border border-[#BFA264]/40 flex items-center justify-center text-lg font-bold text-[#D4AF78] overflow-hidden">
+                      {userData?.identity?.avatarUrl ? (
+                        <img
+                          src={userData.identity.avatarUrl}
+                          alt="Avatar"
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        userData?.identity?.firstName?.charAt(0) || "U"
+                      )}
                     </div>
                     <div>
                       <p className="font-extrabold text-[#F5F0E8]">

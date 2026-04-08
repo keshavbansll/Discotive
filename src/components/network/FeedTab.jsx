@@ -28,6 +28,11 @@ import {
   Crown,
   Send,
   Check,
+  MoreHorizontal,
+  Trash2,
+  Edit3,
+  Flag,
+  ShieldAlert,
 } from "lucide-react";
 import { cn } from "../../lib/cn";
 
@@ -266,8 +271,16 @@ const PostComposer = ({ userData, onPost, isPosting }) => {
     >
       <div className="flex items-start gap-3.5 p-4 md:p-5">
         {/* Avatar */}
-        <div className="w-10 h-10 rounded-full bg-[#111] border border-[rgba(255,255,255,0.07)] flex items-center justify-center text-sm font-black text-[#BFA264] shrink-0 mt-0.5">
-          {initials}
+        <div className="w-10 h-10 rounded-full bg-[#111] border border-[#BFA264]/40 flex items-center justify-center text-sm font-black text-[#BFA264] shrink-0 mt-0.5 overflow-hidden">
+          {userData?.identity?.avatarUrl ? (
+            <img
+              src={userData.identity.avatarUrl}
+              alt="Avatar"
+              className="w-full h-full object-cover"
+            />
+          ) : (
+            initials
+          )}
         </div>
 
         {/* Input area */}
@@ -343,7 +356,7 @@ const PostComposer = ({ userData, onPost, isPosting }) => {
                 ) : (
                   <Send className="w-3.5 h-3.5" />
                 )}
-                {isPosting ? "Transmitting..." : "Transmit"}
+                {isPosting ? "Posting..." : "Post"}
               </button>
             </div>
           </motion.div>
@@ -354,10 +367,25 @@ const PostComposer = ({ userData, onPost, isPosting }) => {
 };
 
 // ─── Post Card (Telemetry Node) ───────────────────────────────────────────────
-const PostCard = ({ post, uid, onLike }) => {
+const PostCard = ({ post, uid, onLike, userData }) => {
   const [isCopied, setIsCopied] = useState(false);
+  const [showOptions, setShowOptions] = useState(false);
+  const optionsRef = useRef(null);
+
   const isLiked = (post.likedBy || []).includes(uid);
+  const isAuthor = post.authorId === uid;
   const initials = `${post.authorName?.charAt(0) || ""}`.toUpperCase() || "O";
+
+  // Click-outside listener to dismiss the tactical menu
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (optionsRef.current && !optionsRef.current.contains(event.target)) {
+        setShowOptions(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   const handleShare = async () => {
     const url = `${window.location.origin}/@${post.authorUsername || "operator"}/network/post/${post.id}`;
@@ -405,13 +433,25 @@ const PostCard = ({ post, uid, onLike }) => {
             <div className="relative">
               <div
                 className={cn(
-                  "w-11 h-11 rounded-full flex items-center justify-center text-[15px] font-black shrink-0 transition-transform group-hover:scale-105",
+                  "w-11 h-11 rounded-full flex items-center justify-center text-[15px] font-black shrink-0 transition-transform group-hover:scale-105 overflow-hidden",
                   isPro
                     ? "bg-[#111] border border-[#BFA264]/40 text-[#BFA264] shadow-[inset_0_0_12px_rgba(191,162,100,0.15)]"
-                    : "bg-[#111] border border-[rgba(255,255,255,0.08)] text-[#BFA264]",
+                    : "bg-[#111] border border-[#BFA264]/40 text-[#BFA264]",
                 )}
               >
-                {initials}
+                {post.authorAvatar ||
+                (isAuthor ? userData?.identity?.avatarUrl : null) ? (
+                  <img
+                    src={
+                      post.authorAvatar ||
+                      (isAuthor ? userData?.identity?.avatarUrl : null)
+                    }
+                    alt="Avatar"
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  initials
+                )}
               </div>
               {isPro && (
                 <div className="absolute -bottom-1 -right-1 w-4.5 h-4.5 bg-gradient-to-br from-amber-400 to-amber-600 rounded-full border-[2.5px] border-[#0A0A0A] flex items-center justify-center shadow-lg">
@@ -447,19 +487,87 @@ const PostCard = ({ post, uid, onLike }) => {
             </div>
           </div>
 
-          {/* Telemetry Output */}
-          <div className="flex flex-col items-end gap-1 shrink-0">
-            <span className="text-[9px] text-[rgba(245,240,232,0.20)] font-mono tracking-widest uppercase">
-              SYS.T-{timeAgo(post.timestamp).replace(" ", "")}
-            </span>
-            <span
-              className={cn(
-                "text-[9px] font-black font-mono",
-                matchPrc > 90 ? "text-emerald-400/80" : "text-[#BFA264]/70",
-              )}
-            >
-              {matchPrc}% MATCH
-            </span>
+          {/* Telemetry Output & Context Menu */}
+          <div className="flex items-start gap-4 shrink-0">
+            <div className="flex flex-col items-end gap-1">
+              <span className="text-[9px] text-[rgba(245,240,232,0.20)] font-mono tracking-widest uppercase">
+                SYS.T-{timeAgo(post.timestamp).replace(" ", "")}
+              </span>
+              <span
+                className={cn(
+                  "text-[9px] font-black font-mono",
+                  matchPrc > 90 ? "text-emerald-400/80" : "text-[#BFA264]/70",
+                )}
+              >
+                {matchPrc}% MATCH
+              </span>
+            </div>
+
+            {/* Tactical Dropdown Menu */}
+            <div className="relative" ref={optionsRef}>
+              <button
+                onClick={() => setShowOptions(!showOptions)}
+                className="text-[rgba(245,240,232,0.30)] hover:text-[#BFA264] transition-colors p-1 -mr-2 outline-none"
+              >
+                <MoreHorizontal className="w-4 h-4" />
+              </button>
+
+              <AnimatePresence>
+                {showOptions && (
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.95, y: -10 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.95, y: -10 }}
+                    transition={{ duration: 0.15 }}
+                    className="absolute right-0 top-full mt-1 w-44 bg-[#0A0A0A] border border-[rgba(255,255,255,0.08)] rounded-xl shadow-2xl z-50 overflow-hidden py-1"
+                  >
+                    {isAuthor ? (
+                      <>
+                        <button
+                          onClick={() => {
+                            alert("Edit feature coming soon.");
+                            setShowOptions(false);
+                          }}
+                          className="w-full flex items-center gap-3 px-4 py-2.5 text-[10px] font-black uppercase tracking-widest text-[rgba(245,240,232,0.60)] hover:bg-[rgba(255,255,255,0.04)] hover:text-[#F5F0E8] transition-all text-left outline-none"
+                        >
+                          <Edit3 className="w-3.5 h-3.5" /> Edit Post
+                        </button>
+                        <button
+                          onClick={() => {
+                            alert("Deleting post...");
+                            setShowOptions(false);
+                          }}
+                          className="w-full flex items-center gap-3 px-4 py-2.5 text-[10px] font-black uppercase tracking-widest text-[rgba(245,240,232,0.60)] hover:bg-red-500/10 hover:text-red-400 transition-all text-left outline-none"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" /> Delete
+                        </button>
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          onClick={() => {
+                            alert("Post reported.");
+                            setShowOptions(false);
+                          }}
+                          className="w-full flex items-center gap-3 px-4 py-2.5 text-[10px] font-black uppercase tracking-widest text-[rgba(245,240,232,0.60)] hover:bg-[rgba(255,255,255,0.04)] hover:text-red-400 transition-all text-left outline-none"
+                        >
+                          <Flag className="w-3.5 h-3.5" /> Report Post
+                        </button>
+                        <button
+                          onClick={() => {
+                            alert("User blocked.");
+                            setShowOptions(false);
+                          }}
+                          className="w-full flex items-center gap-3 px-4 py-2.5 text-[10px] font-black uppercase tracking-widest text-[rgba(245,240,232,0.60)] hover:bg-[rgba(255,255,255,0.04)] hover:text-amber-400 transition-all text-left outline-none"
+                        >
+                          <ShieldAlert className="w-3.5 h-3.5" /> Block User
+                        </button>
+                      </>
+                    )}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
           </div>
         </div>
 
@@ -491,11 +599,7 @@ const PostCard = ({ post, uid, onLike }) => {
           </button>
 
           <button
-            onClick={() =>
-              alert(
-                "Comms restricted. Threaded replies deploying in next cycle.",
-              )
-            }
+            onClick={() => alert("Comments will be available soon.")}
             className="flex items-center gap-1.5 px-2 py-1.5 text-[11px] font-black tracking-widest uppercase text-[rgba(245,240,232,0.30)] hover:text-[#BFA264] transition-all group/comment outline-none"
           >
             <MessageSquare className="w-4 h-4 transition-transform duration-300 group-hover/comment:scale-110" />
@@ -544,7 +648,7 @@ const PostCard = ({ post, uid, onLike }) => {
           <div className="flex items-center gap-2 px-4 py-2 bg-[#111] border border-[#BFA264]/30 rounded-full shadow-xl">
             <Loader2 className="w-3 h-3 animate-spin text-[#BFA264]" />
             <span className="text-[10px] font-black text-[#BFA264] uppercase tracking-widest">
-              Transmitting...
+              Posting...
             </span>
           </div>
         </div>
@@ -661,7 +765,13 @@ const FeedTab = ({
           <div className="space-y-4">
             <AnimatePresence mode="popLayout">
               {posts.map((post) => (
-                <PostCard key={post.id} post={post} uid={uid} onLike={onLike} />
+                <PostCard
+                  key={post.id}
+                  post={post}
+                  uid={uid}
+                  onLike={onLike}
+                  userData={userData}
+                />
               ))}
             </AnimatePresence>
           </div>

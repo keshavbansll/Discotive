@@ -21,6 +21,9 @@ import { Link } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { useUserData } from "../hooks/useUserData";
 import { cn } from "../lib/cn";
+import { db, auth, storage } from "../firebase";
+import { doc, updateDoc } from "firebase/firestore";
+import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import {
   MapPin,
   Terminal,
@@ -56,6 +59,8 @@ import {
   ChevronLeft,
   ChevronRight,
   MessageCircle,
+  Camera,
+  Loader2,
 } from "lucide-react";
 
 // ─── Radar chart ──────────────────────────────────────────────────────────────
@@ -289,6 +294,43 @@ const Profile = () => {
   const [toast, setToast] = useState(null);
   const toastTimeoutRef = useRef(null);
   const [copiedLink, setCopiedLink] = useState(false);
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
+
+  // ── Avatar Upload Engine ─────────────────────────────────────────────────
+  const handleAvatarUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    // Strict 2MB Limit Enforcement
+    if (file.size > 2 * 1024 * 1024) {
+      showToast("Transmission rejected. Image exceeds 2MB limit.", "red");
+      return;
+    }
+
+    setIsUploadingAvatar(true);
+    try {
+      const uid = auth.currentUser.uid;
+      // Isolate cache by appending timestamp to filename
+      const fileRef = ref(storage, `avatars/${uid}/${Date.now()}_${file.name}`);
+
+      await uploadBytes(fileRef, file);
+      const url = await getDownloadURL(fileRef);
+
+      // Mutate the Global Ledger
+      await updateDoc(doc(db, "users", uid), {
+        "identity.avatarUrl": url,
+      });
+
+      showToast("Operator identity updated.", "green");
+    } catch (err) {
+      console.error("[Avatar Upload Error]:", err);
+      showToast("Identity transmission failed.", "red");
+    } finally {
+      setIsUploadingAvatar(false);
+      // Clear the input so the same file can be selected again if needed
+      e.target.value = null;
+    }
+  };
 
   // ── Month Navigation State ───────────────────────────────────────────────
   const [viewDate, setViewDate] = useState(() => {
@@ -583,14 +625,47 @@ const Profile = () => {
           <div className="absolute -top-10 -right-10 w-48 h-48 bg-amber-500 opacity-[0.04] blur-3xl rounded-full pointer-events-none" />
 
           <div className="flex flex-col sm:flex-row items-start sm:items-center gap-5 md:gap-7 relative z-10">
-            {/* Avatar */}
-            <div className="relative shrink-0">
-              <div className="w-20 h-20 md:w-24 md:h-24 rounded-[1.5rem] bg-[#111] border border-[#222] flex items-center justify-center text-3xl font-black text-white shadow-xl">
-                {initials}
-              </div>
+            {/* Operator Avatar (Interactive) */}
+            <div className="relative shrink-0 group">
+              <label
+                className={cn(
+                  "relative flex w-20 h-20 md:w-24 md:h-24 rounded-[1.5rem] bg-[#111] border border-[#222] items-center justify-center text-3xl font-black text-white shadow-xl overflow-hidden cursor-pointer transition-all duration-300",
+                  isUploadingAvatar
+                    ? "opacity-50 pointer-events-none"
+                    : "hover:border-[#BFA264] hover:shadow-[0_0_20px_rgba(191,162,100,0.15)]",
+                )}
+              >
+                <input
+                  type="file"
+                  accept="image/jpeg, image/png, image/webp"
+                  className="hidden"
+                  onChange={handleAvatarUpload}
+                  disabled={isUploadingAvatar}
+                />
+
+                {userData.identity?.avatarUrl ? (
+                  <img
+                    src={userData.identity.avatarUrl}
+                    alt="Operator"
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  initials
+                )}
+
+                {/* Tactical Hover Overlay */}
+                <div className="absolute inset-0 bg-[#030303]/70 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity duration-200 backdrop-blur-sm">
+                  {isUploadingAvatar ? (
+                    <Loader2 className="w-6 h-6 text-[#BFA264] animate-spin" />
+                  ) : (
+                    <Camera className="w-6 h-6 text-[#F5F0E8]" />
+                  )}
+                </div>
+              </label>
+
               {userData?.tier === "PRO" && (
-                <div className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-amber-500 border-2 border-[#030303] flex items-center justify-center">
-                  <Crown className="w-3 h-3 text-black" />
+                <div className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-gradient-to-br from-amber-400 to-amber-600 border-2 border-[#030303] flex items-center justify-center shadow-lg pointer-events-none z-10">
+                  <Crown className="w-3 h-3 text-[#030303]" />
                 </div>
               )}
             </div>

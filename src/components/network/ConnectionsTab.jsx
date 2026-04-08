@@ -95,8 +95,16 @@ const OperatorCard = ({ user, actions, badgeText, badgeColor = "amber" }) => {
     <div className="flex items-center gap-3.5 p-3.5 rounded-[1.25rem] border border-[rgba(255,255,255,0.06)] bg-gradient-to-b from-[#0F0F0F] to-[#0A0A0A] shadow-[inset_0_1px_0_0_rgba(255,255,255,0.05)] hover:shadow-[0_4px_24px_rgba(191,162,100,0.08),inset_0_1px_0_0_rgba(255,255,255,0.1)] hover:border-[rgba(191,162,100,0.25)] transition-all duration-300 group">
       {/* Avatar */}
       <div className="relative shrink-0">
-        <div className="w-11 h-11 rounded-full bg-[#111] border border-[rgba(255,255,255,0.08)] flex items-center justify-center text-[15px] font-black text-[#BFA264]">
-          {initials}
+        <div className="w-11 h-11 rounded-full bg-[#111] border border-[#BFA264]/40 flex items-center justify-center text-[15px] font-black text-[#BFA264] overflow-hidden">
+          {user?.identity?.avatarUrl || user?.avatarUrl ? (
+            <img
+              src={user?.identity?.avatarUrl || user?.avatarUrl}
+              alt="Avatar"
+              className="w-full h-full object-cover"
+            />
+          ) : (
+            initials
+          )}
         </div>
         {user?.tier === "PRO" && (
           <div className="absolute -bottom-0.5 -right-0.5 w-4 h-4 bg-amber-500 rounded-full border-2 border-[#0A0A0A] flex items-center justify-center">
@@ -227,6 +235,9 @@ const AlliancesPanel = ({
                   ? conn.receiverDomain
                   : conn.requesterDomain,
               },
+              avatarUrl: isRequester
+                ? conn.receiverAvatar
+                : conn.requesterAvatar,
               discotiveScore: { current: 0 },
             };
 
@@ -365,6 +376,7 @@ const RequestsPanel = ({
                       conn.requesterName?.split(" ").slice(1).join(" ") || "",
                     username: conn.requesterUsername,
                     domain: conn.requesterDomain,
+                    avatarUrl: conn.requesterAvatar,
                   },
                   discotiveScore: { current: 0 },
                 };
@@ -427,6 +439,7 @@ const RequestsPanel = ({
                       conn.receiverName?.split(" ").slice(1).join(" ") || "",
                     username: conn.receiverUsername,
                     domain: conn.receiverDomain,
+                    avatarUrl: conn.receiverAvatar,
                   },
                   discotiveScore: { current: 0 },
                 };
@@ -499,6 +512,7 @@ const RadarPanel = ({
                   lastName:
                     comp.targetName?.split(" ").slice(1).join(" ") || "",
                   username: comp.targetUsername || "",
+                  avatarUrl: comp.targetAvatar || "",
                 },
                 discotiveScore: { current: comp.targetScore || 0 },
               };

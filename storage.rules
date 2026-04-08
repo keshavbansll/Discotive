@@ -1,0 +1,41 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    
+    // =========================================================================
+    // 1. PUBLIC AVATARS
+    // =========================================================================
+    match /avatars/{userId}/{imageId} {
+      // Avatars must be globally readable to render on the Feed, Radar, and Public Profiles
+      allow read: if true;
+      
+      // Strict Ingestion: Owner only, strict 2MB hard cap, Images ONLY
+      allow create, update: if request.auth != null 
+                         && request.auth.uid == userId
+                         && request.resource.size <= 2 * 1024 * 1024 
+                         && request.resource.contentType.matches('image/.*');
+                         
+      // Deletion logic isolated
+      allow delete: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // =========================================================================
+    // 2. PRIVATE ASSET VAULT
+    // =========================================================================
+    match /vault/{userId}/{allPaths=**} {
+      // Only the authenticated owner can read their raw files
+      allow read: if request.auth != null && request.auth.uid == userId;
+      
+      // Strict Ingestion Logic Aligned with Vault constraints
+      allow create, update: if request.auth != null 
+                         && request.auth.uid == userId
+                         // Aligned with MAX_FILE_SIZE_MB: 25
+                         && request.resource.size <= 25 * 1024 * 1024 
+                         // Expanded MIME types
+                         && request.resource.contentType.matches('application/pdf|application/json|image/.*|text/.*|application/zip|application/x-zip-compressed|application/msword|application/vnd.openxmlformats-officedocument.*|application/vnd.ms-excel');
+                         
+      // Deletion logic isolated
+      allow delete: if request.auth != null && request.auth.uid == userId;
+    }
+  }
+}
