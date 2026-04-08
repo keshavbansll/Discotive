@@ -34,7 +34,6 @@ import { db, auth } from "../firebase";
 import { useUserData } from "../hooks/useUserData";
 import { useMapHistory } from "../lib/roadmap/useMapHistory.js";
 import { idbPut, idbGet, idbClear } from "../lib/roadmap/idb.js";
-import { getLayoutedElements } from "../lib/roadmap/layout.js";
 import { sanitize } from "../lib/roadmap/sanitize.js";
 import {
   SAVE_DEBOUNCE_MS,
@@ -60,7 +59,6 @@ import { NodeEditPanel } from "../components/roadmap/NodeEditPanel.jsx";
 const MobileEditSheet = lazy(
   () => import("../components/roadmap/MobileEditSheet.jsx"),
 );
-import { ShortcutsPanel } from "../components/ShortcutsPanel.jsx";
 import { JournalModal } from "../components/roadmap/JournalModal.jsx";
 import { ExplorerModal } from "../components/roadmap/ExplorerModal.jsx";
 
@@ -1032,10 +1030,6 @@ const Roadmap = () => {
           </button>
 
           {/* ── All modals ── */}
-          <ShortcutsPanel
-            isOpen={isShortcutsOpen}
-            onClose={() => setIsShortcutsOpen(false)}
-          />
 
           {isJournalOpen && (
             <JournalModal

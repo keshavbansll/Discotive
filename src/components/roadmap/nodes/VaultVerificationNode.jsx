@@ -1,561 +1,431 @@
 /**
- * @fileoverview VaultVerificationNode.jsx — The learn_id Lock Mechanism
+ * @fileoverview VaultVerificationNode — Premium Asset Gate
  * @description
- * This is the core of Discotive's Proof-of-Work verification loop.
- * The node stays LOCKED until a specific `discotiveLearnId` asset in the
- * user's vault reaches `status: "VERIFIED"` by an admin.
+ * Locks a downstream execution path until a specific Discotive vault asset
+ * (matched by discotiveLearnId) is VERIFIED. The most "premium feel" node
+ * in the canvas — represents real proof of work.
  *
- * The full loop:
- * 1. This node specifies `verificationContract.requiredLearnId`
- * 2. AgenticExecutionEngine checks the userVault in real-time
- * 3. If vault has a matching VERIFIED asset → node unlocks to ACTIVE/VERIFIED
- * 4. If vault has a matching PENDING asset → shows "pending audit" state
- * 5. If no matching asset → shows "Upload Required" CTA
- *
- * UI Features:
- * - Cross-hatch pattern overlay when locked (tactile "locked" sensation)
- * - Vault asset preview when linked (thumbnail, title, status badge)
- * - Direct upload CTA that deep-links to Vault page
- * - Admin verification progress bar when in PENDING state
- * - Score reward badge for completion motivation
+ * Visual language:
+ * - Gold-tinted header with vault lock icon
+ * - Asset preview (title + category badge) when linked
+ * - Emerald unlock state with VERIFIED glow
+ * - Upload CTA when no asset linked
  */
 
-import React, { memo, useMemo } from "react";
-import { Handle, Position, NodeResizer } from "reactflow";
-import { motion, AnimatePresence } from "framer-motion";
+import React, { memo, useCallback } from "react";
+import { Handle, Position } from "reactflow";
 import {
-  Database,
+  FolderLock,
   ShieldCheck,
-  ShieldAlert,
-  Upload,
   Award,
-  Clock,
+  Link2,
   Zap,
   Lock,
-  Eye,
-  ExternalLink,
+  CheckCircle2,
   AlertTriangle,
+  FileText,
+  Code2,
+  Briefcase,
 } from "lucide-react";
-import { useNavigate } from "react-router-dom";
-import { NODE_STATES } from "../../../contexts/AgenticExecutionEngine.jsx";
+import { motion } from "framer-motion";
+import { NODE_STATES } from "../../../stores/useRoadmapStore";
+import { useRoadmapStore } from "../../../stores/useRoadmapStore";
+
+const NODE_W = 220;
+
+const CAT_ICONS = {
+  Certificate: Award,
+  Project: Code2,
+  Resume: FileText,
+  Employment: Briefcase,
+  default: FolderLock,
+};
+
+const STATE_VISUAL = {
+  [NODE_STATES.VERIFIED]: {
+    border: "rgba(74,222,128,0.4)",
+    bg: "rgba(74,222,128,0.06)",
+    bar: "#4ADE80",
+    label: "VERIFIED",
+    glow: "0 0 14px rgba(74,222,128,0.25)",
+  },
+  [NODE_STATES.ACTIVE]: {
+    border: "rgba(191,162,100,0.35)",
+    bg: "rgba(191,162,100,0.04)",
+    bar: "#BFA264",
+    label: "AWAITING",
+    glow: "none",
+  },
+  [NODE_STATES.LOCKED]: {
+    border: "rgba(255,255,255,0.06)",
+    bg: "rgba(0,0,0,0.0)",
+    bar: "#2A2A35",
+    label: "LOCKED",
+    glow: "none",
+  },
+  [NODE_STATES.VERIFYING]: {
+    border: "rgba(167,139,250,0.4)",
+    bg: "rgba(167,139,250,0.06)",
+    bar: "#A78BFA",
+    label: "VERIFYING",
+    glow: "0 0 14px rgba(167,139,250,0.2)",
+  },
+};
+const DEFAULT_VIS = STATE_VISUAL[NODE_STATES.LOCKED];
 
 const HANDLE_S = {
-  width: 10,
-  height: 10,
-  background: "#111",
-  border: "1.5px solid rgba(255,255,255,0.15)",
+  width: 8,
+  height: 8,
+  background: "#0D0D12",
+  border: "1.5px solid rgba(74,222,128,0.3)",
   borderRadius: "50%",
 };
-const GOLD = "#BFA264";
-const GOLD_DIM = "rgba(191,162,100,0.12)";
-const GOLD_BORDER = "rgba(191,162,100,0.28)";
 
-// ── Vault asset status configs ─────────────────────────────────────────────────
-const ASSET_STATUS = {
-  VERIFIED: {
-    color: "#10b981",
-    bg: "rgba(16,185,129,0.10)",
-    border: "rgba(16,185,129,0.3)",
-    label: "Verified",
-    icon: ShieldCheck,
-  },
-  PENDING: {
-    color: "#BFA264",
-    bg: "rgba(191,162,100,0.10)",
-    border: GOLD_BORDER,
-    label: "Pending Audit",
-    icon: Clock,
-  },
-  REJECTED: {
-    color: "#ef4444",
-    bg: "rgba(239,68,68,0.10)",
-    border: "rgba(239,68,68,0.3)",
-    label: "Rejected",
-    icon: ShieldAlert,
-  },
-};
+export const VaultVerificationNode = memo(({ id, data, selected }) => {
+  const selectNode = useRoadmapStore((s) => s.selectNode);
+  const openExplorer = useRoadmapStore((s) => s.openExplorer);
 
-// ── Cross-hatch SVG pattern for locked state ──────────────────────────────────
-const CrossHatch = ({ nodeId, color = GOLD_BORDER }) => (
-  <svg
-    width="100%"
-    height="100%"
-    className="absolute inset-0 pointer-events-none z-20 rounded-[13px] overflow-hidden"
-    style={{ opacity: 0.4 }}
-  >
-    <defs>
-      <pattern
-        id={`hatch-vault-${nodeId}`}
-        width="12"
-        height="12"
-        patternUnits="userSpaceOnUse"
-        patternTransform="rotate(45)"
-      >
-        <line x1="0" y1="0" x2="0" y2="12" stroke={color} strokeWidth="0.7" />
-      </pattern>
-    </defs>
-    <rect width="100%" height="100%" fill={`url(#hatch-vault-${nodeId})`} />
-  </svg>
-);
+  const state = data._computed?.state || NODE_STATES.LOCKED;
+  const vis = STATE_VISUAL[state] || DEFAULT_VIS;
 
-export const VaultVerificationNode = memo(
-  ({ id, data, selected, style: nodeStyle }) => {
-    const navigate = useNavigate();
-    const vc = data.verificationContract || {};
-    const requiredLearnId = vc.requiredLearnId || data.requiredLearnId;
+  const isVerified = state === NODE_STATES.VERIFIED;
+  const isLocked = state === NODE_STATES.LOCKED;
+  const isActive = state === NODE_STATES.ACTIVE;
 
-    const computedState = data._computed?.state || NODE_STATES.LOCKED;
-    const learnIdMet = data._computed?.learnIdMet !== false;
+  const hasAsset = !!(data.assetId || data.assetTitle);
+  const CatIcon = CAT_ICONS[data.category] || CAT_ICONS.default;
+  const reqLearnId = data.requiredLearnId;
 
-    const isVerified =
-      computedState === NODE_STATES.VERIFIED ||
-      computedState === NODE_STATES.VERIFIED_GHOST;
-    const isLocked = computedState === NODE_STATES.LOCKED;
-    const isActive = computedState === NODE_STATES.ACTIVE;
-
-    // Find the matching vault asset (passed via data from engine hydration)
-    const matchedAsset = data._matchedVaultAsset || null;
-    const matchedStatus = matchedAsset?.status;
-    const assetCfg = matchedStatus ? ASSET_STATUS[matchedStatus] : null;
-
-    const nodeW = nodeStyle?.width ?? 250;
-    const scoreReward = vc.scoreReward || data.xpReward || 50;
-
-    const accentColor = isVerified ? "#10b981" : isActive ? "#10b981" : GOLD;
-    const borderColor = selected
-      ? `${accentColor}60`
-      : isVerified
-        ? "rgba(16,185,129,0.35)"
-        : learnIdMet
-          ? "rgba(255,255,255,0.07)"
-          : GOLD_BORDER;
-
-    const nodeShadow = selected
-      ? `0 4px 24px rgba(0,0,0,0.85), 0 0 0 1px ${accentColor}22`
-      : isVerified
-        ? "0 0 16px rgba(16,185,129,0.12)"
-        : !learnIdMet
-          ? `0 0 8px ${GOLD_DIM}`
-          : "0 2px 8px rgba(0,0,0,0.5)";
-
-    const handleUpload = (e) => {
+  const handleLink = useCallback(
+    (e) => {
       e.stopPropagation();
-      navigate("/app/vault");
-    };
+      openExplorer(id, "vault_certificate", reqLearnId || null);
+    },
+    [id, openExplorer, reqLearnId],
+  );
 
-    return (
+  return (
+    <div
+      onClick={() => selectNode(id)}
+      role="article"
+      aria-label={`Vault gate: ${data.label || "Vault Target"} — ${vis.label}`}
+      style={{
+        width: NODE_W,
+        minWidth: 180,
+        borderRadius: 8,
+        background: `linear-gradient(135deg, #0D0D12 0%, ${vis.bg} 100%)`,
+        border: `1px solid ${selected ? "rgba(74,222,128,0.6)" : vis.border}`,
+        boxShadow: selected
+          ? `0 0 0 1px rgba(74,222,128,0.3), ${vis.glow || "0 8px 24px rgba(0,0,0,0.6)"}`
+          : vis.glow || "0 2px 8px rgba(0,0,0,0.5)",
+        opacity: isLocked ? 0.5 : 1,
+        overflow: "hidden",
+        cursor: "pointer",
+        userSelect: "none",
+        transition: "border-color 0.2s, box-shadow 0.2s",
+      }}
+    >
+      {/* Left bar */}
       <div
         style={{
-          width: nodeW,
-          minWidth: 220,
-          borderRadius: 14,
-          background: "#0d0d12",
-          border: `1px solid ${borderColor}`,
-          boxShadow: nodeShadow,
-          position: "relative",
-          overflow: "visible",
-          transition: "border-color 0.3s, box-shadow 0.3s",
-          filter:
-            isLocked && learnIdMet ? "grayscale(0.5) opacity(0.4)" : "none",
+          position: "absolute",
+          left: 0,
+          top: 0,
+          bottom: 0,
+          width: 3,
+          background: vis.bar,
+          boxShadow: isVerified ? "2px 0 8px rgba(74,222,128,0.4)" : "none",
         }}
-        role="article"
-        aria-label={`Vault Verification — ${requiredLearnId || "any"} — ${computedState}`}
+      />
+
+      {/* Handles */}
+      {["top", "bottom", "left", "right"].map((pos) => (
+        <Handle
+          key={pos}
+          type={["top", "left"].includes(pos) ? "target" : "source"}
+          position={Position[pos.charAt(0).toUpperCase() + pos.slice(1)]}
+          id={pos}
+          style={{ ...HANDLE_S, borderColor: `${vis.bar}50` }}
+        />
+      ))}
+
+      <div
+        style={{
+          paddingLeft: 11,
+          paddingRight: 10,
+          paddingTop: 8,
+          paddingBottom: 8,
+        }}
       >
-        <NodeResizer
-          minWidth={220}
-          minHeight={100}
-          isVisible={selected}
-          lineStyle={{ border: `1px dashed ${GOLD_BORDER}` }}
-          handleStyle={{
-            backgroundColor: GOLD,
-            width: 7,
-            height: 7,
-            borderRadius: 2,
-            border: "2px solid #0d0d12",
-          }}
-        />
-
-        <Handle
-          type="target"
-          position={Position.Top}
-          id="top"
-          style={{ ...HANDLE_S, borderColor: `${accentColor}55` }}
-        />
-        <Handle
-          type="target"
-          position={Position.Left}
-          id="left"
-          style={{ ...HANDLE_S, borderColor: `${accentColor}55` }}
-        />
-        <Handle
-          type="source"
-          position={Position.Bottom}
-          id="bottom"
-          style={{ ...HANDLE_S, borderColor: `${accentColor}55` }}
-        />
-        <Handle
-          type="source"
-          position={Position.Right}
-          id="right"
-          style={{ ...HANDLE_S, borderColor: `${accentColor}55` }}
-        />
-
-        {/* ── Cross-hatch lock overlay ── */}
-        {!learnIdMet && <CrossHatch nodeId={id} />}
-
-        {/* ── Accent bar ── */}
+        {/* Header */}
         <div
           style={{
-            height: 2.5,
-            background: accentColor,
-            opacity: selected ? 0.95 : 0.55,
-            flexShrink: 0,
-            borderRadius: "14px 14px 0 0",
-          }}
-        />
-
-        {/* ── Content ── */}
-        <div
-          style={{
-            padding: "10px 12px 12px",
-            position: "relative",
-            zIndex: 25,
+            display: "flex",
+            alignItems: "center",
+            gap: 7,
+            marginBottom: 7,
           }}
         >
-          {/* Header */}
           <div
             style={{
+              width: 26,
+              height: 26,
+              borderRadius: 5,
+              background: isVerified
+                ? "rgba(74,222,128,0.12)"
+                : "rgba(191,162,100,0.08)",
+              border: `1px solid ${isVerified ? "rgba(74,222,128,0.25)" : "rgba(191,162,100,0.2)"}`,
               display: "flex",
-              alignItems: "flex-start",
-              gap: 8,
-              marginBottom: 8,
+              alignItems: "center",
+              justifyContent: "center",
+              flexShrink: 0,
+            }}
+          >
+            {isVerified ? (
+              <ShieldCheck
+                style={{ width: 13, height: 13, color: "#4ADE80" }}
+              />
+            ) : (
+              <FolderLock style={{ width: 13, height: 13, color: "#BFA264" }} />
+            )}
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <p
+              style={{
+                fontSize: 11,
+                fontWeight: 700,
+                color: "rgba(245,240,232,0.88)",
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                fontFamily: "'Poppins', sans-serif",
+                lineHeight: 1.2,
+              }}
+            >
+              {data.label || "Vault Verification"}
+            </p>
+            <p
+              style={{
+                fontSize: 8,
+                fontWeight: 800,
+                textTransform: "uppercase",
+                letterSpacing: "0.1em",
+                color: `${vis.bar}90`,
+                marginTop: 1,
+              }}
+            >
+              {vis.label}
+            </p>
+          </div>
+        </div>
+
+        {/* Required Learn ID badge */}
+        {reqLearnId && (
+          <div
+            style={{
+              fontSize: 8,
+              fontFamily: "monospace",
+              fontWeight: 700,
+              color: "rgba(74,222,128,0.7)",
+              background: "rgba(74,222,128,0.06)",
+              border: "1px solid rgba(74,222,128,0.15)",
+              borderRadius: 4,
+              padding: "2px 6px",
+              marginBottom: 6,
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+            }}
+          >
+            🔗 {reqLearnId.split("_").pop()}
+          </div>
+        )}
+
+        {/* Asset preview OR CTA */}
+        {hasAsset ? (
+          <div
+            style={{
+              background: "rgba(255,255,255,0.03)",
+              border: "1px solid rgba(255,255,255,0.06)",
+              borderRadius: 5,
+              padding: "6px 8px",
+              display: "flex",
+              alignItems: "center",
+              gap: 7,
             }}
           >
             <div
               style={{
-                width: 32,
-                height: 32,
-                borderRadius: 8,
-                background: isVerified ? "rgba(16,185,129,0.12)" : GOLD_DIM,
-                border: `1px solid ${isVerified ? "rgba(16,185,129,0.3)" : GOLD_BORDER}`,
+                width: 22,
+                height: 22,
+                borderRadius: 4,
+                flexShrink: 0,
+                background: isVerified
+                  ? "rgba(74,222,128,0.10)"
+                  : "rgba(191,162,100,0.08)",
+                border: `1px solid ${isVerified ? "rgba(74,222,128,0.2)" : "rgba(191,162,100,0.15)"}`,
                 display: "flex",
                 alignItems: "center",
                 justifyContent: "center",
-                flexShrink: 0,
               }}
             >
-              {isVerified ? (
-                <ShieldCheck
-                  style={{ width: 15, height: 15, color: "#10b981" }}
-                />
-              ) : !learnIdMet ? (
-                <Lock style={{ width: 15, height: 15, color: GOLD }} />
-              ) : (
-                <Database
-                  style={{
-                    width: 15,
-                    height: 15,
-                    color: "rgba(255,255,255,0.35)",
-                  }}
-                />
-              )}
+              <CatIcon
+                style={{
+                  width: 11,
+                  height: 11,
+                  color: isVerified ? "#4ADE80" : "#BFA264",
+                }}
+              />
             </div>
             <div style={{ flex: 1, minWidth: 0 }}>
               <p
                 style={{
-                  fontSize: 12,
-                  fontWeight: 700,
-                  color:
-                    isLocked && learnIdMet
-                      ? "rgba(255,255,255,0.3)"
-                      : "rgba(255,255,255,0.9)",
-                  lineHeight: 1.3,
-                  wordBreak: "break-word",
-                }}
-              >
-                {data.label || data.title || "Vault Verification"}
-              </p>
-              <p
-                style={{
-                  fontSize: 8,
-                  fontWeight: 700,
-                  color: "rgba(255,255,255,0.25)",
-                  textTransform: "uppercase",
-                  letterSpacing: "0.1em",
-                  marginTop: 2,
-                }}
-              >
-                {data.category || "Certificate Required"}
-              </p>
-            </div>
-          </div>
-
-          {/* Required Learn ID badge */}
-          {requiredLearnId && (
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-                padding: "4px 8px",
-                background: "rgba(0,0,0,0.4)",
-                border: "1px solid rgba(255,255,255,0.05)",
-                borderRadius: 8,
-                marginBottom: 8,
-              }}
-            >
-              <span
-                style={{
-                  fontSize: 7,
-                  fontWeight: 700,
-                  color: "#555",
-                  textTransform: "uppercase",
-                  letterSpacing: "0.1em",
-                  flexShrink: 0,
-                }}
-              >
-                REQUIRED ID
-              </span>
-              <span
-                style={{
-                  fontSize: 8,
-                  fontFamily: "monospace",
-                  color: `${GOLD}80`,
-                  truncate: "true",
+                  fontSize: 10,
+                  fontWeight: 600,
+                  color: "rgba(245,240,232,0.70)",
+                  whiteSpace: "nowrap",
                   overflow: "hidden",
                   textOverflow: "ellipsis",
-                  whiteSpace: "nowrap",
-                  flex: 1,
+                  fontFamily: "'Poppins', sans-serif",
                 }}
               >
-                {requiredLearnId}
-              </span>
-            </div>
-          )}
-
-          {/* Matched asset preview */}
-          {matchedAsset && assetCfg && (
-            <div
-              style={{
-                padding: "7px 9px",
-                background: assetCfg.bg,
-                border: `1px solid ${assetCfg.border}`,
-                borderRadius: 9,
-                marginBottom: 8,
-                display: "flex",
-                alignItems: "center",
-                gap: 8,
-              }}
-            >
-              <assetCfg.icon
-                style={{
-                  width: 14,
-                  height: 14,
-                  color: assetCfg.color,
-                  flexShrink: 0,
-                }}
-              />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <p
-                  style={{
-                    fontSize: 10,
-                    fontWeight: 700,
-                    color: "rgba(255,255,255,0.8)",
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  {matchedAsset.title}
-                </p>
-                <p
+                {data.assetTitle || "Linked Asset"}
+              </p>
+              {data.category && (
+                <span
                   style={{
                     fontSize: 7,
                     fontWeight: 800,
-                    color: assetCfg.color,
-                    textTransform: "uppercase",
-                    letterSpacing: "0.1em",
-                    marginTop: 1,
-                  }}
-                >
-                  {assetCfg.label}
-                </p>
-              </div>
-              {matchedStatus === "PENDING" && (
-                <div
-                  style={{
-                    width: 14,
-                    height: 14,
-                    borderRadius: "50%",
-                    border: `2px solid ${assetCfg.color}`,
-                    borderTopColor: "transparent",
-                  }}
-                  className="animate-spin"
-                />
-              )}
-            </div>
-          )}
-
-          {/* Score reward */}
-          {scoreReward > 0 && (
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 5,
-                marginBottom: 8,
-              }}
-            >
-              <Zap style={{ width: 9, height: 9, color: GOLD }} />
-              <span
-                style={{ fontSize: 8, fontWeight: 800, color: `${GOLD}80` }}
-              >
-                +{scoreReward} Discotive Score on verification
-              </span>
-            </div>
-          )}
-
-          {/* CTA: Upload to unlock */}
-          {!learnIdMet && !matchedAsset && (
-            <button
-              onPointerDown={(e) => e.stopPropagation()}
-              onClick={handleUpload}
-              className="nodrag pointer-events-auto w-full flex items-center justify-center gap-1.5 py-2.5 rounded-xl transition-all"
-              style={{
-                background: `${GOLD}15`,
-                border: `1px solid ${GOLD_BORDER}`,
-                cursor: "pointer",
-              }}
-            >
-              <Upload style={{ width: 11, height: 11, color: GOLD }} />
-              <span
-                style={{
-                  fontSize: 9,
-                  fontWeight: 900,
-                  color: GOLD,
-                  textTransform: "uppercase",
-                  letterSpacing: "0.12em",
-                }}
-              >
-                Upload to Vault to Unlock
-              </span>
-            </button>
-          )}
-
-          {/* CTA: Pending audit message */}
-          {matchedStatus === "PENDING" && (
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 6,
-                padding: "7px 10px",
-                background: "rgba(191,162,100,0.06)",
-                border: `1px solid ${GOLD_BORDER}`,
-                borderRadius: 9,
-              }}
-            >
-              <AlertTriangle
-                style={{ width: 11, height: 11, color: GOLD, flexShrink: 0 }}
-              />
-              <p
-                style={{
-                  fontSize: 8,
-                  fontWeight: 600,
-                  color: `${GOLD}80`,
-                  lineHeight: 1.4,
-                }}
-              >
-                Asset uploaded. Awaiting admin verification. This node unlocks
-                automatically upon approval.
-              </p>
-            </div>
-          )}
-
-          {/* Verified complete state */}
-          {isVerified && (
-            <motion.div
-              initial={{ opacity: 0, y: 4 }}
-              animate={{ opacity: 1, y: 0 }}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 8,
-                padding: "7px 10px",
-                background: "rgba(16,185,129,0.08)",
-                border: "1px solid rgba(16,185,129,0.25)",
-                borderRadius: 9,
-              }}
-            >
-              <ShieldCheck
-                style={{
-                  width: 14,
-                  height: 14,
-                  color: "#10b981",
-                  flexShrink: 0,
-                }}
-              />
-              <div>
-                <p
-                  style={{
-                    fontSize: 9,
-                    fontWeight: 800,
-                    color: "#10b981",
                     textTransform: "uppercase",
                     letterSpacing: "0.08em",
+                    color: "rgba(245,240,232,0.28)",
                   }}
                 >
-                  Vault Verified
-                </p>
-                <p
-                  style={{
-                    fontSize: 7,
-                    color: "rgba(16,185,129,0.6)",
-                    fontFamily: "monospace",
-                    marginTop: 1,
-                  }}
-                >
-                  +{scoreReward} pts awarded
-                </p>
-              </div>
-            </motion.div>
-          )}
-        </div>
-
-        {/* ── Learn ID lock badge (corner) ── */}
-        {!learnIdMet && (
-          <div
+                  {data.category}
+                </span>
+              )}
+            </div>
+            {isVerified && (
+              <CheckCircle2
+                style={{
+                  width: 12,
+                  height: 12,
+                  color: "#4ADE80",
+                  flexShrink: 0,
+                }}
+              />
+            )}
+          </div>
+        ) : isActive ? (
+          <button
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={handleLink}
             style={{
-              position: "absolute",
-              bottom: 10,
-              right: 10,
+              width: "100%",
+              padding: "6px 10px",
+              borderRadius: 5,
+              background: "rgba(191,162,100,0.08)",
+              border: "1px dashed rgba(191,162,100,0.3)",
+              color: "rgba(191,162,100,0.8)",
+              cursor: "pointer",
               display: "flex",
               alignItems: "center",
-              gap: 4,
-              padding: "3px 7px",
-              background: GOLD_DIM,
-              border: `1px solid ${GOLD_BORDER}`,
-              borderRadius: 8,
-              zIndex: 30,
+              justifyContent: "center",
+              gap: 5,
+              fontSize: 9,
+              fontWeight: 800,
+              textTransform: "uppercase",
+              letterSpacing: "0.1em",
+              transition: "all 0.2s",
+              fontFamily: "'Poppins', sans-serif",
+            }}
+            onMouseEnter={(e) => {
+              e.target.style.background = "rgba(191,162,100,0.14)";
+              e.target.style.borderColor = "rgba(191,162,100,0.5)";
+            }}
+            onMouseLeave={(e) => {
+              e.target.style.background = "rgba(191,162,100,0.08)";
+              e.target.style.borderColor = "rgba(191,162,100,0.3)";
             }}
           >
-            <Lock style={{ width: 8, height: 8, color: GOLD }} />
+            <Link2 style={{ width: 10, height: 10 }} /> Link Vault Asset
+          </button>
+        ) : (
+          <div
+            style={{
+              padding: "5px 8px",
+              borderRadius: 5,
+              background: "rgba(255,255,255,0.02)",
+              border: "1px solid rgba(255,255,255,0.04)",
+              display: "flex",
+              alignItems: "center",
+              gap: 5,
+            }}
+          >
+            <Lock
+              style={{
+                width: 9,
+                height: 9,
+                color: "rgba(245,240,232,0.2)",
+                flexShrink: 0,
+              }}
+            />
             <span
               style={{
-                fontSize: 7,
-                fontWeight: 900,
-                color: GOLD,
-                textTransform: "uppercase",
-                letterSpacing: "0.1em",
+                fontSize: 9,
+                color: "rgba(245,240,232,0.25)",
+                fontFamily: "'Poppins', sans-serif",
+                fontWeight: 600,
               }}
             >
-              Vault Required
+              Unlock upstream first
             </span>
           </div>
         )}
+
+        {/* Footer */}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            borderTop: "1px solid rgba(255,255,255,0.04)",
+            paddingTop: 5,
+            marginTop: 6,
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
+            <Zap
+              style={{ width: 8, height: 8, color: "rgba(191,162,100,0.45)" }}
+            />
+            <span
+              style={{
+                fontSize: 8,
+                fontWeight: 800,
+                color: "rgba(191,162,100,0.45)",
+              }}
+            >
+              +{data.verificationContract?.scoreReward || 50}
+            </span>
+          </div>
+          <span
+            style={{
+              fontSize: 7,
+              fontWeight: 800,
+              textTransform: "uppercase",
+              letterSpacing: "0.1em",
+              color: "rgba(245,240,232,0.18)",
+              background: "rgba(255,255,255,0.03)",
+              padding: "1px 5px",
+              borderRadius: 3,
+            }}
+          >
+            LEARN_ID
+          </span>
+        </div>
       </div>
-    );
-  },
-);
+    </div>
+  );
+});
 
 VaultVerificationNode.displayName = "VaultVerificationNode";

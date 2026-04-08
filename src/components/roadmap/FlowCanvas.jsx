@@ -79,7 +79,6 @@ import {
 import { toPng } from "html-to-image";
 import { jsPDF } from "jspdf";
 import { cn } from "../../lib/cn";
-import { getLayoutedElements } from "../../lib/roadmap/layout.js";
 import { useAgenticEngine } from "../../contexts/AgenticExecutionEngine.jsx";
 import { NODE_STATES } from "../../contexts/AgenticExecutionEngine.jsx";
 import {

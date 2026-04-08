@@ -17,6 +17,16 @@ service cloud.firestore {
       return isAuthenticated() && request.auth.uid == userId;
     }
 
+    // DEEP SCHEMA VALIDATION: Prevent Denial of Wallet (DoW) attacks
+    function isValidNode(node) {
+      return node.size() < 10 // Limit number of fields
+        && node.data.title.size() < 100 // Limit string lengths
+        && node.data.description.size() < 500
+        && node.data.minimumTimeMinutes is int
+        && node.data.minimumTimeMinutes >= 0
+        && node.data.minimumTimeMinutes <= 43200; // Max 30 days
+    }
+
     // =========================================================================
     // 0. EMAIL VERIFICATION
     // =========================================================================
@@ -51,7 +61,6 @@ service cloud.firestore {
     // =========================================================================
     match /support_tickets/{ticketId} {
       allow read: if isAdmin() || (isAuthenticated() && resource.data.uid == request.auth.uid);
-      // REFINEMENT: Safely allow client-side creation if the UID matches the creator
       allow create: if isAuthenticated() && request.resource.data.uid == request.auth.uid; 
       allow update: if isAdmin() || 
         (isAuthenticated() && 
@@ -80,26 +89,23 @@ service cloud.firestore {
       allow delete: if isOwner(userId);
       
       allow update: if 
-        // 1. Owner updates (Blocks Tier & Score Escalation)
-        (isOwner(userId) && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['tier', 'isGhostUser']))
+        (isOwner(userId) && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['tier', 'isGhostUser', 'score']))
         || 
-        // 2. Alliance feature cross-writes
         (isAuthenticated() && 
          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['inboundRequests', 'outboundRequests', 'allies'])) 
         ||
-        // 3. Public Profile Views increment
         (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['profileViews']) &&
          request.resource.data.profileViews == resource.data.profileViews + 1)
         ||
-        // 4. Admins override
         isAdmin();
     }
     
     // =========================================================================
     // 5. USER NESTED SUBCOLLECTIONS
     // =========================================================================
-    match /users/{userId}/execution_map/{document=**} {
-      allow read, write: if isOwner(userId);
+    match /users/{userId}/execution_map/{nodeId} {
+      allow read: if isOwner(userId);
+      allow write: if isOwner(userId) && isValidNode(request.resource);
     }
     
     match /users/{userId}/verification_requests/{reqId} {

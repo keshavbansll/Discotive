@@ -6,7 +6,6 @@
 import React, { memo } from "react";
 import { Handle, Position } from "reactflow";
 import { NODE_STATES } from "../../../lib/roadmap/constants";
-import { HANDLE_S } from "../../../lib/roadmap/layout";
 
 export const LogicNode = memo(({ data, selected }) => {
   const computedState = data._computed?.state || NODE_STATES.LOCKED;

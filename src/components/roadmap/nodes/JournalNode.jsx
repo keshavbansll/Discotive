@@ -1,5 +1,4 @@
 import { Handle, Position } from "reactflow";
-import { HANDLE_S } from "../../../lib/roadmap/layout";
 
 import { BookOpen, PenLine } from "lucide-react";
 import React, { memo } from "react";
