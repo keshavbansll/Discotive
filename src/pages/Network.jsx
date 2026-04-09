@@ -1,18 +1,14 @@
 /**
- * @fileoverview Network.jsx — The Discotive Alliance & Social Engine
+ * @fileoverview Network.jsx v2.0 — Discotive Alliance & Social Engine
  * @description
- * Full-featured networking hub: social feed, alliance management,
- * competitor radar. Zero onSnapshot. Optimistic UI throughout.
- * Dual-rendering: dense PC layout vs. native-feeling mobile experience.
+ * Complete rewrite. Orchestrates Feed, Connections, and DM panels.
+ * Rate limit enforcement UI. Mutual exclusion toasts. Full DM integration.
+ * Mobile-first with proper bottom nav awareness.
  */
 
-import React, { useState, useEffect, useCallback, useRef } from "react";
-import {
-  motion,
-  AnimatePresence,
-  useMotionValue,
-  useSpring,
-} from "framer-motion";
+import React, { useState, useEffect, useCallback } from "react";
+import { useSearchParams } from "react-router-dom";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   Zap,
   Users,
@@ -27,6 +23,7 @@ import {
   Check,
   CheckCircle2,
   AlertTriangle,
+  MessageCircle,
 } from "lucide-react";
 import { cn } from "../lib/cn";
 import { useAuth } from "../contexts/AuthContext";
@@ -34,6 +31,7 @@ import { useUserData } from "../hooks/useUserData";
 import { useNetwork } from "../hooks/useNetwork";
 import FeedTab from "../components/network/FeedTab";
 import ConnectionsTab from "../components/network/ConnectionsTab";
+import DMPanel from "../components/network/DMPanel";
 
 // ─── Toast System ─────────────────────────────────────────────────────────────
 const Toast = ({ toast, onDismiss }) => {
@@ -62,8 +60,13 @@ const Toast = ({ toast, onDismiss }) => {
       icon: <Zap className="w-4 h-4 text-[#BFA264] shrink-0" />,
       text: "text-[#BFA264]",
     },
+    rate_limited: {
+      bg: "bg-[#1a0e00]",
+      border: "border-amber-500/25",
+      icon: <Crown className="w-4 h-4 text-amber-400 shrink-0" />,
+      text: "text-amber-400",
+    },
   };
-
   const style = colorMap[toast.type] || colorMap.info;
 
   return (
@@ -102,26 +105,23 @@ const ToastContainer = ({ toasts, onDismiss }) => (
   </div>
 );
 
-// ─── Toast Hook ───────────────────────────────────────────────────────────────
 const useToasts = () => {
   const [toasts, setToasts] = useState([]);
-
-  const addToast = useCallback((message, type = "info", duration = 4000) => {
+  const addToast = useCallback((message, type = "info", duration = 4500) => {
     const id = Date.now();
     setToasts((prev) => [...prev.slice(-3), { id, message, type }]);
-    setTimeout(() => {
-      setToasts((prev) => prev.filter((t) => t.id !== id));
-    }, duration);
+    setTimeout(
+      () => setToasts((prev) => prev.filter((t) => t.id !== id)),
+      duration,
+    );
   }, []);
-
   const dismissToast = useCallback((id) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
-
   return { toasts, addToast, dismissToast };
 };
 
-// ─── Main Tab Button ──────────────────────────────────────────────────────────
+// ─── Tab button ───────────────────────────────────────────────────────────────
 const MainTabButton = ({ id, label, icon: Icon, badge, active, onClick }) => (
   <button
     onClick={() => onClick(id)}
@@ -149,51 +149,21 @@ const MainTabButton = ({ id, label, icon: Icon, badge, active, onClick }) => (
   </button>
 );
 
-// ─── Score Ledger Animator ────────────────────────────────────────────────────
-const AnimatedScore = ({ value }) => {
-  const ref = useRef(null);
-  const motionValue = useMotionValue(0);
-  const springValue = useSpring(motionValue, { stiffness: 80, damping: 15 });
-
-  useEffect(() => {
-    motionValue.set(value);
-  }, [value, motionValue]);
-
-  useEffect(() => {
-    return springValue.on("change", (latest) => {
-      if (ref.current) {
-        ref.current.textContent = Intl.NumberFormat("en-US").format(
-          Math.floor(latest),
-        );
-      }
-    });
-  }, [springValue]);
-
-  return (
-    <motion.span
-      ref={ref}
-      className="text-3xl font-black font-mono text-[#BFA264] leading-none drop-shadow-[0_0_16px_rgba(191,162,100,0.4)]"
-      style={{ fontFamily: "Montserrat, sans-serif" }}
-    >
-      {value}
-    </motion.span>
-  );
-};
-
-// ─── Sidebar Widget: Network Stats ────────────────────────────────────────────
-const NetworkStatsWidget = ({ stats, userData }) => {
+// ─── Sidebar widgets ──────────────────────────────────────────────────────────
+const NetworkStatsWidget = ({ stats, userData, onOpenDM, unreadDmCount }) => {
   const score = userData?.discotiveScore?.current || 0;
   const streak = userData?.discotiveScore?.streak || 0;
 
   return (
     <div className="rounded-[1.5rem] border border-[rgba(255,255,255,0.06)] bg-[#0A0A0A] overflow-hidden">
-      {/* Score header */}
       <div className="p-4 border-b border-[rgba(255,255,255,0.04)]">
         <p className="text-[9px] font-black text-[rgba(245,240,232,0.30)] uppercase tracking-widest mb-2">
           Your Operator Stats
         </p>
         <div className="flex items-end gap-2">
-          <AnimatedScore value={score} />
+          <span className="text-3xl font-black font-mono text-[#BFA264] leading-none drop-shadow-[0_0_16px_rgba(191,162,100,0.4)]">
+            {score.toLocaleString()}
+          </span>
           <span className="text-[10px] text-[rgba(245,240,232,0.35)] mb-0.5">
             pts
           </span>
@@ -204,7 +174,6 @@ const NetworkStatsWidget = ({ stats, userData }) => {
         </p>
       </div>
 
-      {/* Network breakdown */}
       <div className="p-4 space-y-2">
         {[
           {
@@ -238,14 +207,66 @@ const NetworkStatsWidget = ({ stats, userData }) => {
           </div>
         ))}
       </div>
+
+      {/* Rate limit indicator */}
+      <div className="px-4 pb-4">
+        <div className="flex items-center justify-between mb-1">
+          <span className="text-[9px] text-[rgba(245,240,232,0.25)] uppercase tracking-widest font-bold">
+            Requests Today
+          </span>
+          <span
+            className={cn(
+              "text-[9px] font-black font-mono",
+              stats.dailyRequestCount >= stats.dailyRequestLimit
+                ? "text-red-400"
+                : "text-[rgba(245,240,232,0.40)]",
+            )}
+          >
+            {stats.dailyRequestCount}/{stats.dailyRequestLimit}
+          </span>
+        </div>
+        <div className="w-full h-1 bg-[rgba(255,255,255,0.04)] rounded-full overflow-hidden">
+          <div
+            className={cn(
+              "h-full rounded-full transition-all",
+              stats.dailyRequestCount >= stats.dailyRequestLimit
+                ? "bg-red-500"
+                : "bg-[#BFA264]",
+            )}
+            style={{
+              width: `${Math.min((stats.dailyRequestCount / stats.dailyRequestLimit) * 100, 100)}%`,
+            }}
+          />
+        </div>
+      </div>
+
+      {/* DM button */}
+      {onOpenDM && (
+        <div className="px-4 pb-4">
+          <button
+            onClick={onOpenDM}
+            className="w-full flex items-center justify-between px-4 py-2.5 bg-[rgba(191,162,100,0.06)] border border-[rgba(191,162,100,0.20)] rounded-xl hover:bg-[rgba(191,162,100,0.10)] transition-all"
+          >
+            <div className="flex items-center gap-2">
+              <MessageCircle className="w-4 h-4 text-[#BFA264]" />
+              <span className="text-[11px] font-bold text-[#D4AF78]">
+                Messages
+              </span>
+            </div>
+            {unreadDmCount > 0 && (
+              <span className="px-1.5 py-0.5 bg-[#BFA264] text-[#030303] text-[8px] font-black rounded-full">
+                {unreadDmCount}
+              </span>
+            )}
+          </button>
+        </div>
+      )}
     </div>
   );
 };
 
-// ─── Sidebar Widget: Top Competitors ─────────────────────────────────────────
 const CompetitorWidget = ({ competitors }) => {
   if (competitors.length === 0) return null;
-
   return (
     <div className="rounded-[1.5rem] border border-[rgba(239,68,68,0.15)] bg-[#0A0A0A] overflow-hidden">
       <div className="p-4 border-b border-[rgba(255,255,255,0.04)] flex items-center gap-2">
@@ -286,10 +307,18 @@ const Network = () => {
   const { userData } = useUserData();
   const { toasts, addToast, dismissToast } = useToasts();
 
+  const [searchParams, setSearchParams] = useSearchParams();
   const [activeTab, setActiveTab] = useState("feed");
 
+  // URL-driven DM State
+  const dmConvoId = searchParams.get("dm");
+  const newDmUserId = searchParams.get("new_dm");
+  const isDMOpen = dmConvoId !== null || newDmUserId !== null;
+
+  // Automatically pass target user to hook if URL specifies it
+  const dmInitialTarget = newDmUserId ? { id: newDmUserId } : null;
+
   const {
-    // Feed
     posts,
     feedLoading,
     feedError,
@@ -297,9 +326,11 @@ const Network = () => {
     isPosting,
     fetchFeed,
     createPost,
+    deletePost,
     toggleLike,
-
-    // Network
+    fetchComments,
+    addComment,
+    deleteComment,
     alliances,
     pendingInbound,
     pendingOutbound,
@@ -315,32 +346,44 @@ const Network = () => {
     markAsCompetitor,
     cancelOutboundRequest,
     getConnectionStatus,
+    conversations,
+    activeConversation,
+    setActiveConversation,
+    messages,
+    messagesLoading,
+    dmLoading,
+    unreadDmCount,
+    fetchConversations,
+    fetchMessages,
+    sendMessage,
+    markConversationRead,
   } = useNetwork(currentUser, userData);
 
-  // ── Initial data fetch ───────────────────────────────────────────────────
   useEffect(() => {
     fetchFeed(true);
     fetchNetworkData();
   }, []);
 
-  const handleTabChange = (tab) => {
-    setActiveTab(tab);
+  const handleTabChange = (tab) => setActiveTab(tab);
+
+  // ── Action wrappers ───────────────────────────────────────────────────────
+
+  const handlePost = async (text, meta) => {
+    const id = await createPost(text, meta);
+    if (id) addToast("Signal transmitted to your network.", "success");
+    else addToast("Transmission failed. Try again.", "error");
+    return id;
   };
 
-  // ── Action wrappers with toast feedback ──────────────────────────────────
-  const handlePost = async (text) => {
-    const id = await createPost(text);
-    if (id) {
-      addToast("Signal transmitted to your network.", "success");
-    } else {
-      addToast("Transmission failed. Try again.", "error");
-    }
-    return id;
+  const handleDeletePost = async (postId) => {
+    const ok = await deletePost(postId);
+    if (ok) addToast("Post removed.", "info");
+    else addToast("Delete failed.", "error");
   };
 
   const handleAccept = async (connectionId, requesterId) => {
     await acceptAllianceRequest(connectionId, requesterId);
-    addToast("+15 Discotive Score: Alliance Formed!", "success");
+    addToast("+15 Discotive Score: Alliance Formed! ⚡", "success");
   };
 
   const handleDecline = async (connectionId) => {
@@ -353,19 +396,34 @@ const Network = () => {
   };
 
   const handleSendRequest = async (targetUser) => {
-    await sendAllianceRequest(targetUser);
-    addToast(
-      `Alliance request transmitted to ${
-        targetUser.identity?.firstName || "Operator"
-      }.`,
-      "info",
-    );
+    const result = await sendAllianceRequest(targetUser);
+    if (result.success) {
+      addToast(
+        `Alliance request transmitted to ${targetUser.identity?.firstName || "Operator"}.`,
+        "info",
+      );
+    } else if (result.error === "rate_limited") {
+      addToast(
+        `Daily limit reached (${result.limit} requests). ${result.tier === "ESSENTIAL" ? "Upgrade to PRO for 50/day." : "Resets at midnight."}`,
+        "rate_limited",
+        6000,
+      );
+    } else if (result.error === "already_allied") {
+      addToast("You're already allied with this operator.", "warning");
+    } else if (result.error === "in_flight") {
+      // Silent — request already in progress
+    } else {
+      addToast("Request failed. Check your connection.", "error");
+    }
   };
 
   const handleMarkCompetitor = async (targetUser) => {
-    const isTracking = competitors.some((c) => c.targetId === targetUser.id);
-    await markAsCompetitor(targetUser);
-    if (!isTracking) {
+    const result = await markAsCompetitor(targetUser);
+    if (result?.error) {
+      addToast(result.error, "warning");
+    } else if (result?.untracked) {
+      addToast(`Removed from Competitor Radar.`, "info");
+    } else if (result?.tracked) {
       addToast(`⚡ Target Acquired. Competitor multiplier active.`, "warning");
     }
   };
@@ -374,13 +432,22 @@ const Network = () => {
     await cancelOutboundRequest(connectionId);
   };
 
+  const handleOpenDM = (targetId = null, targetUser = null) => {
+    if (targetUser) {
+      setSearchParams({ new_dm: targetUser.id });
+    } else {
+      setSearchParams({ dm: "menu" }); // Open empty DM panel
+    }
+  };
+
+  const handleCloseDM = () => {
+    searchParams.delete("dm");
+    searchParams.delete("new_dm");
+    setSearchParams(searchParams);
+  };
+
   const mainTabs = [
-    {
-      id: "feed",
-      label: "Feed",
-      icon: RadioTower,
-      badge: 0,
-    },
+    { id: "feed", label: "Feed", icon: RadioTower, badge: 0 },
     {
       id: "network",
       label: "Network",
@@ -390,17 +457,16 @@ const Network = () => {
   ];
 
   const uid = currentUser?.uid;
+  const userTier = userData?.tier || "ESSENTIAL";
 
   return (
     <div className="min-h-screen bg-[#030303] text-white selection:bg-[rgba(191,162,100,0.30)] selection:text-[#F5F0E8]">
-      {/* Grain overlay */}
       <div className="fixed inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-[0.025] pointer-events-none z-0" />
 
-      {/* ── PAGE HEADER ───────────────────────────────────────────── */}
+      {/* Page Header */}
       <div className="sticky top-0 z-50 bg-[rgba(3,3,3,0.92)] backdrop-blur-xl border-b border-[rgba(255,255,255,0.04)]">
         <div className="max-w-[1600px] mx-auto px-4 md:px-8">
           <div className="flex items-center justify-between h-14 md:h-16">
-            {/* Brand + Tabs */}
             <div className="flex items-center gap-6">
               <div className="flex items-center gap-2">
                 <RadioTower className="w-5 h-5 text-[#BFA264]" />
@@ -411,8 +477,6 @@ const Network = () => {
                   NETWORK
                 </h1>
               </div>
-
-              {/* Tabs */}
               <div className="flex items-center gap-1">
                 {mainTabs.map((tab) => (
                   <MainTabButton
@@ -425,43 +489,81 @@ const Network = () => {
               </div>
             </div>
 
-            {/* Stats quick-view */}
-            <div className="hidden md:flex items-center gap-4">
-              {[
-                {
-                  label: "Alliances",
-                  val: networkStats.alliances,
-                  color: "text-emerald-400",
-                },
-                {
-                  label: "Competitors",
-                  val: networkStats.competitors,
-                  color: "text-red-400",
-                },
-              ].map(({ label, val, color }) => (
-                <div key={label} className="text-right">
-                  <p
-                    className={cn(
-                      "text-lg font-black font-mono leading-none",
-                      color,
-                    )}
-                  >
-                    {val}
-                  </p>
-                  <p className="text-[9px] text-[rgba(245,240,232,0.25)] uppercase tracking-widest mt-0.5">
-                    {label}
-                  </p>
+            <div className="flex items-center gap-3 md:gap-6">
+              {/* Mobile stats strip */}
+              <div className="flex items-center gap-3 md:hidden">
+                <div className="flex items-center gap-1.5">
+                  <Users className="w-3.5 h-3.5 text-emerald-400" />
+                  <span className="text-[11px] font-black text-emerald-400">
+                    {networkStats.alliances}
+                  </span>
                 </div>
-              ))}
+                <div className="flex items-center gap-1.5">
+                  <Crosshair className="w-3.5 h-3.5 text-red-400" />
+                  <span className="text-[11px] font-black text-red-400">
+                    {networkStats.competitors}
+                  </span>
+                </div>
+              </div>
+
+              {/* Desktop stats */}
+              <div className="hidden md:flex items-center gap-4">
+                {[
+                  {
+                    label: "Alliances",
+                    val: networkStats.alliances,
+                    color: "text-emerald-400",
+                  },
+                  {
+                    label: "Competitors",
+                    val: networkStats.competitors,
+                    color: "text-red-400",
+                  },
+                ].map(({ label, val, color }) => (
+                  <div key={label} className="text-right">
+                    <p
+                      className={cn(
+                        "text-lg font-black font-mono leading-none",
+                        color,
+                      )}
+                    >
+                      {val}
+                    </p>
+                    <p className="text-[9px] text-[rgba(245,240,232,0.25)] uppercase tracking-widest mt-0.5">
+                      {label}
+                    </p>
+                  </div>
+                ))}
+              </div>
+
+              {/* DM button */}
+              <button
+                onClick={() => handleOpenDM()}
+                className={cn(
+                  "relative flex items-center gap-2 px-3 py-2 rounded-xl border transition-all",
+                  isDMOpen
+                    ? "bg-[rgba(191,162,100,0.10)] border-[rgba(191,162,100,0.30)] text-[#D4AF78]"
+                    : "bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.06)] text-[rgba(245,240,232,0.40)] hover:text-[#BFA264] hover:border-[rgba(191,162,100,0.20)]",
+                )}
+              >
+                <MessageCircle className="w-4 h-4" />
+                <span className="hidden sm:block text-[11px] font-black uppercase tracking-widest">
+                  DM
+                </span>
+                {unreadDmCount > 0 && (
+                  <span className="absolute -top-1 -right-1 w-4 h-4 bg-[#BFA264] rounded-full border-2 border-[#030303] flex items-center justify-center text-[7px] font-black text-[#030303]">
+                    {Math.min(unreadDmCount, 9)}
+                  </span>
+                )}
+              </button>
             </div>
           </div>
         </div>
       </div>
 
-      {/* ── MAIN CONTENT AREA ─────────────────────────────────────── */}
+      {/* Main Content */}
       <div className="max-w-[1600px] mx-auto px-4 md:px-8 py-5 md:py-8 relative z-10">
         <AnimatePresence mode="wait">
-          {/* FEED TAB */}
           {activeTab === "feed" && (
             <motion.div
               key="feed"
@@ -471,7 +573,6 @@ const Network = () => {
               transition={{ duration: 0.18 }}
               className="grid grid-cols-1 lg:grid-cols-[1fr_320px] xl:grid-cols-[1fr_360px] gap-6 xl:gap-8"
             >
-              {/* Feed column */}
               <div>
                 <FeedTab
                   uid={uid}
@@ -484,15 +585,23 @@ const Network = () => {
                   onPost={handlePost}
                   onLike={toggleLike}
                   onLoadMore={() => fetchFeed(false)}
+                  onDelete={handleDeletePost}
+                  onFetchComments={fetchComments}
+                  onAddComment={addComment}
+                  onDeleteComment={deleteComment}
                 />
               </div>
 
-              {/* Right sidebar — hidden on mobile */}
               <aside className="hidden lg:flex flex-col gap-4 sticky top-24 h-fit">
-                <NetworkStatsWidget stats={networkStats} userData={userData} />
+                <NetworkStatsWidget
+                  stats={networkStats}
+                  userData={userData}
+                  onOpenDM={() => handleOpenDM()}
+                  unreadDmCount={unreadDmCount}
+                />
                 <CompetitorWidget competitors={competitors} />
 
-                {/* Suggested quick-connect */}
+                {/* Suggested alliances sidebar */}
                 {suggestedUsers.slice(0, 3).length > 0 && (
                   <div className="rounded-[1.5rem] border border-[rgba(255,255,255,0.06)] bg-[#0A0A0A] overflow-hidden">
                     <div className="p-4 border-b border-[rgba(255,255,255,0.04)] flex items-center justify-between">
@@ -512,7 +621,9 @@ const Network = () => {
                           `${user.identity?.firstName || ""} ${user.identity?.lastName || ""}`.trim() ||
                           user.identity?.username ||
                           "Operator";
-
+                        const isRateLimited =
+                          networkStats.dailyRequestCount >=
+                          networkStats.dailyRequestLimit;
                         return (
                           <div
                             key={user.id}
@@ -532,8 +643,16 @@ const Network = () => {
                               </p>
                             </div>
                             <button
-                              onClick={() => handleSendRequest(user)}
-                              className="w-7 h-7 flex items-center justify-center bg-[rgba(191,162,100,0.08)] border border-[rgba(191,162,100,0.20)] text-[#BFA264] hover:bg-[rgba(191,162,100,0.18)] rounded-xl transition-all"
+                              onClick={() =>
+                                !isRateLimited && handleSendRequest(user)
+                              }
+                              disabled={isRateLimited}
+                              className={cn(
+                                "w-7 h-7 flex items-center justify-center border rounded-xl transition-all",
+                                isRateLimited
+                                  ? "bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.06)] text-[rgba(245,240,232,0.20)] cursor-not-allowed"
+                                  : "bg-[rgba(191,162,100,0.08)] border-[rgba(191,162,100,0.20)] text-[#BFA264] hover:bg-[rgba(191,162,100,0.18)]",
+                              )}
                             >
                               <Users className="w-3 h-3" />
                             </button>
@@ -547,7 +666,6 @@ const Network = () => {
             </motion.div>
           )}
 
-          {/* NETWORK TAB */}
           {activeTab === "network" && (
             <motion.div
               key="network"
@@ -567,6 +685,7 @@ const Network = () => {
                   suggestedUsers={suggestedUsers}
                   networkLoading={networkLoading}
                   networkStats={networkStats}
+                  userTier={userTier}
                   onAccept={handleAccept}
                   onDecline={handleDecline}
                   onRemove={handleRemove}
@@ -574,12 +693,19 @@ const Network = () => {
                   onSendRequest={handleSendRequest}
                   onMarkCompetitor={handleMarkCompetitor}
                   getConnectionStatus={getConnectionStatus}
+                  onDM={(partnerId, partnerObj) =>
+                    handleOpenDM(partnerId, partnerObj)
+                  }
                 />
               </div>
 
-              {/* Sidebar */}
               <aside className="hidden lg:flex flex-col gap-4 sticky top-24 h-fit">
-                <NetworkStatsWidget stats={networkStats} userData={userData} />
+                <NetworkStatsWidget
+                  stats={networkStats}
+                  userData={userData}
+                  onOpenDM={() => handleOpenDM()}
+                  unreadDmCount={unreadDmCount}
+                />
                 {competitors.length > 0 && (
                   <CompetitorWidget competitors={competitors} />
                 )}
@@ -589,7 +715,28 @@ const Network = () => {
         </AnimatePresence>
       </div>
 
-      {/* ── TOAST NOTIFICATIONS ───────────────────────────────────── */}
+      {/* DM Panel */}
+      <DMPanel
+        isOpen={isDMOpen}
+        onClose={handleCloseDM}
+        urlConvoId={dmConvoId === "menu" ? null : dmConvoId}
+        uid={uid}
+        userData={userData}
+        conversations={conversations}
+        messages={messages}
+        messagesLoading={messagesLoading}
+        dmLoading={dmLoading}
+        activeConversation={activeConversation}
+        setActiveConversation={setActiveConversation}
+        onFetchConversations={fetchConversations}
+        onFetchMessages={fetchMessages}
+        onSendMessage={sendMessage}
+        onMarkRead={markConversationRead}
+        initialTargetUser={dmInitialTarget}
+        onClearInitialTarget={() => setDmInitialTarget(null)}
+      />
+
+      {/* Toasts */}
       <ToastContainer toasts={toasts} onDismiss={dismissToast} />
     </div>
   );

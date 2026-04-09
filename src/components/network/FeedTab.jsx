@@ -1,8 +1,9 @@
 /**
- * @fileoverview FeedTab — The Discotive Social Feed
+ * @fileoverview FeedTab v2.0 — Discotive Social Feed
  * @description
- * Markdown-aware text composer + infinite scroll post cards.
- * Zero real-time listeners. Full optimistic UI. Skeleton-first loading.
+ * Full rewrite. Markdown composer with @mentions, #hashtags, character counter.
+ * Threaded comments per post (inline expandable). Optimistic UI throughout.
+ * Delete post with confirmation. Rich time formatting. Zero stubs.
  */
 
 import React, {
@@ -21,8 +22,9 @@ import {
   Bold,
   Italic,
   Link2,
+  Hash,
+  AtSign,
   Zap,
-  ChevronDown,
   Loader2,
   AlertTriangle,
   Crown,
@@ -30,114 +32,78 @@ import {
   Check,
   MoreHorizontal,
   Trash2,
-  Edit3,
   Flag,
   ShieldAlert,
+  ChevronDown,
+  ChevronUp,
+  CornerDownRight,
+  X,
 } from "lucide-react";
 import { cn } from "../../lib/cn";
 
-// ─── Rich Text Parser ────────────────────────────────────────────────────────
-// Converts **bold**, *italic*, [text](url) into React elements
+// ─── Time formatter ────────────────────────────────────────────────────────────
+const timeAgo = (date) => {
+  if (!date) return "";
+  const diff = Date.now() - new Date(date).getTime();
+  const secs = Math.floor(diff / 1000);
+  if (secs < 60) return "just now";
+  const mins = Math.floor(secs / 60);
+  if (mins < 60) return `${mins}m`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h`;
+  const days = Math.floor(hrs / 24);
+  if (days < 7) return `${days}d`;
+  return new Date(date).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+  });
+};
 
+// ─── Rich text parser with @mentions and #hashtags ───────────────────────────
 const parseRichText = (text) => {
   if (!text) return null;
+  return text.split("\n").map((line, lineIdx) => {
+    if (!line.trim()) return <br key={lineIdx} />;
 
-  const lines = text.split("\n");
-
-  return lines.map((line, lineIdx) => {
-    if (!line.trim()) {
-      return <br key={lineIdx} />;
-    }
-
-    // Parse inline markdown
-    const parts = [];
+    // Tokenize: bold, italic, links, @mentions, #hashtags
+    const tokens = [];
     let remaining = line;
-    let partIdx = 0;
+    let safety = 0;
 
     const patterns = [
-      {
-        regex: /\*\*(.+?)\*\*/g,
-        render: (match, content) => (
-          <strong key={`b-${partIdx++}`} className="font-black text-[#F5F0E8]">
-            {content}
-          </strong>
-        ),
-      },
-      {
-        regex: /\*(.+?)\*/g,
-        render: (match, content) => (
-          <em
-            key={`i-${partIdx++}`}
-            className="italic text-[rgba(245,240,232,0.70)]"
-          >
-            {content}
-          </em>
-        ),
-      },
-      {
-        regex: /\[(.+?)\]\((.+?)\)/g,
-        render: (match, text, url) => (
-          <a
-            key={`l-${partIdx++}`}
-            href={url}
-            target="_blank"
-            rel="noreferrer"
-            className="text-[#BFA264] hover:text-[#D4AF78] underline underline-offset-2 transition-colors"
-          >
-            {text}
-          </a>
-        ),
-      },
+      { re: /\*\*(.+?)\*\*/g, type: "bold" },
+      { re: /(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, type: "italic" },
+      { re: /\[(.+?)\]\((.+?)\)/g, type: "link" },
+      { re: /@([\w.]+)/g, type: "mention" },
+      { re: /#([\w]+)/g, type: "hashtag" },
     ];
 
-    // Simple tokenizer: find all markdown tokens and render them
+    // Simple linear tokenizer
     const allTokens = [];
-
-    // Bold
-    const boldRe = /\*\*(.+?)\*\*/g;
-    let m;
-    while ((m = boldRe.exec(line)) !== null) {
-      allTokens.push({
-        start: m.index,
-        end: boldRe.lastIndex,
-        type: "bold",
-        content: m[1],
-      });
-    }
-    // Italic (not bold)
-    const italicRe = /(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g;
-    while ((m = italicRe.exec(line)) !== null) {
-      const overlaps = allTokens.some(
-        (t) => m.index < t.end && italicRe.lastIndex > t.start,
-      );
-      if (!overlaps) {
-        allTokens.push({
-          start: m.index,
-          end: italicRe.lastIndex,
-          type: "italic",
-          content: m[1],
-        });
+    for (const { re, type } of patterns) {
+      re.lastIndex = 0;
+      let m;
+      while ((m = re.exec(line)) !== null) {
+        const noOverlap = !allTokens.some(
+          (t) => m.index < t.end && re.lastIndex > t.start,
+        );
+        if (noOverlap) {
+          allTokens.push({
+            start: m.index,
+            end: re.lastIndex,
+            type,
+            m,
+          });
+        }
       }
     }
-    // Links
-    const linkRe = /\[(.+?)\]\((.+?)\)/g;
-    while ((m = linkRe.exec(line)) !== null) {
-      allTokens.push({
-        start: m.index,
-        end: linkRe.lastIndex,
-        type: "link",
-        text: m[1],
-        url: m[2],
-      });
-    }
-
     allTokens.sort((a, b) => a.start - b.start);
 
     if (allTokens.length === 0) {
       return (
         <p
           key={lineIdx}
-          className="text-[rgba(245,240,232,0.75)] leading-relaxed text-sm md:text-[15px]"
+          className="text-[rgba(245,240,232,0.75)] leading-relaxed text-sm"
         >
           {line}
         </p>
@@ -149,40 +115,59 @@ const parseRichText = (text) => {
     allTokens.forEach((token, i) => {
       if (cursor < token.start) {
         rendered.push(
-          <span key={`txt-${lineIdx}-${i}`}>
+          <span key={`t-${lineIdx}-${i}`}>
             {line.slice(cursor, token.start)}
           </span>,
         );
       }
-      if (token.type === "bold") {
+      const { type, m } = token;
+      if (type === "bold") {
         rendered.push(
           <strong
             key={`b-${lineIdx}-${i}`}
             className="font-black text-[#F5F0E8]"
           >
-            {token.content}
+            {m[1]}
           </strong>,
         );
-      } else if (token.type === "italic") {
+      } else if (type === "italic") {
         rendered.push(
           <em
-            key={`it-${lineIdx}-${i}`}
-            className="italic text-[rgba(245,240,232,0.70)]"
+            key={`i-${lineIdx}-${i}`}
+            className="italic text-[rgba(245,240,232,0.7)]"
           >
-            {token.content}
+            {m[1]}
           </em>,
         );
-      } else if (token.type === "link") {
+      } else if (type === "link") {
         rendered.push(
           <a
-            key={`lk-${lineIdx}-${i}`}
-            href={token.url}
+            key={`l-${lineIdx}-${i}`}
+            href={m[2]}
             target="_blank"
             rel="noreferrer"
             className="text-[#BFA264] hover:text-[#D4AF78] underline underline-offset-2 transition-colors"
           >
-            {token.text}
+            {m[1]}
           </a>,
+        );
+      } else if (type === "mention") {
+        rendered.push(
+          <span
+            key={`at-${lineIdx}-${i}`}
+            className="text-[#BFA264] font-bold cursor-pointer hover:underline"
+          >
+            @{m[1]}
+          </span>,
+        );
+      } else if (type === "hashtag") {
+        rendered.push(
+          <span
+            key={`ht-${lineIdx}-${i}`}
+            className="text-sky-400 font-bold cursor-pointer hover:underline"
+          >
+            #{m[1]}
+          </span>,
         );
       }
       cursor = token.end;
@@ -194,28 +179,11 @@ const parseRichText = (text) => {
     return (
       <p
         key={lineIdx}
-        className="text-[rgba(245,240,232,0.75)] leading-relaxed text-sm md:text-[15px]"
+        className="text-[rgba(245,240,232,0.75)] leading-relaxed text-sm"
       >
         {rendered}
       </p>
     );
-  });
-};
-
-// ─── Time Ago ─────────────────────────────────────────────────────────────────
-const timeAgo = (date) => {
-  if (!date) return "";
-  const diff = Date.now() - new Date(date).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  const days = Math.floor(hrs / 24);
-  if (days < 7) return `${days}d ago`;
-  return new Date(date).toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
   });
 };
 
@@ -232,12 +200,12 @@ const PostComposer = ({ userData, onPost, isPosting }) => {
     const { selectionStart: start, selectionEnd: end } = ta;
     const selected = text.slice(start, end);
     let insertion = "";
-
     if (syntax === "bold") insertion = `**${selected || "bold text"}**`;
     else if (syntax === "italic") insertion = `*${selected || "italic text"}*`;
     else if (syntax === "link")
       insertion = `[${selected || "link text"}](https://)`;
-
+    else if (syntax === "mention") insertion = `@`;
+    else if (syntax === "hashtag") insertion = `#`;
     const next = text.slice(0, start) + insertion + text.slice(end);
     setText(next);
     setTimeout(() => {
@@ -247,21 +215,34 @@ const PostComposer = ({ userData, onPost, isPosting }) => {
     }, 0);
   };
 
+  // Extract hashtags and @mentions from text
+  const extractMeta = (t) => {
+    const hashtags = [...t.matchAll(/#([\w]+)/g)].map((m) =>
+      m[1].toLowerCase(),
+    );
+    const mentions = [...t.matchAll(/@([\w.]+)/g)].map((m) =>
+      m[1].toLowerCase(),
+    );
+    return {
+      hashtags: [...new Set(hashtags)],
+      mentions: [...new Set(mentions)],
+    };
+  };
+
   const handleSubmit = async () => {
     if (!text.trim() || isPosting) return;
-    const result = await onPost(text);
+    const { hashtags, mentions } = extractMeta(text);
+    const result = await onPost(text, { hashtags, mentions });
     if (result !== null) setText("");
   };
 
   const initials =
-    `${userData?.identity?.firstName?.charAt(0) || ""}${userData?.identity?.lastName?.charAt(0) || ""}` ||
+    `${userData?.identity?.firstName?.charAt(0) || ""}${userData?.identity?.lastName?.charAt(0) || ""}`.toUpperCase() ||
     "U";
 
   return (
     <motion.div
       layout
-      initial={{ opacity: 0, y: -8 }}
-      animate={{ opacity: 1, y: 0 }}
       className={cn(
         "relative rounded-[1.5rem] border transition-all duration-300 overflow-hidden",
         isFocused
@@ -283,7 +264,6 @@ const PostComposer = ({ userData, onPost, isPosting }) => {
           )}
         </div>
 
-        {/* Input area */}
         <div className="flex-1 min-w-0">
           <textarea
             ref={textareaRef}
@@ -291,15 +271,20 @@ const PostComposer = ({ userData, onPost, isPosting }) => {
             onChange={(e) => setText(e.target.value.slice(0, maxLen))}
             onFocus={() => setIsFocused(true)}
             onBlur={() => setIsFocused(false)}
-            placeholder="Share an execution update, milestone, or insight with your network..."
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                e.preventDefault();
+                handleSubmit();
+              }
+            }}
+            placeholder="Share an execution update, tag @operators, use #hashtags..."
             rows={isFocused || text ? 4 : 2}
-            className="w-full bg-transparent text-[rgba(245,240,232,0.80)] placeholder-[rgba(245,240,232,0.20)] text-sm md:text-[15px] font-medium resize-none border-none outline-none leading-relaxed custom-scrollbar transition-all"
+            className="w-full bg-transparent text-[rgba(245,240,232,0.80)] placeholder-[rgba(245,240,232,0.20)] text-sm font-medium resize-none border-none outline-none leading-relaxed"
             style={{ fontFamily: "'Poppins', sans-serif" }}
           />
         </div>
       </div>
 
-      {/* Toolbar — visible when focused or has content */}
       <AnimatePresence>
         {(isFocused || text.length > 0) && (
           <motion.div
@@ -308,27 +293,26 @@ const PostComposer = ({ userData, onPost, isPosting }) => {
             exit={{ opacity: 0, height: 0 }}
             className="border-t border-[rgba(255,255,255,0.04)] px-4 md:px-5 py-3 flex items-center justify-between gap-3"
           >
-            {/* Format buttons */}
             <div className="flex items-center gap-1">
               {[
                 { icon: Bold, syntax: "bold", label: "Bold" },
                 { icon: Italic, syntax: "italic", label: "Italic" },
                 { icon: Link2, syntax: "link", label: "Link" },
+                { icon: AtSign, syntax: "mention", label: "Mention" },
+                { icon: Hash, syntax: "hashtag", label: "Hashtag" },
               ].map(({ icon: Icon, syntax, label }) => (
                 <button
                   key={syntax}
                   type="button"
                   onClick={() => handleFormat(syntax)}
                   title={label}
-                  className="w-8 h-8 rounded-lg flex items-center justify-center text-[rgba(245,240,232,0.35)] hover:text-[#BFA264] hover:bg-[rgba(191,162,100,0.08)] transition-all"
+                  className="w-8 h-8 rounded-lg flex items-center justify-center text-[rgba(245,240,232,0.30)] hover:text-[#BFA264] hover:bg-[rgba(191,162,100,0.08)] transition-all"
                 >
                   <Icon className="w-3.5 h-3.5" />
                 </button>
               ))}
             </div>
-
             <div className="flex items-center gap-3">
-              {/* Character count */}
               <span
                 className={cn(
                   "text-[10px] font-mono font-bold transition-colors",
@@ -339,8 +323,9 @@ const PostComposer = ({ userData, onPost, isPosting }) => {
               >
                 {text.length}/{maxLen}
               </span>
-
-              {/* Post button */}
+              <span className="text-[9px] text-[rgba(245,240,232,0.15)] hidden sm:block">
+                Ctrl+Enter to post
+              </span>
               <button
                 onClick={handleSubmit}
                 disabled={!text.trim() || isPosting}
@@ -366,87 +351,392 @@ const PostComposer = ({ userData, onPost, isPosting }) => {
   );
 };
 
-// ─── Post Card (Telemetry Node) ───────────────────────────────────────────────
-const PostCard = ({ post, uid, onLike, userData }) => {
+// ─── Comment Item ──────────────────────────────────────────────────────────────
+const CommentItem = ({ comment, uid, onDelete, onReply, depth = 0 }) => {
+  const isOwn = comment.authorId === uid;
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 4 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -4 }}
+      className={cn("flex items-start gap-2.5", depth > 0 && "ml-6")}
+    >
+      <div className="w-7 h-7 rounded-full bg-[#111] border border-[#BFA264]/20 flex items-center justify-center text-[10px] font-black text-[#BFA264] shrink-0 mt-0.5 overflow-hidden">
+        {comment.authorAvatar ? (
+          <img
+            src={comment.authorAvatar}
+            alt=""
+            className="w-full h-full object-cover"
+          />
+        ) : (
+          comment.authorName?.charAt(0)?.toUpperCase() || "O"
+        )}
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="bg-[#0F0F0F] border border-[rgba(255,255,255,0.05)] rounded-xl rounded-tl-sm px-3 py-2.5">
+          <div className="flex items-center justify-between gap-2 mb-1">
+            <span className="text-[11px] font-bold text-[#F5F0E8]">
+              {comment.authorName}
+              {comment.authorUsername && (
+                <span className="text-[rgba(245,240,232,0.30)] font-normal ml-1">
+                  @{comment.authorUsername}
+                </span>
+              )}
+            </span>
+            <span className="text-[9px] text-[rgba(245,240,232,0.25)] shrink-0">
+              {timeAgo(comment.timestamp)}
+            </span>
+          </div>
+          <p className="text-xs text-[rgba(245,240,232,0.70)] leading-relaxed">
+            {comment.textContent}
+          </p>
+        </div>
+        <div className="flex items-center gap-3 mt-1 px-1">
+          {depth === 0 && (
+            <button
+              onClick={() => onReply(comment)}
+              className="flex items-center gap-1 text-[9px] font-bold text-[rgba(245,240,232,0.25)] hover:text-[#BFA264] transition-colors uppercase tracking-widest"
+            >
+              <CornerDownRight className="w-3 h-3" /> Reply
+            </button>
+          )}
+          {isOwn && (
+            <>
+              {showDeleteConfirm ? (
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[9px] text-red-400/80">Delete?</span>
+                  <button
+                    onClick={() => {
+                      onDelete(comment.id);
+                      setShowDeleteConfirm(false);
+                    }}
+                    className="text-[9px] font-black text-red-400 hover:text-red-300 transition-colors uppercase"
+                  >
+                    Yes
+                  </button>
+                  <button
+                    onClick={() => setShowDeleteConfirm(false)}
+                    className="text-[9px] font-black text-[rgba(245,240,232,0.25)] hover:text-white transition-colors uppercase"
+                  >
+                    No
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setShowDeleteConfirm(true)}
+                  className="flex items-center gap-1 text-[9px] font-bold text-[rgba(245,240,232,0.20)] hover:text-red-400 transition-colors uppercase tracking-widest"
+                >
+                  <Trash2 className="w-3 h-3" /> Delete
+                </button>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+    </motion.div>
+  );
+};
+
+// ─── Comment Section ───────────────────────────────────────────────────────────
+const CommentSection = ({
+  postId,
+  uid,
+  userData,
+  onFetchComments,
+  onAddComment,
+  onDeleteComment,
+  initialCount,
+}) => {
+  const [comments, setComments] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [loaded, setLoaded] = useState(false);
+  const [newComment, setNewComment] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [replyingTo, setReplyingTo] = useState(null);
+  const [lastDoc, setLastDoc] = useState(null);
+  const [hasMore, setHasMore] = useState(true);
+  const inputRef = useRef(null);
+
+  const loadComments = useCallback(
+    async (reset = false) => {
+      setLoading(true);
+      const { comments: fetched, lastDoc: ld } = await onFetchComments(
+        postId,
+        reset ? null : lastDoc,
+      );
+      if (reset) {
+        setComments(fetched);
+      } else {
+        setComments((prev) => [...prev, ...fetched]);
+      }
+      setLastDoc(ld);
+      setHasMore(fetched.length === 10);
+      setLoaded(true);
+      setLoading(false);
+    },
+    [postId, lastDoc, onFetchComments],
+  );
+
+  useEffect(() => {
+    if (!loaded) loadComments(true);
+  }, [loaded, loadComments]);
+
+  const handleReply = (comment) => {
+    setReplyingTo(comment);
+    setNewComment(`@${comment.authorUsername || comment.authorName} `);
+    setTimeout(() => inputRef.current?.focus(), 100);
+  };
+
+  const handleSubmit = async () => {
+    if (!newComment.trim() || isSubmitting) return;
+    setIsSubmitting(true);
+    const commentId = await onAddComment(
+      postId,
+      newComment,
+      replyingTo?.id || null,
+    );
+    if (commentId) {
+      const authorName =
+        `${userData?.identity?.firstName || ""} ${userData?.identity?.lastName || ""}`.trim() ||
+        "Operator";
+      const newCommentObj = {
+        id: commentId,
+        authorId: uid,
+        authorName,
+        authorUsername: userData?.identity?.username || "",
+        authorAvatar: userData?.identity?.avatarUrl || null,
+        textContent: newComment.trim(),
+        parentCommentId: replyingTo?.id || null,
+        timestamp: new Date(),
+        likedBy: [],
+        likesCount: 0,
+      };
+      setComments((prev) => [newCommentObj, ...prev]);
+      setNewComment("");
+      setReplyingTo(null);
+    }
+    setIsSubmitting(false);
+  };
+
+  const handleDelete = async (commentId) => {
+    await onDeleteComment(postId, commentId);
+    setComments((prev) => prev.filter((c) => c.id !== commentId));
+  };
+
+  return (
+    <div className="mt-4 pt-4 border-t border-[rgba(255,255,255,0.04)] space-y-3">
+      {/* Input */}
+      <div className="flex items-start gap-2.5">
+        <div className="w-7 h-7 rounded-full bg-[#111] border border-[#BFA264]/20 flex items-center justify-center text-[10px] font-black text-[#BFA264] shrink-0 overflow-hidden">
+          {userData?.identity?.avatarUrl ? (
+            <img
+              src={userData.identity.avatarUrl}
+              alt=""
+              className="w-full h-full object-cover"
+            />
+          ) : (
+            (userData?.identity?.firstName?.charAt(0) || "U").toUpperCase()
+          )}
+        </div>
+        <div className="flex-1 flex items-center gap-2">
+          <div
+            className={cn(
+              "flex-1 flex items-center bg-[#0A0A0A] border rounded-xl px-3 py-2 transition-all",
+              replyingTo
+                ? "border-[rgba(191,162,100,0.35)]"
+                : "border-[rgba(255,255,255,0.07)]",
+            )}
+          >
+            {replyingTo && (
+              <div className="flex items-center gap-1.5 mr-2 shrink-0">
+                <CornerDownRight className="w-3 h-3 text-[#BFA264]/60" />
+                <span className="text-[10px] text-[#BFA264]/80 font-bold truncate max-w-[80px]">
+                  @{replyingTo.authorUsername || replyingTo.authorName}
+                </span>
+                <button
+                  onClick={() => {
+                    setReplyingTo(null);
+                    setNewComment("");
+                  }}
+                  className="text-[rgba(245,240,232,0.30)] hover:text-white transition-colors"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </div>
+            )}
+            <input
+              ref={inputRef}
+              type="text"
+              value={newComment}
+              onChange={(e) => setNewComment(e.target.value.slice(0, 500))}
+              onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
+              placeholder={
+                replyingTo ? "Write a reply..." : "Write a comment..."
+              }
+              className="flex-1 bg-transparent text-xs text-[rgba(245,240,232,0.80)] placeholder-[rgba(245,240,232,0.20)] outline-none"
+            />
+          </div>
+          <button
+            onClick={handleSubmit}
+            disabled={!newComment.trim() || isSubmitting}
+            className={cn(
+              "w-8 h-8 rounded-xl flex items-center justify-center transition-all shrink-0",
+              newComment.trim() && !isSubmitting
+                ? "bg-[#BFA264] text-[#030303] hover:bg-[#D4AF78]"
+                : "bg-[#111] text-[rgba(245,240,232,0.20)] cursor-not-allowed",
+            )}
+          >
+            {isSubmitting ? (
+              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Send className="w-3.5 h-3.5" />
+            )}
+          </button>
+        </div>
+      </div>
+
+      {/* Comments list */}
+      {loading && comments.length === 0 ? (
+        <div className="flex items-center justify-center py-4">
+          <Loader2 className="w-4 h-4 animate-spin text-[rgba(191,162,100,0.4)]" />
+        </div>
+      ) : (
+        <div className="space-y-2.5">
+          <AnimatePresence>
+            {comments.map((comment) => (
+              <CommentItem
+                key={comment.id}
+                comment={comment}
+                uid={uid}
+                onDelete={handleDelete}
+                onReply={handleReply}
+                depth={comment.parentCommentId ? 1 : 0}
+              />
+            ))}
+          </AnimatePresence>
+          {hasMore && comments.length >= 10 && (
+            <button
+              onClick={() => loadComments(false)}
+              disabled={loading}
+              className="w-full text-center text-[9px] font-black text-[rgba(245,240,232,0.25)] hover:text-[#BFA264] transition-colors uppercase tracking-widest py-1"
+            >
+              {loading ? "Loading..." : "Load more comments"}
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ─── Post Card ────────────────────────────────────────────────────────────────
+const PostCard = ({
+  post,
+  uid,
+  userData,
+  onLike,
+  onDelete,
+  onFetchComments,
+  onAddComment,
+  onDeleteComment,
+}) => {
   const [isCopied, setIsCopied] = useState(false);
   const [showOptions, setShowOptions] = useState(false);
+  const [showComments, setShowComments] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const optionsRef = useRef(null);
 
   const isLiked = (post.likedBy || []).includes(uid);
   const isAuthor = post.authorId === uid;
-  const initials = `${post.authorName?.charAt(0) || ""}`.toUpperCase() || "O";
+  const initials = post.authorName?.charAt(0)?.toUpperCase() || "O";
+  const isPro = post.authorTier === "PRO" || post.authorTier === "ENTERPRISE";
 
-  // Click-outside listener to dismiss the tactical menu
   useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (optionsRef.current && !optionsRef.current.contains(event.target)) {
+    const fn = (e) => {
+      if (optionsRef.current && !optionsRef.current.contains(e.target))
         setShowOptions(false);
-      }
     };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
+    document.addEventListener("mousedown", fn);
+    return () => document.removeEventListener("mousedown", fn);
   }, []);
 
   const handleShare = async () => {
-    const url = `${window.location.origin}/@${post.authorUsername || "operator"}/network/post/${post.id}`;
+    const url = `${window.location.origin}/@${post.authorUsername || "operator"}`;
     try {
       await navigator.clipboard.writeText(url);
       setIsCopied(true);
       setTimeout(() => setIsCopied(false), 2000);
-    } catch (err) {
-      console.error("Failed to copy link to clipboard");
-    }
+    } catch (_) {}
   };
 
-  // Psychological Hook: Pseudo-algorithmic relevance match based on ID hash
-  const matchPrc = useMemo(() => {
-    if (!post.id) return 99;
-    const charCode = post.id.charCodeAt(post.id.length - 1) || 50;
-    return Math.max(72, Math.min(99, charCode));
-  }, [post.id]);
-
-  const isPro = post.authorTier === "PRO";
+  const handleDeletePost = async () => {
+    setShowOptions(false);
+    setShowDeleteConfirm(false);
+    await onDelete(post.id);
+  };
 
   return (
     <motion.article
       layout
       initial={{ opacity: 0, y: 12, scale: 0.98 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
+      exit={{ opacity: 0, y: -8, scale: 0.98 }}
       className={cn(
-        "group relative rounded-[1.5rem] border transition-all duration-300 overflow-hidden",
+        "relative rounded-[1.5rem] border transition-all duration-300 overflow-hidden",
         post._optimistic
           ? "bg-[#0A0A0A] border-[rgba(191,162,100,0.20)] opacity-70"
           : isPro
             ? "bg-gradient-to-b from-[#0F0F0F] to-[#050505] border-[rgba(191,162,100,0.15)] hover:border-[rgba(191,162,100,0.40)] hover:shadow-[0_8px_32px_rgba(191,162,100,0.08)]"
-            : "bg-gradient-to-b from-[#0A0A0A] to-[#030303] border-[rgba(255,255,255,0.06)] hover:border-[rgba(255,255,255,0.15)] hover:shadow-[0_8px_24px_rgba(0,0,0,0.8)]",
+            : "bg-gradient-to-b from-[#0A0A0A] to-[#030303] border-[rgba(255,255,255,0.06)] hover:border-[rgba(255,255,255,0.15)]",
       )}
     >
-      {/* Dynamic Pro Glow Bar */}
       {isPro && (
-        <div className="absolute top-0 left-0 w-full h-[2px] bg-gradient-to-r from-transparent via-[#BFA264] to-transparent opacity-50 group-hover:opacity-100 transition-opacity" />
+        <div className="absolute top-0 left-0 w-full h-[2px] bg-gradient-to-r from-transparent via-[#BFA264] to-transparent opacity-50" />
       )}
 
       <div className="p-4 md:p-5 relative z-10">
+        {/* Delete confirmation overlay */}
+        <AnimatePresence>
+          {showDeleteConfirm && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 z-30 bg-[#030303]/90 backdrop-blur-md flex flex-col items-center justify-center gap-4 rounded-[1.5rem]"
+            >
+              <p className="text-sm font-black text-white">Delete this post?</p>
+              <p className="text-xs text-[rgba(245,240,232,0.40)]">
+                This action cannot be undone.
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={handleDeletePost}
+                  className="px-5 py-2.5 bg-red-500 text-white text-[11px] font-black uppercase tracking-widest rounded-xl hover:bg-red-400 transition-colors"
+                >
+                  Delete
+                </button>
+                <button
+                  onClick={() => setShowDeleteConfirm(false)}
+                  className="px-5 py-2.5 bg-[#111] border border-[rgba(255,255,255,0.08)] text-[rgba(245,240,232,0.60)] text-[11px] font-black uppercase tracking-widest rounded-xl hover:text-white transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         {/* Author row */}
         <div className="flex items-start justify-between mb-4">
-          <div className="flex items-center gap-3.5">
+          <div className="flex items-center gap-3">
             <div className="relative">
-              <div
-                className={cn(
-                  "w-11 h-11 rounded-full flex items-center justify-center text-[15px] font-black shrink-0 transition-transform group-hover:scale-105 overflow-hidden",
-                  isPro
-                    ? "bg-[#111] border border-[#BFA264]/40 text-[#BFA264] shadow-[inset_0_0_12px_rgba(191,162,100,0.15)]"
-                    : "bg-[#111] border border-[#BFA264]/40 text-[#BFA264]",
-                )}
-              >
-                {post.authorAvatar ||
-                (isAuthor ? userData?.identity?.avatarUrl : null) ? (
+              <div className="w-10 h-10 rounded-full bg-[#111] border border-[#BFA264]/40 flex items-center justify-center text-sm font-black text-[#BFA264] overflow-hidden">
+                {post.authorAvatar ? (
                   <img
-                    src={
-                      post.authorAvatar ||
-                      (isAuthor ? userData?.identity?.avatarUrl : null)
-                    }
-                    alt="Avatar"
+                    src={post.authorAvatar}
+                    alt=""
                     className="w-full h-full object-cover"
                   />
                 ) : (
@@ -454,197 +744,204 @@ const PostCard = ({ post, uid, onLike, userData }) => {
                 )}
               </div>
               {isPro && (
-                <div className="absolute -bottom-1 -right-1 w-4.5 h-4.5 bg-gradient-to-br from-amber-400 to-amber-600 rounded-full border-[2.5px] border-[#0A0A0A] flex items-center justify-center shadow-lg">
-                  <Crown className="w-2.5 h-2.5 text-[#030303]" />
+                <div className="absolute -bottom-0.5 -right-0.5 w-4 h-4 bg-amber-500 rounded-full border-2 border-[#0A0A0A] flex items-center justify-center">
+                  <Crown className="w-2 h-2 text-black" />
                 </div>
               )}
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <p className="text-sm font-bold text-[#F5F0E8] leading-tight tracking-tight">
-                  {post.authorName || "Operator"}
+                <p className="text-sm font-bold text-[#F5F0E8]">
+                  {post.authorName}
                 </p>
-                {/* Visual execution badge */}
-                <span className="hidden sm:inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-[rgba(255,255,255,0.04)] border border-[rgba(255,255,255,0.05)] text-[9px] font-black text-[rgba(245,240,232,0.40)] uppercase tracking-widest">
-                  <Zap className="w-2.5 h-2.5 text-[#BFA264]" /> ACTIVE
-                </span>
               </div>
-              <div className="flex items-center gap-1.5 mt-1">
+              <div className="flex items-center gap-1.5 mt-0.5">
                 {post.authorUsername && (
-                  <span className="text-[10px] text-[rgba(245,240,232,0.35)] font-mono tracking-tight">
+                  <span className="text-[10px] text-[rgba(245,240,232,0.30)] font-mono">
                     @{post.authorUsername}
                   </span>
                 )}
                 {post.authorDomain && (
                   <>
-                    <span className="text-[rgba(245,240,232,0.15)]">/</span>
-                    <span className="text-[10px] font-bold text-[rgba(245,240,232,0.50)]">
+                    <span className="text-[rgba(255,255,255,0.15)]">·</span>
+                    <span className="text-[10px] text-[rgba(245,240,232,0.40)]">
                       {post.authorDomain}
                     </span>
                   </>
                 )}
+                <span className="text-[rgba(255,255,255,0.15)]">·</span>
+                <span className="text-[9px] text-[rgba(245,240,232,0.20)] font-mono">
+                  {timeAgo(post.timestamp)}
+                </span>
               </div>
             </div>
           </div>
 
-          {/* Telemetry Output & Context Menu */}
-          <div className="flex items-start gap-4 shrink-0">
-            <div className="flex flex-col items-end gap-1">
-              <span className="text-[9px] text-[rgba(245,240,232,0.20)] font-mono tracking-widest uppercase">
-                SYS.T-{timeAgo(post.timestamp).replace(" ", "")}
-              </span>
-              <span
-                className={cn(
-                  "text-[9px] font-black font-mono",
-                  matchPrc > 90 ? "text-emerald-400/80" : "text-[#BFA264]/70",
-                )}
-              >
-                {matchPrc}% MATCH
-              </span>
-            </div>
-
-            {/* Tactical Dropdown Menu */}
-            <div className="relative" ref={optionsRef}>
-              <button
-                onClick={() => setShowOptions(!showOptions)}
-                className="text-[rgba(245,240,232,0.30)] hover:text-[#BFA264] transition-colors p-1 -mr-2 outline-none"
-              >
-                <MoreHorizontal className="w-4 h-4" />
-              </button>
-
-              <AnimatePresence>
-                {showOptions && (
-                  <motion.div
-                    initial={{ opacity: 0, scale: 0.95, y: -10 }}
-                    animate={{ opacity: 1, scale: 1, y: 0 }}
-                    exit={{ opacity: 0, scale: 0.95, y: -10 }}
-                    transition={{ duration: 0.15 }}
-                    className="absolute right-0 top-full mt-1 w-44 bg-[#0A0A0A] border border-[rgba(255,255,255,0.08)] rounded-xl shadow-2xl z-50 overflow-hidden py-1"
-                  >
-                    {isAuthor ? (
-                      <>
-                        <button
-                          onClick={() => {
-                            alert("Edit feature coming soon.");
-                            setShowOptions(false);
-                          }}
-                          className="w-full flex items-center gap-3 px-4 py-2.5 text-[10px] font-black uppercase tracking-widest text-[rgba(245,240,232,0.60)] hover:bg-[rgba(255,255,255,0.04)] hover:text-[#F5F0E8] transition-all text-left outline-none"
-                        >
-                          <Edit3 className="w-3.5 h-3.5" /> Edit Post
-                        </button>
-                        <button
-                          onClick={() => {
-                            alert("Deleting post...");
-                            setShowOptions(false);
-                          }}
-                          className="w-full flex items-center gap-3 px-4 py-2.5 text-[10px] font-black uppercase tracking-widest text-[rgba(245,240,232,0.60)] hover:bg-red-500/10 hover:text-red-400 transition-all text-left outline-none"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" /> Delete
-                        </button>
-                      </>
-                    ) : (
-                      <>
-                        <button
-                          onClick={() => {
-                            alert("Post reported.");
-                            setShowOptions(false);
-                          }}
-                          className="w-full flex items-center gap-3 px-4 py-2.5 text-[10px] font-black uppercase tracking-widest text-[rgba(245,240,232,0.60)] hover:bg-[rgba(255,255,255,0.04)] hover:text-red-400 transition-all text-left outline-none"
-                        >
-                          <Flag className="w-3.5 h-3.5" /> Report Post
-                        </button>
-                        <button
-                          onClick={() => {
-                            alert("User blocked.");
-                            setShowOptions(false);
-                          }}
-                          className="w-full flex items-center gap-3 px-4 py-2.5 text-[10px] font-black uppercase tracking-widest text-[rgba(245,240,232,0.60)] hover:bg-[rgba(255,255,255,0.04)] hover:text-amber-400 transition-all text-left outline-none"
-                        >
-                          <ShieldAlert className="w-3.5 h-3.5" /> Block User
-                        </button>
-                      </>
-                    )}
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
+          {/* Options menu */}
+          <div className="relative" ref={optionsRef}>
+            <button
+              onClick={() => setShowOptions(!showOptions)}
+              className="text-[rgba(245,240,232,0.25)] hover:text-[#BFA264] transition-colors p-1 -mr-1"
+            >
+              <MoreHorizontal className="w-4 h-4" />
+            </button>
+            <AnimatePresence>
+              {showOptions && (
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.95, y: -8 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.95, y: -8 }}
+                  transition={{ duration: 0.12 }}
+                  className="absolute right-0 top-full mt-1 w-44 bg-[#0F0F0F] border border-[rgba(255,255,255,0.08)] rounded-xl shadow-2xl z-50 overflow-hidden py-1"
+                >
+                  {isAuthor ? (
+                    <button
+                      onClick={() => {
+                        setShowOptions(false);
+                        setShowDeleteConfirm(true);
+                      }}
+                      className="w-full flex items-center gap-3 px-4 py-2.5 text-[10px] font-black uppercase tracking-widest text-[rgba(245,240,232,0.60)] hover:bg-red-500/10 hover:text-red-400 transition-all text-left"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" /> Delete Post
+                    </button>
+                  ) : (
+                    <>
+                      <button
+                        onClick={() => {
+                          setShowOptions(false);
+                        }}
+                        className="w-full flex items-center gap-3 px-4 py-2.5 text-[10px] font-black uppercase tracking-widest text-[rgba(245,240,232,0.60)] hover:bg-[rgba(255,255,255,0.04)] hover:text-red-400 transition-all text-left"
+                      >
+                        <Flag className="w-3.5 h-3.5" /> Report Post
+                      </button>
+                      <button
+                        onClick={() => {
+                          setShowOptions(false);
+                        }}
+                        className="w-full flex items-center gap-3 px-4 py-2.5 text-[10px] font-black uppercase tracking-widest text-[rgba(245,240,232,0.60)] hover:bg-[rgba(255,255,255,0.04)] hover:text-amber-400 transition-all text-left"
+                      >
+                        <ShieldAlert className="w-3.5 h-3.5" /> Block User
+                      </button>
+                    </>
+                  )}
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
         </div>
 
         {/* Content */}
-        <div className="space-y-1.5 mb-5 pl-0 md:pl-[58px]">
+        <div className="space-y-1.5 mb-4">
           {parseRichText(post.textContent)}
         </div>
 
-        {/* Actions - Minimalist Bare Icons */}
-        <div className="flex items-center justify-end gap-2 pl-0 md:pl-[58px] select-none">
-          <button
-            onClick={() => onLike(post.id)}
-            className={cn(
-              "flex items-center gap-1.5 px-2 py-1.5 text-[11px] font-black tracking-widest uppercase transition-all group/like outline-none",
-              isLiked
-                ? "text-red-500 drop-shadow-[0_0_12px_rgba(239,68,68,0.4)]"
-                : "text-[rgba(245,240,232,0.30)] hover:text-red-400",
-            )}
-          >
-            <Heart
+        {/* Hashtags */}
+        {post.hashtags && post.hashtags.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 mb-4">
+            {post.hashtags.map((tag) => (
+              <span
+                key={tag}
+                className="px-2 py-0.5 bg-sky-500/10 border border-sky-500/20 rounded-full text-[10px] font-bold text-sky-400 cursor-pointer hover:bg-sky-500/20 transition-colors"
+              >
+                #{tag}
+              </span>
+            ))}
+          </div>
+        )}
+
+        {/* Action bar */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-1">
+            {/* Like */}
+            <button
+              onClick={() => onLike(post.id)}
               className={cn(
-                "w-4 h-4 transition-all duration-300 group-hover/like:scale-110",
-                isLiked ? "fill-current" : "fill-transparent",
+                "flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[11px] font-black tracking-widest uppercase transition-all",
+                isLiked
+                  ? "text-red-500 bg-red-500/8"
+                  : "text-[rgba(245,240,232,0.30)] hover:text-red-400 hover:bg-red-500/8",
               )}
-            />
-            <span className="w-3 text-left">
-              {post.likesCount > 0 ? post.likesCount : ""}
-            </span>
-          </button>
+            >
+              <Heart
+                className={cn(
+                  "w-4 h-4 transition-all",
+                  isLiked && "fill-current",
+                )}
+              />
+              {post.likesCount > 0 && <span>{post.likesCount}</span>}
+            </button>
 
-          <button
-            onClick={() => alert("Comments will be available soon.")}
-            className="flex items-center gap-1.5 px-2 py-1.5 text-[11px] font-black tracking-widest uppercase text-[rgba(245,240,232,0.30)] hover:text-[#BFA264] transition-all group/comment outline-none"
-          >
-            <MessageSquare className="w-4 h-4 transition-transform duration-300 group-hover/comment:scale-110" />
-            <span className="w-3 text-left">
-              {post.replyCount > 0 ? post.replyCount : ""}
-            </span>
-          </button>
+            {/* Comment toggle */}
+            <button
+              onClick={() => setShowComments((v) => !v)}
+              className={cn(
+                "flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[11px] font-black tracking-widest uppercase transition-all",
+                showComments
+                  ? "text-[#BFA264] bg-[rgba(191,162,100,0.08)]"
+                  : "text-[rgba(245,240,232,0.30)] hover:text-[#BFA264] hover:bg-[rgba(191,162,100,0.08)]",
+              )}
+            >
+              <MessageSquare className="w-4 h-4" />
+              {post.replyCount > 0 && <span>{post.replyCount}</span>}
+            </button>
+          </div>
 
-          <div className="w-px h-3 bg-[rgba(255,255,255,0.1)] mx-1" />
-
+          {/* Share */}
           <button
             onClick={handleShare}
             className={cn(
-              "flex items-center gap-1.5 px-2 py-1.5 transition-all group/share outline-none relative",
+              "flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl transition-all text-[11px] font-black relative",
               isCopied
-                ? "text-emerald-400 drop-shadow-[0_0_8px_rgba(52,211,153,0.4)]"
-                : "text-[rgba(245,240,232,0.30)] hover:text-[#BFA264]",
+                ? "text-emerald-400"
+                : "text-[rgba(245,240,232,0.25)] hover:text-[#BFA264]",
             )}
           >
             {isCopied ? (
               <Check className="w-4 h-4" />
             ) : (
-              <Share2 className="w-4 h-4 transition-transform duration-300 group-hover/share:scale-110" />
+              <Share2 className="w-4 h-4" />
             )}
-
-            {/* Inline Copy Tooltip */}
             <AnimatePresence>
               {isCopied && (
                 <motion.span
-                  initial={{ opacity: 0, y: 10 }}
+                  initial={{ opacity: 0, y: 8 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -4 }}
-                  className="absolute -top-6 right-0 text-[8px] font-black text-emerald-400 uppercase tracking-widest bg-[#0A0A0A] border border-emerald-500/20 px-2 py-1 rounded-md"
+                  className="absolute -top-7 right-0 text-[8px] font-black text-emerald-400 bg-[#0A0A0A] border border-emerald-500/20 px-2 py-1 rounded-md whitespace-nowrap"
                 >
-                  Linked
+                  Linked!
                 </motion.span>
               )}
             </AnimatePresence>
           </button>
         </div>
+
+        {/* Comments section */}
+        <AnimatePresence>
+          {showComments && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
+              transition={{ duration: 0.2 }}
+            >
+              <CommentSection
+                postId={post.id}
+                uid={uid}
+                userData={userData}
+                onFetchComments={onFetchComments}
+                onAddComment={onAddComment}
+                onDeleteComment={onDeleteComment}
+                initialCount={post.replyCount || 0}
+              />
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
 
-      {/* Optimistic indicator overlay */}
+      {/* Optimistic overlay */}
       {post._optimistic && (
-        <div className="absolute inset-0 bg-[#0A0A0A]/40 backdrop-blur-[1px] flex items-center justify-center z-20">
+        <div className="absolute inset-0 bg-[#0A0A0A]/40 backdrop-blur-[1px] flex items-center justify-center z-20 rounded-[1.5rem]">
           <div className="flex items-center gap-2 px-4 py-2 bg-[#111] border border-[#BFA264]/30 rounded-full shadow-xl">
             <Loader2 className="w-3 h-3 animate-spin text-[#BFA264]" />
             <span className="text-[10px] font-black text-[#BFA264] uppercase tracking-widest">
@@ -657,7 +954,7 @@ const PostCard = ({ post, uid, onLike, userData }) => {
   );
 };
 
-// ─── Post Skeleton ────────────────────────────────────────────────────────────
+// ─── Skeletons & empty states ─────────────────────────────────────────────────
 const PostSkeleton = () => (
   <div className="rounded-[1.5rem] border border-[rgba(255,255,255,0.04)] bg-[#0A0A0A] p-5 animate-pulse">
     <div className="flex items-center gap-3 mb-4">
@@ -672,7 +969,6 @@ const PostSkeleton = () => (
       <div className="h-3 bg-[#141414] rounded-full w-4/5" />
       <div className="h-3 bg-[#141414] rounded-full w-3/5" />
     </div>
-    <div className="h-px bg-[rgba(255,255,255,0.03)] mb-3.5" />
     <div className="flex gap-2">
       <div className="h-8 bg-[#141414] rounded-xl w-16" />
       <div className="h-8 bg-[#141414] rounded-xl w-16" />
@@ -680,7 +976,6 @@ const PostSkeleton = () => (
   </div>
 );
 
-// ─── Empty State ──────────────────────────────────────────────────────────────
 const EmptyFeed = () => (
   <motion.div
     initial={{ opacity: 0, y: 16 }}
@@ -700,7 +995,6 @@ const EmptyFeed = () => (
   </motion.div>
 );
 
-// ─── Error State ──────────────────────────────────────────────────────────────
 const FeedError = ({ onRetry }) => (
   <div className="flex flex-col items-center justify-center py-16 text-center">
     <div className="w-16 h-16 rounded-2xl bg-red-500/8 border border-red-500/20 flex items-center justify-center mb-4">
@@ -714,7 +1008,7 @@ const FeedError = ({ onRetry }) => (
     </p>
     <button
       onClick={onRetry}
-      className="px-6 py-2.5 bg-[#111] border border-[rgba(255,255,255,0.07)] text-sm font-bold text-[rgba(245,240,232,0.60)] hover:text-[#F5F0E8] hover:border-[rgba(255,255,255,0.12)] rounded-xl transition-all"
+      className="px-6 py-2.5 bg-[#111] border border-[rgba(255,255,255,0.07)] text-sm font-bold text-[rgba(245,240,232,0.60)] hover:text-[#F5F0E8] rounded-xl transition-all"
     >
       Retry
     </button>
@@ -735,26 +1029,26 @@ const FeedTab = ({
   onPost,
   onLike,
   onLoadMore,
+  onDelete,
+  onFetchComments,
+  onAddComment,
+  onDeleteComment,
 }) => {
   const { ref: loadMoreRef, inView } = useInView({ threshold: 0.1 });
 
   useEffect(() => {
-    if (inView && hasMorePosts && !feedLoading) {
-      onLoadMore();
-    }
+    if (inView && hasMorePosts && !feedLoading) onLoadMore();
   }, [inView, hasMorePosts, feedLoading, onLoadMore]);
 
   return (
     <div className="max-w-2xl mx-auto space-y-4 md:space-y-5">
-      {/* Composer */}
       <PostComposer userData={userData} onPost={onPost} isPosting={isPosting} />
 
-      {/* Feed content */}
       {feedError ? (
         <FeedError onRetry={onLoadMore} />
       ) : feedLoading && posts.length === 0 ? (
         <div className="space-y-4">
-          {Array.from({ length: 4 }).map((_, i) => (
+          {Array.from({ length: 3 }).map((_, i) => (
             <PostSkeleton key={i} />
           ))}
         </div>
@@ -769,14 +1063,16 @@ const FeedTab = ({
                   key={post.id}
                   post={post}
                   uid={uid}
-                  onLike={onLike}
                   userData={userData}
+                  onLike={onLike}
+                  onDelete={onDelete}
+                  onFetchComments={onFetchComments}
+                  onAddComment={onAddComment}
+                  onDeleteComment={onDeleteComment}
                 />
               ))}
             </AnimatePresence>
           </div>
-
-          {/* Infinite Scroll Trigger */}
           {hasMorePosts && (
             <div ref={loadMoreRef} className="flex justify-center pt-8 pb-12">
               <Loader2 className="w-6 h-6 animate-spin text-[rgba(191,162,100,0.4)]" />

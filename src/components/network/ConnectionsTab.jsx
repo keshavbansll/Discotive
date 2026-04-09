@@ -1,15 +1,14 @@
 /**
- * @fileoverview ConnectionsTab — Alliance Engine & Competitor Radar
+ * @fileoverview ConnectionsTab v2.0 — Alliance Engine & Competitor Radar
  * @description
- * Sub-tab controller for Alliances, Requests (Inbound/Outbound), and Radar.
- * Full optimistic UI. Discotive taxonomy throughout.
+ * Complete rewrite. No window.confirm (replace with inline confirm modals).
+ * Rate limit display. Mutual exclusion enforcement UI. Clean sub-tabs.
  */
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useCallback, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Users,
-  Target,
   Clock,
   Check,
   X,
@@ -17,18 +16,20 @@ import {
   Crown,
   Zap,
   Shield,
-  ChevronRight,
   Search,
   Crosshair,
   Link2Off,
   ArrowRight,
-  TrendingUp,
   Globe,
   Loader2,
   Send,
   Bell,
+  AlertTriangle,
+  MessageCircle,
+  Info,
 } from "lucide-react";
 import { cn } from "../../lib/cn";
+import { Button } from "../ui/Button";
 
 // ─── Time Ago ─────────────────────────────────────────────────────────────────
 const timeAgo = (date) => {
@@ -57,7 +58,7 @@ const SubTab = ({ id, label, icon: Icon, count, active, onClick }) => (
     {count > 0 && (
       <span
         className={cn(
-          "w-4.5 h-4 min-w-[18px] px-1 rounded-full text-[8px] flex items-center justify-center font-black",
+          "min-w-[18px] h-4 px-1 rounded-full text-[8px] flex items-center justify-center font-black",
           active
             ? "bg-[#BFA264] text-[#030303]"
             : "bg-[rgba(255,255,255,0.08)] text-[rgba(245,240,232,0.50)]",
@@ -69,7 +70,98 @@ const SubTab = ({ id, label, icon: Icon, count, active, onClick }) => (
   </button>
 );
 
-// ─── User Card (Alliance / Competitor) ───────────────────────────────────────
+// ─── Inline Confirm Modal ─────────────────────────────────────────────────────
+const ConfirmAction = ({
+  message,
+  onConfirm,
+  onCancel,
+  destructive = true,
+}) => (
+  <motion.div
+    initial={{ opacity: 0, scale: 0.95 }}
+    animate={{ opacity: 1, scale: 1 }}
+    exit={{ opacity: 0, scale: 0.95 }}
+    className="flex items-center gap-3 p-3 bg-[#111] border border-[rgba(255,255,255,0.08)] rounded-xl shadow-xl"
+  >
+    <AlertTriangle
+      className={cn(
+        "w-4 h-4 shrink-0",
+        destructive ? "text-red-400" : "text-amber-400",
+      )}
+    />
+    <p className="text-[11px] font-bold text-[rgba(245,240,232,0.70)] flex-1">
+      {message}
+    </p>
+    <div className="flex items-center gap-2 shrink-0">
+      <Button
+        variant={destructive ? "danger" : "primary"}
+        size="sm"
+        onClick={onConfirm}
+      >
+        Confirm
+      </Button>
+      <Button variant="hollow" size="sm" onClick={onCancel}>
+        Cancel
+      </Button>
+    </div>
+  </motion.div>
+);
+
+// ─── Rate Limit Indicator ─────────────────────────────────────────────────────
+const RateLimitBar = ({ count, limit, tier }) => {
+  const pct = Math.min((count / limit) * 100, 100);
+  const isNearLimit = pct >= 80;
+  const isAtLimit = count >= limit;
+
+  return (
+    <div className="flex items-center gap-3 p-3 bg-[#0A0A0A] border border-[rgba(255,255,255,0.05)] rounded-xl">
+      <div className="flex-1">
+        <div className="flex items-center justify-between mb-1.5">
+          <span className="text-[9px] font-black text-[rgba(245,240,232,0.30)] uppercase tracking-widest">
+            Alliance Requests Today
+          </span>
+          <span
+            className={cn(
+              "text-[9px] font-black font-mono",
+              isAtLimit
+                ? "text-red-400"
+                : isNearLimit
+                  ? "text-amber-400"
+                  : "text-[rgba(245,240,232,0.40)]",
+            )}
+          >
+            {count} / {limit}
+          </span>
+        </div>
+        <div className="w-full h-1.5 bg-[rgba(255,255,255,0.04)] rounded-full overflow-hidden">
+          <motion.div
+            className={cn(
+              "h-full rounded-full transition-colors",
+              isAtLimit
+                ? "bg-red-500"
+                : isNearLimit
+                  ? "bg-amber-500"
+                  : "bg-[#BFA264]",
+            )}
+            initial={{ width: 0 }}
+            animate={{ width: `${pct}%` }}
+            transition={{ duration: 0.5 }}
+          />
+        </div>
+      </div>
+      {isAtLimit && tier === "ESSENTIAL" && (
+        <div className="flex items-center gap-1 px-2.5 py-1.5 bg-amber-500/10 border border-amber-500/20 rounded-lg cursor-pointer hover:bg-amber-500/15 transition-colors shrink-0">
+          <Crown className="w-3 h-3 text-amber-500" />
+          <span className="text-[8px] font-black text-amber-500 uppercase tracking-widest">
+            Upgrade
+          </span>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ─── Operator Card ─────────────────────────────────────────────────────────────
 const OperatorCard = ({ user, actions, badgeText, badgeColor = "amber" }) => {
   const name =
     `${user?.identity?.firstName || ""} ${user?.identity?.lastName || ""}`.trim() ||
@@ -78,24 +170,20 @@ const OperatorCard = ({ user, actions, badgeText, badgeColor = "amber" }) => {
   const initials = name.charAt(0).toUpperCase() || "O";
   const score = user?.discotiveScore?.current || 0;
   const domain = user?.identity?.domain || user?.vision?.passion || "General";
-  const niche = user?.identity?.niche || "";
 
   const badgeClasses = {
-    amber:
-      "text-amber-400 bg-amber-500/10 border-amber-500/20 shadow-[0_0_12px_rgba(245,158,11,0.12)]",
-    emerald:
-      "text-emerald-400 bg-emerald-500/10 border-emerald-500/20 shadow-[0_0_12px_rgba(16,185,129,0.12)]",
-    red: "text-red-400 bg-red-500/10 border-red-500/20 shadow-[0_0_12px_rgba(239,68,68,0.12)]",
-    sky: "text-sky-400 bg-sky-500/10 border-sky-500/20 shadow-[0_0_12px_rgba(14,165,233,0.12)]",
-    violet:
-      "text-violet-400 bg-violet-500/10 border-violet-500/20 shadow-[0_0_12px_rgba(139,92,246,0.12)]",
+    amber: "text-amber-400 bg-amber-500/10 border-amber-500/20",
+    emerald: "text-emerald-400 bg-emerald-500/10 border-emerald-500/20",
+    red: "text-red-400 bg-red-500/10 border-red-500/20",
+    sky: "text-sky-400 bg-sky-500/10 border-sky-500/20",
+    violet: "text-violet-400 bg-violet-500/10 border-violet-500/20",
   };
 
   return (
-    <div className="flex items-center gap-3.5 p-3.5 rounded-[1.25rem] border border-[rgba(255,255,255,0.06)] bg-gradient-to-b from-[#0F0F0F] to-[#0A0A0A] shadow-[inset_0_1px_0_0_rgba(255,255,255,0.05)] hover:shadow-[0_4px_24px_rgba(191,162,100,0.08),inset_0_1px_0_0_rgba(255,255,255,0.1)] hover:border-[rgba(191,162,100,0.25)] transition-all duration-300 group">
+    <div className="flex items-center gap-3.5 p-3.5 rounded-[1.25rem] border border-[rgba(255,255,255,0.06)] bg-gradient-to-b from-[#0F0F0F] to-[#0A0A0A] hover:border-[rgba(191,162,100,0.25)] transition-all duration-300 group">
       {/* Avatar */}
       <div className="relative shrink-0">
-        <div className="w-11 h-11 rounded-full bg-[#111] border border-[#BFA264]/40 flex items-center justify-center text-[15px] font-black text-[#BFA264] overflow-hidden">
+        <div className="w-10 h-10 rounded-full bg-[#111] border border-[#BFA264]/40 flex items-center justify-center text-sm font-black text-[#BFA264] overflow-hidden">
           {user?.identity?.avatarUrl || user?.avatarUrl ? (
             <img
               src={user?.identity?.avatarUrl || user?.avatarUrl}
@@ -113,7 +201,6 @@ const OperatorCard = ({ user, actions, badgeText, badgeColor = "amber" }) => {
         )}
       </div>
 
-      {/* Info */}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 mb-0.5">
           <p className="text-sm font-bold text-[#F5F0E8] truncate">{name}</p>
@@ -149,7 +236,6 @@ const OperatorCard = ({ user, actions, badgeText, badgeColor = "amber" }) => {
         </div>
       </div>
 
-      {/* Actions */}
       {actions && (
         <div className="flex items-center gap-2 shrink-0">{actions}</div>
       )}
@@ -157,15 +243,17 @@ const OperatorCard = ({ user, actions, badgeText, badgeColor = "amber" }) => {
   );
 };
 
-// ─── Alliances Sub-Panel ──────────────────────────────────────────────────────
+// ─── Alliances Panel ──────────────────────────────────────────────────────────
 const AlliancesPanel = ({
   alliances,
   uid,
   onRemove,
   onMarkCompetitor,
   competitors,
+  onDM,
 }) => {
   const [search, setSearch] = useState("");
+  const [confirmRemove, setConfirmRemove] = useState(null);
 
   const filtered = useMemo(() => {
     if (!search.trim()) return alliances;
@@ -194,7 +282,6 @@ const AlliancesPanel = ({
 
   return (
     <div className="space-y-3">
-      {/* Search */}
       <div className="relative">
         <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-[rgba(245,240,232,0.20)]" />
         <input
@@ -205,6 +292,20 @@ const AlliancesPanel = ({
           className="w-full bg-[#0A0A0A] border border-[rgba(255,255,255,0.07)] text-[rgba(245,240,232,0.80)] placeholder-[rgba(245,240,232,0.20)] pl-10 pr-4 py-2.5 rounded-xl text-sm focus:outline-none focus:border-[rgba(191,162,100,0.30)] transition-all"
         />
       </div>
+
+      <AnimatePresence>
+        {confirmRemove && (
+          <ConfirmAction
+            message="Severing this Alliance will remove you from each other's network."
+            onConfirm={() => {
+              onRemove(confirmRemove.id, confirmRemove.partnerId);
+              setConfirmRemove(null);
+            }}
+            onCancel={() => setConfirmRemove(null)}
+            destructive
+          />
+        )}
+      </AnimatePresence>
 
       {filtered.length === 0 ? (
         <p className="text-center text-sm text-[rgba(245,240,232,0.25)] py-8">
@@ -222,7 +323,6 @@ const AlliancesPanel = ({
               (c) => c.targetId === partnerId,
             );
 
-            // Reconstruct a minimal user object from connection data
             const partnerObj = {
               id: partnerId,
               identity: {
@@ -234,10 +334,10 @@ const AlliancesPanel = ({
                 domain: isRequester
                   ? conn.receiverDomain
                   : conn.requesterDomain,
+                avatarUrl: isRequester
+                  ? conn.receiverAvatar
+                  : conn.requesterAvatar,
               },
-              avatarUrl: isRequester
-                ? conn.receiverAvatar
-                : conn.requesterAvatar,
               discotiveScore: { current: 0 },
             };
 
@@ -249,6 +349,17 @@ const AlliancesPanel = ({
                 badgeColor="emerald"
                 actions={
                   <div className="flex items-center gap-1.5">
+                    {/* DM button */}
+                    {onDM && (
+                      <button
+                        onClick={() => onDM(partnerId, partnerObj)}
+                        title="Send Message"
+                        className="w-8 h-8 rounded-xl flex items-center justify-center bg-[#111] border border-[rgba(255,255,255,0.07)] text-[rgba(245,240,232,0.30)] hover:text-[#BFA264] hover:bg-[rgba(191,162,100,0.08)] transition-all"
+                      >
+                        <MessageCircle className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                    {/* Competitor toggle */}
                     <button
                       onClick={() =>
                         onMarkCompetitor({
@@ -268,20 +379,15 @@ const AlliancesPanel = ({
                     >
                       <Crosshair className="w-3.5 h-3.5" />
                     </button>
+                    {/* Remove alliance */}
                     <button
-                      onClick={() => {
-                        if (
-                          window.confirm(
-                            "WARNING: Severing this Alliance will alter your execution topology. Proceed?",
-                          )
-                        ) {
-                          onRemove(conn.id, partnerId);
-                        }
-                      }}
+                      onClick={() =>
+                        setConfirmRemove({ id: conn.id, partnerId })
+                      }
                       title="Remove Alliance"
-                      className="w-11 h-11 md:w-8 md:h-8 rounded-xl flex items-center justify-center bg-[#111] border border-[rgba(255,255,255,0.07)] text-[rgba(245,240,232,0.30)] hover:text-red-400 hover:bg-red-500/8 hover:border-red-500/20 transition-all"
+                      className="w-8 h-8 rounded-xl flex items-center justify-center bg-[#111] border border-[rgba(255,255,255,0.07)] text-[rgba(245,240,232,0.30)] hover:text-red-400 hover:bg-red-500/8 hover:border-red-500/20 transition-all"
                     >
-                      <Link2Off className="w-4 h-4 md:w-3.5 md:h-3.5" />
+                      <Link2Off className="w-3.5 h-3.5" />
                     </button>
                   </div>
                 }
@@ -294,7 +400,7 @@ const AlliancesPanel = ({
   );
 };
 
-// ─── Requests Sub-Panel ───────────────────────────────────────────────────────
+// ─── Requests Panel ───────────────────────────────────────────────────────────
 const RequestsPanel = ({
   pendingInbound,
   pendingOutbound,
@@ -304,62 +410,92 @@ const RequestsPanel = ({
   onCancel,
 }) => {
   const [view, setView] = useState("inbound");
+  const [confirmDecline, setConfirmDecline] = useState(null);
+  const [confirmCancel, setConfirmCancel] = useState(null);
+  const [accepting, setAccepting] = useState(null);
+
+  const handleAccept = async (connectionId, requesterId) => {
+    setAccepting(connectionId);
+    await onAccept(connectionId, requesterId);
+    setAccepting(null);
+  };
 
   return (
     <div className="space-y-4">
-      {/* Inbound / Outbound toggle */}
       <div className="flex gap-2">
-        <button
-          onClick={() => setView("inbound")}
-          className={cn(
-            "flex items-center gap-2 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all duration-300",
-            view === "inbound"
-              ? "bg-[#BFA264] text-[#030303] border-[#BFA264] shadow-[0_2px_10px_rgba(191,162,100,0.2)]"
-              : "bg-[#0A0A0A] border-[rgba(255,255,255,0.07)] text-[rgba(245,240,232,0.35)] hover:text-[rgba(245,240,232,0.70)]",
-          )}
-        >
-          <Bell className="w-3 h-3" />
-          Inbound
-          {pendingInbound.length > 0 && (
-            <span
-              className={cn(
-                "w-4 h-4 rounded-full text-[8px] flex items-center justify-center font-black transition-colors",
-                view === "inbound"
-                  ? "bg-[#030303] text-[#BFA264]"
-                  : "bg-[#BFA264] text-[#030303]",
-              )}
-            >
-              {pendingInbound.length}
-            </span>
-          )}
-        </button>
-        <button
-          onClick={() => setView("outbound")}
-          className={cn(
-            "flex items-center gap-2 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all duration-300",
-            view === "outbound"
-              ? "bg-[#BFA264] text-[#030303] border-[#BFA264] shadow-[0_2px_10px_rgba(191,162,100,0.2)]"
-              : "bg-[#0A0A0A] border-[rgba(255,255,255,0.07)] text-[rgba(245,240,232,0.35)] hover:text-[rgba(245,240,232,0.70)]",
-          )}
-        >
-          <Send className="w-3 h-3" />
-          Sent
-          {pendingOutbound.length > 0 && (
-            <span className="w-4 h-4 rounded-full bg-[rgba(255,255,255,0.08)] text-[8px] flex items-center justify-center font-black text-[rgba(245,240,232,0.50)]">
-              {pendingOutbound.length}
-            </span>
-          )}
-        </button>
+        {[
+          {
+            id: "inbound",
+            label: "Inbound",
+            icon: Bell,
+            count: pendingInbound.length,
+          },
+          {
+            id: "outbound",
+            label: "Sent",
+            icon: Send,
+            count: pendingOutbound.length,
+          },
+        ].map(({ id, label, icon: Icon, count }) => (
+          <button
+            key={id}
+            onClick={() => setView(id)}
+            className={cn(
+              "flex items-center gap-2 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all duration-300",
+              view === id
+                ? "bg-[#BFA264] text-[#030303] border-[#BFA264] shadow-[0_2px_10px_rgba(191,162,100,0.2)]"
+                : "bg-[#0A0A0A] border-[rgba(255,255,255,0.07)] text-[rgba(245,240,232,0.35)] hover:text-[rgba(245,240,232,0.70)]",
+            )}
+          >
+            <Icon className="w-3 h-3" />
+            {label}
+            {count > 0 && (
+              <span
+                className={cn(
+                  "w-4 h-4 rounded-full text-[8px] flex items-center justify-center font-black",
+                  view === id
+                    ? "bg-[#030303] text-[#BFA264]"
+                    : "bg-[#BFA264] text-[#030303]",
+                )}
+              >
+                {count}
+              </span>
+            )}
+          </button>
+        ))}
       </div>
 
-      {/* Inbound requests */}
+      {/* Inline confirms */}
+      <AnimatePresence>
+        {confirmDecline && (
+          <ConfirmAction
+            message="Reject this alliance request?"
+            onConfirm={() => {
+              onDecline(confirmDecline);
+              setConfirmDecline(null);
+            }}
+            onCancel={() => setConfirmDecline(null)}
+            destructive
+          />
+        )}
+        {confirmCancel && (
+          <ConfirmAction
+            message="Withdraw this alliance request?"
+            onConfirm={() => {
+              onCancel(confirmCancel);
+              setConfirmCancel(null);
+            }}
+            onCancel={() => setConfirmCancel(null)}
+            destructive={false}
+          />
+        )}
+      </AnimatePresence>
+
       {view === "inbound" && (
         <>
           {pendingInbound.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-14 text-center">
-              <div className="w-14 h-14 rounded-2xl bg-[rgba(255,255,255,0.02)] border border-[rgba(255,255,255,0.05)] flex items-center justify-center mb-4">
-                <Bell className="w-6 h-6 text-[rgba(245,240,232,0.15)]" />
-              </div>
+              <Bell className="w-8 h-8 text-[rgba(245,240,232,0.10)] mb-3" />
               <p className="text-sm font-black text-[rgba(245,240,232,0.35)]">
                 No pending requests
               </p>
@@ -378,9 +514,7 @@ const RequestsPanel = ({
                     domain: conn.requesterDomain,
                     avatarUrl: conn.requesterAvatar,
                   },
-                  discotiveScore: { current: 0 },
                 };
-
                 return (
                   <OperatorCard
                     key={conn.id}
@@ -390,20 +524,24 @@ const RequestsPanel = ({
                     actions={
                       <div className="flex items-center gap-1.5">
                         <button
-                          onClick={() => onAccept(conn.id, conn.requesterId)}
-                          className="flex items-center gap-1.5 px-3 py-2 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/20 text-[10px] font-black rounded-xl transition-all uppercase tracking-widest"
+                          onClick={() =>
+                            handleAccept(conn.id, conn.requesterId)
+                          }
+                          disabled={accepting === conn.id}
+                          className="flex items-center gap-1.5 px-3 py-2 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/20 text-[10px] font-black rounded-xl transition-all uppercase tracking-widest disabled:opacity-50"
                         >
-                          <Check className="w-3 h-3" />
+                          {accepting === conn.id ? (
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                          ) : (
+                            <Check className="w-3 h-3" />
+                          )}
                           <span className="hidden sm:block">Accept</span>
                         </button>
                         <button
-                          onClick={() => {
-                            if (window.confirm("Reject operator request?"))
-                              onDecline(conn.id);
-                          }}
-                          className="w-11 h-11 md:w-8 md:h-8 flex items-center justify-center bg-[#111] border border-[rgba(255,255,255,0.07)] text-[rgba(245,240,232,0.30)] hover:text-red-400 hover:bg-red-500/8 rounded-xl transition-all"
+                          onClick={() => setConfirmDecline(conn.id)}
+                          className="w-8 h-8 flex items-center justify-center bg-[#111] border border-[rgba(255,255,255,0.07)] text-[rgba(245,240,232,0.30)] hover:text-red-400 hover:bg-red-500/8 rounded-xl transition-all"
                         >
-                          <X className="w-4 h-4 md:w-3.5 md:h-3.5" />
+                          <X className="w-3.5 h-3.5" />
                         </button>
                       </div>
                     }
@@ -415,14 +553,11 @@ const RequestsPanel = ({
         </>
       )}
 
-      {/* Outbound requests */}
       {view === "outbound" && (
         <>
           {pendingOutbound.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-14 text-center">
-              <div className="w-14 h-14 rounded-2xl bg-[rgba(255,255,255,0.02)] border border-[rgba(255,255,255,0.05)] flex items-center justify-center mb-4">
-                <Send className="w-6 h-6 text-[rgba(245,240,232,0.15)]" />
-              </div>
+              <Send className="w-8 h-8 text-[rgba(245,240,232,0.10)] mb-3" />
               <p className="text-sm font-black text-[rgba(245,240,232,0.35)]">
                 No sent requests
               </p>
@@ -441,9 +576,7 @@ const RequestsPanel = ({
                     domain: conn.receiverDomain,
                     avatarUrl: conn.receiverAvatar,
                   },
-                  discotiveScore: { current: 0 },
                 };
-
                 return (
                   <OperatorCard
                     key={conn.id}
@@ -452,11 +585,11 @@ const RequestsPanel = ({
                     badgeColor="sky"
                     actions={
                       <button
-                        onClick={() => onCancel(conn.id)}
+                        onClick={() => setConfirmCancel(conn.id)}
                         className="flex items-center gap-1.5 px-3 py-2 bg-[#111] border border-[rgba(255,255,255,0.07)] text-[rgba(245,240,232,0.40)] hover:text-red-400 hover:bg-red-500/8 hover:border-red-500/20 text-[10px] font-black rounded-xl transition-all"
                       >
                         <X className="w-3 h-3" />
-                        <span className="hidden sm:block">Cancel</span>
+                        <span className="hidden sm:block">Withdraw</span>
                       </button>
                     }
                   />
@@ -470,7 +603,7 @@ const RequestsPanel = ({
   );
 };
 
-// ─── Radar Sub-Panel (Competitor Tracking) ────────────────────────────────────
+// ─── Radar Panel ──────────────────────────────────────────────────────────────
 const RadarPanel = ({
   competitors,
   suggestedUsers,
@@ -478,8 +611,11 @@ const RadarPanel = ({
   onSendRequest,
   onMarkCompetitor,
   getConnectionStatus,
+  networkStats,
+  userTier,
 }) => {
   const [search, setSearch] = useState("");
+  const [sendingTo, setSendingTo] = useState(null);
 
   const filteredSuggested = useMemo(() => {
     if (!search.trim()) return suggestedUsers;
@@ -492,9 +628,25 @@ const RadarPanel = ({
     });
   }, [suggestedUsers, search]);
 
+  const isRateLimited =
+    networkStats.dailyRequestCount >= networkStats.dailyRequestLimit;
+
+  const handleSend = async (user) => {
+    setSendingTo(user.id);
+    await onSendRequest(user);
+    setSendingTo(null);
+  };
+
   return (
     <div className="space-y-5">
-      {/* Competitors Radar */}
+      {/* Rate limit bar */}
+      <RateLimitBar
+        count={networkStats.dailyRequestCount}
+        limit={networkStats.dailyRequestLimit}
+        tier={userTier}
+      />
+
+      {/* Active competitors */}
       {competitors.length > 0 && (
         <div>
           <div className="flex items-center gap-2 mb-3">
@@ -512,7 +664,7 @@ const RadarPanel = ({
                   lastName:
                     comp.targetName?.split(" ").slice(1).join(" ") || "",
                   username: comp.targetUsername || "",
-                  avatarUrl: comp.targetAvatar || "",
+                  avatarUrl: comp.targetAvatar || null,
                 },
                 discotiveScore: { current: comp.targetScore || 0 },
               };
@@ -544,7 +696,7 @@ const RadarPanel = ({
         </div>
       )}
 
-      {/* Discover operators */}
+      {/* Discover */}
       <div>
         <div className="flex items-center gap-2 mb-3">
           <Globe className="w-4 h-4 text-[#BFA264]" />
@@ -563,6 +715,22 @@ const RadarPanel = ({
             className="w-full bg-[#0A0A0A] border border-[rgba(255,255,255,0.07)] text-[rgba(245,240,232,0.80)] placeholder-[rgba(245,240,232,0.20)] pl-10 pr-4 py-2.5 rounded-xl text-sm focus:outline-none focus:border-[rgba(191,162,100,0.30)] transition-all"
           />
         </div>
+
+        {isRateLimited && (
+          <div className="flex items-start gap-2.5 p-3 mb-3 bg-amber-500/8 border border-amber-500/20 rounded-xl">
+            <Info className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+            <div>
+              <p className="text-[11px] font-bold text-amber-400">
+                Daily limit reached
+              </p>
+              <p className="text-[10px] text-[rgba(245,240,232,0.40)] mt-0.5">
+                {userTier === "ESSENTIAL"
+                  ? "Free operators can send 5 requests/day. Upgrade to PRO for 50/day."
+                  : "You've used all your requests for today. Resets at midnight."}
+              </p>
+            </div>
+          </div>
+        )}
 
         {loading ? (
           <div className="space-y-2.5">
@@ -584,10 +752,6 @@ const RadarPanel = ({
           <div className="space-y-2.5">
             {filteredSuggested.map((user) => {
               const status = getConnectionStatus(user.id);
-              const name =
-                `${user.identity?.firstName || ""} ${user.identity?.lastName || ""}`.trim() ||
-                "Operator";
-
               return (
                 <OperatorCard
                   key={user.id}
@@ -606,10 +770,20 @@ const RadarPanel = ({
                       {/* Alliance request */}
                       {status === "NONE" ? (
                         <button
-                          onClick={() => onSendRequest(user)}
-                          className="flex items-center gap-1.5 px-3 py-2 bg-[#BFA264] border border-transparent text-[#030303] hover:bg-[#D4AF78] hover:shadow-[0_0_16px_rgba(191,162,100,0.30)] text-[10px] font-black rounded-xl transition-all uppercase tracking-widest"
+                          onClick={() => !isRateLimited && handleSend(user)}
+                          disabled={isRateLimited || sendingTo === user.id}
+                          className={cn(
+                            "flex items-center gap-1.5 px-3 py-2 text-[10px] font-black rounded-xl transition-all uppercase tracking-widest",
+                            isRateLimited
+                              ? "bg-[rgba(255,255,255,0.04)] border border-[rgba(255,255,255,0.07)] text-[rgba(245,240,232,0.20)] cursor-not-allowed"
+                              : "bg-[#BFA264] border border-transparent text-[#030303] hover:bg-[#D4AF78] hover:shadow-[0_0_16px_rgba(191,162,100,0.30)]",
+                          )}
                         >
-                          <UserPlus className="w-3 h-3" />
+                          {sendingTo === user.id ? (
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                          ) : (
+                            <UserPlus className="w-3 h-3" />
+                          )}
                           <span className="hidden sm:block">Ally</span>
                         </button>
                       ) : status === "PENDING_SENT" ? (
@@ -647,6 +821,7 @@ const ConnectionsTab = ({
   suggestedUsers,
   networkLoading,
   networkStats,
+  userTier = "ESSENTIAL",
   onAccept,
   onDecline,
   onRemove,
@@ -654,6 +829,7 @@ const ConnectionsTab = ({
   onSendRequest,
   onMarkCompetitor,
   getConnectionStatus,
+  onDM,
 }) => {
   const [activeSubTab, setActiveSubTab] = useState("alliances");
 
@@ -680,7 +856,6 @@ const ConnectionsTab = ({
 
   return (
     <div className="max-w-2xl mx-auto">
-      {/* Sub-tab bar */}
       <div className="flex items-center gap-2 mb-5 overflow-x-auto hide-scrollbar pb-1">
         {subTabs.map((tab) => (
           <SubTab
@@ -692,7 +867,6 @@ const ConnectionsTab = ({
         ))}
       </div>
 
-      {/* Content */}
       <AnimatePresence mode="wait">
         <motion.div
           key={activeSubTab}
@@ -708,6 +882,7 @@ const ConnectionsTab = ({
               competitors={competitors}
               onRemove={onRemove}
               onMarkCompetitor={onMarkCompetitor}
+              onDM={onDM}
             />
           )}
           {activeSubTab === "requests" && (
@@ -728,6 +903,8 @@ const ConnectionsTab = ({
               onSendRequest={onSendRequest}
               onMarkCompetitor={onMarkCompetitor}
               getConnectionStatus={getConnectionStatus}
+              networkStats={networkStats}
+              userTier={userTier}
             />
           )}
         </motion.div>

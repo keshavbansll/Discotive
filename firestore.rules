@@ -269,11 +269,11 @@ service cloud.firestore {
         && request.resource.data.likedBy is list
         && request.resource.data.likedBy.size() == 0;  // No pre-seeding likes
 
-      // Update: ONLY allow changes to likedBy and likesCount (like/unlike).
+      // Update: ONLY allow changes to likedBy, likesCount, and replyCount.
       // Author cannot edit post content after publishing (integrity).
       allow update: if isAuthenticated()
         && request.resource.data.diff(resource.data).affectedKeys()
-            .hasOnly(['likedBy', 'likesCount']);
+            .hasOnly(['likedBy', 'likesCount', 'replyCount']);
 
       // Delete: only the author
       allow delete: if isAuthenticated()
@@ -340,6 +340,82 @@ service cloud.firestore {
         && resource.data.trackerId == request.auth.uid;
 
       // No updates — immutable. Delete and recreate if needed.
+      allow update: if false;
+    }
+
+    // ─── POST COMMENTS (subcollection) ───────────────────────────────────────────
+    // Path: /posts/{postId}/comments/{commentId}
+    match /posts/{postId}/comments/{commentId} {
+      // Any authenticated user can read comments
+      allow read: if isAuthenticated();
+    
+      // Create: must carry own uid, max 500 chars
+      allow create: if isAuthenticated()
+        && request.resource.data.authorId == request.auth.uid
+        && request.resource.data.textContent is string
+        && request.resource.data.textContent.size() >= 1
+        && request.resource.data.textContent.size() <= 500
+        && request.resource.data.likedBy is list
+        && request.resource.data.likedBy.size() == 0;
+    
+      // Update: only allow likedBy / likesCount mutations
+      allow update: if isAuthenticated()
+        && request.resource.data.diff(resource.data)
+            .affectedKeys().hasOnly(['likedBy', 'likesCount']);
+    
+      // Delete: only the comment author (or admin)
+      allow delete: if isAuthenticated()
+        && (resource.data.authorId == request.auth.uid || isAdmin());
+    }
+    
+    // ─── CONVERSATIONS ────────────────────────────────────────────────────────────
+    // Path: /conversations/{conversationId}
+    match /conversations/{conversationId} {
+      // Both participants can read
+      allow read: if isAuthenticated()
+        && resource.data.participantIds.hasAny([request.auth.uid]);
+    
+      // Create: auth user must be a participant, exactly 2 participants
+      allow create: if isAuthenticated()
+        && request.resource.data.participantIds.hasAny([request.auth.uid])
+        && request.resource.data.participantIds.size() == 2;
+    
+      // Update: only participants can update metadata (lastMessage, unreadCounts)
+      allow update: if isAuthenticated()
+        && resource.data.participantIds.hasAny([request.auth.uid])
+        && request.resource.data.diff(resource.data)
+            .affectedKeys().hasOnly([
+              'lastMessage', 'lastMessageAt', 'lastSenderId',
+              'unreadCounts', 'updatedAt'
+            ]);
+    
+      // Delete: only admin
+      allow delete: if isAdmin();
+    }
+    
+    // ─── MESSAGES (subcollection) ──────────────────────────────────────────────────
+    // Path: /conversations/{conversationId}/messages/{messageId}
+    match /conversations/{conversationId}/messages/{messageId} {
+      // Both conversation participants can read
+      allow read: if isAuthenticated()
+        && get(/databases/$(database)/documents/conversations/$(conversationId))
+            .data.participantIds.hasAny([request.auth.uid]);
+    
+      // Create: sender must be a participant, must carry own uid
+      allow create: if isAuthenticated()
+        && request.resource.data.senderId == request.auth.uid
+        && get(/databases/$(database)/documents/conversations/$(conversationId))
+            .data.participantIds.hasAny([request.auth.uid])
+        && request.resource.data.textContent is string
+        && request.resource.data.textContent.size() >= 1
+        && request.resource.data.textContent.size() <= 2000;
+    
+      // Delete: sender can retract their own messages within 5 min (admin always)
+      allow delete: if isAdmin()
+        || (isAuthenticated()
+            && resource.data.senderId == request.auth.uid);
+    
+      // No updates to messages (immutable content, no edits in v1)
       allow update: if false;
     }
   }
