@@ -1152,7 +1152,7 @@ const MainLayout = () => {
       <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-[#0A0A0A]/90 backdrop-blur-2xl border-t border-white/5 z-[100] flex items-center justify-around px-2 pb-[env(safe-area-inset-bottom)] pt-1 min-h-[calc(4rem+env(safe-area-inset-bottom))]">
         {[
           { icon: LayoutDashboard, path: "/app", label: "Dashboard" },
-          { icon: LaptopMinimalCheck, path: "/app/roadmap", label: "Roadmap" },
+          { icon: Users, path: "/app/network", label: "Network" },
           { icon: Trophy, path: "/app/leaderboard", label: "Arena" },
           { icon: FolderOpen, path: "/app/vault", label: "Vault" },
         ].map((item) => {
@@ -1309,7 +1309,7 @@ const MainLayout = () => {
                 )}
 
                 {/* Core Actions Grid */}
-                <div className="grid grid-cols-2 gap-3">
+                <div className="grid grid-cols-3 gap-3">
                   <Link
                     to="/app/profile"
                     onClick={() => setIsMobileMenuOpen(false)}
@@ -1318,6 +1318,16 @@ const MainLayout = () => {
                     <User className="w-5 h-5 text-[#BFA264]" />
                     <span className="text-xs font-bold text-[#F5F0E8]">
                       Profile
+                    </span>
+                  </Link>
+                  <Link
+                    to="/app/learn"
+                    onClick={() => setIsMobileMenuOpen(false)}
+                    className="flex flex-col items-center justify-center gap-2 p-4 bg-[#0F0F0F] border border-white/5 rounded-2xl active:bg-[#111]"
+                  >
+                    <Settings className="w-5 h-5 text-[#BFA264]" />
+                    <span className="text-xs font-bold text-[#F5F0E8]">
+                      Settings
                     </span>
                   </Link>
                   <Link
