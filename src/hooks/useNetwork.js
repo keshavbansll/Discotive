@@ -31,6 +31,7 @@ import {
   arrayRemove,
   increment,
   writeBatch,
+  documentId,
 } from "firebase/firestore";
 import { db } from "../firebase";
 import { awardAllianceAction } from "../lib/scoreEngine";
@@ -47,6 +48,50 @@ const MEMORY_CACHE = {
   timestamp: 0,
 };
 const CACHE_TTL = 1000 * 60 * 5; // 5 minutes
+
+// ─── Identity Hydration Engine (Cost-Optimized) ──────────────────────────
+// Caches live avatars per session to prevent N+1 query exhaustion.
+const PROFILE_CACHE = new Map(); // uid -> { avatarUrl }
+
+const hydrateProfiles = async (uids) => {
+  // 1. Filter out duplicates and already cached UIDs
+  const uniqueUids = [...new Set(uids)].filter(
+    (id) => id && !PROFILE_CACHE.has(id),
+  );
+  if (uniqueUids.length === 0) return;
+
+  // 2. Firestore 'in' queries have a maximum of 30 items per batch
+  const chunks = [];
+  for (let i = 0; i < uniqueUids.length; i += 30) {
+    chunks.push(uniqueUids.slice(i, i + 30));
+  }
+
+  // 3. Fetch all chunks in parallel
+  await Promise.all(
+    chunks.map(async (chunk) => {
+      try {
+        const q = query(
+          collection(db, "users"),
+          where(documentId(), "in", chunk),
+        );
+        const snap = await getDocs(q);
+        snap.forEach((docSnap) => {
+          const data = docSnap.data();
+          PROFILE_CACHE.set(docSnap.id, {
+            avatarUrl: data.identity?.avatarUrl || null,
+          });
+        });
+      } catch (err) {
+        console.error("[Hydration Error]:", err);
+      }
+    }),
+  );
+
+  // 4. Mark missed profiles as null to prevent infinite refetching
+  uniqueUids.forEach((id) => {
+    if (!PROFILE_CACHE.has(id)) PROFILE_CACHE.set(id, null);
+  });
+};
 
 // ─── Score mutation stub (real impl in scoreEngine.js) ──────────────────────
 const updateDiscotiveScore = async (userId, points, reason) => {
@@ -142,8 +187,23 @@ export const useNetwork = (currentUser, userData) => {
           likedBy: d.data().likedBy || [],
         }));
 
+        // === HYDRATION INJECTION ===
+        // Fetch live avatars for these specific 12 posts before rendering
+        await hydrateProfiles(fetched.map((p) => p.authorId));
+
+        const hydratedPosts = fetched.map((p) => {
+          const liveProfile = PROFILE_CACHE.get(p.authorId);
+          return {
+            ...p,
+            authorAvatar:
+              liveProfile?.avatarUrl !== undefined
+                ? liveProfile.avatarUrl
+                : p.authorAvatar,
+          };
+        });
+
         setPosts((prev) => {
-          const newPosts = reset ? fetched : [...prev, ...fetched];
+          const newPosts = reset ? hydratedPosts : [...prev, ...hydratedPosts];
           // Update Cache
           if (reset) {
             MEMORY_CACHE.feed = newPosts;
@@ -328,12 +388,53 @@ export const useNetwork = (currentUser, userData) => {
       const outboundList = unique.filter(
         (c) => c.status === "PENDING" && c.requesterId === uid,
       );
+      const compList = competitorsSnap.docs.map((d) => ({
+        id: d.id,
+        ...d.data(),
+      }));
 
-      setAlliances(allianceList);
-      setPendingInbound(inboundList);
-      setPendingOutbound(outboundList);
+      // === HYDRATION INJECTION ===
+      // Extract all UIDs currently visible in the network views
+      const uidsToHydrate = [
+        ...unique.map((c) => c.requesterId),
+        ...unique.map((c) => c.receiverId),
+        ...compList.map((c) => c.targetId),
+      ];
+      await hydrateProfiles(uidsToHydrate);
+
+      // Hydration mapping helper
+      const applyLiveAvatar = (c) => {
+        const partnerId = c.requesterId === uid ? c.receiverId : c.requesterId;
+        const liveProfile = PROFILE_CACHE.get(partnerId);
+        if (!liveProfile) return c;
+        return {
+          ...c,
+          requesterAvatar:
+            c.requesterId === uid
+              ? userData?.identity?.avatarUrl
+              : liveProfile.avatarUrl,
+          receiverAvatar:
+            c.receiverId === uid
+              ? userData?.identity?.avatarUrl
+              : liveProfile.avatarUrl,
+        };
+      };
+
+      setAlliances(allianceList.map(applyLiveAvatar));
+      setPendingInbound(inboundList.map(applyLiveAvatar));
+      setPendingOutbound(outboundList.map(applyLiveAvatar));
+
       setCompetitors(
-        competitorsSnap.docs.map((d) => ({ id: d.id, ...d.data() })),
+        compList.map((c) => {
+          const liveProfile = PROFILE_CACHE.get(c.targetId);
+          return {
+            ...c,
+            targetAvatar:
+              liveProfile?.avatarUrl !== undefined
+                ? liveProfile.avatarUrl
+                : c.targetAvatar,
+          };
+        }),
       );
 
       // Fetch suggested users (simple: recent onboarded users, excluding existing connections)
