@@ -27,6 +27,7 @@ import {
   AlertTriangle,
   MessageCircle,
   Info,
+  GraduationCap,
 } from "lucide-react";
 import { cn } from "../../lib/cn";
 import { Button } from "../ui/Button";
@@ -852,6 +853,18 @@ const ConnectionsTab = ({
       icon: Crosshair,
       count: networkStats.competitors,
     },
+    {
+      id: "global",
+      label: "Global",
+      icon: Globe,
+      count: 0,
+    },
+    {
+      id: "alumni",
+      label: "Alumni",
+      icon: GraduationCap,
+      count: 0,
+    },
   ];
 
   return (
@@ -906,6 +919,28 @@ const ConnectionsTab = ({
               networkStats={networkStats}
               userTier={userTier}
             />
+          )}
+          {activeSubTab === "global" && (
+            <div className="py-16 text-center text-[rgba(245,240,232,0.40)]">
+              <Globe className="w-10 h-10 mx-auto mb-3 opacity-20" />
+              <p className="text-sm font-black text-[#F5F0E8]">
+                Global Network
+              </p>
+              <p className="text-xs mt-1">
+                Worldwide operator directory coming soon.
+              </p>
+            </div>
+          )}
+          {activeSubTab === "alumni" && (
+            <div className="py-16 text-center text-[rgba(245,240,232,0.40)]">
+              <GraduationCap className="w-10 h-10 mx-auto mb-3 opacity-20" />
+              <p className="text-sm font-black text-[#F5F0E8]">
+                Alumni Network
+              </p>
+              <p className="text-xs mt-1">
+                Campus and alumni bridging coming soon.
+              </p>
+            </div>
           )}
         </motion.div>
       </AnimatePresence>

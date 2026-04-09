@@ -24,6 +24,7 @@ import {
   CheckCircle2,
   AlertTriangle,
   MessageCircle,
+  Expand,
 } from "lucide-react";
 import { cn } from "../lib/cn";
 import { useAuth } from "../contexts/AuthContext";
@@ -71,9 +72,9 @@ const Toast = ({ toast, onDismiss }) => {
 
   return (
     <motion.div
-      initial={{ opacity: 0, x: -20, y: 8 }}
+      initial={{ opacity: 0, x: 20, y: 8 }}
       animate={{ opacity: 1, x: 0, y: 0 }}
-      exit={{ opacity: 0, x: -20 }}
+      exit={{ opacity: 0, x: 20 }}
       transition={{ type: "spring", damping: 22, stiffness: 280 }}
       className={cn(
         "flex items-center gap-3 px-4 py-3 rounded-[1.25rem] border shadow-2xl max-w-[340px] pointer-events-auto",
@@ -96,7 +97,7 @@ const Toast = ({ toast, onDismiss }) => {
 };
 
 const ToastContainer = ({ toasts, onDismiss }) => (
-  <div className="fixed bottom-24 md:bottom-8 left-4 md:left-6 z-[9999] flex flex-col gap-2 pointer-events-none">
+  <div className="fixed bottom-24 md:bottom-8 right-4 md:right-8 z-[9999] flex flex-col items-end gap-2 pointer-events-none">
     <AnimatePresence>
       {toasts.map((t) => (
         <Toast key={t.id} toast={t} onDismiss={onDismiss} />
@@ -299,6 +300,26 @@ const CompetitorWidget = ({ competitors }) => {
   );
 };
 
+const LiveTargetsWidget = () => (
+  <div className="rounded-[1.5rem] border border-[rgba(255,255,255,0.06)] bg-[#0A0A0A] flex flex-col h-full overflow-hidden">
+    <div className="p-4 border-b border-[rgba(255,255,255,0.04)] flex items-center gap-2 shrink-0">
+      <Target className="w-4 h-4 text-[#BFA264]" />
+      <p className="text-[9px] font-black text-[rgba(245,240,232,0.40)] uppercase tracking-widest">
+        Live Targets
+      </p>
+    </div>
+    <div className="p-6 text-center flex-1 overflow-y-auto custom-scrollbar flex flex-col items-center justify-center">
+      <Target className="w-8 h-8 text-[rgba(245,240,232,0.05)] mx-auto mb-3" />
+      <p className="text-xs font-bold text-[rgba(245,240,232,0.30)]">
+        Tracking Offline
+      </p>
+      <p className="text-[10px] text-[rgba(245,240,232,0.20)] mt-1 max-w-[160px] mx-auto">
+        Live tracking module pending initialization.
+      </p>
+    </div>
+  </div>
+);
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // MAIN NETWORK PAGE
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -319,6 +340,7 @@ const Network = () => {
   const dmInitialTarget = newDmUserId ? { id: newDmUserId } : null;
 
   const {
+    isAdmin,
     posts,
     feedLoading,
     feedError,
@@ -550,6 +572,7 @@ const Network = () => {
                 <span className="hidden sm:block text-[11px] font-black uppercase tracking-widest">
                   DM
                 </span>
+                <Expand className="w-3 h-3 hidden sm:block opacity-50 ml-1" />
                 {unreadDmCount > 0 && (
                   <span className="absolute -top-1 -right-1 w-4 h-4 bg-[#BFA264] rounded-full border-2 border-[#030303] flex items-center justify-center text-[7px] font-black text-[#030303]">
                     {Math.min(unreadDmCount, 9)}
@@ -571,10 +594,16 @@ const Network = () => {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -8 }}
               transition={{ duration: 0.18 }}
-              className="grid grid-cols-1 lg:grid-cols-[1fr_320px] xl:grid-cols-[1fr_360px] gap-6 xl:gap-8"
+              className="grid grid-cols-1 lg:grid-cols-[300px_1fr_320px] xl:grid-cols-[340px_1fr_360px] 2xl:grid-cols-[380px_1fr_360px] gap-4 xl:gap-5"
             >
-              <div>
+              {/* Left Column (PC Only) */}
+              <aside className="hidden lg:block sticky top-24 h-[80vh]">
+                <LiveTargetsWidget />
+              </aside>
+
+              <div className="min-w-0">
                 <FeedTab
+                  isAdmin={isAdmin}
                   uid={uid}
                   userData={userData}
                   posts={posts}
@@ -673,9 +702,14 @@ const Network = () => {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -8 }}
               transition={{ duration: 0.18 }}
-              className="grid grid-cols-1 lg:grid-cols-[1fr_320px] xl:grid-cols-[1fr_360px] gap-6 xl:gap-8"
+              className="grid grid-cols-1 lg:grid-cols-[300px_1fr_320px] xl:grid-cols-[340px_1fr_360px] 2xl:grid-cols-[380px_1fr_360px] gap-4 xl:gap-5"
             >
-              <div>
+              {/* Left Column (PC Only) */}
+              <aside className="hidden lg:block sticky top-24 h-[calc(100vh-6.5rem)]">
+                <LiveTargetsWidget />
+              </aside>
+
+              <div className="min-w-0">
                 <ConnectionsTab
                   uid={uid}
                   alliances={alliances}

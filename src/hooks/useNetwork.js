@@ -16,7 +16,7 @@
  *  - Notification writes for alliance requests & competitor tracking
  */
 
-import { useState, useCallback, useRef, useMemo } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import {
   collection,
   query,
@@ -116,6 +116,7 @@ const writeNotification = async (targetUid, message, type = "info") => {
         }),
         createdAt: new Date().toISOString(),
       }),
+      hasUnreadNotifications: true,
     });
   } catch (_) {
     /* silent — notifications are non-critical */
@@ -150,6 +151,25 @@ export const useNetwork = (currentUser, userData) => {
   const [messages, setMessages] = useState([]);
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [dmLoading, setDmLoading] = useState(false);
+
+  // ── Admin State ─────────────────────────────────────────────────────────
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  useEffect(() => {
+    const checkAdmin = async () => {
+      if (!currentUser?.email) return;
+      try {
+        const snap = await getDocs(
+          query(
+            collection(db, "admins"),
+            where("email", "==", currentUser.email),
+          ),
+        );
+        setIsAdmin(!snap.empty);
+      } catch (_) {}
+    };
+    checkAdmin();
+  }, [currentUser]);
 
   // ── Composer / action state ───────────────────────────────────────────────
   const [isPosting, setIsPosting] = useState(false);
@@ -329,7 +349,7 @@ export const useNetwork = (currentUser, userData) => {
     async (postId) => {
       if (!uid) return false;
       const post = posts.find((p) => p.id === postId);
-      if (!post || post.authorId !== uid) return false;
+      if (!post || (!isAdmin && post.authorId !== uid)) return false;
 
       // Optimistic remove
       setPosts((prev) => prev.filter((p) => p.id !== postId));
@@ -344,7 +364,7 @@ export const useNetwork = (currentUser, userData) => {
         return false;
       }
     },
-    [uid, posts],
+    [uid, posts, isAdmin],
   );
 
   const toggleLike = useCallback(
@@ -1292,6 +1312,8 @@ export const useNetwork = (currentUser, userData) => {
   }, [conversations, uid]);
 
   return {
+    isAdmin,
+
     // Feed
     posts,
     feedLoading,

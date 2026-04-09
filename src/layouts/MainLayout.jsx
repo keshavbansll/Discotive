@@ -168,6 +168,25 @@ const MainLayout = () => {
   const [showNotifMenu, setShowNotifMenu] = useState(false);
   const [showLanguageMenu, setShowLanguageMenu] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
+
+  const handleToggleNotifMenu = async () => {
+    const willOpen = !showNotifMenu;
+    setShowNotifMenu(willOpen);
+
+    if (willOpen && userData?.uid) {
+      const hasUnread =
+        userData?.hasUnreadNotifications ?? userData?.notifications?.length > 0;
+      if (hasUnread) {
+        patchLocalData({ hasUnreadNotifications: false });
+        try {
+          const userRef = doc(db, "users", userData.uid);
+          await updateDoc(userRef, { hasUnreadNotifications: false });
+        } catch (err) {
+          console.error("Failed to mark notifications as read:", err);
+        }
+      }
+    }
+  };
   const [searchQuery, setSearchQuery] = useState("");
 
   const location = useLocation();
@@ -292,12 +311,15 @@ const MainLayout = () => {
     if (!userData?.uid) return;
 
     // 1. Optimistic UI Update
-    patchLocalData({ notifications: [] });
+    patchLocalData({ notifications: [], hasUnreadNotifications: false });
 
     // 2. Persist to Firestore
     try {
       const userRef = doc(db, "users", userData.uid);
-      await updateDoc(userRef, { notifications: [] });
+      await updateDoc(userRef, {
+        notifications: [],
+        hasUnreadNotifications: false,
+      });
     } catch (error) {
       console.error("Failed to clear notifications:", error);
     }
@@ -659,7 +681,7 @@ const MainLayout = () => {
             ref={notifMenuRef}
           >
             <button
-              onClick={() => setShowNotifMenu(!showNotifMenu)}
+              onClick={handleToggleNotifMenu}
               className={cn(
                 "p-2 md:p-2.5 rounded-full transition-all relative border active:scale-95 duration-150",
                 showNotifMenu
@@ -668,9 +690,10 @@ const MainLayout = () => {
               )}
             >
               <Bell className="w-4 h-4 md:w-5 md:h-5" />
-              {/* Only show the red dot if there are actual notifications */}
-              {userData?.notifications?.length > 0 && (
-                <span className="absolute top-0 right-0 w-2.5 h-2.5 bg-[#4ADE80] border-2 border-[#0A0A0A] rounded-full shadow-[0_0_8px_rgba(74,222,128,0.5)]" />
+              {/* Only show the dot if there are unread notifications */}
+              {(userData?.hasUnreadNotifications ??
+                userData?.notifications?.length > 0) && (
+                <span className="absolute top-0 right-0 w-2.5 h-2.5 bg-[#EF4444] border-2 border-[#0A0A0A] rounded-full shadow-[0_0_8px_rgba(239,68,68,0.5)]" />
               )}
             </button>
             {/* --- NOTIFICATIONS DROPDOWN CONTENT --- */}

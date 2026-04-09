@@ -18,6 +18,8 @@ import {
   Crown,
   Check,
   CheckCheck,
+  Maximize2,
+  Minimize2,
 } from "lucide-react";
 import { cn } from "../../lib/cn";
 
@@ -245,6 +247,7 @@ const DMPanel = ({
   const [search, setSearch] = useState("");
   const [activePartner, setActivePartner] = useState(null);
   const [loadingConvo, setLoadingConvo] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
   const messagesEndRef = useRef(null);
   const lastMsgDocRef = useRef(null);
 
@@ -327,182 +330,219 @@ const DMPanel = ({
     activePartner?.identity?.username ||
     "Operator";
 
-  if (!isOpen) return null;
-
   return (
     <AnimatePresence>
-      <div className="fixed inset-0 z-[400] flex items-end md:items-center justify-end md:justify-end p-0 md:p-6 bg-black/60 backdrop-blur-md">
-        <motion.div
-          initial={{ opacity: 0, x: 60, scale: 0.97 }}
-          animate={{ opacity: 1, x: 0, scale: 1 }}
-          exit={{ opacity: 0, x: 60, scale: 0.97 }}
-          transition={{ type: "spring", damping: 26, stiffness: 300 }}
-          className="w-full md:w-[780px] h-[90vh] md:h-[680px] bg-[#0A0A0A] border border-[rgba(255,255,255,0.06)] rounded-t-[2rem] md:rounded-[2rem] shadow-[0_40px_100px_rgba(0,0,0,0.95)] flex overflow-hidden"
+      {isOpen && (
+        <div
+          className="fixed inset-0 z-[400] flex items-end md:items-center justify-end md:justify-end p-0 md:pb-6 md:pr-6 md:pl-6 md:pt-[6.5rem] bg-black/60 backdrop-blur-md"
+          onClick={onClose}
         >
-          {/* LEFT: Conversation List */}
-          <div
+          <motion.div
+            initial={{ opacity: 0, x: 60, scale: 0.97 }}
+            animate={{ opacity: 1, x: 0, scale: 1 }}
+            exit={{ opacity: 0, x: 60, scale: 0.97 }}
+            transition={{ type: "spring", damping: 26, stiffness: 300 }}
             className={cn(
-              "flex flex-col border-r border-[rgba(255,255,255,0.05)] transition-all",
-              activeConversation || activePartner
-                ? "hidden md:flex md:w-64 xl:w-72 shrink-0"
-                : "flex-1 md:w-64 xl:w-72 md:flex-none",
+              "bg-[#0A0A0A] border border-[rgba(255,255,255,0.06)] rounded-t-[2rem] md:rounded-[2rem] shadow-[0_40px_100px_rgba(0,0,0,0.95)] flex overflow-hidden transition-all duration-300",
+              isExpanded
+                ? "w-full md:w-[85vw] h-[95vh] md:h-[80vh]"
+                : "w-full md:w-[780px] h-[90vh] md:h-[680px] md:max-h-[80vh]",
             )}
+            onClick={(e) => e.stopPropagation()}
           >
-            {/* Header */}
-            <div className="px-5 py-4 border-b border-[rgba(255,255,255,0.05)] flex items-center justify-between shrink-0">
-              <div className="flex items-center gap-2.5">
-                <MessageCircle className="w-4 h-4 text-[#BFA264]" />
-                <h3 className="text-sm font-black text-[#F5F0E8]">Messages</h3>
-              </div>
-              <button
-                onClick={onClose}
-                className="w-7 h-7 rounded-full bg-[rgba(255,255,255,0.05)] flex items-center justify-center text-[rgba(245,240,232,0.40)] hover:text-white transition-colors"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            </div>
-
-            {/* Search */}
-            <div className="px-4 py-3 border-b border-[rgba(255,255,255,0.04)]">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[rgba(245,240,232,0.20)]" />
-                <input
-                  type="text"
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Search conversations..."
-                  className="w-full bg-[rgba(255,255,255,0.03)] border border-[rgba(255,255,255,0.06)] text-xs text-[rgba(245,240,232,0.70)] placeholder-[rgba(245,240,232,0.20)] pl-8 pr-3 py-2 rounded-xl outline-none focus:border-[rgba(191,162,100,0.30)] transition-all"
-                />
-              </div>
-            </div>
-
-            {/* Conversation list */}
-            <div className="flex-1 overflow-y-auto custom-scrollbar">
-              {dmLoading ? (
-                <div className="space-y-1 p-4">
-                  {[1, 2, 3].map((i) => (
-                    <div
-                      key={i}
-                      className="h-14 bg-[rgba(255,255,255,0.02)] rounded-xl animate-pulse"
-                    />
-                  ))}
-                </div>
-              ) : filteredConversations.length === 0 ? (
-                <div className="flex flex-col items-center justify-center py-12 text-center px-4">
-                  <MessageCircle className="w-10 h-10 text-[rgba(245,240,232,0.08)] mb-3" />
-                  <p className="text-xs font-bold text-[rgba(245,240,232,0.25)]">
-                    No messages yet
-                  </p>
-                  <p className="text-[10px] text-[rgba(245,240,232,0.15)] mt-1">
-                    Message allies from their profile
-                  </p>
-                </div>
-              ) : (
-                filteredConversations.map((convo) => (
-                  <ConversationItem
-                    key={convo.id}
-                    conversation={convo}
-                    uid={uid}
-                    isActive={activeConversation === convo.id}
-                    onClick={() => handleSelectConversation(convo)}
-                  />
-                ))
+            {/* LEFT: Conversation List */}
+            <div
+              className={cn(
+                "flex flex-col border-r border-[rgba(255,255,255,0.05)] transition-all",
+                activeConversation || activePartner
+                  ? "hidden md:flex md:w-64 xl:w-72 shrink-0"
+                  : "flex-1 md:w-64 xl:w-72 md:flex-none",
               )}
-            </div>
-          </div>
-
-          {/* RIGHT: Message Thread */}
-          <div
-            className={cn(
-              "flex-1 flex flex-col min-w-0",
-              !activeConversation && !activePartner ? "hidden md:flex" : "flex",
-            )}
-          >
-            {activeConversation || activePartner ? (
-              <>
-                {/* Thread header */}
-                <div className="px-5 py-4 border-b border-[rgba(255,255,255,0.05)] flex items-center gap-3 shrink-0 bg-[#050505]">
+            >
+              {/* Header */}
+              <div className="px-5 py-4 border-b border-[rgba(255,255,255,0.05)] flex items-center justify-between shrink-0">
+                <div className="flex items-center gap-2.5">
+                  <MessageCircle className="w-4 h-4 text-[#BFA264]" />
+                  <h3 className="text-sm font-black text-[#F5F0E8]">
+                    Messages
+                  </h3>
+                </div>
+                <div className="flex items-center gap-2">
                   <button
-                    onClick={() => {
-                      setActiveConversation(null);
-                      setActivePartner(null);
-                    }}
-                    className="md:hidden w-7 h-7 rounded-full bg-[rgba(255,255,255,0.05)] flex items-center justify-center text-[rgba(245,240,232,0.40)] hover:text-white transition-colors"
+                    onClick={() => setIsExpanded(!isExpanded)}
+                    className="w-7 h-7 rounded-full bg-[rgba(255,255,255,0.05)] hidden md:flex items-center justify-center text-[rgba(245,240,232,0.40)] hover:text-white transition-colors"
                   >
-                    <ArrowLeft className="w-3.5 h-3.5" />
-                  </button>
-                  <div className="w-9 h-9 rounded-full bg-[#111] border border-[#BFA264]/30 flex items-center justify-center text-sm font-black text-[#BFA264] overflow-hidden">
-                    {activePartner?.identity?.avatarUrl ? (
-                      <img
-                        src={activePartner.identity.avatarUrl}
-                        alt=""
-                        className="w-full h-full object-cover"
-                      />
+                    {isExpanded ? (
+                      <Minimize2 className="w-3.5 h-3.5" />
                     ) : (
-                      partnerDisplayName.charAt(0).toUpperCase()
+                      <Maximize2 className="w-3.5 h-3.5" />
                     )}
-                  </div>
-                  <div>
-                    <p className="text-sm font-black text-[#F5F0E8]">
-                      {partnerDisplayName}
-                    </p>
-                    {activePartner?.identity?.username && (
-                      <p className="text-[10px] text-[rgba(245,240,232,0.30)] font-mono">
-                        @{activePartner.identity.username}
-                      </p>
-                    )}
-                  </div>
+                  </button>
                   <button
                     onClick={onClose}
-                    className="ml-auto w-7 h-7 rounded-full bg-[rgba(255,255,255,0.05)] hidden md:flex items-center justify-center text-[rgba(245,240,232,0.40)] hover:text-white transition-colors"
+                    className="w-7 h-7 rounded-full bg-[rgba(255,255,255,0.05)] flex items-center justify-center text-[rgba(245,240,232,0.40)] hover:text-white transition-colors"
                   >
                     <X className="w-3.5 h-3.5" />
                   </button>
                 </div>
+              </div>
 
-                {/* Messages */}
-                <div className="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-3">
-                  {loadingConvo || messagesLoading ? (
-                    <div className="flex items-center justify-center h-full">
-                      <Loader2 className="w-5 h-5 animate-spin text-[rgba(191,162,100,0.4)]" />
-                    </div>
-                  ) : messages.length === 0 ? (
-                    <EmptyConversation partner={activePartner} />
-                  ) : (
-                    <>
-                      {messages.map((msg) => (
-                        <MessageBubble
-                          key={msg.id}
-                          message={msg}
-                          isOwn={msg.senderId === uid}
-                        />
-                      ))}
-                      <div ref={messagesEndRef} />
-                    </>
-                  )}
-                </div>
-
-                <MessageInput onSend={handleSend} disabled={loadingConvo} />
-              </>
-            ) : (
-              <div className="flex-1 flex flex-col items-center justify-center gap-4 text-center p-8">
-                <div className="w-16 h-16 rounded-[1.5rem] bg-[rgba(191,162,100,0.06)] border border-[rgba(191,162,100,0.15)] flex items-center justify-center">
-                  <MessageCircle className="w-8 h-8 text-[rgba(191,162,100,0.4)]" />
-                </div>
-                <div>
-                  <p className="text-sm font-black text-[#F5F0E8] mb-1">
-                    Select a Conversation
-                  </p>
-                  <p className="text-xs text-[rgba(245,240,232,0.35)]">
-                    Choose from your conversations or start a new one via an
-                    operator's profile.
-                  </p>
+              {/* Search */}
+              <div className="px-4 py-3 border-b border-[rgba(255,255,255,0.04)]">
+                <div className="relative">
+                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[rgba(245,240,232,0.20)]" />
+                  <input
+                    type="text"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
+                    placeholder="Search conversations..."
+                    className="w-full bg-[rgba(255,255,255,0.03)] border border-[rgba(255,255,255,0.06)] text-xs text-[rgba(245,240,232,0.70)] placeholder-[rgba(245,240,232,0.20)] pl-8 pr-3 py-2 rounded-xl outline-none focus:border-[rgba(191,162,100,0.30)] transition-all"
+                  />
                 </div>
               </div>
-            )}
-          </div>
-        </motion.div>
-      </div>
+
+              {/* Conversation list */}
+              <div className="flex-1 overflow-y-auto custom-scrollbar">
+                {dmLoading ? (
+                  <div className="space-y-1 p-4">
+                    {[1, 2, 3].map((i) => (
+                      <div
+                        key={i}
+                        className="h-14 bg-[rgba(255,255,255,0.02)] rounded-xl animate-pulse"
+                      />
+                    ))}
+                  </div>
+                ) : filteredConversations.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-12 text-center px-4">
+                    <MessageCircle className="w-10 h-10 text-[rgba(245,240,232,0.08)] mb-3" />
+                    <p className="text-xs font-bold text-[rgba(245,240,232,0.25)]">
+                      No messages yet
+                    </p>
+                    <p className="text-[10px] text-[rgba(245,240,232,0.15)] mt-1">
+                      Message allies from their profile
+                    </p>
+                  </div>
+                ) : (
+                  filteredConversations.map((convo) => (
+                    <ConversationItem
+                      key={convo.id}
+                      conversation={convo}
+                      uid={uid}
+                      isActive={activeConversation === convo.id}
+                      onClick={() => handleSelectConversation(convo)}
+                    />
+                  ))
+                )}
+              </div>
+            </div>
+
+            {/* RIGHT: Message Thread */}
+            <div
+              className={cn(
+                "flex-1 flex flex-col min-w-0",
+                !activeConversation && !activePartner
+                  ? "hidden md:flex"
+                  : "flex",
+              )}
+            >
+              {activeConversation || activePartner ? (
+                <>
+                  {/* Thread header */}
+                  <div className="px-5 py-4 border-b border-[rgba(255,255,255,0.05)] flex items-center gap-3 shrink-0 bg-[#050505]">
+                    <button
+                      onClick={() => {
+                        setActiveConversation(null);
+                        setActivePartner(null);
+                      }}
+                      className="md:hidden w-7 h-7 rounded-full bg-[rgba(255,255,255,0.05)] flex items-center justify-center text-[rgba(245,240,232,0.40)] hover:text-white transition-colors"
+                    >
+                      <ArrowLeft className="w-3.5 h-3.5" />
+                    </button>
+                    <div className="w-9 h-9 rounded-full bg-[#111] border border-[#BFA264]/30 flex items-center justify-center text-sm font-black text-[#BFA264] overflow-hidden">
+                      {activePartner?.identity?.avatarUrl ? (
+                        <img
+                          src={activePartner.identity.avatarUrl}
+                          alt=""
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        partnerDisplayName.charAt(0).toUpperCase()
+                      )}
+                    </div>
+                    <div>
+                      <p className="text-sm font-black text-[#F5F0E8]">
+                        {partnerDisplayName}
+                      </p>
+                      {activePartner?.identity?.username && (
+                        <p className="text-[10px] text-[rgba(245,240,232,0.30)] font-mono">
+                          @{activePartner.identity.username}
+                        </p>
+                      )}
+                    </div>
+                    <div className="ml-auto hidden md:flex items-center gap-2">
+                      <button
+                        onClick={() => setIsExpanded(!isExpanded)}
+                        className="w-7 h-7 rounded-full bg-[rgba(255,255,255,0.05)] flex items-center justify-center text-[rgba(245,240,232,0.40)] hover:text-white transition-colors"
+                      >
+                        {isExpanded ? (
+                          <Minimize2 className="w-3.5 h-3.5" />
+                        ) : (
+                          <Maximize2 className="w-3.5 h-3.5" />
+                        )}
+                      </button>
+                      <button
+                        onClick={onClose}
+                        className="w-7 h-7 rounded-full bg-[rgba(255,255,255,0.05)] flex items-center justify-center text-[rgba(245,240,232,0.40)] hover:text-white transition-colors"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Messages */}
+                  <div className="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-3">
+                    {loadingConvo || messagesLoading ? (
+                      <div className="flex items-center justify-center h-full">
+                        <Loader2 className="w-5 h-5 animate-spin text-[rgba(191,162,100,0.4)]" />
+                      </div>
+                    ) : messages.length === 0 ? (
+                      <EmptyConversation partner={activePartner} />
+                    ) : (
+                      <>
+                        {messages.map((msg) => (
+                          <MessageBubble
+                            key={msg.id}
+                            message={msg}
+                            isOwn={msg.senderId === uid}
+                          />
+                        ))}
+                        <div ref={messagesEndRef} />
+                      </>
+                    )}
+                  </div>
+
+                  <MessageInput onSend={handleSend} disabled={loadingConvo} />
+                </>
+              ) : (
+                <div className="flex-1 flex flex-col items-center justify-center gap-4 text-center p-8">
+                  <div className="w-16 h-16 rounded-[1.5rem] bg-[rgba(191,162,100,0.06)] border border-[rgba(191,162,100,0.15)] flex items-center justify-center">
+                    <MessageCircle className="w-8 h-8 text-[rgba(191,162,100,0.4)]" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-black text-[#F5F0E8] mb-1">
+                      Select a Conversation
+                    </p>
+                    <p className="text-xs text-[rgba(245,240,232,0.35)]">
+                      Choose from your conversations or start a new one via an
+                      operator's profile.
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+          </motion.div>
+        </div>
+      )}
     </AnimatePresence>
   );
 };

@@ -275,9 +275,9 @@ service cloud.firestore {
         && request.resource.data.diff(resource.data).affectedKeys()
             .hasOnly(['likedBy', 'likesCount', 'replyCount']);
 
-      // Delete: only the author
-      allow delete: if isAuthenticated()
-        && resource.data.authorId == request.auth.uid;
+      // Delete: only the author or admin
+      allow delete: if isAdmin() 
+        || (isAuthenticated() && resource.data.authorId == request.auth.uid);
     }
 
     // =========================================================================

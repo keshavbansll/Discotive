@@ -352,8 +352,16 @@ const PostComposer = ({ userData, onPost, isPosting }) => {
 };
 
 // ─── Comment Item ──────────────────────────────────────────────────────────────
-const CommentItem = ({ comment, uid, onDelete, onReply, depth = 0 }) => {
+const CommentItem = ({
+  comment,
+  uid,
+  onDelete,
+  onReply,
+  depth = 0,
+  isAdmin,
+}) => {
   const isOwn = comment.authorId === uid;
+  const canDelete = isOwn || isAdmin;
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   return (
@@ -402,7 +410,7 @@ const CommentItem = ({ comment, uid, onDelete, onReply, depth = 0 }) => {
               <CornerDownRight className="w-3 h-3" /> Reply
             </button>
           )}
-          {isOwn && (
+          {canDelete && (
             <>
               {showDeleteConfirm ? (
                 <div className="flex items-center gap-1.5">
@@ -441,6 +449,7 @@ const CommentItem = ({ comment, uid, onDelete, onReply, depth = 0 }) => {
 
 // ─── Comment Section ───────────────────────────────────────────────────────────
 const CommentSection = ({
+  isAdmin,
   postId,
   uid,
   userData,
@@ -608,6 +617,7 @@ const CommentSection = ({
             {comments.map((comment) => (
               <CommentItem
                 key={comment.id}
+                isAdmin={isAdmin}
                 comment={comment}
                 uid={uid}
                 onDelete={handleDelete}
@@ -633,6 +643,7 @@ const CommentSection = ({
 
 // ─── Post Card ────────────────────────────────────────────────────────────────
 const PostCard = ({
+  isAdmin,
   post,
   uid,
   userData,
@@ -794,7 +805,7 @@ const PostCard = ({
                   transition={{ duration: 0.12 }}
                   className="absolute right-0 top-full mt-1 w-44 bg-[#0F0F0F] border border-[rgba(255,255,255,0.08)] rounded-xl shadow-2xl z-50 overflow-hidden py-1"
                 >
-                  {isAuthor ? (
+                  {(isAuthor || isAdmin) && (
                     <button
                       onClick={() => {
                         setShowOptions(false);
@@ -804,7 +815,8 @@ const PostCard = ({
                     >
                       <Trash2 className="w-3.5 h-3.5" /> Delete Post
                     </button>
-                  ) : (
+                  )}
+                  {!isAuthor && (
                     <>
                       <button
                         onClick={() => {
@@ -926,6 +938,7 @@ const PostCard = ({
               transition={{ duration: 0.2 }}
             >
               <CommentSection
+                isAdmin={isAdmin}
                 postId={post.id}
                 uid={uid}
                 userData={userData}
@@ -1019,6 +1032,7 @@ const FeedError = ({ onRetry }) => (
 // FEED TAB (Main Export)
 // ═══════════════════════════════════════════════════════════════════════════════
 const FeedTab = ({
+  isAdmin,
   uid,
   userData,
   posts,
@@ -1061,6 +1075,7 @@ const FeedTab = ({
               {posts.map((post) => (
                 <PostCard
                   key={post.id}
+                  isAdmin={isAdmin}
                   post={post}
                   uid={uid}
                   userData={userData}
