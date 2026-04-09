@@ -75,7 +75,7 @@ const topNavItems = [
 const upperMiddleNavItems = [
   {
     icon: LaptopMinimalCheck,
-    label: "Execution Timeline",
+    label: "Execution Agent",
     path: "/app/roadmap",
   },
   { icon: Trophy, label: "Leaderboard", path: "/app/leaderboard" },
