@@ -40,6 +40,7 @@ import {
   Globe,
   HelpCircle,
   MessageSquare,
+  MessageCircle,
   Zap,
   ChevronRight as ChevronRightIcon,
   BellOff,
@@ -225,6 +226,10 @@ const MainLayout = () => {
 
   // Dashboard is partially visible for ghost users — not locked, but shows banner
   const isCommandCenter = location.pathname === "/app";
+
+  // Track if DM Panel is currently open via URL query params
+  const isDMOpen =
+    location.search.includes("dm=") || location.search.includes("new_dm=");
 
   // --- THE GHOST USER BOUNCER ---
   useEffect(() => {
@@ -675,110 +680,128 @@ const MainLayout = () => {
           {/* DESKTOP SPACER */}
           <div className="hidden md:block flex-1 order-none md:order-3"></div>
 
-          {/* NOTIFICATIONS DROPDOWN (Mobile: Right, Desktop: Right) */}
-          <div
-            className="relative order-3 md:order-4 shrink-0"
-            ref={notifMenuRef}
-          >
+          {/* MESSAGES & NOTIFICATIONS (Mobile: Right, Desktop: Right) */}
+          <div className="flex items-center gap-2 order-3 md:order-4 shrink-0">
+            {/* MESSAGES BUTTON */}
             <button
-              onClick={handleToggleNotifMenu}
+              onClick={() => navigate("/app/network?dm=menu")}
               className={cn(
                 "p-2 md:p-2.5 rounded-full transition-all relative border active:scale-95 duration-150",
-                showNotifMenu
+                location.pathname === "/app/network" &&
+                  location.search.includes("dm=")
                   ? "bg-[rgba(191,162,100,0.15)] text-[#D4AF78] border-[rgba(191,162,100,0.3)] shadow-[0_0_15px_rgba(191,162,100,0.1)]"
                   : "bg-[#0A0A0A] border-white/5 text-[#F5F0E8]/60 hover:text-[#D4AF78] hover:border-[rgba(191,162,100,0.2)]",
               )}
             >
-              <Bell className="w-4 h-4 md:w-5 md:h-5" />
-              {/* Only show the dot if there are unread notifications */}
-              {(userData?.hasUnreadNotifications ??
-                userData?.notifications?.length > 0) && (
-                <span className="absolute top-0 right-0 w-2.5 h-2.5 bg-[#EF4444] border-2 border-[#0A0A0A] rounded-full shadow-[0_0_8px_rgba(239,68,68,0.5)]" />
+              <MessageCircle className="w-4 h-4 md:w-5 md:h-5" />
+              {/* Shows unread dot if tracked globally in userData */}
+              {userData?.unreadDmCount > 0 && (
+                <span className="absolute top-0 right-0 w-2.5 h-2.5 bg-[#BFA264] border-2 border-[#0A0A0A] rounded-full shadow-[0_0_8px_rgba(191,162,100,0.5)]" />
               )}
             </button>
-            {/* --- NOTIFICATIONS DROPDOWN CONTENT --- */}
-            <AnimatePresence>
-              {showNotifMenu && (
-                <motion.div
-                  initial={{ opacity: 0, y: 10, scale: 0.95 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                  transition={{ duration: 0.15 }}
-                  className="absolute right-0 top-full mt-3 w-[320px] md:w-[380px] bg-[#0A0A0A] border border-white/5 rounded-2xl shadow-[0_30px_80px_rgba(0,0,0,0.95)] overflow-hidden z-[120] flex flex-col max-h-[80dvh]"
-                >
-                  <div className="flex items-center justify-between p-4 border-b border-white/5 bg-[#0F0F0F] shrink-0">
-                    <h3 className="font-extrabold text-[#F5F0E8] text-sm md:text-base">
-                      Notifications
-                    </h3>
-                    <div className="flex items-center gap-2">
-                      {userData?.notifications?.length > 0 && (
-                        <button
-                          onClick={handleClearAllNotifications}
-                          className="text-[10px] font-bold text-[#F5F0E8]/40 hover:text-[#F87171] transition-colors uppercase tracking-widest px-2"
-                          title="Clear All"
-                        >
-                          Clear All
-                        </button>
-                      )}
-                      <button
-                        className="p-1.5 hover:bg-[rgba(191,162,100,0.08)] hover:text-[#D4AF78] text-[#F5F0E8]/40 rounded-lg transition-colors"
-                        title="Settings"
-                      >
-                        <Settings className="w-4 h-4" />
-                      </button>
-                    </div>
-                  </div>
 
-                  <div className="flex-1 overflow-y-auto custom-scrollbar">
-                    {/* Empty State */}
-                    {!userData?.notifications ||
-                    userData.notifications.length === 0 ? (
-                      <div className="flex flex-col items-center justify-center py-12 px-6 text-center">
-                        <BellOff className="w-10 h-10 text-[#F5F0E8]/10 mb-4" />
-                        <p className="text-sm font-bold text-[#F5F0E8]/80 mb-1">
-                          You're all caught up
-                        </p>
-                        <p className="text-xs text-[#F5F0E8]/40 leading-relaxed">
-                          System alerts, alliance requests, and protocol updates
-                          will appear here.
-                        </p>
-                      </div>
-                    ) : (
-                      <div className="divide-y divide-white/5">
-                        {userData.notifications.map((notif, i) => (
-                          <div
-                            key={i}
-                            className="p-4 hover:bg-[rgba(191,162,100,0.04)] transition-colors flex gap-3 relative group"
+            {/* NOTIFICATIONS DROPDOWN */}
+            <div className="relative shrink-0" ref={notifMenuRef}>
+              <button
+                onClick={handleToggleNotifMenu}
+                className={cn(
+                  "p-2 md:p-2.5 rounded-full transition-all relative border active:scale-95 duration-150",
+                  showNotifMenu
+                    ? "bg-[rgba(191,162,100,0.15)] text-[#D4AF78] border-[rgba(191,162,100,0.3)] shadow-[0_0_15px_rgba(191,162,100,0.1)]"
+                    : "bg-[#0A0A0A] border-white/5 text-[#F5F0E8]/60 hover:text-[#D4AF78] hover:border-[rgba(191,162,100,0.2)]",
+                )}
+              >
+                <Bell className="w-4 h-4 md:w-5 md:h-5" />
+                {/* Only show the dot if there are unread notifications */}
+                {(userData?.hasUnreadNotifications ??
+                  userData?.notifications?.length > 0) && (
+                  <span className="absolute top-0 right-0 w-2.5 h-2.5 bg-[#EF4444] border-2 border-[#0A0A0A] rounded-full shadow-[0_0_8px_rgba(239,68,68,0.5)]" />
+                )}
+              </button>
+              {/* --- NOTIFICATIONS DROPDOWN CONTENT --- */}
+              <AnimatePresence>
+                {showNotifMenu && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                    transition={{ duration: 0.15 }}
+                    className="absolute right-0 top-full mt-3 w-[320px] md:w-[380px] bg-[#0A0A0A] border border-white/5 rounded-2xl shadow-[0_30px_80px_rgba(0,0,0,0.95)] overflow-hidden z-[120] flex flex-col max-h-[80dvh]"
+                  >
+                    <div className="flex items-center justify-between p-4 border-b border-white/5 bg-[#0F0F0F] shrink-0">
+                      <h3 className="font-extrabold text-[#F5F0E8] text-sm md:text-base">
+                        Notifications
+                      </h3>
+                      <div className="flex items-center gap-2">
+                        {userData?.notifications?.length > 0 && (
+                          <button
+                            onClick={handleClearAllNotifications}
+                            className="text-[10px] font-bold text-[#F5F0E8]/40 hover:text-[#F87171] transition-colors uppercase tracking-widest px-2"
+                            title="Clear All"
                           >
-                            <div className="w-2 h-2 mt-1.5 rounded-full bg-[#BFA264] shrink-0 shadow-[0_0_8px_rgba(191,162,100,0.6)]" />
-                            <div className="flex-1 min-w-0 pr-6">
-                              {/* Scrollable container for long messages */}
-                              <div className="max-h-[80px] overflow-y-auto custom-scrollbar pr-2">
-                                <p className="text-xs md:text-sm text-[#F5F0E8]/80 leading-relaxed whitespace-pre-wrap font-medium">
-                                  {notif.message}
+                            Clear All
+                          </button>
+                        )}
+                        <button
+                          className="p-1.5 hover:bg-[rgba(191,162,100,0.08)] hover:text-[#D4AF78] text-[#F5F0E8]/40 rounded-lg transition-colors"
+                          title="Settings"
+                        >
+                          <Settings className="w-4 h-4" />
+                        </button>
+                      </div>
+                    </div>
+
+                    <div className="flex-1 overflow-y-auto custom-scrollbar">
+                      {/* Empty State */}
+                      {!userData?.notifications ||
+                      userData.notifications.length === 0 ? (
+                        <div className="flex flex-col items-center justify-center py-12 px-6 text-center">
+                          <BellOff className="w-10 h-10 text-[#F5F0E8]/10 mb-4" />
+                          <p className="text-sm font-bold text-[#F5F0E8]/80 mb-1">
+                            You're all caught up
+                          </p>
+                          <p className="text-xs text-[#F5F0E8]/40 leading-relaxed">
+                            System alerts, alliance requests, and protocol
+                            updates will appear here.
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="divide-y divide-white/5">
+                          {userData.notifications.map((notif, i) => (
+                            <div
+                              key={i}
+                              className="p-4 hover:bg-[rgba(191,162,100,0.04)] transition-colors flex gap-3 relative group"
+                            >
+                              <div className="w-2 h-2 mt-1.5 rounded-full bg-[#BFA264] shrink-0 shadow-[0_0_8px_rgba(191,162,100,0.6)]" />
+                              <div className="flex-1 min-w-0 pr-6">
+                                {/* Scrollable container for long messages */}
+                                <div className="max-h-[80px] overflow-y-auto custom-scrollbar pr-2">
+                                  <p className="text-xs md:text-sm text-[#F5F0E8]/80 leading-relaxed whitespace-pre-wrap font-medium">
+                                    {notif.message}
+                                  </p>
+                                </div>
+                                <p className="text-[10px] text-[#F5F0E8]/40 font-mono mt-2 uppercase">
+                                  {notif.time || "Just now"}
                                 </p>
                               </div>
-                              <p className="text-[10px] text-[#F5F0E8]/40 font-mono mt-2 uppercase">
-                                {notif.time || "Just now"}
-                              </p>
-                            </div>
 
-                            {/* Hover Delete Button */}
-                            <button
-                              onClick={(e) => handleDeleteNotification(i, e)}
-                              className="absolute right-3 top-3 p-1.5 text-[#F5F0E8]/40 hover:text-[#F87171] hover:bg-[#F87171]/10 rounded-md transition-all opacity-0 group-hover:opacity-100"
-                              title="Delete notification"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
+                              {/* Hover Delete Button */}
+                              <button
+                                onClick={(e) => handleDeleteNotification(i, e)}
+                                className="absolute right-3 top-3 p-1.5 text-[#F5F0E8]/40 hover:text-[#F87171] hover:bg-[#F87171]/10 rounded-md transition-all opacity-0 group-hover:opacity-100"
+                                title="Delete notification"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
           </div>
 
           {/* --- PROFILE DROPDOWN ENGINE (Mobile: Left, Desktop: Right) --- */}
@@ -1439,7 +1462,7 @@ const MainLayout = () => {
       </AnimatePresence>
 
       {/* GLOBAL GRACE AI */}
-      {!isGhostUser && <Grace userData={userData} />}
+      {!isGhostUser && !isDMOpen && <Grace userData={userData} />}
 
       {/* GLOBAL SHORTCUTS MODAL */}
       <ShortcutsPanel

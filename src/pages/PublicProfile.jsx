@@ -1,45 +1,33 @@
 /**
- * @fileoverview Discotive OS — Public Profile (The Live Resume Standard)
- * @module PublicProfile
+ * @fileoverview Discotive OS — Public Profile v8 (The Live Resume Standard)
  * @route /@:handle
- *
  * @description
- * The public-facing career card for any Discotive operator.
- * Accessible by anyone with the link — zero sensitive data exposed.
- *
- * Philosophy:
- * "People today share LinkedIn URLs, GitHub handles, résumé PDFs.
- * The Discotive Public Profile replaces all three: it is a living,
- * verifiable, scored career document that updates in real-time."
- *
- * Features:
- * - SVG Radar chart (Execution, Skills, Network, Vault, Reach)
- * - SVG Donut — Moat distribution (skills × effort allocation)
- * - Verified vault assets only (status === 'VERIFIED')
- * - Global rank + percentile display
- * - Profile view tracking (+1 score for owner on each unique visit)
- * - Export DCI PDF (via DCIExportTemplate)
- * - Alliance / Connect CTA for authenticated visitors
- * - Discotive branding footer ("Verified by Discotive OS")
+ * The public billboard. Strict data hygiene — zero sensitive data exposed.
+ * Designed to replace LinkedIn. HR must be able to judge a candidate in 10s.
+ * Alliance request routes through Cloud Functions, not client writes.
  */
 
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import {
-  doc,
-  updateDoc,
-  writeBatch,
-  arrayUnion,
-  increment,
-} from "firebase/firestore";
+import { increment, doc, updateDoc } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
 import { db, auth, functions } from "../firebase";
 import { useUserData } from "../hooks/useUserData";
-import { mutateScore } from "../lib/scoreEngine";
-import { pdf } from "@react-pdf/renderer";
-import { DCIExportTemplate } from "../components/DCIExportTemplate";
 import { cn } from "../lib/cn";
+import {
+  RadarChart,
+  Radar,
+  PolarGrid,
+  PolarAngleAxis,
+  ResponsiveContainer,
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip as ReTooltip,
+} from "recharts";
 import {
   MapPin,
   Github,
@@ -52,9 +40,8 @@ import {
   Activity,
   ShieldCheck,
   Users,
-  GraduationCap,
+  BookOpen,
   FolderLock,
-  PieChart,
   Download,
   Share2,
   X,
@@ -73,175 +60,117 @@ import {
   Flame,
   ArrowLeft,
   Copy,
-  MessageCircle,
   Lock,
   TrendingUp,
   TrendingDown,
+  Database,
+  Sparkles,
 } from "lucide-react";
 
-// ─── SVG Radar ───────────────────────────────────────────────────────────────
-const RadarChart = ({ data, labels, accentColor = "#f59e0b" }) => {
-  const N = data.length;
-  const cx = 50;
-  const cy = 50;
-  const maxR = 36;
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
-  const toXY = (val, i, r = maxR) => {
-    const angle = (Math.PI * 2 * i) / N - Math.PI / 2;
-    return {
-      x: cx + r * val * Math.cos(angle),
-      y: cy + r * val * Math.sin(angle),
-    };
-  };
-
-  const gridPts = (lv) =>
-    Array.from({ length: N }, (_, i) => toXY(lv, i))
-      .map((p) => `${p.x},${p.y}`)
-      .join(" ");
-  const dataPoints = data.map((v, i) => toXY(Math.min(v / 100, 1), i));
-  const polyPts = dataPoints.map((p) => `${p.x},${p.y}`).join(" ");
-  const labelPos = labels.map((_, i) => {
-    const angle = (Math.PI * 2 * i) / N - Math.PI / 2;
-    return {
-      x: cx + (maxR + 11) * Math.cos(angle),
-      y: cy + (maxR + 11) * Math.sin(angle),
-    };
-  });
-
-  return (
-    <svg
-      viewBox="0 0 100 100"
-      className="w-full h-full"
-      style={{ overflow: "visible" }}
-    >
-      {[0.25, 0.5, 0.75, 1].map((lv) => (
-        <polygon
-          key={lv}
-          points={gridPts(lv)}
-          fill="none"
-          stroke="rgba(255,255,255,0.05)"
-          strokeWidth="0.4"
-        />
-      ))}
-      {Array.from({ length: N }, (_, i) => {
-        const p = toXY(1, i);
-        return (
-          <line
-            key={i}
-            x1={cx}
-            y1={cy}
-            x2={p.x}
-            y2={p.y}
-            stroke="rgba(255,255,255,0.05)"
-            strokeWidth="0.4"
-          />
-        );
-      })}
-      <polygon
-        points={polyPts}
-        fill={`${accentColor}20`}
-        stroke={accentColor}
-        strokeWidth="1.5"
-        strokeLinejoin="round"
-      />
-      {dataPoints.map((p, i) => (
-        <circle
-          key={i}
-          cx={p.x}
-          cy={p.y}
-          r="2.5"
-          fill={accentColor}
-          stroke="#030303"
-          strokeWidth="1"
-        />
-      ))}
-      {labels.map((label, i) => (
-        <text
-          key={i}
-          x={labelPos[i].x}
-          y={labelPos[i].y}
-          textAnchor="middle"
-          dominantBaseline="middle"
-          fill="rgba(255,255,255,0.3)"
-          fontSize="3.5"
-          fontWeight="700"
-        >
-          {label}
-        </text>
-      ))}
-    </svg>
+const calcVSS = (vault = []) => {
+  const verified = vault.filter((a) => a.status === "VERIFIED");
+  if (!verified.length) return 0;
+  const pts = verified.reduce(
+    (s, a) =>
+      s + (a.strength === "Strong" ? 30 : a.strength === "Medium" ? 20 : 10),
+    0,
   );
+  return Math.min(Math.round((pts / (verified.length * 30)) * 100), 100);
 };
 
-// ─── SVG Donut ────────────────────────────────────────────────────────────────
-const DonutChart = ({ segments, centerLabel, centerSub, size = 130 }) => {
-  const r = 40;
-  const cx = 50;
-  const cy = 50;
+const fmtScore = (n) =>
+  n >= 10000 ? `${(n / 1000).toFixed(1)}k` : n?.toLocaleString() || "0";
+
+// ─── Score Ring (dynamic max) ─────────────────────────────────────────────────
+const ScoreRing = ({ score, size = 120 }) => {
+  const maxLevel = Math.ceil(score / 1000) * 1000;
+  const pct = Math.min(score / Math.max(maxLevel, 1000), 1);
+  const r = (size - 10) / 2;
   const circ = 2 * Math.PI * r;
-  const total = segments.reduce((s, seg) => s + seg.value, 0) || 1;
-
-  const arcs = segments.map((seg, index) => {
-    const dash = (seg.value / total) * circ;
-    const offset = segments
-      .slice(0, index)
-      .reduce((acc, s) => acc + (s.value / total) * circ, 0);
-    return { ...seg, dash, offset };
-  });
-
   return (
     <div className="relative" style={{ width: size, height: size }}>
-      <svg
-        viewBox="0 0 100 100"
-        width={size}
-        height={size}
-        className="transform -rotate-90"
-      >
+      <svg width={size} height={size} className="-rotate-90">
         <circle
-          cx={cx}
-          cy={cy}
+          cx={size / 2}
+          cy={size / 2}
           r={r}
           fill="none"
           stroke="#0f0f0f"
-          strokeWidth="16"
+          strokeWidth={10}
         />
-        {arcs.map((arc, i) => (
-          <circle
-            key={i}
-            cx={cx}
-            cy={cy}
-            r={r}
-            fill="none"
-            stroke={arc.color}
-            strokeWidth="16"
-            strokeDasharray={`${arc.dash} ${circ - arc.dash}`}
-            strokeDashoffset={-arc.offset}
-          />
-        ))}
-        <circle cx={cx} cy={cy} r={r - 10} fill="#030303" />
+        <motion.circle
+          cx={size / 2}
+          cy={size / 2}
+          r={r}
+          fill="none"
+          stroke="#BFA264"
+          strokeWidth={10}
+          strokeDasharray={circ}
+          initial={{ strokeDashoffset: circ }}
+          animate={{ strokeDashoffset: circ - pct * circ }}
+          transition={{ duration: 1.5, ease: "easeOut" }}
+          strokeLinecap="round"
+          style={{ filter: "drop-shadow(0 0 8px rgba(191,162,100,0.6))" }}
+        />
       </svg>
-      {(centerLabel || centerSub) && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-          {centerLabel && (
-            <span className="text-lg font-black text-white font-mono">
-              {centerLabel}
-            </span>
-          )}
-          {centerSub && (
-            <span className="text-[8px] text-white/30 uppercase tracking-widest">
-              {centerSub}
-            </span>
-          )}
-        </div>
-      )}
+      <div className="absolute inset-0 flex flex-col items-center justify-center">
+        <span className="text-2xl font-black text-white font-mono leading-none">
+          {fmtScore(score)}
+        </span>
+        <span className="text-[8px] text-white/30 uppercase tracking-widest mt-0.5">
+          Score
+        </span>
+      </div>
     </div>
   );
 };
 
-// ─── Vault asset card ─────────────────────────────────────────────────────────
+// ─── VSS Dial ─────────────────────────────────────────────────────────────────
+const VSSDial = ({ score, size = 80 }) => {
+  const r = (size - 8) / 2;
+  const circ = 2 * Math.PI * r;
+  const color = score >= 70 ? "#10b981" : score >= 40 ? "#BFA264" : "#f97316";
+  return (
+    <div className="relative" style={{ width: size, height: size }}>
+      <svg width={size} height={size} className="-rotate-90">
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={r}
+          fill="none"
+          stroke="#0f0f0f"
+          strokeWidth={8}
+        />
+        <motion.circle
+          cx={size / 2}
+          cy={size / 2}
+          r={r}
+          fill="none"
+          stroke={color}
+          strokeWidth={8}
+          strokeDasharray={circ}
+          initial={{ strokeDashoffset: circ }}
+          animate={{ strokeDashoffset: circ - (score / 100) * circ }}
+          transition={{ duration: 1.2, ease: "easeOut", delay: 0.3 }}
+          strokeLinecap="round"
+          style={{ filter: `drop-shadow(0 0 5px ${color}80)` }}
+        />
+      </svg>
+      <div className="absolute inset-0 flex flex-col items-center justify-center">
+        <span className="text-sm font-black text-white leading-none">
+          {score}%
+        </span>
+      </div>
+    </div>
+  );
+};
+
+// ─── Vault Asset Card ──────────────────────────────────────────────────────────
 const VaultAsset = ({ asset }) => {
-  const CAT_COLOR = {
-    Certificate: "#f59e0b",
+  const COLORS = {
+    Certificate: "#BFA264",
     Resume: "#10b981",
     Project: "#8b5cf6",
     Publication: "#06b6d4",
@@ -249,9 +178,9 @@ const VaultAsset = ({ asset }) => {
     Link: "#64748b",
     Other: "#374151",
   };
-  const color = CAT_COLOR[asset.category] || "#555";
+  const color = COLORS[asset.category] || "#555";
   return (
-    <div className="flex items-start gap-3 p-3.5 bg-[#050505] border border-[#111] rounded-xl hover:border-[#1a1a1a] transition-colors">
+    <div className="flex items-start gap-3 p-3.5 bg-[#050505] border border-[#111] rounded-xl hover:border-[#1a1a1a] transition-colors group">
       <div
         className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 border"
         style={{ background: `${color}15`, borderColor: `${color}30` }}
@@ -264,15 +193,15 @@ const VaultAsset = ({ asset }) => {
         </p>
         <p className="text-[9px] text-[#555] mt-0.5">
           {asset.category || "Asset"}
-          {asset.issuer ? ` · ${asset.issuer}` : ""}
+          {asset.credentials?.issuer ? ` · ${asset.credentials.issuer}` : ""}
         </p>
       </div>
-      <div className="flex items-center gap-1.5 shrink-0">
+      <div className="flex items-center gap-2 shrink-0">
         <div
-          className="px-1.5 py-0.5 rounded text-[8px] font-black uppercase tracking-widest"
+          className="px-1.5 py-0.5 rounded text-[7px] font-black uppercase tracking-widest"
           style={{ color, background: `${color}15` }}
         >
-          Verified
+          {asset.strength || "Verified"}
         </div>
         {asset.url && (
           <a
@@ -289,67 +218,27 @@ const VaultAsset = ({ asset }) => {
   );
 };
 
-// ─── Score ring ───────────────────────────────────────────────────────────────
-const ScoreRing = ({
-  score,
-  max = 5000,
-  accentColor = "#f59e0b",
-  size = 120,
-}) => {
-  const pct = Math.min(score / max, 1);
-  const r = 42;
-  const cx = 50;
-  const cy = 50;
-  const circ = 2 * Math.PI * r;
+// ─── Score Tooltip ─────────────────────────────────────────────────────────────
+const ScoreTooltip = ({ active, payload, label }) => {
+  if (!active || !payload?.length) return null;
   return (
-    <div className="relative" style={{ width: size, height: size }}>
-      <svg
-        viewBox="0 0 100 100"
-        width={size}
-        height={size}
-        className="-rotate-90"
-      >
-        <circle
-          cx={cx}
-          cy={cy}
-          r={r}
-          fill="none"
-          stroke="#0f0f0f"
-          strokeWidth="10"
-        />
-        <circle
-          cx={cx}
-          cy={cy}
-          r={r}
-          fill="none"
-          stroke={accentColor}
-          strokeWidth="10"
-          strokeDasharray={`${pct * circ} ${circ}`}
-          strokeLinecap="round"
-          style={{ filter: `drop-shadow(0 0 6px ${accentColor}80)` }}
-        />
-      </svg>
-      <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <span className="text-2xl font-black text-white font-mono">
-          {score.toLocaleString()}
-        </span>
-        <span className="text-[8px] text-white/30 uppercase tracking-widest">
-          Score
-        </span>
-      </div>
+    <div className="bg-[#0a0a0a] border border-[#BFA264]/20 rounded-xl px-3 py-2 shadow-xl pointer-events-none">
+      <p className="text-[9px] text-white/25 uppercase mb-0.5">{label}</p>
+      <p className="text-base font-black text-white font-mono">
+        {payload[0].value?.toLocaleString()}
+      </p>
     </div>
   );
 };
 
-// ═══════════════════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════════════════════
 // MAIN COMPONENT
-// ═══════════════════════════════════════════════════════════════════════════════
+// ════════════════════════════════════════════════════════════════════════════════
 const PublicProfile = () => {
   const { handle } = useParams();
   const username = handle?.startsWith("@")
     ? handle.slice(1).toLowerCase()
     : handle?.toLowerCase();
-
   const { userData: viewerData } = useUserData();
   const navigate = useNavigate();
 
@@ -357,197 +246,209 @@ const PublicProfile = () => {
   const [targetId, setTargetId] = useState(null);
   const [rank, setRank] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [allyStatus, setAllyStatus] = useState("none"); // none | sending | sent | allied
   const [isExporting, setIsExporting] = useState(false);
-  const [exportMenu, setExportMenu] = useState(false);
-  const [toast, setToast] = useState(null);
-  const [allyStatus, setAllyStatus] = useState("none"); // none | sent | allied
   const [copied, setCopied] = useState(false);
-
-  const exportMenuRef = useRef(null);
+  const [toast, setToast] = useState(null);
+  const toastRef = useRef(null);
+  const GRAD_ID = "pubGrad";
 
   const showToast = (msg, type = "green") => {
+    if (toastRef.current) clearTimeout(toastRef.current);
     setToast({ msg, type });
-    setTimeout(() => setToast(null), 3000);
+    toastRef.current = setTimeout(() => setToast(null), 3000);
   };
 
-  // Click-outside export menu
-  useEffect(() => {
-    const fn = (e) => {
-      if (exportMenuRef.current && !exportMenuRef.current.contains(e.target))
-        setExportMenu(false);
-    };
-    document.addEventListener("mousedown", fn);
-    return () => document.removeEventListener("mousedown", fn);
-  }, []);
+  useEffect(
+    () => () => {
+      if (toastRef.current) clearTimeout(toastRef.current);
+    },
+    [],
+  );
 
-  // ── Profile fetch + view tracking ────────────────────────────────────────
+  // ── Fetch profile via Cloud Function ───────────────────────────────────────
   useEffect(() => {
-    const fetchProfile = async () => {
+    const fetch = async () => {
       setLoading(true);
       if (!username) {
         setLoading(false);
         return;
       }
-
       try {
         const getProfile = httpsCallable(functions, "getPublicProfileData");
-        const response = await getProfile({ handle: username });
-        const data = response.data;
-
+        const res = await getProfile({ handle: username });
+        const data = res.data;
         setProfileData(data);
         setTargetId(data.id);
         setRank(data.rank);
 
-        // View tracking (unique per device per profile)
-        const viewKey = `dv_viewed_${data.id}`;
+        // View tracking
+        const key = `dv_viewed_${data.id}`;
         const isOwner = auth.currentUser?.uid === data.id;
-
-        if (!localStorage.getItem(viewKey) && !isOwner) {
+        if (!localStorage.getItem(key) && !isOwner && data.id) {
           try {
-            // Safe increment: Protected by the +1 mathematical constraint in firestore.rules
             await updateDoc(doc(db, "users", data.id), {
               profileViews: increment(1),
             });
-
-            // MAANG FIX: Removed client-side mutateScore.
-            // Score awards for views must be handled server-side inside getPublicProfileData.
-
-            localStorage.setItem(viewKey, "true");
-            setProfileData((prev) => ({
-              ...prev,
-              profileViews: (prev?.profileViews || 0) + 1,
+            localStorage.setItem(key, "true");
+            setProfileData((p) => ({
+              ...p,
+              profileViews: (p?.profileViews || 0) + 1,
             }));
-          } catch (telemetryErr) {
-            // Fails gracefully if rules block rapid spamming
-            console.warn("[Telemetry] View count rejected by security gate.");
-          }
+          } catch {}
         }
       } catch (err) {
-        console.error("[PublicProfile] fetch failed:", err);
+        console.error("[PublicProfile]", err);
         setProfileData(null);
       } finally {
         setLoading(false);
       }
     };
-    fetchProfile();
+    fetch();
   }, [username]);
 
-  // ── Alliance status sync ─────────────────────────────────────────────────
+  // ── Alliance status ────────────────────────────────────────────────────────
   useEffect(() => {
     if (!targetId || !viewerData) return;
-    if (viewerData?.allies?.includes(targetId)) {
-      setAllyStatus("allied");
-    } else if (viewerData?.outboundRequests?.includes(targetId)) {
+    if ((viewerData?.allies || []).includes(targetId)) setAllyStatus("allied");
+    else if ((viewerData?.outboundRequests || []).includes(targetId))
       setAllyStatus("sent");
-    }
   }, [targetId, viewerData]);
 
-  // ── Data extraction ───────────────────────────────────────────────────────
+  // ── Derived values ─────────────────────────────────────────────────────────
   const isMe = viewerData?.identity?.username === username;
   const isGuest = !viewerData;
 
   const score = profileData?.discotiveScore?.current || 0;
   const level = Math.min(Math.floor(score / 1000) + 1, 10);
-  const streak =
-    profileData?.discotiveScore?.streak ||
-    profileData?.telemetry?.loginStreak ||
-    0;
+  const streak = profileData?.discotiveScore?.streak || 0;
   const views = profileData?.profileViews || 0;
 
-  const firstName = profileData?.identity?.firstName || "Unknown";
+  const firstName = profileData?.identity?.firstName || "";
   const lastName = profileData?.identity?.lastName || "";
+  const fullName = `${firstName} ${lastName}`.trim() || "Operator";
   const initials =
-    `${firstName.charAt(0)}${lastName ? lastName.charAt(0) : ""}`.toUpperCase();
-  const fullName = `${firstName} ${lastName}`.trim();
+    `${firstName.charAt(0)}${lastName.charAt(0)}`.toUpperCase() || "O";
   const domain =
     profileData?.identity?.domain ||
     profileData?.vision?.passion ||
     "Undeclared";
   const niche =
-    profileData?.identity?.niche || profileData?.vision?.niche || "—";
+    profileData?.identity?.niche || profileData?.vision?.niche || "";
   const location =
     profileData?.footprint?.location || profileData?.identity?.country || null;
   const bio = profileData?.footprint?.bio || null;
-
   const institution = profileData?.baseline?.institution || null;
   const degree = profileData?.baseline?.degree || null;
   const major = profileData?.baseline?.major || null;
   const gradYear = profileData?.baseline?.gradYear || null;
-
   const skills = profileData?.skills?.alignedSkills || [];
   const alliesCount = profileData?.alliesCount || 0;
-
-  // Only verified public vault assets
   const verifiedVault = (profileData?.vault || []).filter(
     (a) => a.status === "VERIFIED",
   );
+  const vss = useMemo(
+    () => calcVSS(profileData?.vault || []),
+    [profileData?.vault],
+  );
+  const moatPct = profileData?.vault?.length
+    ? Math.round((verifiedVault.length / profileData.vault.length) * 100)
+    : 0;
 
-  // ── Radar data ────────────────────────────────────────────────────────────
+  // ── Chart data from daily_scores ──────────────────────────────────────────
+  const chartData = useMemo(() => {
+    const daily = profileData?.daily_scores || {};
+    const src = Object.keys(daily)
+      .map((d) => ({ date: d, score: daily[d] }))
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .slice(-30);
+    if (src.length < 2) return [];
+    return src.map((e) => ({
+      day: new Date(e.date).toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+      }),
+      score: e.score,
+    }));
+  }, [profileData]);
+
+  const chartMin = chartData.length
+    ? Math.max(0, Math.min(...chartData.map((d) => d.score)) - 20)
+    : 0;
+
+  // ── Radar ─────────────────────────────────────────────────────────────────
   const radarData = [
-    Math.min((score / 5000) * 100, 100),
-    Math.min((skills.length / 10) * 100, 100),
-    Math.min((alliesCount / 20) * 100, 100),
-    Math.min((verifiedVault.length / 5) * 100, 100),
-    Math.min((views / 100) * 100, 100),
+    { metric: "Execution", score: Math.min((score / 5000) * 100, 100) },
+    { metric: "Skills", score: Math.min((skills.length / 10) * 100, 100) },
+    { metric: "Network", score: Math.min((alliesCount / 20) * 100, 100) },
+    { metric: "Vault", score: vss },
+    { metric: "Reach", score: Math.min((views / 100) * 100, 100) },
   ];
-  const radarLabels = ["Execution", "Skills", "Network", "Vault", "Reach"];
-
-  // ── Moat donut ────────────────────────────────────────────────────────────
-  const moatSegments = useMemo(() => {
-    const sl = skills.length;
-    if (sl === 0) return [{ value: 1, color: "#1a1a1a" }];
-    const tech = Math.min(40 + sl * 5, 60);
-    const strat = Math.min(30 + sl * 2, 30);
-    const exec = Math.max(100 - tech - strat, 10);
-    return [
-      { label: "Core Capabilities", value: tech, color: "#3b82f6" },
-      { label: "Strategy", value: strat, color: "#f59e0b" },
-      { label: "Execution", value: exec, color: "#10b981" },
-    ];
-  }, [skills.length]);
 
   // ── Links ─────────────────────────────────────────────────────────────────
   const LINKS = [
     { key: "github", icon: Github, color: "#fff", label: "GitHub" },
     { key: "linkedin", icon: Linkedin, color: "#0a66c2", label: "LinkedIn" },
-    { key: "twitter", icon: Twitter, color: "#1da1f2", label: "Twitter" },
+    { key: "twitter", icon: Twitter, color: "#1da1f2", label: "X / Twitter" },
     { key: "youtube", icon: Youtube, color: "#ff0000", label: "YouTube" },
     { key: "instagram", icon: Instagram, color: "#e1306c", label: "Instagram" },
     { key: "website", icon: Globe, color: "#888", label: "Website" },
   ];
   const activeLinks = LINKS.filter((l) => profileData?.links?.[l.key]);
 
-  // ── Alliance action ───────────────────────────────────────────────────────
+  // ── Alliance request (goes through network hook, not client write) ─────────
   const handleConnect = async () => {
     if (isGuest) {
       navigate("/");
       return;
     }
-    if (!targetId || !viewerData?.uid) return;
+    if (!targetId || !viewerData?.uid || allyStatus !== "none") return;
+    setAllyStatus("sending");
     try {
-      const myRef = doc(db, "users", viewerData.uid);
-      const targetRef = doc(db, "users", targetId);
-      const batch = writeBatch(db);
-      batch.update(myRef, { outboundRequests: arrayUnion(targetId) });
-      batch.update(targetRef, { inboundRequests: arrayUnion(viewerData.uid) });
-      await batch.commit();
+      // Using network module pattern: write connection doc
+      const { addDoc, collection, serverTimestamp } =
+        await import("firebase/firestore");
+      await addDoc(collection(db, "connections"), {
+        requesterId: viewerData.uid,
+        receiverId: targetId,
+        requesterName:
+          `${viewerData.identity?.firstName || ""} ${viewerData.identity?.lastName || ""}`.trim() ||
+          "Operator",
+        receiverName: fullName,
+        requesterUsername: viewerData.identity?.username || "",
+        receiverUsername: username,
+        requesterDomain: viewerData.identity?.domain || "",
+        receiverDomain: domain,
+        requesterAvatar: viewerData.identity?.avatarUrl || null,
+        receiverAvatar: null,
+        status: "PENDING",
+        timestamp: serverTimestamp(),
+      });
+      // Award score via scoreEngine
+      const { awardAllianceAction } = await import("../lib/scoreEngine");
+      await awardAllianceAction(viewerData.uid, "sent");
       setAllyStatus("sent");
-      showToast("Alliance request sent!", "green");
-    } catch (error) {
-      console.error("[PublicProfile] Alliance request failed:", error);
-      showToast("Request failed.", "red");
+      showToast("Alliance request sent! +5 pts", "green");
+    } catch (err) {
+      console.error(err);
+      setAllyStatus("none");
+      showToast("Request failed. Try again.", "red");
     }
   };
 
   // ── Export PDF ────────────────────────────────────────────────────────────
   const handleExportPDF = async () => {
     setIsExporting(true);
-    setExportMenu(false);
-    showToast("Compiling DCI document…", "default");
+    showToast("Compiling DCI document…");
     try {
+      const [{ pdf }, React2, { DCIExportTemplate }] = await Promise.all([
+        import("@react-pdf/renderer"),
+        import("react"),
+        import("../components/DCIExportTemplate"),
+      ]);
       const blob = await pdf(
-        <DCIExportTemplate
-          data={{
+        React2.default.createElement(DCIExportTemplate, {
+          data: {
             firstName,
             lastName,
             username,
@@ -563,13 +464,12 @@ const PublicProfile = () => {
             major,
             gradYear,
             streak,
-          }}
-          initials={initials}
-          level={level}
-          skills={skills}
-          assetsCount={verifiedVault.length}
-          alliesCount={alliesCount}
-        />,
+          },
+          level,
+          skills,
+          assetsCount: verifiedVault.length,
+          alliesCount,
+        }),
       ).toBlob();
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
@@ -577,7 +477,7 @@ const PublicProfile = () => {
       a.download = `${firstName}_${lastName}_Discotive_DCI.pdf`;
       a.click();
       URL.revokeObjectURL(url);
-      showToast("DCI PDF ready.", "green");
+      showToast("DCI exported.", "green");
     } catch (e) {
       console.error(e);
       showToast("Export failed.", "red");
@@ -586,24 +486,24 @@ const PublicProfile = () => {
     }
   };
 
-  const handleShareLink = () => {
-    navigator.clipboard.writeText(`https://discotive.com/@${username}`);
+  const handleShare = () => {
+    navigator.clipboard.writeText(`https://discotive.in/@${username}`);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
-    showToast("Profile link copied!", "green");
+    showToast("Link copied!", "green");
   };
 
-  // ─────────────────────────────────────────────────────────────────────────
+  // ── Loading ────────────────────────────────────────────────────────────────
   if (loading)
     return (
       <div className="min-h-screen bg-[#030303] flex items-center justify-center">
         <div className="flex gap-1.5">
-          {[0, 1, 2, 3, 4].map((i) => (
+          {[0, 1, 2, 3].map((i) => (
             <motion.div
               key={i}
-              animate={{ opacity: [0.2, 1, 0.2], scaleY: [0.4, 1, 0.4] }}
-              transition={{ duration: 1, repeat: Infinity, delay: i * 0.1 }}
-              className="w-1 h-6 bg-amber-500 rounded-full origin-bottom"
+              animate={{ scaleY: [0.4, 1, 0.4], opacity: [0.3, 1, 0.3] }}
+              transition={{ duration: 1.2, repeat: Infinity, delay: i * 0.12 }}
+              className="w-1 h-6 bg-[#BFA264] rounded-full origin-bottom"
             />
           ))}
         </div>
@@ -629,22 +529,17 @@ const PublicProfile = () => {
       </div>
     );
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // MAIN RENDER
-  // ─────────────────────────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-[#030303] text-white selection:bg-amber-500/30 pb-24 relative overflow-x-hidden">
+    <div className="min-h-screen bg-[#030303] text-white selection:bg-[#BFA264]/25 pb-24 relative overflow-x-hidden">
       <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-[0.02] pointer-events-none" />
+      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[300px] bg-[#BFA264] opacity-[0.025] blur-[120px] rounded-full pointer-events-none" />
 
-      {/* Ambient glow */}
-      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[600px] h-[300px] bg-amber-500 opacity-[0.03] blur-[100px] rounded-full pointer-events-none" />
-
-      <div className="max-w-[1480px] mx-auto px-4 md:px-8 py-6 md:py-10 relative z-10 space-y-4">
-        {/* ── Top bar ──────────────────────────────────────────────────── */}
+      <div className="max-w-[1520px] mx-auto px-4 md:px-8 py-6 md:py-10 relative z-10 space-y-4">
+        {/* ── TOP BAR ──────────────────────────────────────────────────────── */}
         <div className="flex items-center justify-between gap-4">
           <Link
             to="/app"
-            className="flex items-center gap-2 text-[10px] font-black text-white/30 hover:text-white transition-colors uppercase tracking-widest"
+            className="flex items-center gap-2 text-[10px] font-black text-white/25 hover:text-white transition-colors uppercase tracking-widest"
           >
             <ArrowLeft className="w-4 h-4" /> Network
           </Link>
@@ -657,45 +552,21 @@ const PublicProfile = () => {
                 My Profile
               </Link>
             )}
-            {/* Export menu */}
-            <div className="relative" ref={exportMenuRef}>
-              <button
-                onClick={() => setExportMenu((v) => !v)}
-                className="flex items-center gap-2 px-3 py-2 bg-[#0a0a0a] border border-[#1a1a1a] hover:border-[#333] text-[10px] font-black text-[#666] hover:text-white uppercase tracking-widest rounded-xl transition-colors"
-              >
-                {isExporting ? (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                ) : (
-                  <Download className="w-3.5 h-3.5" />
-                )}
-                Export
-              </button>
-              <AnimatePresence>
-                {exportMenu && (
-                  <motion.div
-                    initial={{ opacity: 0, y: 5 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: 5 }}
-                    className="absolute right-0 top-[calc(100%+8px)] w-48 bg-[#0a0a0a] border border-[#222] rounded-xl shadow-2xl z-50 overflow-hidden p-2"
-                  >
-                    <button
-                      onClick={handleExportPDF}
-                      className="w-full flex items-center gap-2.5 px-3 py-2.5 text-xs font-bold text-white hover:bg-[#111] rounded-lg transition-colors"
-                    >
-                      <FileText className="w-4 h-4 text-amber-500" /> Download
-                      DCI{" "}
-                      <span className="ml-auto text-[9px] text-[#555]">
-                        .PDF
-                      </span>
-                    </button>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
-            {/* Share */}
             <button
-              onClick={handleShareLink}
-              className="flex items-center gap-2 px-3 py-2 bg-[#0a0a0a] border border-[#1a1a1a] hover:border-[#333] text-[10px] font-black text-[#666] hover:text-white uppercase tracking-widest rounded-xl transition-colors"
+              onClick={handleExportPDF}
+              disabled={isExporting}
+              className="flex items-center gap-2 px-3.5 py-2 bg-[#0a0a0a] border border-[#1a1a1a] hover:border-[#333] text-[10px] font-black text-[#666] hover:text-white uppercase tracking-widest rounded-xl transition-colors disabled:opacity-40"
+            >
+              {isExporting ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Download className="w-3.5 h-3.5" />
+              )}
+              {isExporting ? "Compiling…" : "Export DCI"}
+            </button>
+            <button
+              onClick={handleShare}
+              className="flex items-center gap-2 px-3.5 py-2 bg-[#0a0a0a] border border-[#1a1a1a] hover:border-[#333] text-[10px] font-black text-[#666] hover:text-white uppercase tracking-widest rounded-xl transition-colors"
             >
               {copied ? (
                 <Check className="w-3.5 h-3.5 text-emerald-400" />
@@ -707,18 +578,30 @@ const PublicProfile = () => {
           </div>
         </div>
 
-        {/* ── Hero ─────────────────────────────────────────────────────── */}
-        <div className="bg-[#0a0a0a] border border-[#1a1a1a] rounded-[2rem] p-5 md:p-8 relative overflow-hidden">
-          <div className="absolute inset-0 bg-gradient-to-br from-amber-500/[0.03] to-transparent pointer-events-none" />
+        {/* ── HERO ─────────────────────────────────────────────────────────── */}
+        <motion.div
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="bg-[#0a0a0a] border border-[#1a1a1a] rounded-[2rem] p-5 md:p-8 relative overflow-hidden"
+        >
+          <div className="absolute inset-0 bg-gradient-to-br from-[#BFA264]/[0.03] to-transparent pointer-events-none" />
 
           <div className="flex flex-col md:flex-row items-start gap-6 relative z-10">
             {/* Avatar */}
             <div className="relative shrink-0">
-              <div className="w-20 h-20 md:w-24 md:h-24 rounded-[1.5rem] bg-[#111] border border-[#222] flex items-center justify-center text-3xl font-black text-white shadow-xl">
-                {initials}
+              <div className="w-20 h-20 md:w-24 md:h-24 rounded-[1.5rem] bg-[#111] border border-[#222] flex items-center justify-center text-3xl font-black text-white shadow-xl overflow-hidden">
+                {profileData.identity?.avatarUrl ? (
+                  <img
+                    src={profileData.identity.avatarUrl}
+                    alt=""
+                    className="w-full h-full object-cover"
+                  />
+                ) : (
+                  initials
+                )}
               </div>
               {profileData?.tier === "PRO" && (
-                <div className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-amber-500 border-2 border-[#030303] flex items-center justify-center">
+                <div className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-gradient-to-br from-amber-400 to-amber-600 border-2 border-[#030303] flex items-center justify-center pointer-events-none">
                   <Crown className="w-3 h-3 text-black" />
                 </div>
               )}
@@ -726,7 +609,7 @@ const PublicProfile = () => {
 
             {/* Identity */}
             <div className="flex-1 min-w-0">
-              <div className="flex flex-wrap items-center gap-3 mb-2">
+              <div className="flex flex-wrap items-center gap-2.5 mb-2">
                 <h1 className="text-2xl md:text-3xl font-black tracking-tight">
                   {fullName}
                 </h1>
@@ -737,15 +620,11 @@ const PublicProfile = () => {
                   <ShieldCheck className="w-2.5 h-2.5" /> Discotive Verified
                 </span>
               </div>
-
               <p className="text-sm text-[#666] mb-3">
                 {domain}
-                {niche !== "—" && (
-                  <span className="text-[#444]"> · {niche}</span>
-                )}
+                {niche && <span className="text-[#444]"> · {niche}</span>}
               </p>
-
-              <div className="flex flex-wrap gap-3 text-[10px] font-bold text-[#555] uppercase tracking-widest">
+              <div className="flex flex-wrap gap-3 text-[10px] font-bold text-[#555] uppercase tracking-widest mb-3">
                 {location && (
                   <span className="flex items-center gap-1.5">
                     <MapPin className="w-3 h-3" />
@@ -753,81 +632,81 @@ const PublicProfile = () => {
                   </span>
                 )}
                 <span className="flex items-center gap-1.5">
-                  <Award className="w-3 h-3 text-amber-500/50" />
+                  <Award className="w-3 h-3 text-[#BFA264]/50" />
                   Level {level}
                 </span>
                 {rank && (
                   <span className="flex items-center gap-1.5">
-                    <Star className="w-3 h-3 text-amber-500/50" />
+                    <Star className="w-3 h-3 text-[#BFA264]/50" />
                     Rank #{rank} Global
                   </span>
                 )}
               </div>
-
               {bio && (
-                <p className="mt-4 text-sm text-[#777] leading-relaxed max-w-2xl">
+                <p className="text-sm text-[#777] leading-relaxed max-w-2xl">
                   {bio}
                 </p>
               )}
             </div>
 
-            {/* Right: score ring + CTA */}
+            {/* Score ring + CTA */}
             <div className="flex flex-col items-center gap-4 shrink-0">
               <ScoreRing score={score} size={110} />
-
               {!isMe && (
-                <div className="flex flex-col gap-2 w-full">
+                <div className="w-full">
                   {allyStatus === "none" && (
                     <button
                       onClick={handleConnect}
-                      className="flex items-center justify-center gap-2 px-5 py-2.5 bg-white text-black font-black text-[10px] uppercase tracking-widest rounded-xl hover:bg-[#ddd] transition-colors"
+                      className="w-full flex items-center justify-center gap-2 px-5 py-2.5 bg-white text-black font-black text-[10px] uppercase tracking-widest rounded-xl hover:bg-[#ddd] transition-colors shadow-[0_0_20px_rgba(255,255,255,0.1)]"
                     >
                       <UserPlus className="w-3.5 h-3.5" /> Connect
                     </button>
                   )}
+                  {allyStatus === "sending" && (
+                    <div className="w-full flex items-center justify-center gap-2 px-5 py-2.5 bg-[#111] border border-[#222] text-[10px] font-black text-white/30 rounded-xl">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" /> Sending…
+                    </div>
+                  )}
                   {allyStatus === "sent" && (
-                    <div className="flex items-center justify-center gap-2 px-5 py-2.5 bg-white/[0.05] border border-white/[0.08] text-[10px] font-black text-[#666] uppercase tracking-widest rounded-xl">
+                    <div className="w-full flex items-center justify-center gap-2 px-5 py-2.5 bg-white/[0.04] border border-white/[0.08] text-[10px] font-black text-[#666] rounded-xl">
                       <Check className="w-3.5 h-3.5 text-emerald-400" /> Request
                       Sent
                     </div>
                   )}
                   {allyStatus === "allied" && (
-                    <div className="flex items-center justify-center gap-2 px-5 py-2.5 bg-emerald-500/10 border border-emerald-500/20 text-[10px] font-black text-emerald-400 uppercase tracking-widest rounded-xl">
+                    <div className="w-full flex items-center justify-center gap-2 px-5 py-2.5 bg-emerald-500/10 border border-emerald-500/20 text-[10px] font-black text-emerald-400 rounded-xl">
                       <CheckCircle2 className="w-3.5 h-3.5" /> Allied
                     </div>
                   )}
                   {isGuest && (
-                    <Link
-                      to="/"
-                      className="text-[9px] text-[#444] hover:text-[#666] transition-colors text-center"
-                    >
+                    <p className="text-[9px] text-[#444] text-center mt-1">
                       Sign in to connect
-                    </Link>
+                    </p>
                   )}
                 </div>
               )}
             </div>
           </div>
-        </div>
+        </motion.div>
 
-        {/* ── Stats strip ──────────────────────────────────────────────── */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 xl:grid-cols-5 gap-3">
+        {/* ── STATS STRIP ──────────────────────────────────────────────────── */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-3">
           {[
             {
               label: "Score",
-              val: score.toLocaleString(),
+              val: fmtScore(score),
               icon: Zap,
-              color: "text-amber-400",
-              bg: "bg-amber-500/10",
-              border: "border-amber-500/15",
+              color: "text-[#BFA264]",
+              bg: "bg-[#BFA264]/10",
+              border: "border-[#BFA264]/15",
             },
             {
               label: "Level",
               val: `Lv ${level}`,
               icon: Award,
-              color: "text-amber-400",
-              bg: "bg-amber-500/10",
-              border: "border-amber-500/15",
+              color: "text-[#BFA264]",
+              bg: "bg-[#BFA264]/10",
+              border: "border-[#BFA264]/15",
             },
             {
               label: "Streak",
@@ -853,7 +732,7 @@ const PublicProfile = () => {
               bg: "bg-sky-500/10",
               border: "border-sky-500/15",
             },
-          ].map(({ label, val, icon: IconComp, color, bg, border }) => (
+          ].map(({ label, val, icon: Icon, color, bg, border }) => (
             <div
               key={label}
               className={cn(
@@ -862,7 +741,7 @@ const PublicProfile = () => {
                 border,
               )}
             >
-              <IconComp className={cn("w-4 h-4 shrink-0", color)} />
+              <Icon className={cn("w-4 h-4 shrink-0", color)} />
               <div>
                 <p
                   className={cn(
@@ -880,161 +759,233 @@ const PublicProfile = () => {
           ))}
         </div>
 
-        {/* ── Main grid ────────────────────────────────────────────────── */}
+        {/* ── MAIN GRID ─────────────────────────────────────────────────────── */}
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-12 gap-4">
-          {/* Operator Radar — xl:col-span-4 */}
-          <div className="md:col-span-1 xl:col-span-4 bg-[#0a0a0a] border border-[#1a1a1a] rounded-[2rem] p-5 md:p-6 flex flex-col">
-            <h3 className="text-[9px] font-black text-white/30 uppercase tracking-widest flex items-center gap-2 mb-5">
-              <Target className="w-3.5 h-3.5 text-amber-400" /> Operator Radar
+          {/* OPERATOR RADAR — xl:4 */}
+          <motion.div
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.05 }}
+            className="col-span-1 xl:col-span-4 bg-[#0a0a0a] border border-[#1a1a1a] rounded-[2rem] p-5 md:p-6 flex flex-col"
+          >
+            <h3 className="text-[9px] font-black text-white/30 uppercase tracking-[0.2em] flex items-center gap-2 mb-4">
+              <Target className="w-3.5 h-3.5 text-[#BFA264]" />
+              Operator Radar
             </h3>
-            <div className="flex-1 flex flex-col items-center justify-center">
-              <div className="w-full max-w-[200px] aspect-square mx-auto mb-4">
-                <RadarChart data={radarData} labels={radarLabels} />
-              </div>
-              <div className="w-full space-y-1.5">
-                {radarLabels.map((label, i) => (
-                  <div key={label} className="flex items-center gap-2">
-                    <span className="text-[9px] text-white/30 w-20 shrink-0 font-bold uppercase tracking-widest">
-                      {label}
-                    </span>
-                    <div className="flex-1 h-1 bg-white/[0.04] rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-amber-500/60 rounded-full"
-                        style={{ width: `${radarData[i]}%` }}
-                      />
-                    </div>
-                    <span className="text-[9px] font-black font-mono text-white/30 w-6 text-right">
-                      {Math.round(radarData[i])}
-                    </span>
-                  </div>
-                ))}
-              </div>
+            <div className="flex-1 min-h-[200px]">
+              <ResponsiveContainer width="100%" height="100%" minHeight={200}>
+                <RadarChart data={radarData}>
+                  <PolarGrid
+                    stroke="rgba(255,255,255,0.05)"
+                    strokeWidth={0.5}
+                  />
+                  <PolarAngleAxis
+                    dataKey="metric"
+                    tick={{
+                      fill: "rgba(255,255,255,0.3)",
+                      fontSize: 9,
+                      fontWeight: 700,
+                    }}
+                  />
+                  <Radar
+                    dataKey="score"
+                    stroke="#BFA264"
+                    strokeWidth={2}
+                    fill="#BFA264"
+                    fillOpacity={0.15}
+                    dot={{ r: 2.5, fill: "#BFA264", strokeWidth: 0 }}
+                    animationDuration={800}
+                  />
+                </RadarChart>
+              </ResponsiveContainer>
             </div>
-          </div>
+            <div className="space-y-1.5 pt-3 border-t border-white/[0.04]">
+              {radarData.map((d) => (
+                <div key={d.metric} className="flex items-center gap-2">
+                  <span className="text-[9px] text-white/20 font-bold w-16 shrink-0 uppercase tracking-widest">
+                    {d.metric}
+                  </span>
+                  <div className="flex-1 h-1 bg-white/[0.04] rounded-full overflow-hidden">
+                    <motion.div
+                      initial={{ width: 0 }}
+                      animate={{ width: `${d.score}%` }}
+                      transition={{ duration: 0.8, delay: 0.4 }}
+                      className="h-full bg-[#BFA264]/50 rounded-full"
+                    />
+                  </div>
+                  <span className="text-[9px] font-black font-mono text-white/25 w-6 text-right">
+                    {Math.round(d.score)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </motion.div>
 
-          {/* Moat Distribution — xl:col-span-4 */}
-          <div className="md:col-span-1 xl:col-span-4 bg-[#0a0a0a] border border-[#1a1a1a] rounded-[2rem] p-5 md:p-6 flex flex-col">
-            <h3 className="text-[9px] font-black text-white/30 uppercase tracking-widest flex items-center gap-2 mb-5">
-              <PieChart className="w-3.5 h-3.5 text-blue-400" /> Moat
-              Distribution
-            </h3>
-            {skills.length === 0 ? (
-              <div className="flex-1 flex flex-col items-center justify-center gap-2 text-center">
-                <PieChart className="w-8 h-8 text-white/10" />
-                <p className="text-[10px] text-white/20">
-                  Skills not yet declared.
-                </p>
-              </div>
-            ) : (
-              <div className="flex-1 flex flex-col items-center justify-center gap-5">
-                <DonutChart
-                  segments={moatSegments}
-                  centerLabel={skills.length}
-                  centerSub="Skills"
-                  size={130}
-                />
-                <div className="space-y-2 w-full">
-                  {moatSegments.map((seg) => (
-                    <div
-                      key={seg.label}
-                      className="flex items-center justify-between"
-                    >
-                      <div className="flex items-center gap-2">
-                        <div
-                          className="w-2.5 h-2.5 rounded-sm"
-                          style={{ background: seg.color }}
-                        />
-                        <span className="text-[10px] text-white/40 font-bold">
-                          {seg.label}
-                        </span>
-                      </div>
-                      <span className="text-[10px] font-black font-mono text-white/40">
-                        {seg.value}%
-                      </span>
+          {/* VAULT STRENGTH + SCORE TRAJECTORY — xl:8 */}
+          <motion.div
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.08 }}
+            className="col-span-1 xl:col-span-8 bg-[#0a0a0a] border border-[#1a1a1a] rounded-[2rem] p-5 md:p-6 flex flex-col"
+          >
+            <div className="flex flex-wrap items-start justify-between gap-4 mb-4">
+              <div>
+                <h3 className="text-[9px] font-black text-white/30 uppercase tracking-[0.2em] flex items-center gap-2 mb-3">
+                  <Activity className="w-3.5 h-3.5 text-[#BFA264]" />
+                  Score Trajectory
+                </h3>
+                <div className="flex items-end gap-4">
+                  <span className="text-4xl md:text-5xl font-black text-white font-mono tracking-tighter leading-none">
+                    {score.toLocaleString()}
+                  </span>
+                  {streak > 0 && (
+                    <div className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-black border bg-orange-500/10 border-orange-500/20 text-orange-400 mb-1">
+                      <Flame className="w-3 h-3" /> {streak}d streak
                     </div>
-                  ))}
+                  )}
                 </div>
               </div>
-            )}
-          </div>
-
-          {/* Trajectory + rank — xl:col-span-4 */}
-          <div className="md:col-span-2 xl:col-span-4 flex flex-col gap-4">
-            {/* Global rank card */}
-            <div className="bg-[#0a0a0a] border border-[#1a1a1a] rounded-[2rem] p-5 relative overflow-hidden flex-1">
-              {rank <= 10 && (
-                <div className="absolute -top-8 -right-8 w-32 h-32 bg-amber-500 opacity-[0.06] blur-3xl rounded-full pointer-events-none" />
-              )}
-              <h3 className="text-[9px] font-black text-white/30 uppercase tracking-widest flex items-center gap-2 mb-4">
-                <Star className="w-3.5 h-3.5 text-amber-400" /> Global Rank
-              </h3>
-              <div className="flex items-center gap-4">
-                <span
-                  className={cn(
-                    "text-5xl font-black font-mono",
-                    rank <= 3
-                      ? "text-amber-500 drop-shadow-[0_0_20px_rgba(245,158,11,0.5)]"
-                      : "text-white",
-                  )}
-                >
-                  #{rank || "—"}
+              {/* VSS Dial */}
+              <div className="flex flex-col items-center gap-1">
+                <VSSDial score={vss} size={70} />
+                <span className="text-[8px] font-black text-white/25 uppercase tracking-widest">
+                  Vault Strength
                 </span>
-                {rank <= 3 && (
-                  <Crown className="w-7 h-7 text-amber-500 animate-pulse" />
-                )}
               </div>
-              <p className="text-[9px] text-white/20 mt-2 uppercase tracking-widest">
-                {rank <= 10
-                  ? "Elite Tier · Top 10 globally"
-                  : rank <= 100
-                    ? "Advanced Tier · Top 100"
-                    : "Active Operator"}
-              </p>
             </div>
+            <div className="flex-1 min-h-[140px]">
+              {chartData.length >= 2 ? (
+                <ResponsiveContainer width="100%" height="100%" minHeight={140}>
+                  <AreaChart
+                    data={chartData}
+                    margin={{ top: 4, right: 4, left: -32, bottom: 0 }}
+                  >
+                    <defs>
+                      <linearGradient id={GRAD_ID} x1="0" y1="0" x2="0" y2="1">
+                        <stop
+                          offset="0%"
+                          stopColor="#BFA264"
+                          stopOpacity={0.35}
+                        />
+                        <stop
+                          offset="100%"
+                          stopColor="#BFA264"
+                          stopOpacity={0}
+                        />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid
+                      strokeDasharray="2 4"
+                      stroke="rgba(255,255,255,0.03)"
+                      vertical={false}
+                    />
+                    <XAxis
+                      dataKey="day"
+                      hide={chartData.length > 14}
+                      tick={{
+                        fill: "rgba(255,255,255,0.2)",
+                        fontSize: 9,
+                        fontWeight: 700,
+                      }}
+                      axisLine={false}
+                      tickLine={false}
+                      dy={6}
+                    />
+                    <YAxis domain={[chartMin, "auto"]} hide />
+                    <ReTooltip
+                      content={<ScoreTooltip />}
+                      cursor={{
+                        stroke: "rgba(191,162,100,0.15)",
+                        strokeWidth: 1,
+                        strokeDasharray: "4 4",
+                      }}
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="score"
+                      stroke="#BFA264"
+                      strokeWidth={2.5}
+                      fill={`url(#${GRAD_ID})`}
+                      dot={false}
+                      activeDot={{
+                        r: 5,
+                        fill: "#BFA264",
+                        stroke: "#000",
+                        strokeWidth: 2,
+                      }}
+                      animationDuration={800}
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              ) : (
+                <div className="h-full flex items-center justify-center text-[10px] text-white/15">
+                  Score history not available.
+                </div>
+              )}
+            </div>
+          </motion.div>
 
-            {/* Trajectory */}
-            {(profileData?.vision?.goal3Months ||
-              profileData?.vision?.endgame) && (
-              <div className="bg-[#0a0a0a] border border-[#1a1a1a] rounded-[2rem] p-5 flex-1">
-                <h3 className="text-[9px] font-black text-white/30 uppercase tracking-widest flex items-center gap-2 mb-3">
-                  <Target className="w-3.5 h-3.5 text-indigo-400" /> Trajectory
-                </h3>
-                {profileData?.vision?.goal3Months && (
-                  <div className="mb-3">
-                    <p className="text-[8px] text-white/20 uppercase tracking-widest mb-1">
-                      90-Day Target
-                    </p>
-                    <p className="text-sm text-[#888] leading-relaxed">
-                      {profileData.vision.goal3Months}
-                    </p>
-                  </div>
-                )}
-                {profileData?.vision?.endgame && (
-                  <div>
-                    <p className="text-[8px] text-white/20 uppercase tracking-widest mb-1">
-                      Endgame
-                    </p>
-                    <p className="text-xs text-[#555] leading-relaxed">
-                      {profileData.vision.endgame}
-                    </p>
-                  </div>
-                )}
-              </div>
+          {/* RANK CARD — xl:3 */}
+          <motion.div
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.1 }}
+            className="col-span-1 xl:col-span-3 bg-[#0a0a0a] border border-[#1a1a1a] rounded-[2rem] p-5 relative overflow-hidden"
+          >
+            {rank && rank <= 10 && (
+              <div className="absolute -top-8 -right-8 w-32 h-32 bg-[#BFA264] opacity-[0.06] blur-3xl rounded-full pointer-events-none" />
             )}
-          </div>
+            <h3 className="text-[9px] font-black text-white/30 uppercase tracking-[0.2em] flex items-center gap-2 mb-4">
+              <Star className="w-3.5 h-3.5 text-[#BFA264]" />
+              Global Rank
+            </h3>
+            <div className="flex items-center gap-3">
+              <span
+                className={cn(
+                  "text-5xl font-black font-mono",
+                  rank && rank <= 3
+                    ? "text-[#BFA264] drop-shadow-[0_0_20px_rgba(191,162,100,0.5)]"
+                    : "text-white",
+                )}
+              >
+                #{rank || "—"}
+              </span>
+              {rank && rank <= 3 && (
+                <Crown className="w-7 h-7 text-[#BFA264] animate-pulse" />
+              )}
+            </div>
+            <p className="text-[9px] text-white/20 mt-2 uppercase tracking-widest">
+              {rank && rank <= 10
+                ? "Elite Tier · Top 10"
+                : rank && rank <= 100
+                  ? "Advanced · Top 100"
+                  : "Active Operator"}
+            </p>
+          </motion.div>
 
-          {/* Verified Vault — xl:col-span-6 */}
-          <div className="md:col-span-2 xl:col-span-6 bg-[#0a0a0a] border border-[#1a1a1a] rounded-[2rem] p-5 md:p-6">
-            <div className="flex items-center justify-between mb-5">
-              <h3 className="text-[9px] font-black text-white/30 uppercase tracking-widest flex items-center gap-2">
-                <FolderLock className="w-3.5 h-3.5 text-emerald-400" /> Proof of
-                Work
+          {/* VERIFIED VAULT — xl:5 */}
+          <motion.div
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.12 }}
+            className="col-span-1 xl:col-span-5 bg-[#0a0a0a] border border-[#1a1a1a] rounded-[2rem] p-5 md:p-6"
+          >
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-[9px] font-black text-white/30 uppercase tracking-[0.2em] flex items-center gap-2">
+                <FolderLock className="w-3.5 h-3.5 text-emerald-400" />
+                Proof of Work
               </h3>
-              <div className="px-2.5 py-1 bg-emerald-500/10 border border-emerald-500/20 rounded-lg text-[9px] font-black text-emerald-400 uppercase tracking-widest">
-                {verifiedVault.length} Verified
+              <div className="flex items-center gap-2">
+                <div className="px-2 py-0.5 bg-emerald-500/10 border border-emerald-500/20 rounded-lg text-[9px] font-black text-emerald-400">
+                  {verifiedVault.length} Verified
+                </div>
+                {moatPct > 0 && (
+                  <div className="px-2 py-0.5 bg-white/[0.04] border border-white/[0.06] rounded-lg text-[9px] font-black text-white/40">
+                    {moatPct}% Moat
+                  </div>
+                )}
               </div>
             </div>
-
             {verifiedVault.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-8 text-center">
                 <FolderLock className="w-8 h-8 text-white/10 mb-2" />
@@ -1044,62 +995,116 @@ const PublicProfile = () => {
               </div>
             ) : (
               <div className="space-y-2">
-                {verifiedVault.slice(0, 6).map((asset, i) => (
+                {verifiedVault.slice(0, 5).map((asset, i) => (
                   <VaultAsset key={i} asset={asset} />
                 ))}
-                {verifiedVault.length > 6 && (
-                  <p className="text-[9px] text-center text-white/20 pt-2">
-                    +{verifiedVault.length - 6} more verified assets
+                {verifiedVault.length > 5 && (
+                  <p className="text-[9px] text-center text-white/20 pt-1">
+                    +{verifiedVault.length - 5} more verified assets
                   </p>
                 )}
               </div>
             )}
-          </div>
+          </motion.div>
 
-          {/* Skills + Academic — xl:col-span-6 */}
-          <div className="md:col-span-2 xl:col-span-6 space-y-4">
-            {/* Skills */}
-            <div className="bg-[#0a0a0a] border border-[#1a1a1a] rounded-[2rem] p-5 md:p-6">
-              <h3 className="text-[9px] font-black text-white/30 uppercase tracking-widest flex items-center gap-2 mb-4">
-                <Terminal className="w-3.5 h-3.5 text-white/40" /> Capabilities
-              </h3>
-              {skills.length > 0 ? (
-                <div className="flex flex-wrap gap-2">
-                  {skills.map((s, i) => (
-                    <span
-                      key={i}
-                      className="px-3 py-1.5 bg-[#111] border border-[#1a1a1a] rounded-xl text-[11px] font-bold text-[#aaa] cursor-default"
-                    >
-                      {s}
-                    </span>
-                  ))}
+          {/* TRAJECTORY — xl:4 */}
+          <motion.div
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.14 }}
+            className="col-span-1 xl:col-span-4 bg-[#0a0a0a] border border-[#1a1a1a] rounded-[2rem] p-5 md:p-6"
+          >
+            <h3 className="text-[9px] font-black text-white/30 uppercase tracking-[0.2em] flex items-center gap-2 mb-4">
+              <Sparkles className="w-3.5 h-3.5 text-violet-400" />
+              Trajectory
+            </h3>
+            <div className="space-y-4">
+              {profileData?.vision?.goal3Months && (
+                <div>
+                  <p className="text-[8px] font-black text-white/20 uppercase tracking-widest mb-1">
+                    90-Day Target
+                  </p>
+                  <p className="text-sm text-[#888] leading-relaxed">
+                    {profileData.vision.goal3Months}
+                  </p>
                 </div>
-              ) : (
-                <p className="text-sm text-[#444]">Skills not declared.</p>
               )}
+              {profileData?.vision?.endgame && (
+                <div>
+                  <p className="text-[8px] font-black text-white/20 uppercase tracking-widest mb-1">
+                    Macro Endgame
+                  </p>
+                  <p className="text-xs text-[#555] leading-relaxed">
+                    {profileData.vision.endgame}
+                  </p>
+                </div>
+              )}
+              {!profileData?.vision?.goal3Months &&
+                !profileData?.vision?.endgame && (
+                  <p className="text-[10px] text-white/20 italic">
+                    No trajectory disclosed.
+                  </p>
+                )}
             </div>
+          </motion.div>
 
-            {/* Academic */}
+          {/* SKILLS — xl:6 */}
+          <motion.div
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.16 }}
+            className="col-span-1 xl:col-span-6 bg-[#0a0a0a] border border-[#1a1a1a] rounded-[2rem] p-5 md:p-6"
+          >
+            <h3 className="text-[9px] font-black text-white/30 uppercase tracking-[0.2em] flex items-center gap-2 mb-4">
+              <Terminal className="w-3.5 h-3.5 text-white/35" />
+              Capabilities
+            </h3>
+            {skills.length > 0 ? (
+              <div className="flex flex-wrap gap-2">
+                {skills.map((s, i) => (
+                  <motion.span
+                    key={i}
+                    initial={{ opacity: 0, scale: 0.8 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ delay: i * 0.03 }}
+                    className="px-3 py-1.5 bg-[#111] border border-[#1a1a1a] rounded-xl text-[11px] font-bold text-[#aaa]"
+                  >
+                    {s}
+                  </motion.span>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-[#444]">Skills not disclosed.</p>
+            )}
+          </motion.div>
+
+          {/* ACADEMIC + LINKS — xl:6 */}
+          <motion.div
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.18 }}
+            className="col-span-1 xl:col-span-6 space-y-4"
+          >
             {institution && (
-              <div className="bg-[#0a0a0a] border border-[#1a1a1a] rounded-[2rem] p-5 md:p-6">
-                <h3 className="text-[9px] font-black text-white/30 uppercase tracking-widest flex items-center gap-2 mb-4">
-                  <GraduationCap className="w-3.5 h-3.5 text-sky-400" />{" "}
-                  Academic Baseline
+              <div className="bg-[#0a0a0a] border border-[#1a1a1a] rounded-[2rem] p-5">
+                <h3 className="text-[9px] font-black text-white/30 uppercase tracking-[0.2em] flex items-center gap-2 mb-3">
+                  <BookOpen className="w-3.5 h-3.5 text-sky-400" />
+                  Academic
                 </h3>
-                <div className="flex gap-4">
-                  <div className="w-10 h-10 rounded-xl bg-sky-500/10 border border-sky-500/20 flex items-center justify-center shrink-0">
-                    <GraduationCap className="w-4 h-4 text-sky-400" />
+                <div className="flex gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-sky-500/10 border border-sky-500/20 flex items-center justify-center shrink-0">
+                    <BookOpen className="w-4 h-4 text-sky-400" />
                   </div>
                   <div>
                     <p className="text-sm font-black text-white">
                       {institution}
                     </p>
-                    <p className="text-xs text-[#666] mt-0.5">
+                    <p className="text-[10px] text-[#666] mt-0.5">
                       {degree || ""}
                       {major ? ` · ${major}` : ""}
                     </p>
                     {gradYear && (
-                      <p className="text-[9px] font-black text-amber-500/50 uppercase tracking-widest mt-2">
+                      <p className="text-[9px] font-black text-[#BFA264]/50 uppercase tracking-widest mt-1.5">
                         Class of {gradYear}
                       </p>
                     )}
@@ -1107,24 +1112,22 @@ const PublicProfile = () => {
                 </div>
               </div>
             )}
-
-            {/* Digital footprint */}
             {activeLinks.length > 0 && (
-              <div className="bg-[#0a0a0a] border border-[#1a1a1a] rounded-[2rem] p-5 md:p-6">
-                <h3 className="text-[9px] font-black text-white/30 uppercase tracking-widest flex items-center gap-2 mb-4">
-                  <Globe className="w-3.5 h-3.5 text-white/40" /> Digital
-                  Presence
+              <div className="bg-[#0a0a0a] border border-[#1a1a1a] rounded-[2rem] p-5">
+                <h3 className="text-[9px] font-black text-white/30 uppercase tracking-[0.2em] flex items-center gap-2 mb-3">
+                  <Globe className="w-3.5 h-3.5 text-white/35" />
+                  Digital Presence
                 </h3>
                 <div className="flex flex-wrap gap-2">
-                  {activeLinks.map(({ key, label, icon: IconComp, color }) => (
+                  {activeLinks.map(({ key, label, icon: Icon, color }) => (
                     <a
                       key={key}
                       href={profileData.links[key]}
                       target="_blank"
                       rel="noreferrer"
-                      className="flex items-center gap-2 px-3 py-2 bg-[#0f0f0f] border border-[#1a1a1a] rounded-xl hover:border-[#333] transition-colors"
+                      className="flex items-center gap-2 px-3 py-2 bg-[#0f0f0f] border border-[#1a1a1a] rounded-xl hover:border-[#2a2a2a] transition-colors"
                     >
-                      <IconComp className="w-3.5 h-3.5" style={{ color }} />
+                      <Icon className="w-3.5 h-3.5" style={{ color }} />
                       <span className="text-[10px] font-bold text-[#888]">
                         {label}
                       </span>
@@ -1134,50 +1137,55 @@ const PublicProfile = () => {
                 </div>
               </div>
             )}
-          </div>
-        </div>
+          </motion.div>
 
-        {/* ── Discotive branding footer ────────────────────────────────── */}
-        <div className="bg-[#0a0a0a] border border-[#1a1a1a] rounded-[2rem] p-5 flex flex-col sm:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-3">
-            <img
-              src="/logo-no-bg-white.png"
-              alt="Discotive"
-              className="w-6 h-6 object-contain opacity-60"
-            />
-            <div>
-              <p className="text-xs font-black text-white/50">
-                Verified by Discotive OS
-              </p>
-              <p className="text-[9px] text-white/20">
-                The career intelligence standard. Replace your résumé.
-              </p>
+          {/* DISCOTIVE BRANDING FOOTER — xl:12 */}
+          <motion.div
+            initial={{ opacity: 0, y: 16 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.2 }}
+            className="col-span-1 md:col-span-2 xl:col-span-12 bg-[#0a0a0a] border border-[#1a1a1a] rounded-[2rem] p-5 flex flex-col sm:flex-row items-center justify-between gap-4"
+          >
+            <div className="flex items-center gap-3">
+              <img
+                src="/logo-no-bg-white.png"
+                alt="Discotive"
+                className="w-6 h-6 object-contain opacity-50"
+              />
+              <div>
+                <p className="text-xs font-black text-white/40">
+                  Verified by Discotive OS
+                </p>
+                <p className="text-[9px] text-white/20">
+                  The career intelligence standard. Replace your résumé.
+                </p>
+              </div>
             </div>
-          </div>
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-500/10 border border-emerald-500/20 rounded-xl">
-              <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-              <span className="text-[9px] font-black text-emerald-400 uppercase tracking-widest">
-                Live Profile
-              </span>
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-500/10 border border-emerald-500/20 rounded-xl">
+                <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                <span className="text-[9px] font-black text-emerald-400 uppercase tracking-widest">
+                  Live Profile
+                </span>
+              </div>
+              <Link
+                to="/"
+                className="text-[9px] font-black text-[#BFA264]/50 hover:text-[#BFA264] transition-colors uppercase tracking-widest"
+              >
+                Join Discotive →
+              </Link>
             </div>
-            <Link
-              to="/"
-              className="text-[9px] font-black text-amber-500/60 hover:text-amber-500 transition-colors uppercase tracking-widest"
-            >
-              Join Discotive →
-            </Link>
-          </div>
+          </motion.div>
         </div>
       </div>
 
-      {/* ─── Toast ──────────────────────────────────────────────────────── */}
+      {/* Toast */}
       <AnimatePresence>
         {toast && (
           <motion.div
             initial={{ opacity: 0, y: 16, x: -16 }}
             animate={{ opacity: 1, y: 0, x: 0 }}
-            exit={{ opacity: 0, y: 16, x: -16 }}
+            exit={{ opacity: 0, y: 16 }}
             className={cn(
               "fixed bottom-6 left-4 md:left-8 z-[600] border px-4 py-2.5 rounded-xl shadow-2xl flex items-center gap-2 text-[10px] font-mono font-bold uppercase tracking-widest",
               toast.type === "green"

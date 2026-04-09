@@ -7,6 +7,7 @@
  */
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   MessageCircle,
@@ -330,7 +331,9 @@ const DMPanel = ({
     activePartner?.identity?.username ||
     "Operator";
 
-  return (
+  if (typeof document === "undefined") return null;
+
+  return createPortal(
     <AnimatePresence>
       {isOpen && (
         <div
@@ -338,9 +341,9 @@ const DMPanel = ({
           onClick={onClose}
         >
           <motion.div
-            initial={{ opacity: 0, x: 60, scale: 0.97 }}
-            animate={{ opacity: 1, x: 0, scale: 1 }}
-            exit={{ opacity: 0, x: 60, scale: 0.97 }}
+            initial={{ opacity: 0, scale: 0.96 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.96 }}
             transition={{ type: "spring", damping: 26, stiffness: 300 }}
             className={cn(
               "bg-[#0A0A0A] border border-[rgba(255,255,255,0.06)] rounded-t-[2rem] md:rounded-[2rem] shadow-[0_40px_100px_rgba(0,0,0,0.95)] flex overflow-hidden transition-all duration-300",
@@ -543,7 +546,8 @@ const DMPanel = ({
           </motion.div>
         </div>
       )}
-    </AnimatePresence>
+    </AnimatePresence>,
+    document.body,
   );
 };
 

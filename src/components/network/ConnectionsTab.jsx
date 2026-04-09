@@ -1,11 +1,12 @@
 /**
- * @fileoverview ConnectionsTab v2.0 — Alliance Engine & Competitor Radar
+ * @fileoverview ConnectionsTab v3.0 — Alliance Engine & Kinetic Vanguard
  * @description
- * Complete rewrite. No window.confirm (replace with inline confirm modals).
- * Rate limit display. Mutual exclusion enforcement UI. Clean sub-tabs.
+ * V3: Arena split-screen competitor analysis. Alumni clustering (Institutions/Companies/DAOs).
+ * onPeekOperator callback plumbed through all operator cards.
+ * Rate limit display. Granular refresh. No auto-fetch.
  */
 
-import React, { useState, useMemo, useCallback, useRef } from "react";
+import React, { useState, useMemo, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Users,
@@ -19,7 +20,6 @@ import {
   Search,
   Crosshair,
   Link2Off,
-  ArrowRight,
   Globe,
   Loader2,
   Send,
@@ -28,11 +28,20 @@ import {
   MessageCircle,
   Info,
   GraduationCap,
+  Building2,
+  Heart,
+  Target,
+  TrendingUp,
+  TrendingDown,
+  Database,
+  ChevronDown,
+  Minus,
+  Maximize2,
+  Flame,
 } from "lucide-react";
 import { cn } from "../../lib/cn";
-import { Button } from "../ui/Button";
 
-// ─── Time Ago ─────────────────────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 const timeAgo = (date) => {
   if (!date) return "";
   const diff = Date.now() - new Date(date).getTime();
@@ -71,7 +80,7 @@ const SubTab = ({ id, label, icon: Icon, count, active, onClick }) => (
   </button>
 );
 
-// ─── Inline Confirm Modal ─────────────────────────────────────────────────────
+// ─── Confirm Action ───────────────────────────────────────────────────────────
 const ConfirmAction = ({
   message,
   onConfirm,
@@ -94,26 +103,32 @@ const ConfirmAction = ({
       {message}
     </p>
     <div className="flex items-center gap-2 shrink-0">
-      <Button
-        variant={destructive ? "danger" : "primary"}
-        size="sm"
+      <button
         onClick={onConfirm}
+        className={cn(
+          "px-3 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-xl border transition-all",
+          destructive
+            ? "bg-red-500/10 border-red-500/25 text-red-400 hover:bg-red-500/20"
+            : "bg-[#BFA264]/10 border-[#BFA264]/25 text-[#BFA264] hover:bg-[#BFA264]/20",
+        )}
       >
         Confirm
-      </Button>
-      <Button variant="hollow" size="sm" onClick={onCancel}>
+      </button>
+      <button
+        onClick={onCancel}
+        className="px-3 py-1.5 text-[10px] font-black uppercase tracking-widest rounded-xl border border-[rgba(255,255,255,0.07)] bg-[rgba(255,255,255,0.03)] text-[rgba(245,240,232,0.40)] hover:text-white transition-all"
+      >
         Cancel
-      </Button>
+      </button>
     </div>
   </motion.div>
 );
 
-// ─── Rate Limit Indicator ─────────────────────────────────────────────────────
+// ─── Rate Limit Bar ───────────────────────────────────────────────────────────
 const RateLimitBar = ({ count, limit, tier }) => {
   const pct = Math.min((count / limit) * 100, 100);
   const isNearLimit = pct >= 80;
   const isAtLimit = count >= limit;
-
   return (
     <div className="flex items-center gap-3 p-3 bg-[#0A0A0A] border border-[rgba(255,255,255,0.05)] rounded-xl">
       <div className="flex-1">
@@ -137,7 +152,7 @@ const RateLimitBar = ({ count, limit, tier }) => {
         <div className="w-full h-1.5 bg-[rgba(255,255,255,0.04)] rounded-full overflow-hidden">
           <motion.div
             className={cn(
-              "h-full rounded-full transition-colors",
+              "h-full rounded-full",
               isAtLimit
                 ? "bg-red-500"
                 : isNearLimit
@@ -163,7 +178,13 @@ const RateLimitBar = ({ count, limit, tier }) => {
 };
 
 // ─── Operator Card ─────────────────────────────────────────────────────────────
-const OperatorCard = ({ user, actions, badgeText, badgeColor = "amber" }) => {
+const OperatorCard = ({
+  user,
+  actions,
+  badgeText,
+  badgeColor = "amber",
+  onPeek,
+}) => {
   const name =
     `${user?.identity?.firstName || ""} ${user?.identity?.lastName || ""}`.trim() ||
     user?.identity?.username ||
@@ -181,8 +202,10 @@ const OperatorCard = ({ user, actions, badgeText, badgeColor = "amber" }) => {
   };
 
   return (
-    <div className="flex items-center gap-3.5 p-3.5 rounded-[1.25rem] border border-[rgba(255,255,255,0.06)] bg-gradient-to-b from-[#0F0F0F] to-[#0A0A0A] hover:border-[rgba(191,162,100,0.25)] transition-all duration-300 group">
-      {/* Avatar */}
+    <div
+      className="flex items-center gap-3.5 p-3.5 rounded-[1.25rem] border border-[rgba(255,255,255,0.06)] bg-gradient-to-b from-[#0F0F0F] to-[#0A0A0A] hover:border-[rgba(191,162,100,0.25)] transition-all duration-300 group cursor-pointer"
+      onClick={() => onPeek?.(user)}
+    >
       <div className="relative shrink-0">
         <div className="w-10 h-10 rounded-full bg-[#111] border border-[#BFA264]/40 flex items-center justify-center text-sm font-black text-[#BFA264] overflow-hidden">
           {user?.identity?.avatarUrl || user?.avatarUrl ? (
@@ -201,7 +224,6 @@ const OperatorCard = ({ user, actions, badgeText, badgeColor = "amber" }) => {
           </div>
         )}
       </div>
-
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2 mb-0.5">
           <p className="text-sm font-bold text-[#F5F0E8] truncate">{name}</p>
@@ -230,15 +252,19 @@ const OperatorCard = ({ user, actions, badgeText, badgeColor = "amber" }) => {
             <>
               <span className="text-[rgba(255,255,255,0.15)]">·</span>
               <span className="text-[#BFA264] font-bold font-mono">
-                {score.toLocaleString()} pts
+                {score.toLocaleString()}
               </span>
             </>
           )}
         </div>
       </div>
-
       {actions && (
-        <div className="flex items-center gap-2 shrink-0">{actions}</div>
+        <div
+          className="flex items-center gap-2 shrink-0"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {actions}
+        </div>
       )}
     </div>
   );
@@ -252,6 +278,7 @@ const AlliancesPanel = ({
   onMarkCompetitor,
   competitors,
   onDM,
+  onPeek,
 }) => {
   const [search, setSearch] = useState("");
   const [confirmRemove, setConfirmRemove] = useState(null);
@@ -297,7 +324,7 @@ const AlliancesPanel = ({
       <AnimatePresence>
         {confirmRemove && (
           <ConfirmAction
-            message="Severing this Alliance will remove you from each other's network."
+            message="Severing this Alliance removes you from each other's network."
             onConfirm={() => {
               onRemove(confirmRemove.id, confirmRemove.partnerId);
               setConfirmRemove(null);
@@ -323,7 +350,6 @@ const AlliancesPanel = ({
             const isCompetitor = competitors?.some(
               (c) => c.targetId === partnerId,
             );
-
             const partnerObj = {
               id: partnerId,
               identity: {
@@ -341,26 +367,24 @@ const AlliancesPanel = ({
               },
               discotiveScore: { current: 0 },
             };
-
             return (
               <OperatorCard
                 key={conn.id}
                 user={partnerObj}
                 badgeText="Alliance"
                 badgeColor="emerald"
+                onPeek={onPeek}
                 actions={
                   <div className="flex items-center gap-1.5">
-                    {/* DM button */}
                     {onDM && (
                       <button
                         onClick={() => onDM(partnerId, partnerObj)}
-                        title="Send Message"
+                        title="Message"
                         className="w-8 h-8 rounded-xl flex items-center justify-center bg-[#111] border border-[rgba(255,255,255,0.07)] text-[rgba(245,240,232,0.30)] hover:text-[#BFA264] hover:bg-[rgba(191,162,100,0.08)] transition-all"
                       >
                         <MessageCircle className="w-3.5 h-3.5" />
                       </button>
                     )}
-                    {/* Competitor toggle */}
                     <button
                       onClick={() =>
                         onMarkCompetitor({
@@ -372,7 +396,7 @@ const AlliancesPanel = ({
                         isCompetitor ? "Remove from Radar" : "Add to Radar"
                       }
                       className={cn(
-                        "w-8 h-8 rounded-xl flex items-center justify-center transition-all border text-[11px] font-black",
+                        "w-8 h-8 rounded-xl flex items-center justify-center transition-all border",
                         isCompetitor
                           ? "bg-red-500/10 border-red-500/20 text-red-400 hover:bg-red-500/20"
                           : "bg-[#111] border-[rgba(255,255,255,0.07)] text-[rgba(245,240,232,0.30)] hover:text-red-400 hover:bg-red-500/8",
@@ -380,7 +404,6 @@ const AlliancesPanel = ({
                     >
                       <Crosshair className="w-3.5 h-3.5" />
                     </button>
-                    {/* Remove alliance */}
                     <button
                       onClick={() =>
                         setConfirmRemove({ id: conn.id, partnerId })
@@ -466,7 +489,6 @@ const RequestsPanel = ({
         ))}
       </div>
 
-      {/* Inline confirms */}
       <AnimatePresence>
         {confirmDecline && (
           <ConfirmAction
@@ -492,120 +514,293 @@ const RequestsPanel = ({
         )}
       </AnimatePresence>
 
-      {view === "inbound" && (
-        <>
-          {pendingInbound.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-14 text-center">
-              <Bell className="w-8 h-8 text-[rgba(245,240,232,0.10)] mb-3" />
-              <p className="text-sm font-black text-[rgba(245,240,232,0.35)]">
-                No pending requests
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-2.5">
-              {pendingInbound.map((conn) => {
-                const senderObj = {
-                  id: conn.requesterId,
-                  identity: {
-                    firstName:
-                      conn.requesterName?.split(" ")[0] || conn.requesterName,
-                    lastName:
-                      conn.requesterName?.split(" ").slice(1).join(" ") || "",
-                    username: conn.requesterUsername,
-                    domain: conn.requesterDomain,
-                    avatarUrl: conn.requesterAvatar,
-                  },
-                };
-                return (
-                  <OperatorCard
-                    key={conn.id}
-                    user={senderObj}
-                    badgeText="Wants Alliance"
-                    badgeColor="amber"
-                    actions={
-                      <div className="flex items-center gap-1.5">
-                        <button
-                          onClick={() =>
-                            handleAccept(conn.id, conn.requesterId)
-                          }
-                          disabled={accepting === conn.id}
-                          className="flex items-center gap-1.5 px-3 py-2 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/20 text-[10px] font-black rounded-xl transition-all uppercase tracking-widest disabled:opacity-50"
-                        >
-                          {accepting === conn.id ? (
-                            <Loader2 className="w-3 h-3 animate-spin" />
-                          ) : (
-                            <Check className="w-3 h-3" />
-                          )}
-                          <span className="hidden sm:block">Accept</span>
-                        </button>
-                        <button
-                          onClick={() => setConfirmDecline(conn.id)}
-                          className="w-8 h-8 flex items-center justify-center bg-[#111] border border-[rgba(255,255,255,0.07)] text-[rgba(245,240,232,0.30)] hover:text-red-400 hover:bg-red-500/8 rounded-xl transition-all"
-                        >
-                          <X className="w-3.5 h-3.5" />
-                        </button>
-                      </div>
-                    }
-                  />
-                );
-              })}
-            </div>
-          )}
-        </>
-      )}
-
-      {view === "outbound" && (
-        <>
-          {pendingOutbound.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-14 text-center">
-              <Send className="w-8 h-8 text-[rgba(245,240,232,0.10)] mb-3" />
-              <p className="text-sm font-black text-[rgba(245,240,232,0.35)]">
-                No sent requests
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-2.5">
-              {pendingOutbound.map((conn) => {
-                const receiverObj = {
-                  id: conn.receiverId,
-                  identity: {
-                    firstName:
-                      conn.receiverName?.split(" ")[0] || conn.receiverName,
-                    lastName:
-                      conn.receiverName?.split(" ").slice(1).join(" ") || "",
-                    username: conn.receiverUsername,
-                    domain: conn.receiverDomain,
-                    avatarUrl: conn.receiverAvatar,
-                  },
-                };
-                return (
-                  <OperatorCard
-                    key={conn.id}
-                    user={receiverObj}
-                    badgeText="Pending"
-                    badgeColor="sky"
-                    actions={
+      {view === "inbound" &&
+        (pendingInbound.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-14 text-center">
+            <Bell className="w-8 h-8 text-[rgba(245,240,232,0.10)] mb-3" />
+            <p className="text-sm font-black text-[rgba(245,240,232,0.35)]">
+              No pending requests
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-2.5">
+            {pendingInbound.map((conn) => {
+              const senderObj = {
+                id: conn.requesterId,
+                identity: {
+                  firstName:
+                    conn.requesterName?.split(" ")[0] || conn.requesterName,
+                  lastName:
+                    conn.requesterName?.split(" ").slice(1).join(" ") || "",
+                  username: conn.requesterUsername,
+                  domain: conn.requesterDomain,
+                  avatarUrl: conn.requesterAvatar,
+                },
+              };
+              return (
+                <OperatorCard
+                  key={conn.id}
+                  user={senderObj}
+                  badgeText="Wants Alliance"
+                  badgeColor="amber"
+                  actions={
+                    <div className="flex items-center gap-1.5">
                       <button
-                        onClick={() => setConfirmCancel(conn.id)}
-                        className="flex items-center gap-1.5 px-3 py-2 bg-[#111] border border-[rgba(255,255,255,0.07)] text-[rgba(245,240,232,0.40)] hover:text-red-400 hover:bg-red-500/8 hover:border-red-500/20 text-[10px] font-black rounded-xl transition-all"
+                        onClick={() => handleAccept(conn.id, conn.requesterId)}
+                        disabled={accepting === conn.id}
+                        className="flex items-center gap-1.5 px-3 py-2 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/20 text-[10px] font-black rounded-xl transition-all uppercase tracking-widest disabled:opacity-50"
                       >
-                        <X className="w-3 h-3" />
-                        <span className="hidden sm:block">Withdraw</span>
+                        {accepting === conn.id ? (
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                        ) : (
+                          <Check className="w-3 h-3" />
+                        )}
+                        <span className="hidden sm:block">Accept</span>
                       </button>
-                    }
-                  />
-                );
-              })}
-            </div>
-          )}
-        </>
-      )}
+                      <button
+                        onClick={() => setConfirmDecline(conn.id)}
+                        className="w-8 h-8 flex items-center justify-center bg-[#111] border border-[rgba(255,255,255,0.07)] text-[rgba(245,240,232,0.30)] hover:text-red-400 hover:bg-red-500/8 rounded-xl transition-all"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  }
+                />
+              );
+            })}
+          </div>
+        ))}
+
+      {view === "outbound" &&
+        (pendingOutbound.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-14 text-center">
+            <Send className="w-8 h-8 text-[rgba(245,240,232,0.10)] mb-3" />
+            <p className="text-sm font-black text-[rgba(245,240,232,0.35)]">
+              No sent requests
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-2.5">
+            {pendingOutbound.map((conn) => {
+              const receiverObj = {
+                id: conn.receiverId,
+                identity: {
+                  firstName:
+                    conn.receiverName?.split(" ")[0] || conn.receiverName,
+                  lastName:
+                    conn.receiverName?.split(" ").slice(1).join(" ") || "",
+                  username: conn.receiverUsername,
+                  domain: conn.receiverDomain,
+                  avatarUrl: conn.receiverAvatar,
+                },
+              };
+              return (
+                <OperatorCard
+                  key={conn.id}
+                  user={receiverObj}
+                  badgeText="Pending"
+                  badgeColor="sky"
+                  actions={
+                    <button
+                      onClick={() => setConfirmCancel(conn.id)}
+                      className="flex items-center gap-1.5 px-3 py-2 bg-[#111] border border-[rgba(255,255,255,0.07)] text-[rgba(245,240,232,0.40)] hover:text-red-400 hover:bg-red-500/8 hover:border-red-500/20 text-[10px] font-black rounded-xl transition-all"
+                    >
+                      <X className="w-3 h-3" />
+                      <span className="hidden sm:block">Withdraw</span>
+                    </button>
+                  }
+                />
+              );
+            })}
+          </div>
+        ))}
     </div>
   );
 };
 
-// ─── Radar Panel ──────────────────────────────────────────────────────────────
-const RadarPanel = ({
+// ─── ARENA PANEL (V3 — Compact Live Leaderboard Comparison) ──────────────────────
+const ArenaPanel = ({ competitors, userData }) => {
+  const myScore = userData?.discotiveScore?.current || 0;
+  const myStreak = userData?.discotiveScore?.streak || 0;
+
+  const sortedCompetitors = useMemo(() => {
+    return [...competitors].sort(
+      (a, b) => (b.targetScore || 0) - (a.targetScore || 0),
+    );
+  }, [competitors]);
+
+  // Find the closest target to beat
+  const arenaTarget = useMemo(() => {
+    if (sortedCompetitors.length === 0) return null;
+    const above = sortedCompetitors
+      .filter((c) => (c.targetScore || 0) > myScore)
+      .reverse(); // Smallest above me first
+    if (above.length > 0) return above[0];
+    // If you are #1 among targets, pick closest trailing target
+    return sortedCompetitors[0];
+  }, [sortedCompetitors, myScore]);
+
+  const otherTargets = sortedCompetitors.filter(
+    (c) => c.targetId !== arenaTarget?.targetId,
+  );
+
+  return (
+    <div className="space-y-5">
+      <div className="rounded-[1.5rem] border border-[rgba(255,255,255,0.06)] bg-[#0A0A0A] overflow-hidden">
+        {/* Header */}
+        <div className="px-5 py-4 border-b border-[rgba(255,255,255,0.04)] flex items-center justify-between">
+          <div className="flex items-center gap-2.5">
+            <div className="w-6 h-6 rounded-lg bg-red-500/10 border border-red-500/20 flex items-center justify-center">
+              <Crosshair className="w-3.5 h-3.5 text-red-400" />
+            </div>
+            <span className="text-xs font-black text-[#F5F0E8] uppercase tracking-wider">
+              Arena
+            </span>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="text-[9px] font-bold text-[rgba(245,240,232,0.30)] uppercase tracking-widest">
+              {competitors.length}/10 Active
+            </span>
+            <button
+              className="p-1.5 hover:bg-[rgba(255,255,255,0.05)] rounded-lg text-[rgba(245,240,232,0.40)] hover:text-white transition-colors"
+              title="Expand Arena"
+            >
+              <Maximize2 className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+
+        {!arenaTarget ? (
+          <div className="p-8 text-center">
+            <Target className="w-10 h-10 text-[rgba(245,240,232,0.08)] mx-auto mb-3" />
+            <p className="text-sm font-black text-[rgba(245,240,232,0.40)]">
+              No Targets Set
+            </p>
+            <p className="text-xs text-[rgba(245,240,232,0.25)] mt-1.5 max-w-[220px] mx-auto">
+              Mark competitors from the Global tab to activate the 1-on-1
+              analysis.
+            </p>
+          </div>
+        ) : (
+          <div>
+            {/* 1-on-1 Compact Comparison Header */}
+            <div className="flex items-center justify-between p-5 bg-[#0F0F0F] relative overflow-hidden border-b border-[rgba(255,255,255,0.04)]">
+              <div className="absolute inset-0 bg-gradient-to-r from-[rgba(191,162,100,0.05)] to-[rgba(239,68,68,0.05)] pointer-events-none" />
+
+              {/* User Side */}
+              <div className="flex flex-col items-start z-10 w-1/3">
+                <span className="text-[10px] font-black text-[#BFA264] uppercase tracking-widest mb-1.5">
+                  You
+                </span>
+                <span className="text-2xl sm:text-3xl font-black font-mono text-white leading-none">
+                  {myScore.toLocaleString()}
+                </span>
+                <span className="text-[9px] text-[rgba(245,240,232,0.40)] uppercase tracking-widest mt-1.5 flex items-center gap-1">
+                  <Flame className="w-3 h-3 text-orange-400" /> {myStreak}d
+                </span>
+              </div>
+
+              {/* VS Badge */}
+              <div className="flex flex-col items-center z-10 shrink-0 px-2">
+                <div className="w-8 h-8 rounded-full bg-[#111] border border-[rgba(255,255,255,0.08)] flex items-center justify-center shadow-lg">
+                  <Zap className="w-3.5 h-3.5 text-[rgba(245,240,232,0.3)]" />
+                </div>
+              </div>
+
+              {/* Target Side */}
+              <div className="flex flex-col items-end z-10 w-1/3">
+                <span className="text-[10px] font-black text-red-400 uppercase tracking-widest mb-1.5 truncate w-full text-right">
+                  @
+                  {arenaTarget.targetUsername ||
+                    arenaTarget.targetName?.split(" ")[0]}
+                </span>
+                <span className="text-2xl sm:text-3xl font-black font-mono text-white leading-none">
+                  {(arenaTarget.targetScore || 0).toLocaleString()}
+                </span>
+                <span className="text-[9px] text-[rgba(245,240,232,0.40)] uppercase tracking-widest mt-1.5 flex items-center gap-1">
+                  <Flame className="w-3 h-3 text-orange-400" />{" "}
+                  {arenaTarget.targetStreak || 0}d
+                </span>
+              </div>
+            </div>
+
+            {/* Other Targets List */}
+            {otherTargets.length > 0 && (
+              <div className="p-4 bg-[rgba(255,255,255,0.01)]">
+                <p className="text-[9px] font-black text-[rgba(245,240,232,0.30)] uppercase tracking-widest mb-3 px-1">
+                  Global Tracker
+                </p>
+                <div className="space-y-2">
+                  {otherTargets.map((target) => {
+                    const targetScore = target.targetScore || 0;
+                    // Red (Positive for User: Target is <= User)
+                    // Green (Negative for User: Target is > User)
+                    const isTargetLosing = targetScore <= myScore;
+                    const colorClass = isTargetLosing
+                      ? "text-red-400"
+                      : "text-emerald-400";
+                    const bgClass = isTargetLosing
+                      ? "bg-red-500/10 border-red-500/20"
+                      : "bg-emerald-500/10 border-emerald-500/20";
+                    const diff = Math.abs(myScore - targetScore);
+
+                    return (
+                      <div
+                        key={target.targetId}
+                        className="flex items-center justify-between p-3 rounded-xl border border-[rgba(255,255,255,0.04)] bg-[#0a0a0a]"
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          <div className="w-8 h-8 rounded-full bg-[#111] border border-[rgba(255,255,255,0.08)] flex items-center justify-center overflow-hidden shrink-0 text-[10px] font-black text-white/50">
+                            {target.targetAvatar ? (
+                              <img
+                                src={target.targetAvatar}
+                                alt=""
+                                className="w-full h-full object-cover"
+                              />
+                            ) : (
+                              (
+                                target.targetName?.charAt(0) || "T"
+                              ).toUpperCase()
+                            )}
+                          </div>
+                          <div className="flex flex-col min-w-0">
+                            <span className="text-xs font-bold text-[#F5F0E8] truncate max-w-[120px] sm:max-w-[180px]">
+                              {target.targetName || "Operator"}
+                            </span>
+                            <span className="text-[9px] text-[rgba(245,240,232,0.3)] font-mono truncate">
+                              @{target.targetUsername || "unknown"}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-3 shrink-0">
+                          <span className="hidden sm:block text-[11px] font-black font-mono text-white/60">
+                            {targetScore.toLocaleString()} pts
+                          </span>
+                          <div
+                            className={cn(
+                              "px-2 py-1 rounded-md border text-[9px] font-black font-mono tracking-widest uppercase flex items-center gap-1",
+                              bgClass,
+                              colorClass,
+                            )}
+                          >
+                            {isTargetLosing ? "↓ " : "↑ "}
+                            {diff.toLocaleString()}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+const GlobalPanel = ({
   competitors,
   suggestedUsers,
   loading,
@@ -614,23 +809,12 @@ const RadarPanel = ({
   getConnectionStatus,
   networkStats,
   userTier,
+  onPeek,
 }) => {
   const [search, setSearch] = useState("");
   const [sendingTo, setSendingTo] = useState(null);
 
-  const filteredSuggested = useMemo(() => {
-    if (!search.trim()) return suggestedUsers;
-    const q = search.toLowerCase();
-    return suggestedUsers.filter((u) => {
-      const name =
-        `${u.identity?.firstName || ""} ${u.identity?.lastName || ""}`.trim();
-      const uname = u.identity?.username || "";
-      return name.toLowerCase().includes(q) || uname.toLowerCase().includes(q);
-    });
-  }, [suggestedUsers, search]);
-
-  const isRateLimited =
-    networkStats.dailyRequestCount >= networkStats.dailyRequestLimit;
+  const isRL = networkStats.dailyRequestCount >= networkStats.dailyRequestLimit;
 
   const handleSend = async (user) => {
     setSendingTo(user.id);
@@ -638,26 +822,39 @@ const RadarPanel = ({
     setSendingTo(null);
   };
 
+  const filteredSuggested = useMemo(() => {
+    if (!search.trim()) return suggestedUsers;
+    const q = search.toLowerCase();
+    return suggestedUsers.filter((u) => {
+      const name =
+        `${u.identity?.firstName || ""} ${u.identity?.lastName || ""}`.trim();
+      return (
+        name.toLowerCase().includes(q) ||
+        (u.identity?.username || "").toLowerCase().includes(q)
+      );
+    });
+  }, [suggestedUsers, search]);
+
   return (
     <div className="space-y-5">
-      {/* Rate limit bar */}
+      {/* ── RATE LIMIT ── */}
       <RateLimitBar
         count={networkStats.dailyRequestCount}
         limit={networkStats.dailyRequestLimit}
         tier={userTier}
       />
 
-      {/* Active competitors */}
+      {/* ── ACTIVE TARGETS LIST ── */}
       {competitors.length > 0 && (
         <div>
           <div className="flex items-center gap-2 mb-3">
             <Crosshair className="w-4 h-4 text-red-400" />
             <h3 className="text-[10px] font-black text-[rgba(245,240,232,0.40)] uppercase tracking-widest">
-              Competitor Radar ({competitors.length})
+              Active Targets ({Math.min(competitors.length, 10)})
             </h3>
           </div>
           <div className="space-y-2">
-            {competitors.map((comp) => {
+            {competitors.slice(0, 10).map((comp) => {
               const compObj = {
                 id: comp.targetId,
                 identity: {
@@ -675,6 +872,7 @@ const RadarPanel = ({
                   user={compObj}
                   badgeText="Target"
                   badgeColor="red"
+                  onPeek={onPeek}
                   actions={
                     <button
                       onClick={() =>
@@ -697,7 +895,7 @@ const RadarPanel = ({
         </div>
       )}
 
-      {/* Discover */}
+      {/* ── DISCOVER ── */}
       <div>
         <div className="flex items-center gap-2 mb-3">
           <Globe className="w-4 h-4 text-[#BFA264]" />
@@ -717,7 +915,7 @@ const RadarPanel = ({
           />
         </div>
 
-        {isRateLimited && (
+        {isRL && (
           <div className="flex items-start gap-2.5 p-3 mb-3 bg-amber-500/8 border border-amber-500/20 rounded-xl">
             <Info className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
             <div>
@@ -726,8 +924,8 @@ const RadarPanel = ({
               </p>
               <p className="text-[10px] text-[rgba(245,240,232,0.40)] mt-0.5">
                 {userTier === "ESSENTIAL"
-                  ? "Free operators can send 5 requests/day. Upgrade to PRO for 50/day."
-                  : "You've used all your requests for today. Resets at midnight."}
+                  ? "Free operators: 5 requests/day. Upgrade to PRO for 50/day."
+                  : "All requests used today. Resets at midnight."}
               </p>
             </div>
           </div>
@@ -757,25 +955,23 @@ const RadarPanel = ({
                 <OperatorCard
                   key={user.id}
                   user={user}
+                  onPeek={onPeek}
                   actions={
                     <div className="flex items-center gap-1.5">
-                      {/* Competitor */}
                       <button
                         onClick={() => onMarkCompetitor(user)}
-                        title="Add to Competitor Radar"
+                        title="Add to Targets"
                         className="w-8 h-8 rounded-xl flex items-center justify-center bg-[#111] border border-[rgba(255,255,255,0.07)] text-[rgba(245,240,232,0.30)] hover:text-red-400 hover:bg-red-500/8 hover:border-red-500/20 transition-all"
                       >
                         <Crosshair className="w-3.5 h-3.5" />
                       </button>
-
-                      {/* Alliance request */}
                       {status === "NONE" ? (
                         <button
-                          onClick={() => !isRateLimited && handleSend(user)}
-                          disabled={isRateLimited || sendingTo === user.id}
+                          onClick={() => !isRL && handleSend(user)}
+                          disabled={isRL || sendingTo === user.id}
                           className={cn(
                             "flex items-center gap-1.5 px-3 py-2 text-[10px] font-black rounded-xl transition-all uppercase tracking-widest",
-                            isRateLimited
+                            isRL
                               ? "bg-[rgba(255,255,255,0.04)] border border-[rgba(255,255,255,0.07)] text-[rgba(245,240,232,0.20)] cursor-not-allowed"
                               : "bg-[#BFA264] border border-transparent text-[#030303] hover:bg-[#D4AF78] hover:shadow-[0_0_16px_rgba(191,162,100,0.30)]",
                           )}
@@ -810,8 +1006,107 @@ const RadarPanel = ({
   );
 };
 
+// ─── Alumni Panel (V3) ─────────────────────────────────────────────────────────
+const MOCK_INSTITUTIONS = [
+  { id: 1, name: "IIT Delhi", type: "university", count: 7, logo: null },
+  { id: 2, name: "Google", type: "company", count: 3, logo: null },
+  { id: 3, name: "IIM Bangalore", type: "university", count: 4, logo: null },
+  { id: 4, name: "Razorpay", type: "company", count: 2, logo: null },
+  { id: 5, name: "GirlScript Foundation", type: "dao", count: 5, logo: null },
+  { id: 6, name: "NSRCEL", type: "dao", count: 3, logo: null },
+];
+
+const AlumniPanel = () => {
+  const [alumniTab, setAlumniTab] = useState("institutions");
+
+  const filtered = MOCK_INSTITUTIONS.filter((i) => {
+    if (alumniTab === "institutions") return i.type === "university";
+    if (alumniTab === "companies") return i.type === "company";
+    if (alumniTab === "daos") return i.type === "dao";
+    return true;
+  });
+
+  return (
+    <div className="space-y-4">
+      {/* Nested pill tabs */}
+      <div className="flex items-center gap-2 flex-wrap">
+        {[
+          { id: "institutions", label: "Institutions", icon: GraduationCap },
+          { id: "companies", label: "Companies", icon: Building2 },
+          { id: "daos", label: "DAOs / Non-Profits", icon: Heart },
+        ].map(({ id, label, icon: Icon }) => (
+          <button
+            key={id}
+            onClick={() => setAlumniTab(id)}
+            className={cn(
+              "flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-[10px] font-black uppercase tracking-widest transition-all",
+              alumniTab === id
+                ? "bg-[rgba(191,162,100,0.15)] border-[rgba(191,162,100,0.30)] text-[#D4AF78]"
+                : "bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.07)] text-[rgba(245,240,232,0.35)] hover:text-[rgba(245,240,232,0.70)]",
+            )}
+          >
+            <Icon className="w-3 h-3" />
+            <span className="hidden sm:block">{label}</span>
+          </button>
+        ))}
+      </div>
+
+      <p className="text-[9px] text-[rgba(245,240,232,0.20)] uppercase tracking-widest">
+        Operators from your network · {filtered.length} entities
+      </p>
+
+      {/* Entity grid */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        {filtered.map((entity) => (
+          <motion.div
+            key={entity.id}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="flex items-center gap-3.5 p-4 rounded-[1.25rem] border border-[rgba(255,255,255,0.06)] bg-gradient-to-b from-[#0F0F0F] to-[#0A0A0A] hover:border-[rgba(191,162,100,0.25)] transition-all duration-300 cursor-pointer group"
+          >
+            {/* Logo placeholder */}
+            <div className="w-12 h-12 rounded-xl bg-[#111] border border-[rgba(255,255,255,0.07)] flex items-center justify-center shrink-0 overflow-hidden group-hover:border-[rgba(191,162,100,0.20)] transition-colors">
+              {entity.logo ? (
+                <img
+                  src={entity.logo}
+                  alt={entity.name}
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                <span className="text-xl font-black text-[rgba(255,255,255,0.25)]">
+                  {entity.name.charAt(0)}
+                </span>
+              )}
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-bold text-[#F5F0E8] truncate">
+                {entity.name}
+              </p>
+              <div className="flex items-center gap-1.5 mt-0.5">
+                <Users className="w-3 h-3 text-[#BFA264]/60" />
+                <span className="text-[10px] font-bold text-[#BFA264]/80">
+                  {entity.count} Active Operator{entity.count !== 1 ? "s" : ""}
+                </span>
+              </div>
+            </div>
+          </motion.div>
+        ))}
+      </div>
+
+      <div className="py-6 text-center border border-dashed border-[rgba(255,255,255,0.06)] rounded-2xl">
+        <p className="text-[10px] font-black text-[rgba(245,240,232,0.25)] uppercase tracking-widest">
+          Alumni clustering live data coming soon
+        </p>
+        <p className="text-[9px] text-[rgba(245,240,232,0.15)] mt-1">
+          Connect with alumni via the Alliance Engine
+        </p>
+      </div>
+    </div>
+  );
+};
+
 // ═══════════════════════════════════════════════════════════════════════════════
-// CONNECTIONS TAB (Main Export)
+// CONNECTIONS TAB V3
 // ═══════════════════════════════════════════════════════════════════════════════
 const ConnectionsTab = ({
   uid,
@@ -831,10 +1126,18 @@ const ConnectionsTab = ({
   onMarkCompetitor,
   getConnectionStatus,
   onDM,
+  onPeekOperator,
+  userData,
 }) => {
-  const [activeSubTab, setActiveSubTab] = useState("alliances");
+  const [activeSubTab, setActiveSubTab] = useState("targets");
 
   const subTabs = [
+    {
+      id: "targets",
+      label: "Targets",
+      icon: Crosshair,
+      count: networkStats.competitors,
+    },
     {
       id: "alliances",
       label: "Alliances",
@@ -847,24 +1150,8 @@ const ConnectionsTab = ({
       icon: Bell,
       count: networkStats.pendingInbound,
     },
-    {
-      id: "radar",
-      label: "Radar",
-      icon: Crosshair,
-      count: networkStats.competitors,
-    },
-    {
-      id: "global",
-      label: "Global",
-      icon: Globe,
-      count: 0,
-    },
-    {
-      id: "alumni",
-      label: "Alumni",
-      icon: GraduationCap,
-      count: 0,
-    },
+    { id: "alumni", label: "Alumni", icon: GraduationCap, count: 0 },
+    { id: "global", label: "Global", icon: Globe, count: 0 },
   ];
 
   return (
@@ -896,6 +1183,7 @@ const ConnectionsTab = ({
               onRemove={onRemove}
               onMarkCompetitor={onMarkCompetitor}
               onDM={onDM}
+              onPeek={onPeekOperator}
             />
           )}
           {activeSubTab === "requests" && (
@@ -908,8 +1196,12 @@ const ConnectionsTab = ({
               onCancel={onCancel}
             />
           )}
-          {activeSubTab === "radar" && (
-            <RadarPanel
+          {activeSubTab === "targets" && (
+            <ArenaPanel competitors={competitors} userData={userData} />
+          )}
+          {activeSubTab === "alumni" && <AlumniPanel />}
+          {activeSubTab === "global" && (
+            <GlobalPanel
               competitors={competitors}
               suggestedUsers={suggestedUsers}
               loading={networkLoading}
@@ -918,29 +1210,8 @@ const ConnectionsTab = ({
               getConnectionStatus={getConnectionStatus}
               networkStats={networkStats}
               userTier={userTier}
+              onPeek={onPeekOperator}
             />
-          )}
-          {activeSubTab === "global" && (
-            <div className="py-16 text-center text-[rgba(245,240,232,0.40)]">
-              <Globe className="w-10 h-10 mx-auto mb-3 opacity-20" />
-              <p className="text-sm font-black text-[#F5F0E8]">
-                Global Network
-              </p>
-              <p className="text-xs mt-1">
-                Worldwide operator directory coming soon.
-              </p>
-            </div>
-          )}
-          {activeSubTab === "alumni" && (
-            <div className="py-16 text-center text-[rgba(245,240,232,0.40)]">
-              <GraduationCap className="w-10 h-10 mx-auto mb-3 opacity-20" />
-              <p className="text-sm font-black text-[#F5F0E8]">
-                Alumni Network
-              </p>
-              <p className="text-xs mt-1">
-                Campus and alumni bridging coming soon.
-              </p>
-            </div>
           )}
         </motion.div>
       </AnimatePresence>

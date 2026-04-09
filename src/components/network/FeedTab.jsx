@@ -1,18 +1,13 @@
 /**
- * @fileoverview FeedTab v2.0 — Discotive Social Feed
+ * @fileoverview FeedTab v3.0 — The Proof-of-Work Feed (LinkedIn Killer)
  * @description
- * Full rewrite. Markdown composer with @mentions, #hashtags, character counter.
- * Threaded comments per post (inline expandable). Optimistic UI throughout.
- * Delete post with confirmation. Rich time formatting. Zero stubs.
+ * V3: Native Asset Injection cards in posts. Bounty staking system.
+ * onPeekOperator callback on author avatars (no navigation away).
+ * Rich text parser with @mentions / #hashtags. Threaded comments.
+ * Optimistic UI throughout. No auto-fetch on render.
  */
 
-import React, {
-  useState,
-  useEffect,
-  useRef,
-  useCallback,
-  useMemo,
-} from "react";
+import React, { useState, useEffect, useRef, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useInView } from "react-intersection-observer";
 import {
@@ -34,10 +29,16 @@ import {
   Trash2,
   Flag,
   ShieldAlert,
-  ChevronDown,
-  ChevronUp,
-  CornerDownRight,
   X,
+  CornerDownRight,
+  Database,
+  FileText,
+  Code2,
+  Video,
+  Award,
+  ExternalLink,
+  DollarSign,
+  Flame,
 } from "lucide-react";
 import { cn } from "../../lib/cn";
 
@@ -59,17 +60,13 @@ const timeAgo = (date) => {
   });
 };
 
-// ─── Rich text parser with @mentions and #hashtags ───────────────────────────
+// ─── Rich text parser ──────────────────────────────────────────────────────────
 const parseRichText = (text) => {
   if (!text) return null;
   return text.split("\n").map((line, lineIdx) => {
     if (!line.trim()) return <br key={lineIdx} />;
-
-    // Tokenize: bold, italic, links, @mentions, #hashtags
     const tokens = [];
-    let remaining = line;
-    let safety = 0;
-
+    const allTokens = [];
     const patterns = [
       { re: /\*\*(.+?)\*\*/g, type: "bold" },
       { re: /(?<!\*)\*(?!\*)(.+?)(?<!\*)\*(?!\*)/g, type: "italic" },
@@ -77,9 +74,6 @@ const parseRichText = (text) => {
       { re: /@([\w.]+)/g, type: "mention" },
       { re: /#([\w]+)/g, type: "hashtag" },
     ];
-
-    // Simple linear tokenizer
-    const allTokens = [];
     for (const { re, type } of patterns) {
       re.lastIndex = 0;
       let m;
@@ -87,19 +81,12 @@ const parseRichText = (text) => {
         const noOverlap = !allTokens.some(
           (t) => m.index < t.end && re.lastIndex > t.start,
         );
-        if (noOverlap) {
-          allTokens.push({
-            start: m.index,
-            end: re.lastIndex,
-            type,
-            m,
-          });
-        }
+        if (noOverlap)
+          allTokens.push({ start: m.index, end: re.lastIndex, type, m });
       }
     }
     allTokens.sort((a, b) => a.start - b.start);
-
-    if (allTokens.length === 0) {
+    if (allTokens.length === 0)
       return (
         <p
           key={lineIdx}
@@ -108,20 +95,18 @@ const parseRichText = (text) => {
           {line}
         </p>
       );
-    }
 
     const rendered = [];
     let cursor = 0;
     allTokens.forEach((token, i) => {
-      if (cursor < token.start) {
+      if (cursor < token.start)
         rendered.push(
           <span key={`t-${lineIdx}-${i}`}>
             {line.slice(cursor, token.start)}
           </span>,
         );
-      }
       const { type, m } = token;
-      if (type === "bold") {
+      if (type === "bold")
         rendered.push(
           <strong
             key={`b-${lineIdx}-${i}`}
@@ -130,7 +115,7 @@ const parseRichText = (text) => {
             {m[1]}
           </strong>,
         );
-      } else if (type === "italic") {
+      else if (type === "italic")
         rendered.push(
           <em
             key={`i-${lineIdx}-${i}`}
@@ -139,7 +124,7 @@ const parseRichText = (text) => {
             {m[1]}
           </em>,
         );
-      } else if (type === "link") {
+      else if (type === "link")
         rendered.push(
           <a
             key={`l-${lineIdx}-${i}`}
@@ -151,7 +136,7 @@ const parseRichText = (text) => {
             {m[1]}
           </a>,
         );
-      } else if (type === "mention") {
+      else if (type === "mention")
         rendered.push(
           <span
             key={`at-${lineIdx}-${i}`}
@@ -160,7 +145,7 @@ const parseRichText = (text) => {
             @{m[1]}
           </span>,
         );
-      } else if (type === "hashtag") {
+      else if (type === "hashtag")
         rendered.push(
           <span
             key={`ht-${lineIdx}-${i}`}
@@ -169,13 +154,10 @@ const parseRichText = (text) => {
             #{m[1]}
           </span>,
         );
-      }
       cursor = token.end;
     });
-    if (cursor < line.length) {
+    if (cursor < line.length)
       rendered.push(<span key={`tail-${lineIdx}`}>{line.slice(cursor)}</span>);
-    }
-
     return (
       <p
         key={lineIdx}
@@ -187,10 +169,163 @@ const parseRichText = (text) => {
   });
 };
 
-// ─── Post Composer ────────────────────────────────────────────────────────────
+// ─── Asset Injection Card (Proof-of-Work) ────────────────────────────────────
+const ASSET_CONFIGS = {
+  Certificate: {
+    icon: Award,
+    color: "#BFA264",
+    bg: "from-[rgba(191,162,100,0.12)] to-[rgba(191,162,100,0.04)]",
+    border: "border-[rgba(191,162,100,0.25)]",
+    label: "Certificate",
+  },
+  Project: {
+    icon: Code2,
+    color: "#8b5cf6",
+    bg: "from-[rgba(139,92,246,0.12)] to-[rgba(139,92,246,0.04)]",
+    border: "border-violet-500/25",
+    label: "Project",
+  },
+  Resume: {
+    icon: FileText,
+    color: "#38bdf8",
+    bg: "from-[rgba(56,189,248,0.12)] to-[rgba(56,189,248,0.04)]",
+    border: "border-sky-500/25",
+    label: "Resume",
+  },
+  Video: {
+    icon: Video,
+    color: "#ef4444",
+    bg: "from-[rgba(239,68,68,0.12)] to-[rgba(239,68,68,0.04)]",
+    border: "border-red-500/25",
+    label: "Video",
+  },
+  default: {
+    icon: Database,
+    color: "#6b7280",
+    bg: "from-[rgba(107,114,128,0.12)] to-[rgba(107,114,128,0.04)]",
+    border: "border-[rgba(255,255,255,0.10)]",
+    label: "Asset",
+  },
+};
+
+const AssetInjectionCard = ({ asset }) => {
+  const config = ASSET_CONFIGS[asset?.category] || ASSET_CONFIGS.default;
+  const Icon = config.icon;
+
+  return (
+    <div
+      className={cn(
+        "relative rounded-2xl border bg-gradient-to-br overflow-hidden",
+        config.border,
+        config.bg,
+      )}
+    >
+      {/* Decorative background mesh */}
+      <div className="absolute inset-0 pointer-events-none overflow-hidden">
+        <div
+          className="absolute -top-8 -right-8 w-32 h-32 rounded-full blur-2xl"
+          style={{ background: config.color, opacity: 0.08 }}
+        />
+        <div
+          className="absolute -bottom-4 -left-4 w-20 h-20 rounded-full blur-xl"
+          style={{ background: config.color, opacity: 0.06 }}
+        />
+        {/* Abstract code lines */}
+        {[1, 2, 3].map((i) => (
+          <div
+            key={i}
+            className="absolute h-px bg-current opacity-[0.04]"
+            style={{
+              top: `${20 + i * 18}%`,
+              left: "5%",
+              right: `${10 + i * 15}%`,
+              color: config.color,
+            }}
+          />
+        ))}
+      </div>
+
+      <div className="relative z-10 p-4 flex items-center gap-4">
+        <div
+          className="w-12 h-12 rounded-xl flex items-center justify-center border shrink-0"
+          style={{
+            background: `${config.color}18`,
+            borderColor: `${config.color}30`,
+          }}
+        >
+          <Icon className="w-6 h-6" style={{ color: config.color }} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-0.5">
+            <span
+              className="text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded border"
+              style={{
+                color: config.color,
+                background: `${config.color}15`,
+                borderColor: `${config.color}25`,
+              }}
+            >
+              {config.label}
+            </span>
+            <span className="text-[8px] font-black text-emerald-400 uppercase tracking-widest px-1.5 py-0.5 bg-emerald-500/10 border border-emerald-500/20 rounded">
+              ✓ Verified
+            </span>
+          </div>
+          <p className="text-sm font-bold text-[#F5F0E8] truncate">
+            {asset?.title || asset?.name || "Untitled Asset"}
+          </p>
+          {asset?.credentials?.issuer && (
+            <p className="text-[10px] text-[rgba(245,240,232,0.40)] mt-0.5">
+              {asset.credentials.issuer}
+            </p>
+          )}
+        </div>
+        {asset?.url && (
+          <a
+            href={asset.url}
+            target="_blank"
+            rel="noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            className="w-8 h-8 rounded-xl flex items-center justify-center border border-[rgba(255,255,255,0.07)] bg-[rgba(255,255,255,0.04)] hover:bg-[rgba(255,255,255,0.08)] text-[rgba(245,240,232,0.40)] hover:text-white transition-all shrink-0"
+          >
+            <ExternalLink className="w-3.5 h-3.5" />
+          </a>
+        )}
+      </div>
+
+      {/* Score yield badge if present */}
+      {asset?.scoreYield > 0 && (
+        <div className="absolute top-2 right-2 flex items-center gap-1 px-2 py-0.5 bg-black/60 backdrop-blur-sm rounded-lg border border-[rgba(191,162,100,0.20)]">
+          <Zap className="w-2.5 h-2.5 text-[#BFA264]" />
+          <span className="text-[8px] font-black text-[#BFA264]">
+            +{asset.scoreYield}pts
+          </span>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ─── Bounty Badge ─────────────────────────────────────────────────────────────
+const BountyBadge = ({ bounty }) => {
+  if (!bounty || bounty <= 0) return null;
+  return (
+    <div className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-500/10 border border-amber-500/25 rounded-xl">
+      <DollarSign className="w-3.5 h-3.5 text-amber-400" />
+      <span className="text-[10px] font-black text-amber-400 uppercase tracking-widest">
+        {bounty} pt Bounty
+      </span>
+      <span className="text-[9px] text-amber-400/60">· Help Requested</span>
+    </div>
+  );
+};
+
+// ─── Post Composer ─────────────────────────────────────────────────────────────
 const PostComposer = ({ userData, onPost, isPosting }) => {
   const [text, setText] = useState("");
   const [isFocused, setIsFocused] = useState(false);
+  const [bounty, setBounty] = useState(0);
+  const [showBountyInput, setShowBountyInput] = useState(false);
   const textareaRef = useRef(null);
   const maxLen = 1000;
 
@@ -215,7 +350,6 @@ const PostComposer = ({ userData, onPost, isPosting }) => {
     }, 0);
   };
 
-  // Extract hashtags and @mentions from text
   const extractMeta = (t) => {
     const hashtags = [...t.matchAll(/#([\w]+)/g)].map((m) =>
       m[1].toLowerCase(),
@@ -232,8 +366,16 @@ const PostComposer = ({ userData, onPost, isPosting }) => {
   const handleSubmit = async () => {
     if (!text.trim() || isPosting) return;
     const { hashtags, mentions } = extractMeta(text);
-    const result = await onPost(text, { hashtags, mentions });
-    if (result !== null) setText("");
+    const result = await onPost(text, {
+      hashtags,
+      mentions,
+      bounty: bounty > 0 ? bounty : 0,
+    });
+    if (result !== null) {
+      setText("");
+      setBounty(0);
+      setShowBountyInput(false);
+    }
   };
 
   const initials =
@@ -251,7 +393,6 @@ const PostComposer = ({ userData, onPost, isPosting }) => {
       )}
     >
       <div className="flex items-start gap-3.5 p-4 md:p-5">
-        {/* Avatar */}
         <div className="w-10 h-10 rounded-full bg-[#111] border border-[#BFA264]/40 flex items-center justify-center text-sm font-black text-[#BFA264] shrink-0 mt-0.5 overflow-hidden">
           {userData?.identity?.avatarUrl ? (
             <img
@@ -263,7 +404,6 @@ const PostComposer = ({ userData, onPost, isPosting }) => {
             initials
           )}
         </div>
-
         <div className="flex-1 min-w-0">
           <textarea
             ref={textareaRef}
@@ -277,7 +417,7 @@ const PostComposer = ({ userData, onPost, isPosting }) => {
                 handleSubmit();
               }
             }}
-            placeholder="Share an execution update, tag @operators, use #hashtags..."
+            placeholder="Share an execution update, tag @operators, use #hashtags…"
             rows={isFocused || text ? 4 : 2}
             className="w-full bg-transparent text-[rgba(245,240,232,0.80)] placeholder-[rgba(245,240,232,0.20)] text-sm font-medium resize-none border-none outline-none leading-relaxed"
             style={{ fontFamily: "'Poppins', sans-serif" }}
@@ -291,58 +431,116 @@ const PostComposer = ({ userData, onPost, isPosting }) => {
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: "auto" }}
             exit={{ opacity: 0, height: 0 }}
-            className="border-t border-[rgba(255,255,255,0.04)] px-4 md:px-5 py-3 flex items-center justify-between gap-3"
           >
-            <div className="flex items-center gap-1">
-              {[
-                { icon: Bold, syntax: "bold", label: "Bold" },
-                { icon: Italic, syntax: "italic", label: "Italic" },
-                { icon: Link2, syntax: "link", label: "Link" },
-                { icon: AtSign, syntax: "mention", label: "Mention" },
-                { icon: Hash, syntax: "hashtag", label: "Hashtag" },
-              ].map(({ icon: Icon, syntax, label }) => (
-                <button
-                  key={syntax}
-                  type="button"
-                  onClick={() => handleFormat(syntax)}
-                  title={label}
-                  className="w-8 h-8 rounded-lg flex items-center justify-center text-[rgba(245,240,232,0.30)] hover:text-[#BFA264] hover:bg-[rgba(191,162,100,0.08)] transition-all"
+            {/* Bounty input */}
+            <AnimatePresence>
+              {showBountyInput && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: "auto" }}
+                  exit={{ opacity: 0, height: 0 }}
+                  className="px-4 md:px-5 pb-3"
                 >
-                  <Icon className="w-3.5 h-3.5" />
+                  <div className="flex items-center gap-3 p-3 bg-amber-500/8 border border-amber-500/20 rounded-xl">
+                    <DollarSign className="w-4 h-4 text-amber-400 shrink-0" />
+                    <div className="flex-1">
+                      <p className="text-[9px] font-black text-amber-400 uppercase tracking-widest mb-1">
+                        Stake a Bounty
+                      </p>
+                      <p className="text-[9px] text-amber-400/60">
+                        Offer Discotive pts for a reply that helps you.
+                      </p>
+                    </div>
+                    <input
+                      type="number"
+                      min={0}
+                      max={500}
+                      value={bounty}
+                      onChange={(e) =>
+                        setBounty(
+                          Math.max(0, Math.min(500, Number(e.target.value))),
+                        )
+                      }
+                      className="w-16 bg-amber-500/10 border border-amber-500/20 text-amber-400 font-black text-center text-sm rounded-lg px-2 py-1 outline-none"
+                    />
+                    <span className="text-[9px] text-amber-400/60 font-bold">
+                      pts
+                    </span>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            <div className="border-t border-[rgba(255,255,255,0.04)] px-4 md:px-5 py-3 flex items-center justify-between gap-3">
+              <div className="flex items-center gap-1">
+                {[
+                  { icon: Bold, syntax: "bold", label: "Bold" },
+                  { icon: Italic, syntax: "italic", label: "Italic" },
+                  { icon: Link2, syntax: "link", label: "Link" },
+                  { icon: AtSign, syntax: "mention", label: "Mention" },
+                  { icon: Hash, syntax: "hashtag", label: "Hashtag" },
+                ].map(({ icon: Icon, syntax, label }) => (
+                  <button
+                    key={syntax}
+                    type="button"
+                    onClick={() => handleFormat(syntax)}
+                    title={label}
+                    className="w-8 h-8 rounded-lg flex items-center justify-center text-[rgba(245,240,232,0.30)] hover:text-[#BFA264] hover:bg-[rgba(191,162,100,0.08)] transition-all"
+                  >
+                    <Icon className="w-3.5 h-3.5" />
+                  </button>
+                ))}
+                <div className="w-px h-5 bg-[rgba(255,255,255,0.08)] mx-1" />
+                <button
+                  type="button"
+                  onClick={() => setShowBountyInput((v) => !v)}
+                  title="Stake Bounty"
+                  className={cn(
+                    "w-8 h-8 rounded-lg flex items-center justify-center transition-all",
+                    showBountyInput
+                      ? "bg-amber-500/15 text-amber-400"
+                      : "text-[rgba(245,240,232,0.30)] hover:text-amber-400 hover:bg-amber-500/8",
+                  )}
+                >
+                  <DollarSign className="w-3.5 h-3.5" />
                 </button>
-              ))}
-            </div>
-            <div className="flex items-center gap-3">
-              <span
-                className={cn(
-                  "text-[10px] font-mono font-bold transition-colors",
-                  text.length > 900
-                    ? "text-amber-400"
-                    : "text-[rgba(245,240,232,0.20)]",
+              </div>
+
+              <div className="flex items-center gap-3">
+                <span
+                  className={cn(
+                    "text-[10px] font-mono font-bold transition-colors",
+                    text.length > 900
+                      ? "text-amber-400"
+                      : "text-[rgba(245,240,232,0.20)]",
+                  )}
+                >
+                  {text.length}/{maxLen}
+                </span>
+                {bounty > 0 && (
+                  <span className="flex items-center gap-1 text-[9px] font-black text-amber-400 px-2 py-1 bg-amber-500/10 border border-amber-500/20 rounded-lg">
+                    <DollarSign className="w-3 h-3" />
+                    {bounty}pt
+                  </span>
                 )}
-              >
-                {text.length}/{maxLen}
-              </span>
-              <span className="text-[9px] text-[rgba(245,240,232,0.15)] hidden sm:block">
-                Ctrl+Enter to post
-              </span>
-              <button
-                onClick={handleSubmit}
-                disabled={!text.trim() || isPosting}
-                className={cn(
-                  "flex items-center gap-2 px-5 py-2 rounded-full text-[11px] font-black uppercase tracking-wider transition-all",
-                  text.trim() && !isPosting
-                    ? "bg-[#BFA264] text-[#030303] hover:bg-[#D4AF78] shadow-[0_0_20px_rgba(191,162,100,0.25)]"
-                    : "bg-[#111] border border-[rgba(255,255,255,0.07)] text-[rgba(245,240,232,0.20)] cursor-not-allowed",
-                )}
-              >
-                {isPosting ? (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                ) : (
-                  <Send className="w-3.5 h-3.5" />
-                )}
-                {isPosting ? "Posting..." : "Post"}
-              </button>
+                <button
+                  onClick={handleSubmit}
+                  disabled={!text.trim() || isPosting}
+                  className={cn(
+                    "flex items-center gap-2 px-5 py-2 rounded-full text-[11px] font-black uppercase tracking-wider transition-all",
+                    text.trim() && !isPosting
+                      ? "bg-[#BFA264] text-[#030303] hover:bg-[#D4AF78] shadow-[0_0_20px_rgba(191,162,100,0.25)]"
+                      : "bg-[#111] border border-[rgba(255,255,255,0.07)] text-[rgba(245,240,232,0.20)] cursor-not-allowed",
+                  )}
+                >
+                  {isPosting ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Send className="w-3.5 h-3.5" />
+                  )}
+                  {isPosting ? "Posting..." : "Post"}
+                </button>
+              </div>
             </div>
           </motion.div>
         )}
@@ -351,103 +549,7 @@ const PostComposer = ({ userData, onPost, isPosting }) => {
   );
 };
 
-// ─── Comment Item ──────────────────────────────────────────────────────────────
-const CommentItem = ({
-  comment,
-  uid,
-  onDelete,
-  onReply,
-  depth = 0,
-  isAdmin,
-}) => {
-  const isOwn = comment.authorId === uid;
-  const canDelete = isOwn || isAdmin;
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 4 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -4 }}
-      className={cn("flex items-start gap-2.5", depth > 0 && "ml-6")}
-    >
-      <div className="w-7 h-7 rounded-full bg-[#111] border border-[#BFA264]/20 flex items-center justify-center text-[10px] font-black text-[#BFA264] shrink-0 mt-0.5 overflow-hidden">
-        {comment.authorAvatar ? (
-          <img
-            src={comment.authorAvatar}
-            alt=""
-            className="w-full h-full object-cover"
-          />
-        ) : (
-          comment.authorName?.charAt(0)?.toUpperCase() || "O"
-        )}
-      </div>
-      <div className="flex-1 min-w-0">
-        <div className="bg-[#0F0F0F] border border-[rgba(255,255,255,0.05)] rounded-xl rounded-tl-sm px-3 py-2.5">
-          <div className="flex items-center justify-between gap-2 mb-1">
-            <span className="text-[11px] font-bold text-[#F5F0E8]">
-              {comment.authorName}
-              {comment.authorUsername && (
-                <span className="text-[rgba(245,240,232,0.30)] font-normal ml-1">
-                  @{comment.authorUsername}
-                </span>
-              )}
-            </span>
-            <span className="text-[9px] text-[rgba(245,240,232,0.25)] shrink-0">
-              {timeAgo(comment.timestamp)}
-            </span>
-          </div>
-          <p className="text-xs text-[rgba(245,240,232,0.70)] leading-relaxed">
-            {comment.textContent}
-          </p>
-        </div>
-        <div className="flex items-center gap-3 mt-1 px-1">
-          {depth === 0 && (
-            <button
-              onClick={() => onReply(comment)}
-              className="flex items-center gap-1 text-[9px] font-bold text-[rgba(245,240,232,0.25)] hover:text-[#BFA264] transition-colors uppercase tracking-widest"
-            >
-              <CornerDownRight className="w-3 h-3" /> Reply
-            </button>
-          )}
-          {canDelete && (
-            <>
-              {showDeleteConfirm ? (
-                <div className="flex items-center gap-1.5">
-                  <span className="text-[9px] text-red-400/80">Delete?</span>
-                  <button
-                    onClick={() => {
-                      onDelete(comment.id);
-                      setShowDeleteConfirm(false);
-                    }}
-                    className="text-[9px] font-black text-red-400 hover:text-red-300 transition-colors uppercase"
-                  >
-                    Yes
-                  </button>
-                  <button
-                    onClick={() => setShowDeleteConfirm(false)}
-                    className="text-[9px] font-black text-[rgba(245,240,232,0.25)] hover:text-white transition-colors uppercase"
-                  >
-                    No
-                  </button>
-                </div>
-              ) : (
-                <button
-                  onClick={() => setShowDeleteConfirm(true)}
-                  className="flex items-center gap-1 text-[9px] font-bold text-[rgba(245,240,232,0.20)] hover:text-red-400 transition-colors uppercase tracking-widest"
-                >
-                  <Trash2 className="w-3 h-3" /> Delete
-                </button>
-              )}
-            </>
-          )}
-        </div>
-      </div>
-    </motion.div>
-  );
-};
-
-// ─── Comment Section ───────────────────────────────────────────────────────────
+// ─── Comment Section ─────────────────────────────────────────────────────────
 const CommentSection = ({
   isAdmin,
   postId,
@@ -456,7 +558,6 @@ const CommentSection = ({
   onFetchComments,
   onAddComment,
   onDeleteComment,
-  initialCount,
 }) => {
   const [comments, setComments] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -475,11 +576,8 @@ const CommentSection = ({
         postId,
         reset ? null : lastDoc,
       );
-      if (reset) {
-        setComments(fetched);
-      } else {
-        setComments((prev) => [...prev, ...fetched]);
-      }
+      if (reset) setComments(fetched);
+      else setComments((prev) => [...prev, ...fetched]);
       setLastDoc(ld);
       setHasMore(fetched.length === 10);
       setLoaded(true);
@@ -491,12 +589,6 @@ const CommentSection = ({
   useEffect(() => {
     if (!loaded) loadComments(true);
   }, [loaded, loadComments]);
-
-  const handleReply = (comment) => {
-    setReplyingTo(comment);
-    setNewComment(`@${comment.authorUsername || comment.authorName} `);
-    setTimeout(() => inputRef.current?.focus(), 100);
-  };
 
   const handleSubmit = async () => {
     if (!newComment.trim() || isSubmitting) return;
@@ -510,19 +602,19 @@ const CommentSection = ({
       const authorName =
         `${userData?.identity?.firstName || ""} ${userData?.identity?.lastName || ""}`.trim() ||
         "Operator";
-      const newCommentObj = {
-        id: commentId,
-        authorId: uid,
-        authorName,
-        authorUsername: userData?.identity?.username || "",
-        authorAvatar: userData?.identity?.avatarUrl || null,
-        textContent: newComment.trim(),
-        parentCommentId: replyingTo?.id || null,
-        timestamp: new Date(),
-        likedBy: [],
-        likesCount: 0,
-      };
-      setComments((prev) => [newCommentObj, ...prev]);
+      setComments((prev) => [
+        {
+          id: commentId,
+          authorId: uid,
+          authorName,
+          authorUsername: userData?.identity?.username || "",
+          authorAvatar: userData?.identity?.avatarUrl || null,
+          textContent: newComment.trim(),
+          parentCommentId: replyingTo?.id || null,
+          timestamp: new Date(),
+        },
+        ...prev,
+      ]);
       setNewComment("");
       setReplyingTo(null);
     }
@@ -536,7 +628,6 @@ const CommentSection = ({
 
   return (
     <div className="mt-4 pt-4 border-t border-[rgba(255,255,255,0.04)] space-y-3">
-      {/* Input */}
       <div className="flex items-start gap-2.5">
         <div className="w-7 h-7 rounded-full bg-[#111] border border-[#BFA264]/20 flex items-center justify-center text-[10px] font-black text-[#BFA264] shrink-0 overflow-hidden">
           {userData?.identity?.avatarUrl ? (
@@ -606,7 +697,6 @@ const CommentSection = ({
         </div>
       </div>
 
-      {/* Comments list */}
       {loading && comments.length === 0 ? (
         <div className="flex items-center justify-center py-4">
           <Loader2 className="w-4 h-4 animate-spin text-[rgba(191,162,100,0.4)]" />
@@ -615,15 +705,72 @@ const CommentSection = ({
         <div className="space-y-2.5">
           <AnimatePresence>
             {comments.map((comment) => (
-              <CommentItem
+              <motion.div
                 key={comment.id}
-                isAdmin={isAdmin}
-                comment={comment}
-                uid={uid}
-                onDelete={handleDelete}
-                onReply={handleReply}
-                depth={comment.parentCommentId ? 1 : 0}
-              />
+                initial={{ opacity: 0, y: 4 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0 }}
+                className={cn(
+                  "flex items-start gap-2.5",
+                  comment.parentCommentId && "ml-6",
+                )}
+              >
+                <div className="w-7 h-7 rounded-full bg-[#111] border border-[#BFA264]/20 flex items-center justify-center text-[10px] font-black text-[#BFA264] shrink-0 mt-0.5 overflow-hidden">
+                  {comment.authorAvatar ? (
+                    <img
+                      src={comment.authorAvatar}
+                      alt=""
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    comment.authorName?.charAt(0)?.toUpperCase() || "O"
+                  )}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="bg-[#0F0F0F] border border-[rgba(255,255,255,0.05)] rounded-xl rounded-tl-sm px-3 py-2.5">
+                    <div className="flex items-center justify-between gap-2 mb-1">
+                      <span className="text-[11px] font-bold text-[#F5F0E8]">
+                        {comment.authorName}
+                        {comment.authorUsername && (
+                          <span className="text-[rgba(245,240,232,0.30)] font-normal ml-1">
+                            @{comment.authorUsername}
+                          </span>
+                        )}
+                      </span>
+                      <span className="text-[9px] text-[rgba(245,240,232,0.25)] shrink-0">
+                        {timeAgo(comment.timestamp)}
+                      </span>
+                    </div>
+                    <p className="text-xs text-[rgba(245,240,232,0.70)] leading-relaxed">
+                      {comment.textContent}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-3 mt-1 px-1">
+                    {!comment.parentCommentId && (
+                      <button
+                        onClick={() => {
+                          setReplyingTo(comment);
+                          setNewComment(
+                            `@${comment.authorUsername || comment.authorName} `,
+                          );
+                          setTimeout(() => inputRef.current?.focus(), 100);
+                        }}
+                        className="flex items-center gap-1 text-[9px] font-bold text-[rgba(245,240,232,0.25)] hover:text-[#BFA264] transition-colors uppercase tracking-widest"
+                      >
+                        <CornerDownRight className="w-3 h-3" /> Reply
+                      </button>
+                    )}
+                    {(comment.authorId === uid || isAdmin) && (
+                      <button
+                        onClick={() => handleDelete(comment.id)}
+                        className="flex items-center gap-1 text-[9px] font-bold text-[rgba(245,240,232,0.20)] hover:text-red-400 transition-colors uppercase tracking-widest"
+                      >
+                        <Trash2 className="w-3 h-3" /> Delete
+                      </button>
+                    )}
+                  </div>
+                </div>
+              </motion.div>
             ))}
           </AnimatePresence>
           {hasMore && comments.length >= 10 && (
@@ -641,7 +788,7 @@ const CommentSection = ({
   );
 };
 
-// ─── Post Card ────────────────────────────────────────────────────────────────
+// ─── Post Card ─────────────────────────────────────────────────────────────────
 const PostCard = ({
   isAdmin,
   post,
@@ -652,6 +799,7 @@ const PostCard = ({
   onFetchComments,
   onAddComment,
   onDeleteComment,
+  onPeekOperator,
 }) => {
   const [isCopied, setIsCopied] = useState(false);
   const [showOptions, setShowOptions] = useState(false);
@@ -682,12 +830,6 @@ const PostCard = ({
     } catch (_) {}
   };
 
-  const handleDeletePost = async () => {
-    setShowOptions(false);
-    setShowDeleteConfirm(false);
-    await onDelete(post.id);
-  };
-
   return (
     <motion.article
       layout
@@ -708,7 +850,7 @@ const PostCard = ({
       )}
 
       <div className="p-4 md:p-5 relative z-10">
-        {/* Delete confirmation overlay */}
+        {/* Delete confirm overlay */}
         <AnimatePresence>
           {showDeleteConfirm && (
             <motion.div
@@ -718,12 +860,12 @@ const PostCard = ({
               className="absolute inset-0 z-30 bg-[#030303]/90 backdrop-blur-md flex flex-col items-center justify-center gap-4 rounded-[1.5rem]"
             >
               <p className="text-sm font-black text-white">Delete this post?</p>
-              <p className="text-xs text-[rgba(245,240,232,0.40)]">
-                This action cannot be undone.
-              </p>
               <div className="flex gap-3">
                 <button
-                  onClick={handleDeletePost}
+                  onClick={async () => {
+                    await onDelete(post.id);
+                    setShowDeleteConfirm(false);
+                  }}
                   className="px-5 py-2.5 bg-red-500 text-white text-[11px] font-black uppercase tracking-widest rounded-xl hover:bg-red-400 transition-colors"
                 >
                   Delete
@@ -742,8 +884,22 @@ const PostCard = ({
         {/* Author row */}
         <div className="flex items-start justify-between mb-4">
           <div className="flex items-center gap-3">
-            <div className="relative">
-              <div className="w-10 h-10 rounded-full bg-[#111] border border-[#BFA264]/40 flex items-center justify-center text-sm font-black text-[#BFA264] overflow-hidden">
+            <button
+              className="relative focus:outline-none"
+              onClick={() =>
+                onPeekOperator?.({
+                  id: post.authorId,
+                  identity: {
+                    firstName: post.authorName?.split(" ")[0],
+                    lastName: post.authorName?.split(" ").slice(1).join(" "),
+                    username: post.authorUsername,
+                    domain: post.authorDomain,
+                    avatarUrl: post.authorAvatar,
+                  },
+                })
+              }
+            >
+              <div className="w-10 h-10 rounded-full bg-[#111] border border-[#BFA264]/40 flex items-center justify-center text-sm font-black text-[#BFA264] overflow-hidden hover:border-[#BFA264]/70 transition-colors">
                 {post.authorAvatar ? (
                   <img
                     src={post.authorAvatar}
@@ -759,7 +915,7 @@ const PostCard = ({
                   <Crown className="w-2 h-2 text-black" />
                 </div>
               )}
-            </div>
+            </button>
             <div>
               <div className="flex items-center gap-2">
                 <p className="text-sm font-bold text-[#F5F0E8]">
@@ -788,7 +944,6 @@ const PostCard = ({
             </div>
           </div>
 
-          {/* Options menu */}
           <div className="relative" ref={optionsRef}>
             <button
               onClick={() => setShowOptions(!showOptions)}
@@ -817,24 +972,12 @@ const PostCard = ({
                     </button>
                   )}
                   {!isAuthor && (
-                    <>
-                      <button
-                        onClick={() => {
-                          setShowOptions(false);
-                        }}
-                        className="w-full flex items-center gap-3 px-4 py-2.5 text-[10px] font-black uppercase tracking-widest text-[rgba(245,240,232,0.60)] hover:bg-[rgba(255,255,255,0.04)] hover:text-red-400 transition-all text-left"
-                      >
-                        <Flag className="w-3.5 h-3.5" /> Report Post
-                      </button>
-                      <button
-                        onClick={() => {
-                          setShowOptions(false);
-                        }}
-                        className="w-full flex items-center gap-3 px-4 py-2.5 text-[10px] font-black uppercase tracking-widest text-[rgba(245,240,232,0.60)] hover:bg-[rgba(255,255,255,0.04)] hover:text-amber-400 transition-all text-left"
-                      >
-                        <ShieldAlert className="w-3.5 h-3.5" /> Block User
-                      </button>
-                    </>
+                    <button
+                      onClick={() => setShowOptions(false)}
+                      className="w-full flex items-center gap-3 px-4 py-2.5 text-[10px] font-black uppercase tracking-widest text-[rgba(245,240,232,0.60)] hover:bg-[rgba(255,255,255,0.04)] hover:text-red-400 transition-all text-left"
+                    >
+                      <Flag className="w-3.5 h-3.5" /> Report Post
+                    </button>
                   )}
                 </motion.div>
               )}
@@ -846,6 +989,20 @@ const PostCard = ({
         <div className="space-y-1.5 mb-4">
           {parseRichText(post.textContent)}
         </div>
+
+        {/* Asset injection card */}
+        {post.linkedAsset && (
+          <div className="mb-4">
+            <AssetInjectionCard asset={post.linkedAsset} />
+          </div>
+        )}
+
+        {/* Bounty badge */}
+        {post.bounty > 0 && (
+          <div className="mb-4">
+            <BountyBadge bounty={post.bounty} />
+          </div>
+        )}
 
         {/* Hashtags */}
         {post.hashtags && post.hashtags.length > 0 && (
@@ -864,7 +1021,6 @@ const PostCard = ({
         {/* Action bar */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1">
-            {/* Like */}
             <button
               onClick={() => onLike(post.id)}
               className={cn(
@@ -882,8 +1038,6 @@ const PostCard = ({
               />
               {post.likesCount > 0 && <span>{post.likesCount}</span>}
             </button>
-
-            {/* Comment toggle */}
             <button
               onClick={() => setShowComments((v) => !v)}
               className={cn(
@@ -898,7 +1052,6 @@ const PostCard = ({
             </button>
           </div>
 
-          {/* Share */}
           <button
             onClick={handleShare}
             className={cn(
@@ -928,7 +1081,7 @@ const PostCard = ({
           </button>
         </div>
 
-        {/* Comments section */}
+        {/* Comments */}
         <AnimatePresence>
           {showComments && (
             <motion.div
@@ -945,14 +1098,12 @@ const PostCard = ({
                 onFetchComments={onFetchComments}
                 onAddComment={onAddComment}
                 onDeleteComment={onDeleteComment}
-                initialCount={post.replyCount || 0}
               />
             </motion.div>
           )}
         </AnimatePresence>
       </div>
 
-      {/* Optimistic overlay */}
       {post._optimistic && (
         <div className="absolute inset-0 bg-[#0A0A0A]/40 backdrop-blur-[1px] flex items-center justify-center z-20 rounded-[1.5rem]">
           <div className="flex items-center gap-2 px-4 py-2 bg-[#111] border border-[#BFA264]/30 rounded-full shadow-xl">
@@ -967,7 +1118,7 @@ const PostCard = ({
   );
 };
 
-// ─── Skeletons & empty states ─────────────────────────────────────────────────
+// ─── Skeletons & empty states ──────────────────────────────────────────────────
 const PostSkeleton = () => (
   <div className="rounded-[1.5rem] border border-[rgba(255,255,255,0.04)] bg-[#0A0A0A] p-5 animate-pulse">
     <div className="flex items-center gap-3 mb-4">
@@ -1029,7 +1180,7 @@ const FeedError = ({ onRetry }) => (
 );
 
 // ═══════════════════════════════════════════════════════════════════════════════
-// FEED TAB (Main Export)
+// FEED TAB V3
 // ═══════════════════════════════════════════════════════════════════════════════
 const FeedTab = ({
   isAdmin,
@@ -1047,6 +1198,7 @@ const FeedTab = ({
   onFetchComments,
   onAddComment,
   onDeleteComment,
+  onPeekOperator,
 }) => {
   const { ref: loadMoreRef, inView } = useInView({ threshold: 0.1 });
 
@@ -1084,6 +1236,7 @@ const FeedTab = ({
                   onFetchComments={onFetchComments}
                   onAddComment={onAddComment}
                   onDeleteComment={onDeleteComment}
+                  onPeekOperator={onPeekOperator}
                 />
               ))}
             </AnimatePresence>
