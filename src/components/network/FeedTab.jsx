@@ -1207,7 +1207,7 @@ const FeedTab = ({
   }, [inView, hasMorePosts, feedLoading, onLoadMore]);
 
   return (
-    <div className="max-w-2xl mx-auto space-y-4 md:space-y-5">
+    <div className="w-full space-y-4 md:space-y-5">
       <PostComposer userData={userData} onPost={onPost} isPosting={isPosting} />
 
       {feedError ? (

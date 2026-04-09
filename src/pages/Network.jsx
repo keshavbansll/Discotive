@@ -38,6 +38,7 @@ import { useUserData } from "../hooks/useUserData";
 import { useNetwork } from "../hooks/useNetwork";
 import FeedTab from "../components/network/FeedTab";
 import ConnectionsTab from "../components/network/ConnectionsTab";
+import BattlefieldWarRoom from "../components/network/BattlefieldWarRoom";
 import DMPanel from "../components/network/DMPanel";
 
 // ─── Reusable Refresh Button ──────────────────────────────────────────────────
@@ -194,7 +195,12 @@ const MainTabButton = ({ id, label, icon: Icon, badge, active, onClick }) => (
 );
 
 // ─── Intelligence Hub ─────────────────────────────────────────────────────────
-const IntelligenceHub = ({ peekUser, competitors, onRefreshTargets }) => {
+const IntelligenceHub = ({
+  peekUser,
+  competitors,
+  onRefreshTargets,
+  isCollapsed = false,
+}) => {
   const [view, setView] = useState("telemetry");
   const [logs, setLogs] = useState([]);
   const [isScanning, setIsScanning] = useState(false);
@@ -307,243 +313,259 @@ const IntelligenceHub = ({ peekUser, competitors, onRefreshTargets }) => {
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto custom-scrollbar">
-        <AnimatePresence mode="wait">
-          {view === "telemetry" && (
-            <motion.div
-              key="tel"
-              initial={{ opacity: 0, x: -12 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: -12 }}
-              className="p-4 flex flex-col h-full min-h-[400px]"
-            >
-              <div className="flex items-center justify-between shrink-0 mb-4">
-                <p className="text-[8px] font-black text-[rgba(245,240,232,0.25)] uppercase tracking-widest">
-                  Target Feed · {Math.min(competitors.length, 10)}/10 Slots
-                </p>
-                <RefreshButton onRefresh={handleRefresh} />
-              </div>
-
-              {/* Active Target Roster */}
-              {competitors.length > 0 && (
-                <div
-                  className={cn(
-                    "space-y-1.5 mb-4 shrink-0 transition-opacity",
-                    isScanning && "opacity-50",
-                  )}
+      <AnimatePresence>
+        {!isCollapsed && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            className="flex-1 overflow-y-auto custom-scrollbar flex flex-col"
+          >
+            <AnimatePresence mode="wait">
+              {view === "telemetry" && (
+                <motion.div
+                  key="tel"
+                  initial={{ opacity: 0, x: -12 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -12 }}
+                  className="p-4 flex flex-col h-full min-h-[400px]"
                 >
-                  {competitors.slice(0, 4).map((target) => (
+                  <div className="flex items-center justify-between shrink-0 mb-4">
+                    <p className="text-[8px] font-black text-[rgba(245,240,232,0.25)] uppercase tracking-widest">
+                      Target Feed · {Math.min(competitors.length, 10)}/10 Slots
+                    </p>
+                    <RefreshButton onRefresh={handleRefresh} />
+                  </div>
+
+                  {/* Active Target Roster */}
+                  {competitors.length > 0 && (
                     <div
-                      key={target.targetId}
-                      className="flex items-center justify-between px-3 py-2 rounded-[1rem] bg-gradient-to-r from-[rgba(255,255,255,0.02)] to-transparent border border-[rgba(255,255,255,0.03)]"
+                      className={cn(
+                        "space-y-1.5 mb-4 shrink-0 transition-opacity",
+                        isScanning && "opacity-50",
+                      )}
                     >
-                      <div className="flex items-center gap-2.5">
-                        <div className="w-6 h-6 rounded-full bg-[#111] border border-[#BFA264]/30 flex items-center justify-center text-[10px] font-black text-[#BFA264] overflow-hidden shrink-0">
-                          {target.targetAvatar ? (
+                      {competitors.slice(0, 4).map((target) => (
+                        <div
+                          key={target.targetId}
+                          className="flex items-center justify-between px-3 py-2 rounded-[1rem] bg-gradient-to-r from-[rgba(255,255,255,0.02)] to-transparent border border-[rgba(255,255,255,0.03)]"
+                        >
+                          <div className="flex items-center gap-2.5">
+                            <div className="w-6 h-6 rounded-full bg-[#111] border border-[#BFA264]/30 flex items-center justify-center text-[10px] font-black text-[#BFA264] overflow-hidden shrink-0">
+                              {target.targetAvatar ? (
+                                <img
+                                  src={target.targetAvatar}
+                                  alt=""
+                                  className="w-full h-full object-cover"
+                                />
+                              ) : (
+                                (
+                                  target.targetName?.charAt(0) || "O"
+                                ).toUpperCase()
+                              )}
+                            </div>
+                            <div className="min-w-0">
+                              <p className="text-[11px] font-bold text-[#F5F0E8] truncate max-w-[100px]">
+                                {target.targetName}
+                              </p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span className="text-[10px] font-black font-mono text-[rgba(245,240,232,0.6)]">
+                              {target.targetScore?.toLocaleString() || 0}
+                            </span>
+                            <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.4)] animate-pulse" />
+                          </div>
+                        </div>
+                      ))}
+                      {competitors.length > 4 && (
+                        <p className="text-[8px] text-[rgba(245,240,232,0.20)] text-center font-black tracking-widest uppercase pt-1">
+                          + {competitors.length - 4} More Tracked
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Live Terminal Log */}
+                  <div className="flex-1 flex flex-col bg-[#030303] rounded-xl border border-[rgba(255,255,255,0.04)] p-3 relative overflow-hidden min-h-[140px] shadow-inner">
+                    <div className="absolute top-0 left-0 right-0 h-6 bg-gradient-to-b from-[#030303] to-transparent z-10 pointer-events-none" />
+                    <div className="flex-1 overflow-y-auto custom-scrollbar flex flex-col justify-end gap-1.5 pt-4 pb-1">
+                      {logs.map((log, i) => (
+                        <p
+                          key={i}
+                          className={cn(
+                            "text-[9px] font-mono leading-relaxed",
+                            log.type === "red"
+                              ? "text-red-400"
+                              : log.type === "green"
+                                ? "text-emerald-400"
+                                : "text-[rgba(245,240,232,0.30)]",
+                          )}
+                        >
+                          {log.text}
+                        </p>
+                      ))}
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        <span className="text-[9px] font-mono text-[#BFA264] animate-pulse">
+                          _
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Contextual Intelligence */}
+                  {competitors.length > 0 ? (
+                    <div className="mt-4 p-3.5 rounded-[1.25rem] bg-gradient-to-b from-[rgba(191,162,100,0.08)] to-[rgba(191,162,100,0.02)] border border-[rgba(191,162,100,0.15)] shrink-0">
+                      <div className="flex items-start gap-2.5">
+                        <Activity className="w-3.5 h-3.5 text-[#BFA264] mt-0.5 shrink-0" />
+                        <div>
+                          <p className="text-[9px] font-black text-[#D4AF78] uppercase tracking-widest mb-1.5">
+                            Algorithmic Insight
+                          </p>
+                          <p className="text-[10px] text-[rgba(245,240,232,0.60)] leading-relaxed">
+                            Radar locked on {competitors.length} node
+                            {competitors.length !== 1 ? "s" : ""}. Targets show
+                            consistent velocity. Maintain execution streaks to
+                            outpace network averages.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="mt-4 p-4 rounded-[1.25rem] bg-[rgba(255,255,255,0.02)] border border-[rgba(255,255,255,0.04)] text-center shrink-0">
+                      <p className="text-[10px] text-[rgba(245,240,232,0.30)] leading-relaxed">
+                        Radar empty. Mark targets in the Global tab to populate
+                        live telemetry feeds.
+                      </p>
+                    </div>
+                  )}
+                </motion.div>
+              )}
+
+              {view === "peek" && (
+                <motion.div
+                  key="peek"
+                  initial={{ opacity: 0, x: 12 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: 12 }}
+                  className="p-4 flex flex-col h-full min-h-[400px]"
+                >
+                  {!peekUser ? (
+                    <div className="flex-1 flex flex-col items-center justify-center py-12 text-center">
+                      <Eye className="w-10 h-10 text-[rgba(245,240,232,0.06)] mx-auto mb-3" />
+                      <p className="text-[11px] font-black text-[rgba(245,240,232,0.30)]">
+                        Operator Inspector
+                      </p>
+                      <p className="text-[9px] text-[rgba(245,240,232,0.18)] mt-1.5 leading-relaxed max-w-[180px] mx-auto">
+                        Click any operator card to inspect their profile here
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      <div className="flex items-center gap-3">
+                        <div className="w-12 h-12 rounded-full bg-[#111] border border-[#BFA264]/40 flex items-center justify-center text-base font-black text-[#BFA264] overflow-hidden shrink-0">
+                          {peekUser?.identity?.avatarUrl ? (
                             <img
-                              src={target.targetAvatar}
+                              src={peekUser.identity.avatarUrl}
                               alt=""
                               className="w-full h-full object-cover"
                             />
                           ) : (
-                            (target.targetName?.charAt(0) || "O").toUpperCase()
+                            peekUser?.identity?.firstName
+                              ?.charAt(0)
+                              ?.toUpperCase() || "O"
                           )}
                         </div>
                         <div className="min-w-0">
-                          <p className="text-[11px] font-bold text-[#F5F0E8] truncate max-w-[100px]">
-                            {target.targetName}
+                          <p className="text-sm font-black text-[#F5F0E8] truncate">
+                            {`${peekUser?.identity?.firstName || ""} ${peekUser?.identity?.lastName || ""}`.trim() ||
+                              "Operator"}
                           </p>
+                          {peekUser?.identity?.username && (
+                            <p className="text-[10px] text-[rgba(245,240,232,0.35)] font-mono">
+                              @{peekUser.identity.username}
+                            </p>
+                          )}
                         </div>
                       </div>
-                      <div className="flex items-center gap-2 shrink-0">
-                        <span className="text-[10px] font-black font-mono text-[rgba(245,240,232,0.6)]">
-                          {target.targetScore?.toLocaleString() || 0}
-                        </span>
-                        <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.4)] animate-pulse" />
+
+                      <div className="grid grid-cols-3 gap-1.5">
+                        {[
+                          {
+                            label: "Score",
+                            val: (
+                              peekUser?.discotiveScore?.current || 0
+                            ).toLocaleString(),
+                            color: "text-[#BFA264]",
+                          },
+                          {
+                            label: "Assets",
+                            val: peekUser?.vault?.length || 0,
+                            color: "text-emerald-400",
+                          },
+                          {
+                            label: "Streak",
+                            val: `${peekUser?.discotiveScore?.streak || 0}d`,
+                            color: "text-orange-400",
+                          },
+                        ].map(({ label, val, color }) => (
+                          <div
+                            key={label}
+                            className="bg-[rgba(255,255,255,0.02)] border border-[rgba(255,255,255,0.04)] rounded-xl p-2 text-center"
+                          >
+                            <p
+                              className={cn(
+                                "text-sm font-black font-mono",
+                                color,
+                              )}
+                            >
+                              {val}
+                            </p>
+                            <p className="text-[8px] text-[rgba(245,240,232,0.25)] uppercase tracking-widest mt-0.5">
+                              {label}
+                            </p>
+                          </div>
+                        ))}
                       </div>
-                    </div>
-                  ))}
-                  {competitors.length > 4 && (
-                    <p className="text-[8px] text-[rgba(245,240,232,0.20)] text-center font-black tracking-widest uppercase pt-1">
-                      + {competitors.length - 4} More Tracked
-                    </p>
-                  )}
-                </div>
-              )}
 
-              {/* Live Terminal Log */}
-              <div className="flex-1 flex flex-col bg-[#030303] rounded-xl border border-[rgba(255,255,255,0.04)] p-3 relative overflow-hidden min-h-[140px] shadow-inner">
-                <div className="absolute top-0 left-0 right-0 h-6 bg-gradient-to-b from-[#030303] to-transparent z-10 pointer-events-none" />
-                <div className="flex-1 overflow-y-auto custom-scrollbar flex flex-col justify-end gap-1.5 pt-4 pb-1">
-                  {logs.map((log, i) => (
-                    <p
-                      key={i}
-                      className={cn(
-                        "text-[9px] font-mono leading-relaxed",
-                        log.type === "red"
-                          ? "text-red-400"
-                          : log.type === "green"
-                            ? "text-emerald-400"
-                            : "text-[rgba(245,240,232,0.30)]",
-                      )}
-                    >
-                      {log.text}
-                    </p>
-                  ))}
-                  <div className="flex items-center gap-1.5 mt-0.5">
-                    <span className="text-[9px] font-mono text-[#BFA264] animate-pulse">
-                      _
-                    </span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Contextual Intelligence */}
-              {competitors.length > 0 ? (
-                <div className="mt-4 p-3.5 rounded-[1.25rem] bg-gradient-to-b from-[rgba(191,162,100,0.08)] to-[rgba(191,162,100,0.02)] border border-[rgba(191,162,100,0.15)] shrink-0">
-                  <div className="flex items-start gap-2.5">
-                    <Activity className="w-3.5 h-3.5 text-[#BFA264] mt-0.5 shrink-0" />
-                    <div>
-                      <p className="text-[9px] font-black text-[#D4AF78] uppercase tracking-widest mb-1.5">
-                        Algorithmic Insight
-                      </p>
-                      <p className="text-[10px] text-[rgba(245,240,232,0.60)] leading-relaxed">
-                        Radar locked on {competitors.length} node
-                        {competitors.length !== 1 ? "s" : ""}. Targets show
-                        consistent velocity. Maintain execution streaks to
-                        outpace network averages.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              ) : (
-                <div className="mt-4 p-4 rounded-[1.25rem] bg-[rgba(255,255,255,0.02)] border border-[rgba(255,255,255,0.04)] text-center shrink-0">
-                  <p className="text-[10px] text-[rgba(245,240,232,0.30)] leading-relaxed">
-                    Radar empty. Mark targets in the Global tab to populate live
-                    telemetry feeds.
-                  </p>
-                </div>
-              )}
-            </motion.div>
-          )}
-
-          {view === "peek" && (
-            <motion.div
-              key="peek"
-              initial={{ opacity: 0, x: 12 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: 12 }}
-              className="p-4 flex flex-col h-full min-h-[400px]"
-            >
-              {!peekUser ? (
-                <div className="flex-1 flex flex-col items-center justify-center py-12 text-center">
-                  <Eye className="w-10 h-10 text-[rgba(245,240,232,0.06)] mx-auto mb-3" />
-                  <p className="text-[11px] font-black text-[rgba(245,240,232,0.30)]">
-                    Operator Inspector
-                  </p>
-                  <p className="text-[9px] text-[rgba(245,240,232,0.18)] mt-1.5 leading-relaxed max-w-[180px] mx-auto">
-                    Click any operator card to inspect their profile here
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 rounded-full bg-[#111] border border-[#BFA264]/40 flex items-center justify-center text-base font-black text-[#BFA264] overflow-hidden shrink-0">
-                      {peekUser?.identity?.avatarUrl ? (
-                        <img
-                          src={peekUser.identity.avatarUrl}
-                          alt=""
-                          className="w-full h-full object-cover"
-                        />
-                      ) : (
-                        peekUser?.identity?.firstName
-                          ?.charAt(0)
-                          ?.toUpperCase() || "O"
-                      )}
-                    </div>
-                    <div className="min-w-0">
-                      <p className="text-sm font-black text-[#F5F0E8] truncate">
-                        {`${peekUser?.identity?.firstName || ""} ${peekUser?.identity?.lastName || ""}`.trim() ||
-                          "Operator"}
-                      </p>
-                      {peekUser?.identity?.username && (
-                        <p className="text-[10px] text-[rgba(245,240,232,0.35)] font-mono">
-                          @{peekUser.identity.username}
+                      {peekUser?.identity?.domain && (
+                        <p className="text-[10px] text-[rgba(245,240,232,0.40)] px-1">
+                          {peekUser.identity.domain}
+                          {peekUser?.identity?.niche
+                            ? ` · ${peekUser.identity.niche}`
+                            : ""}
                         </p>
                       )}
-                    </div>
-                  </div>
 
-                  <div className="grid grid-cols-3 gap-1.5">
-                    {[
-                      {
-                        label: "Score",
-                        val: (
-                          peekUser?.discotiveScore?.current || 0
-                        ).toLocaleString(),
-                        color: "text-[#BFA264]",
-                      },
-                      {
-                        label: "Assets",
-                        val: peekUser?.vault?.length || 0,
-                        color: "text-emerald-400",
-                      },
-                      {
-                        label: "Streak",
-                        val: `${peekUser?.discotiveScore?.streak || 0}d`,
-                        color: "text-orange-400",
-                      },
-                    ].map(({ label, val, color }) => (
-                      <div
-                        key={label}
-                        className="bg-[rgba(255,255,255,0.02)] border border-[rgba(255,255,255,0.04)] rounded-xl p-2 text-center"
+                      {peekUser?.skills?.alignedSkills?.length > 0 && (
+                        <div className="flex flex-wrap gap-1">
+                          {peekUser.skills.alignedSkills
+                            .slice(0, 4)
+                            .map((s) => (
+                              <span
+                                key={s}
+                                className="px-2 py-0.5 bg-[rgba(255,255,255,0.03)] border border-[rgba(255,255,255,0.06)] rounded-lg text-[8px] font-bold text-[rgba(245,240,232,0.45)]"
+                              >
+                                {s}
+                              </span>
+                            ))}
+                        </div>
+                      )}
+
+                      <a
+                        href={`/@${peekUser?.identity?.username || ""}`}
+                        className="flex items-center justify-center gap-1.5 w-full py-2 bg-[rgba(191,162,100,0.08)] border border-[rgba(191,162,100,0.20)] text-[#BFA264] text-[9px] font-black uppercase tracking-widest rounded-xl hover:bg-[rgba(191,162,100,0.14)] transition-all"
                       >
-                        <p
-                          className={cn("text-sm font-black font-mono", color)}
-                        >
-                          {val}
-                        </p>
-                        <p className="text-[8px] text-[rgba(245,240,232,0.25)] uppercase tracking-widest mt-0.5">
-                          {label}
-                        </p>
-                      </div>
-                    ))}
-                  </div>
-
-                  {peekUser?.identity?.domain && (
-                    <p className="text-[10px] text-[rgba(245,240,232,0.40)] px-1">
-                      {peekUser.identity.domain}
-                      {peekUser?.identity?.niche
-                        ? ` · ${peekUser.identity.niche}`
-                        : ""}
-                    </p>
-                  )}
-
-                  {peekUser?.skills?.alignedSkills?.length > 0 && (
-                    <div className="flex flex-wrap gap-1">
-                      {peekUser.skills.alignedSkills.slice(0, 4).map((s) => (
-                        <span
-                          key={s}
-                          className="px-2 py-0.5 bg-[rgba(255,255,255,0.03)] border border-[rgba(255,255,255,0.06)] rounded-lg text-[8px] font-bold text-[rgba(245,240,232,0.45)]"
-                        >
-                          {s}
-                        </span>
-                      ))}
+                        View Full Profile <ArrowUpRight className="w-3 h-3" />
+                      </a>
                     </div>
                   )}
-
-                  <a
-                    href={`/@${peekUser?.identity?.username || ""}`}
-                    className="flex items-center justify-center gap-1.5 w-full py-2 bg-[rgba(191,162,100,0.08)] border border-[rgba(191,162,100,0.20)] text-[#BFA264] text-[9px] font-black uppercase tracking-widest rounded-xl hover:bg-[rgba(191,162,100,0.14)] transition-all"
-                  >
-                    View Full Profile <ArrowUpRight className="w-3 h-3" />
-                  </a>
-                </div>
+                </motion.div>
               )}
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
+            </AnimatePresence>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };
@@ -555,6 +577,7 @@ const NetworkStatsWidget = ({
   onOpenDM,
   unreadDmCount,
   onRefresh,
+  isCollapsed = false,
 }) => {
   const score = userData?.discotiveScore?.current || 0;
   const streak = userData?.discotiveScore?.streak || 0;
@@ -581,91 +604,104 @@ const NetworkStatsWidget = ({
         <RefreshButton onRefresh={onRefresh} />
       </div>
 
-      <div className="p-4 space-y-2">
-        {[
-          {
-            label: "Alliances",
-            val: stats.alliances,
-            icon: Users,
-            color: "text-emerald-400",
-          },
-          {
-            label: "Competitors",
-            val: stats.competitors,
-            icon: Crosshair,
-            color: "text-red-400",
-          },
-          {
-            label: "Pending Requests",
-            val: stats.pendingInbound,
-            icon: Bell,
-            color: "text-amber-400",
-          },
-        ].map(({ label, val, icon: Icon, color }) => (
-          <div
-            key={label}
-            className="flex items-center justify-between text-xs"
+      <AnimatePresence>
+        {!isCollapsed && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            className="flex flex-col"
           >
-            <div className="flex items-center gap-2 text-[rgba(245,240,232,0.40)]">
-              <Icon className={cn("w-3.5 h-3.5", color)} />
-              <span>{label}</span>
+            <div className="p-4 space-y-2">
+              {[
+                {
+                  label: "Alliances",
+                  val: stats.alliances,
+                  icon: Users,
+                  color: "text-emerald-400",
+                },
+                {
+                  label: "Competitors",
+                  val: stats.competitors,
+                  icon: Crosshair,
+                  color: "text-red-400",
+                },
+                {
+                  label: "Pending Requests",
+                  val: stats.pendingInbound,
+                  icon: Bell,
+                  color: "text-amber-400",
+                },
+              ].map(({ label, val, icon: Icon, color }) => (
+                <div
+                  key={label}
+                  className="flex items-center justify-between text-xs"
+                >
+                  <div className="flex items-center gap-2 text-[rgba(245,240,232,0.40)]">
+                    <Icon className={cn("w-3.5 h-3.5", color)} />
+                    <span>{label}</span>
+                  </div>
+                  <span className={cn("font-black font-mono", color)}>
+                    {val}
+                  </span>
+                </div>
+              ))}
             </div>
-            <span className={cn("font-black font-mono", color)}>{val}</span>
-          </div>
-        ))}
-      </div>
 
-      <div className="px-4 pb-3">
-        <div className="flex items-center justify-between mb-1">
-          <span className="text-[9px] text-[rgba(245,240,232,0.25)] uppercase tracking-widest font-bold">
-            Requests Today
-          </span>
-          <span
-            className={cn(
-              "text-[9px] font-black font-mono",
-              stats.dailyRequestCount >= stats.dailyRequestLimit
-                ? "text-red-400"
-                : "text-[rgba(245,240,232,0.40)]",
-            )}
-          >
-            {stats.dailyRequestCount}/{stats.dailyRequestLimit}
-          </span>
-        </div>
-        <div className="w-full h-1 bg-[rgba(255,255,255,0.04)] rounded-full overflow-hidden">
-          <div
-            className={cn(
-              "h-full rounded-full transition-all",
-              stats.dailyRequestCount >= stats.dailyRequestLimit
-                ? "bg-red-500"
-                : "bg-[#BFA264]",
-            )}
-            style={{
-              width: `${Math.min((stats.dailyRequestCount / stats.dailyRequestLimit) * 100, 100)}%`,
-            }}
-          />
-        </div>
-      </div>
-
-      {onOpenDM && (
-        <div className="px-4 pb-4">
-          <button
-            onClick={onOpenDM}
-            className="w-full flex items-center justify-between px-4 py-2.5 bg-[rgba(191,162,100,0.06)] border border-[rgba(191,162,100,0.20)] rounded-xl hover:bg-[rgba(191,162,100,0.10)] transition-all"
-          >
-            <div className="flex items-center gap-2">
-              <MessageCircle className="w-4 h-4 text-[#BFA264]" />
-              <span className="text-[11px] font-bold text-[#D4AF78]">
-                Messages
-              </span>
+            <div className="px-4 pb-3">
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-[9px] text-[rgba(245,240,232,0.25)] uppercase tracking-widest font-bold">
+                  Requests Today
+                </span>
+                <span
+                  className={cn(
+                    "text-[9px] font-black font-mono",
+                    stats.dailyRequestCount >= stats.dailyRequestLimit
+                      ? "text-red-400"
+                      : "text-[rgba(245,240,232,0.40)]",
+                  )}
+                >
+                  {stats.dailyRequestCount}/{stats.dailyRequestLimit}
+                </span>
+              </div>
+              <div className="w-full h-1 bg-[rgba(255,255,255,0.04)] rounded-full overflow-hidden">
+                <div
+                  className={cn(
+                    "h-full rounded-full transition-all",
+                    stats.dailyRequestCount >= stats.dailyRequestLimit
+                      ? "bg-red-500"
+                      : "bg-[#BFA264]",
+                  )}
+                  style={{
+                    width: `${Math.min((stats.dailyRequestCount / stats.dailyRequestLimit) * 100, 100)}%`,
+                  }}
+                />
+              </div>
             </div>
-            {unreadDmCount > 0 && (
-              <span className="px-1.5 py-0.5 bg-[#BFA264] text-[#030303] text-[8px] font-black rounded-full">
-                {unreadDmCount}
-              </span>
+
+            {onOpenDM && (
+              <div className="px-4 pb-4">
+                <button
+                  onClick={onOpenDM}
+                  className="w-full flex items-center justify-between px-4 py-2.5 bg-[rgba(191,162,100,0.06)] border border-[rgba(191,162,100,0.20)] rounded-xl hover:bg-[rgba(191,162,100,0.10)] transition-all"
+                >
+                  <div className="flex items-center gap-2">
+                    <MessageCircle className="w-4 h-4 text-[#BFA264]" />
+                    <span className="text-[11px] font-bold text-[#D4AF78]">
+                      Messages
+                    </span>
+                  </div>
+                  {unreadDmCount > 0 && (
+                    <span className="px-1.5 py-0.5 bg-[#BFA264] text-[#030303] text-[8px] font-black rounded-full">
+                      {unreadDmCount}
+                    </span>
+                  )}
+                </button>
+              </div>
             )}
-          </button>
-        </div>
-      )}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };
@@ -682,26 +718,74 @@ const SideLayout = ({
   onOpenDM,
   unreadDmCount,
   onRefreshNetwork,
+  isExpanded = false,
+  expandedContent = null,
 }) => (
-  <div className="grid grid-cols-1 lg:grid-cols-[300px_1fr_320px] xl:grid-cols-[340px_1fr_360px] 2xl:grid-cols-[380px_1fr_360px] gap-4 xl:gap-5">
-    <aside className="hidden lg:flex flex-col sticky top-24 h-[80vh]">
-      <IntelligenceHub
-        peekUser={peekUser}
-        competitors={competitors}
-        onRefreshTargets={onRefreshTargets}
-      />
-    </aside>
-    <div className="min-w-0">{children}</div>
-    <aside className="hidden lg:flex flex-col gap-4 sticky top-24 h-[80vh] overflow-y-auto custom-scrollbar pb-4">
-      <NetworkStatsWidget
-        stats={networkStats}
-        userData={userData}
-        onOpenDM={onOpenDM}
-        unreadDmCount={unreadDmCount}
-        onRefresh={onRefreshNetwork}
-      />
-      {rightChildren}
-    </aside>
+  <div className="flex flex-col gap-4 xl:gap-5 w-full max-w-[1600px] mx-auto">
+    {/* TOP COMMAND ROW */}
+    <div className="grid grid-cols-1 lg:grid-cols-[300px_1fr_320px] xl:grid-cols-[340px_1fr_360px] 2xl:grid-cols-[380px_1fr_360px] gap-4 xl:gap-5">
+      <aside className="hidden lg:flex flex-col sticky top-24 self-start w-full z-20">
+        <IntelligenceHub
+          peekUser={peekUser}
+          competitors={competitors}
+          onRefreshTargets={onRefreshTargets}
+          isCollapsed={isExpanded}
+        />
+      </aside>
+
+      <div className="min-w-0 flex flex-col z-20 w-full h-full">{children}</div>
+
+      <aside className="hidden lg:flex flex-col gap-4 sticky top-24 self-start w-full z-20">
+        <NetworkStatsWidget
+          stats={networkStats}
+          userData={userData}
+          onOpenDM={onOpenDM}
+          unreadDmCount={unreadDmCount}
+          onRefresh={onRefreshNetwork}
+          isCollapsed={isExpanded}
+        />
+        <AnimatePresence>
+          {!isExpanded && rightChildren && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
+            >
+              {rightChildren}
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </aside>
+    </div>
+
+    {/* BOTTOM EXECUTION ROW (Full Width) */}
+    <AnimatePresence>
+      {isExpanded && expandedContent && (
+        <motion.div
+          initial={{ opacity: 0, y: -20, height: 0 }}
+          animate={{
+            opacity: 1,
+            y: 0,
+            height: "80vh",
+            transition: {
+              delay: 0.35,
+              type: "spring",
+              damping: 24,
+              stiffness: 220,
+            },
+          }}
+          exit={{
+            opacity: 0,
+            y: -20,
+            height: 0,
+            transition: { type: "spring", damping: 24, stiffness: 220 },
+          }}
+          className="w-full z-10"
+        >
+          {expandedContent}
+        </motion.div>
+      )}
+    </AnimatePresence>
   </div>
 );
 
@@ -715,6 +799,7 @@ const Network = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const [activeTab, setActiveTab] = useState("feed");
   const [peekUser, setPeekUser] = useState(null);
+  const [isBattlefieldExpanded, setIsBattlefieldExpanded] = useState(false);
 
   const dmConvoId = searchParams.get("dm");
   const newDmUserId = searchParams.get("new_dm");
@@ -1083,10 +1168,18 @@ const Network = () => {
                 onOpenDM={() => handleOpenDM()}
                 unreadDmCount={unreadDmCount}
                 onRefreshNetwork={handleRefreshNetwork}
+                isExpanded={isBattlefieldExpanded}
+                expandedContent={
+                  <BattlefieldWarRoom
+                    userData={userData}
+                    competitors={competitors}
+                    onCollapse={() => setIsBattlefieldExpanded(false)}
+                  />
+                }
               >
                 <div className="flex items-center justify-between mb-4">
                   <p className="text-[10px] font-black text-[rgba(245,240,232,0.30)] uppercase tracking-widest">
-                    Alliance Engine
+                    Kinetic Battlefield
                   </p>
                   <RefreshButton
                     onRefresh={handleRefreshNetwork}
@@ -1096,6 +1189,7 @@ const Network = () => {
                 </div>
                 <ConnectionsTab
                   uid={uid}
+                  userData={userData}
                   alliances={alliances}
                   pendingInbound={pendingInbound}
                   pendingOutbound={pendingOutbound}
@@ -1115,6 +1209,8 @@ const Network = () => {
                     handleOpenDM(partnerId, partnerObj)
                   }
                   onPeekOperator={handlePeekOperator}
+                  onExpandBattlefield={setIsBattlefieldExpanded}
+                  isBattlefieldExpanded={isBattlefieldExpanded}
                 />
               </SideLayout>
             </motion.div>
