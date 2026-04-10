@@ -11,6 +11,7 @@
 
 import React, { useState, useMemo, useCallback } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { useNavigate } from "react-router-dom";
 import {
   Users,
   Clock,
@@ -1132,8 +1133,14 @@ const NetworkTab = ({
   isBattlefieldExpanded,
 }) => {
   const [activeSubTab, setActiveSubTab] = useState("battlefield");
+  const navigate = useNavigate();
 
   const handleToggleBattlefield = (isExpanded) => {
+    if (isExpanded) {
+      navigate("/app/connective/network/battlefield");
+    } else {
+      navigate("/app/connective/network");
+    }
     if (onExpandBattlefield) onExpandBattlefield(isExpanded);
   };
 

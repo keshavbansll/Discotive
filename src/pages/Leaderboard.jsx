@@ -43,7 +43,9 @@ import {
   arrayUnion,
 } from "firebase/firestore";
 import { db } from "../firebase";
+import { useAuth } from "../contexts/AuthContext";
 import { useUserData } from "../hooks/useUserData";
+import { useNetwork } from "../hooks/useNetwork";
 import CompareModal from "../components/CompareModal";
 import {
   Radar,
@@ -86,6 +88,7 @@ import {
   Check,
   BarChart2,
   Eye,
+  Maximize2,
 } from "lucide-react";
 import { cn } from "../lib/cn";
 
@@ -473,6 +476,96 @@ const FilterSelect = ({ label, value, onChange, options, disabled }) => {
   );
 };
 
+// ─── Composite Operator Avatar ────────────────────────────────────────────────
+// Primary: real profile photo. Overlay: Discotive character badge (bottom-right).
+const OperatorAvatar = ({ player, size = "md", aura, className = "" }) => {
+  const sizes = {
+    sm: "w-8 h-8",
+    md: "w-9 h-9",
+    lg: "w-14 h-14",
+    xl: "w-16 h-16",
+  };
+  const charSz = { sm: "w-5 h-5", md: "w-6 h-6", lg: "w-8 h-8", xl: "w-9 h-9" };
+  const radii = {
+    sm: "rounded-lg",
+    md: "rounded-xl",
+    lg: "rounded-2xl",
+    xl: "rounded-2xl",
+  };
+  const textSz = {
+    sm: "text-[9px]",
+    md: "text-xs",
+    lg: "text-base",
+    xl: "text-lg",
+  };
+
+  const initials = (
+    player?.identity?.firstName?.charAt(0) ||
+    player?.identity?.fullName?.charAt(0) ||
+    player?.identity?.username?.charAt(0) ||
+    "?"
+  ).toUpperCase();
+
+  const gender = player?.identity?.gender || "Male";
+  const score = player?.discotiveScore?.current || 0;
+  const rankKey =
+    score > 4000
+      ? "rank1"
+      : score > 1800
+        ? "rank2"
+        : score > 600
+          ? "rank3"
+          : "observer";
+  const charSrc = getAvatar(rankKey, gender);
+
+  return (
+    <div
+      className={cn(
+        "relative shrink-0 transition-transform group-hover:scale-105",
+        className,
+      )}
+    >
+      {/* Primary: profile photo or gradient fallback */}
+      <div
+        className={cn(
+          sizes[size],
+          radii[size],
+          "border-2 flex items-center justify-center overflow-hidden font-black",
+          aura?.ring || "border-white/20",
+          aura?.badge?.split(" ").slice(-1)[0] || "bg-white/[0.06]",
+        )}
+      >
+        {player?.identity?.avatarUrl ? (
+          <img
+            src={player.identity.avatarUrl}
+            alt={initials}
+            className="w-full h-full object-cover"
+            draggable={false}
+            onContextMenu={(e) => e.preventDefault()}
+          />
+        ) : (
+          <span className={cn(textSz[size], "select-none")}>{initials}</span>
+        )}
+      </div>
+
+      {/* Character badge — bottom-right overlay */}
+      <div
+        className={cn(
+          "absolute -bottom-1.5 -right-1.5 rounded-full border-2 border-[#030303] bg-[#030303] overflow-hidden shadow-[0_2px_8px_rgba(0,0,0,0.8)]",
+          charSz[size],
+        )}
+      >
+        <img
+          src={charSrc}
+          alt=""
+          className="w-full h-full object-contain scale-125 translate-y-0.5"
+          draggable={false}
+        />
+      </div>
+    </div>
+  );
+};
+
 // ─── Podium card ──────────────────────────────────────────────────────────────
 const PodiumCard = ({ player, rank, resolvePlayerName, isMe }) => {
   const navigate = useNavigate();
@@ -482,11 +575,34 @@ const PodiumCard = ({ player, rank, resolvePlayerName, isMe }) => {
     2: "h-[210px] md:h-[270px]",
     3: "h-[180px] md:h-[230px]",
   };
-  const gifSizes = {
-    1: "w-28 h-28 md:w-44 md:h-44",
-    2: "w-22 h-22 md:w-36 md:h-36",
-    3: "w-18 h-18 md:w-28 md:h-28",
+  const avatarSizes = {
+    1: "w-24 h-24 md:w-36 md:h-36",
+    2: "w-20 h-20 md:w-28 md:h-28",
+    3: "w-16 h-16 md:w-24 md:h-24",
   };
+  const badgeSizes = {
+    1: "w-10 h-10 md:w-14 md:h-14 -bottom-1 -right-1 md:-bottom-2 md:-right-2",
+    2: "w-8 h-8 md:w-12 md:h-12 -bottom-1 -right-1 md:-bottom-1.5 md:-right-1.5",
+    3: "w-7 h-7 md:w-10 md:h-10 -bottom-0.5 -right-0.5",
+  };
+  const ringColors = {
+    1: "border-[#BFA264] shadow-[0_0_30px_rgba(191,162,100,0.4)] ring-4 ring-[#BFA264]/20",
+    2: "border-slate-300 shadow-[0_0_20px_rgba(203,213,225,0.25)] ring-4 ring-slate-300/20",
+    3: "border-orange-700 shadow-[0_0_20px_rgba(194,65,12,0.25)] ring-4 ring-orange-700/20",
+  };
+  const textSizes = {
+    1: "text-3xl md:text-5xl",
+    2: "text-2xl md:text-4xl",
+    3: "text-xl md:text-3xl",
+  };
+
+  const initials = (
+    player?.identity?.firstName?.charAt(0) ||
+    player?.identity?.fullName?.charAt(0) ||
+    player?.identity?.username?.charAt(0) ||
+    "?"
+  ).toUpperCase();
+
   const gradients = {
     1: "from-[#231a05] to-[#16100200] border-amber-900/40 shadow-[0_-30px_60px_rgba(245,158,11,0.12)]",
     2: "from-[#141822] to-[#0e111800] border-slate-700/25",
@@ -513,30 +629,56 @@ const PodiumCard = ({ player, rank, resolvePlayerName, isMe }) => {
     >
       <div
         className={cn(
-          "relative flex items-end justify-center mb-[-12px] z-10 drop-shadow-2xl transition-transform group-hover:scale-105",
-          gifSizes[rank],
+          "relative flex items-center justify-center mb-[-12px] z-10 transition-transform group-hover:scale-105",
+          avatarSizes[rank],
         )}
       >
         {rank === 1 && (
-          <Crown className="absolute -top-7 left-1/2 -translate-x-1/2 w-7 h-7 text-amber-500 animate-bounce drop-shadow-[0_0_12px_rgba(245,158,11,0.9)] z-20" />
+          <Crown className="absolute -top-8 md:-top-10 left-1/2 -translate-x-1/2 w-7 h-7 md:w-9 md:h-9 text-[#BFA264] animate-bounce drop-shadow-[0_0_15px_rgba(191,162,100,0.8)] z-30" />
         )}
-        <img
-          src={getAvatar(rankKey, player.identity?.gender)}
-          // --- 🔴 MAANG-GRADE FIX: DYNAMIC ACCESSIBILITY LABEL ---
-          alt={`${player.identity?.username || player.username || "Operator"}'s avatar`}
-          role="img"
-          // -------------------------------------------------------
-          width={176}
-          height={176}
-          fetchPriority={rank === 1 ? "high" : "auto"}
-          decoding="async"
+
+        {/* Academy Award Primary Frame */}
+        <div
           className={cn(
-            "w-full h-full object-contain select-none pointer-events-none",
+            "w-full h-full rounded-2xl flex items-center justify-center overflow-hidden border-2 bg-[#0a0a0a]",
+            ringColors[rank],
             isMe && "brightness-110",
           )}
-          draggable={false}
-          onContextMenu={(e) => e.preventDefault()}
-        />
+        >
+          {player?.identity?.avatarUrl ? (
+            <img
+              src={player.identity.avatarUrl}
+              alt={`${player.identity?.username || "Operator"}'s avatar`}
+              className="w-full h-full object-cover"
+              draggable={false}
+              onContextMenu={(e) => e.preventDefault()}
+            />
+          ) : (
+            <span
+              className={cn(
+                "font-black text-white/50 select-none",
+                textSizes[rank],
+              )}
+            >
+              {initials}
+            </span>
+          )}
+        </div>
+
+        {/* Character Badge Overlay */}
+        <div
+          className={cn(
+            "absolute rounded-full border-2 border-[#030303] bg-[#030303] overflow-hidden shadow-[0_4px_12px_rgba(0,0,0,0.9)] z-20",
+            badgeSizes[rank],
+          )}
+        >
+          <img
+            src={getAvatar(rankKey, player.identity?.gender)}
+            alt="Rank Badge"
+            className="w-full h-full object-contain scale-125 translate-y-0.5 pointer-events-none"
+            draggable={false}
+          />
+        </div>
       </div>
 
       <div
@@ -677,15 +819,7 @@ const PlayerRow = ({
 
         {/* Operator */}
         <div className="flex items-center gap-3 min-w-0">
-          <div
-            className={cn(
-              "w-9 h-9 rounded-xl border-2 shrink-0 flex items-center justify-center text-xs font-black transition-all group-hover:scale-110",
-              aura.ring,
-              aura.badge.split(" ").slice(-1)[0],
-            )}
-          >
-            {initials}
-          </div>
+          <OperatorAvatar player={player} size="md" aura={aura} />
           <div className="min-w-0">
             <div className="flex items-center gap-1.5">
               <span
@@ -816,15 +950,7 @@ const PlayerRow = ({
         </div>
 
         {/* Avatar */}
-        <div
-          className={cn(
-            "w-10 h-10 rounded-xl border-2 shrink-0 flex items-center justify-center text-sm font-black",
-            aura.ring,
-            aura.badge.split(" ").slice(-1)[0],
-          )}
-        >
-          {initials}
-        </div>
+        <OperatorAvatar player={player} size="md" aura={aura} />
 
         {/* Info */}
         <div className="flex-1 min-w-0">
@@ -958,15 +1084,7 @@ const PlayerSidebar = ({
       <div className="flex-1 overflow-y-auto custom-scrollbar p-5 space-y-5">
         {/* Identity */}
         <div className="flex items-start gap-4">
-          <div
-            className={cn(
-              "w-14 h-14 rounded-2xl border-2 shrink-0 flex items-center justify-center text-xl font-black",
-              aura.ring,
-              aura.badge.split(" ").slice(-1)[0],
-            )}
-          >
-            {(player.identity?.firstName?.charAt(0) || "?").toUpperCase()}
-          </div>
+          <OperatorAvatar player={player} size="lg" aura={aura} />
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2 flex-wrap">
               <h3 className="text-base font-black text-white">{name}</h3>
@@ -1163,7 +1281,10 @@ const Leaderboard = () => {
 
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
+  const { currentUser } = useAuth();
   const { userData, loading: userLoading } = useUserData();
+  const { competitors = [], fetchNetworkData } =
+    useNetwork(currentUser, userData) || {};
 
   // ── Data state ──────────────────────────────────────────────────────────
   const [players, setPlayers] = useState([]);
@@ -1201,6 +1322,8 @@ const Leaderboard = () => {
   const [isUpsellOpen, setIsUpsellOpen] = useState(false);
   const [toasts, setToasts] = useState([]);
   const [searchInput, setSearchInput] = useState(filters.search);
+  // "global" | "territory" | "hitlist" | "alliances"
+  const [arenaTab, setArenaTab] = useState("global");
 
   const searchDebounceRef = useRef(null);
   const lastFetchFilterRef = useRef("");
@@ -1442,6 +1565,12 @@ const Leaderboard = () => {
   }, [isGhostUser, userData, buildConstraints, filters]);
 
   // ── Effects ──────────────────────────────────────────────────────────────
+  // Hydrate network targets for the Live Battlefield
+  useEffect(() => {
+    if (userLoading || !currentUser || !fetchNetworkData) return;
+    fetchNetworkData();
+  }, [userLoading, currentUser, fetchNetworkData]);
+
   useEffect(() => {
     if (userLoading) return;
     executeFetch("initial");
@@ -1479,6 +1608,30 @@ const Leaderboard = () => {
       p.identity?.username === userData?.identity?.username,
   );
 
+  // ── Arena tab derived data (zero extra Firestore reads) ──────────────────
+  const myScore = userData?.discotiveScore?.current || 0;
+  const myCountry = userData?.identity?.country || "";
+
+  const myAlliesIds = useMemo(
+    () => new Set(userData?.allies || []),
+    [userData?.allies], // eslint-disable-line
+  );
+
+  const arenaFilteredList = useMemo(() => {
+    if (arenaTab === "territory" && myCountry) {
+      return players.filter((p) => p.identity?.country === myCountry);
+    }
+    if (arenaTab === "alliances") {
+      return players.filter((p) => myAlliesIds.has(p.id));
+    }
+    return players;
+  }, [arenaTab, players, myCountry, myAlliesIds]);
+
+  // Tabs other than global bypass the podium + use client-side filtered list
+  const tabListPlayers =
+    arenaTab === "global" ? listPlayers : arenaFilteredList;
+  const tabTop3 = arenaTab === "global" ? top3 : [];
+
   const myLevelStr = userData?.identity?.level || userData?.level || "L1";
   const userAura = LEVEL_AURA[getLevelKey(myLevelStr)];
 
@@ -1489,6 +1642,36 @@ const Leaderboard = () => {
     filters.country,
   ].filter(Boolean).length;
   const isFirstRender = isLoading && players.length === 0;
+
+  // ── Mini Leaderboard Data (You + Targets) ────────────────────────────────
+  const miniLeaderboard = useMemo(() => {
+    if (!userData) return [];
+    const me = {
+      id: userData.uid || userData.id,
+      identity: userData.identity,
+      discotiveScore: userData.discotiveScore,
+      tier: userData.tier,
+      _isMe: true,
+    };
+    const mappedCompetitors = competitors.map((c) => ({
+      id: c.targetId,
+      identity: {
+        username: c.targetUsername,
+        firstName: c.targetName?.split(" ")[0],
+        lastName: c.targetName?.split(" ").slice(1).join(" "),
+        avatarUrl: c.targetAvatar,
+      },
+      discotiveScore: { current: c.targetScore || 0 },
+      _isMe: false,
+    }));
+
+    return [me, ...mappedCompetitors]
+      .sort(
+        (a, b) =>
+          (b.discotiveScore?.current || 0) - (a.discotiveScore?.current || 0),
+      )
+      .slice(0, 11);
+  }, [userData, competitors]);
 
   // ── Handlers ─────────────────────────────────────────────────────────────
   const handleCompare = (player) => {
@@ -1548,7 +1731,7 @@ const Leaderboard = () => {
               <div className="flex items-center gap-2.5 mb-0.5">
                 <Trophy className="w-5 h-5 text-amber-500" />
                 <h1 className="text-base md:text-lg font-black tracking-tight text-white">
-                  Discotive Arena
+                  Global Arena
                 </h1>
               </div>
               <p className="text-[9px] text-white/30 font-bold uppercase tracking-widest ml-7">
@@ -1808,232 +1991,475 @@ const Leaderboard = () => {
           )}
         </AnimatePresence>
 
-        {/* ── MAIN LIST ─────────────────────────────────────────────────── */}
+        {/* ── MAIN LIST + RIGHT TELEMETRY RAIL ─────────────────────────── */}
         <main className="flex-1 overflow-y-auto custom-scrollbar min-w-0">
-          <div className="max-w-[1100px] mx-auto p-4 md:p-6 pb-40">
-            {/* ── PODIUM ─────────────────────────────────────────────────── */}
-            {top3.length > 0 && !isPaging && (
-              <div className="mb-6 mt-8 md:mt-4">
-                {/* FIX: Increased mobile height from 200px -> 280px to accommodate the 260px card 
-                  and the absolute positioned avatar/crown on top.
-                */}
-                <div className="flex items-end justify-center gap-2 md:gap-3 h-[280px] md:h-[340px]">
-                  {/* Order: 2, 1, 3 */}
-                  {[top3[1], top3[0], top3[2]].map((player, podiumIdx) => {
-                    if (!player)
-                      return (
-                        <div key={podiumIdx} className="flex-1 max-w-[140px]" />
-                      );
-                    const rank = podiumIdx === 0 ? 2 : podiumIdx === 1 ? 1 : 3;
-                    const isMe =
-                      player.id === (userData?.uid || userData?.id) ||
-                      player.identity?.username ===
-                        userData?.identity?.username;
-                    return (
-                      <div
-                        key={player.id}
-                        className="flex-1 max-w-[160px] md:max-w-[220px]"
-                      >
-                        <PodiumCard
-                          player={player}
-                          rank={rank}
-                          resolvePlayerName={resolvePlayerName}
-                          isMe={isMe}
-                        />
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            {/* ── MY RANK BAR ───────────────────────────────────────────── */}
-            {!isGhostUser && myRank && (
-              <motion.div
-                initial={{ opacity: 0, y: -10 }}
-                animate={{ opacity: 1, y: 0 }}
-                className="mb-6 p-3 sm:p-4 bg-[#0a0a0a] border border-[#1a1a1a] rounded-2xl relative overflow-hidden"
-              >
-                <div className="absolute inset-0 bg-gradient-to-r from-amber-500/[0.04] to-transparent pointer-events-none" />
-
-                {/* FIX: Changed to flex-col on mobile, flex-row on desktop with space-between */}
-                <div className="relative z-10 flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
-                  {/* Left: Avatar & Rank */}
-                  <div className="flex items-center gap-3 shrink-0">
-                    <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl bg-amber-500/15 border border-amber-500/25 flex items-center justify-center shrink-0">
-                      {/* Inside the MOBILE CARD section */}
-                      <img
-                        src={getAvatar("observer", userData.identity?.gender)}
-                        alt="Operator Avatar"
-                        loading="lazy"
-                        decoding="async"
-                        width={40}
-                        height={40}
-                        className={cn(
-                          "w-full h-full object-contain rounded-xl",
-                          userAura.ring,
-                        )}
-                      />
-                    </div>
-                    <div>
-                      <p className="text-[8px] sm:text-[9px] font-black text-white/30 uppercase tracking-widest">
-                        Your Standing
-                      </p>
-                      <p className="text-xl sm:text-2xl font-black text-amber-400 font-mono leading-none mt-0.5">
-                        #{myRank.toLocaleString()}
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Right: Badges */}
-                  <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 sm:gap-3">
-                    {percentile && (
-                      <div className="px-2.5 py-1.5 bg-amber-500/10 border border-amber-500/20 rounded-lg text-[9px] font-black text-amber-400 uppercase tracking-widest whitespace-nowrap">
-                        Top {percentile}%
-                      </div>
-                    )}
-
-                    {nextTarget ? (
-                      <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-sky-500/10 border border-sky-500/20 rounded-lg shrink-0">
-                        <Target className="w-3 h-3 text-sky-400 shrink-0" />
-                        <span className="text-[9px] font-bold text-sky-400 truncate max-w-[140px] sm:max-w-none">
-                          Next: {resolvePlayerName(nextTarget, true)}
-                          <span className="font-black ml-1">
-                            (+
-                            {(nextTarget.discotiveScore?.current || 0) -
-                              (userData?.discotiveScore?.current || 0)}
-                            )
-                          </span>
-                        </span>
-                      </div>
-                    ) : myRank === 1 ? (
-                      <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-amber-500/10 border border-amber-500/20 rounded-lg shrink-0">
-                        <Crown className="w-3.5 h-3.5 text-amber-400 animate-pulse shrink-0" />
-                        <span className="text-[9px] font-black text-amber-400 uppercase tracking-widest">
-                          Defend the throne
-                        </span>
-                      </div>
-                    ) : null}
-                  </div>
-                </div>
-              </motion.div>
-            )}
-
-            {/* ── PLAYER LIST ─────────────────────────────────────────────── */}
-            <div className="bg-[#070707] border border-[#111] rounded-2xl overflow-hidden shadow-2xl">
-              {/* Desktop header row */}
-              <div className="hidden md:grid grid-cols-[52px_2fr_1.2fr_100px_70px_70px_100px] gap-3 px-5 py-3 border-b border-white/[0.05] bg-white/[0.01]">
+          <div className="p-4 md:p-6 pb-40 flex gap-5 xl:gap-6 max-w-[1680px] mx-auto">
+            {/* ══ CENTER COLUMN ════════════════════════════════════════════ */}
+            <div className="flex-1 min-w-0">
+              {/* ── ARENA TAB BAR ────────────────────────────────────────── */}
+              <div className="flex items-center gap-1.5 mb-5 overflow-x-auto hide-scrollbar pb-1">
                 {[
-                  "#",
-                  "Operator",
-                  "Domain / Niche",
-                  "Level",
-                  "Vault",
-                  "Streak",
-                  "Score",
-                ].map((h, i) => (
-                  <div
-                    key={h}
-                    className={cn(
-                      "text-[9px] font-black text-white/25 uppercase tracking-widest",
-                      i === 0 ? "text-center" : i >= 5 ? "text-right" : "",
-                    )}
-                  >
-                    {h}
-                  </div>
-                ))}
+                  { id: "global", icon: Trophy, label: "Global" },
+                  {
+                    id: "territory",
+                    icon: MapPin,
+                    label: myCountry
+                      ? myCountry.split("/")[0].trim().split(" ")[0]
+                      : "Territory",
+                    disabled: !myCountry,
+                  },
+                  {
+                    id: "alliances",
+                    icon: Users,
+                    label: "Alliances",
+                    badge:
+                      arenaTab !== "alliances" &&
+                      (userData?.allies?.length || 0) > 0
+                        ? userData.allies.length
+                        : null,
+                    badgeColor: "bg-violet-500 text-white",
+                  },
+                ].map(
+                  ({ id, icon: Icon, label, badge, badgeColor, disabled }) => (
+                    <button
+                      key={id}
+                      disabled={!!disabled}
+                      onClick={() => setArenaTab(id)}
+                      className={cn(
+                        "relative flex items-center gap-2 px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-wider transition-all border shrink-0",
+                        arenaTab === id
+                          ? "bg-[rgba(191,162,100,0.10)] border-[rgba(191,162,100,0.35)] text-[#BFA264] shadow-[0_0_14px_rgba(191,162,100,0.12)]"
+                          : disabled
+                            ? "bg-white/[0.02] border-white/[0.04] text-white/20 cursor-not-allowed"
+                            : "bg-white/[0.03] border-white/[0.05] text-white/40 hover:bg-white/[0.06] hover:text-white/70 hover:border-white/10",
+                      )}
+                    >
+                      <Icon className="w-3.5 h-3.5 shrink-0" />
+                      <span className="hidden sm:block">{label}</span>
+                      {badge && (
+                        <span
+                          className={cn(
+                            "min-w-[16px] h-4 px-1 rounded-full text-[7px] font-black flex items-center justify-center",
+                            badgeColor || "bg-[#BFA264] text-black",
+                          )}
+                        >
+                          {badge}
+                        </span>
+                      )}
+                    </button>
+                  ),
+                )}
+
+                {/* Contextual label */}
+                <AnimatePresence mode="wait">
+                  {arenaTab === "alliances" && (
+                    <motion.div
+                      key="al-label"
+                      initial={{ opacity: 0, x: 8 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      exit={{ opacity: 0 }}
+                      className="ml-auto flex items-center gap-1.5 px-3 py-1.5 bg-violet-500/8 border border-violet-500/20 rounded-xl shrink-0"
+                    >
+                      <Users className="w-3 h-3 text-violet-400" />
+                      <span className="text-[9px] font-black text-violet-400 uppercase tracking-widest hidden sm:block">
+                        {userData?.allies?.length || 0} allies tracked
+                      </span>
+                    </motion.div>
+                  )}
+                  {arenaTab === "territory" && myCountry && (
+                    <motion.div
+                      key="tr-label"
+                      initial={{ opacity: 0, x: 8 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      exit={{ opacity: 0 }}
+                      className="ml-auto flex items-center gap-1.5 px-3 py-1.5 bg-sky-500/8 border border-sky-500/20 rounded-xl shrink-0"
+                    >
+                      <MapPin className="w-3 h-3 text-sky-400" />
+                      <span className="text-[9px] font-black text-sky-400 uppercase tracking-widest hidden sm:block">
+                        {myCountry} · current page
+                      </span>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
 
-              {isPaging && (
-                <div className="p-6 flex items-center justify-center gap-3 text-white/30">
-                  <RefreshCw className="w-4 h-4 animate-spin" />
-                  <span className="text-xs font-bold uppercase tracking-widest">
-                    Loading…
-                  </span>
+              {/* ── PODIUM (global tab only) ────────────────────────────── */}
+              {tabTop3.length > 0 && !isPaging && (
+                <div className="mb-6 mt-8 md:mt-4">
+                  <div className="flex items-end justify-center gap-2 md:gap-3 h-[280px] md:h-[340px]">
+                    {[tabTop3[1], tabTop3[0], tabTop3[2]].map(
+                      (player, podiumIdx) => {
+                        if (!player)
+                          return (
+                            <div
+                              key={podiumIdx}
+                              className="flex-1 max-w-[140px]"
+                            />
+                          );
+                        const rank =
+                          podiumIdx === 0 ? 2 : podiumIdx === 1 ? 1 : 3;
+                        const isMe =
+                          player.id === (userData?.uid || userData?.id) ||
+                          player.identity?.username ===
+                            userData?.identity?.username;
+                        return (
+                          <div
+                            key={player.id}
+                            className="flex-1 max-w-[160px] md:max-w-[220px]"
+                          >
+                            <PodiumCard
+                              player={player}
+                              rank={rank}
+                              resolvePlayerName={resolvePlayerName}
+                              isMe={isMe}
+                            />
+                          </div>
+                        );
+                      },
+                    )}
+                  </div>
                 </div>
               )}
 
-              <AnimatePresence mode="popLayout">
-                {!isPaging &&
-                  (listPlayers.length === 0 ? (
-                    <div className="p-16 text-center">
-                      <Trophy className="w-10 h-10 text-white/10 mx-auto mb-4" />
-                      <p className="text-sm font-bold text-white/25">
-                        No operators match the current filters.
-                      </p>
-                      <button
-                        onClick={clearFilters}
-                        className="mt-4 text-xs font-bold text-amber-400/60 hover:text-amber-400 transition-colors"
-                      >
-                        Clear filters
-                      </button>
+              {/* ── ALLIANCES EMPTY STATE ───────────────────────────────── */}
+              {arenaTab === "alliances" &&
+                tabListPlayers.length === 0 &&
+                !isPaging && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 16 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="flex flex-col items-center justify-center py-20 text-center"
+                  >
+                    <div className="w-16 h-16 rounded-2xl bg-violet-500/10 border border-violet-500/20 flex items-center justify-center mb-4">
+                      <Users className="w-8 h-8 text-violet-400/50" />
                     </div>
-                  ) : (
-                    listPlayers.map((player, idx) => {
-                      const rank =
-                        isFirstPage && !filters.search
-                          ? idx + 4
-                          : (page - 1) * filters.pageSize + idx + 1;
-                      const isMe =
-                        player.id === (userData?.uid || userData?.id) ||
-                        player.identity?.username ===
-                          userData?.identity?.username;
-                      return (
-                        <PlayerRow
-                          key={player.id}
-                          player={player}
-                          rank={rank}
-                          isMe={isMe}
-                          onClick={() => {
-                            setSelectedUser(player);
-                            setIsFilterOpen(false);
-                          }}
-                          resolvePlayerName={resolvePlayerName}
-                          myRank={myRank}
-                        />
-                      );
-                    })
-                  ))}
-              </AnimatePresence>
-            </div>
+                    <p className="text-base font-black text-white/40 mb-1">
+                      No allies in current view
+                    </p>
+                    <p className="text-xs text-white/20 max-w-[240px]">
+                      Forge alliances from the Network hub, or switch to Global
+                      to see all operators.
+                    </p>
+                  </motion.div>
+                )}
 
-            {/* ── PAGINATION ─────────────────────────────────────────────── */}
-            {!filters.search && (
-              <div className="flex items-center justify-between mt-5">
-                <button
-                  onClick={() => executeFetch("prev")}
-                  disabled={!hasPrev || isPaging}
-                  className={cn(
-                    "flex items-center gap-2 px-4 py-2 rounded-xl border text-xs font-bold transition-all",
-                    hasPrev && !isPaging
-                      ? "bg-white/[0.04] border-white/[0.08] text-white hover:bg-white/[0.08]"
-                      : "opacity-30 cursor-not-allowed bg-white/[0.02] border-white/[0.04] text-white/30",
-                  )}
+              {/* ── MY RANK BAR ─────────────────────────────────────────── */}
+              {!isGhostUser && myRank && (
+                <motion.div
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="mb-6 p-3 sm:p-4 bg-[#0a0a0a] border border-[#1a1a1a] rounded-2xl relative overflow-hidden"
                 >
-                  <ChevronLeft className="w-4 h-4" /> Prev
-                </button>
+                  <div className="absolute inset-0 bg-gradient-to-r from-[rgba(191,162,100,0.04)] to-transparent pointer-events-none" />
+                  <div className="relative z-10 flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4">
+                    <div className="flex items-center gap-3 shrink-0">
+                      <div className="w-10 h-10 sm:w-11 sm:h-11 rounded-xl bg-[rgba(191,162,100,0.15)] border border-[rgba(191,162,100,0.25)] flex items-center justify-center shrink-0 overflow-hidden">
+                        {userData?.identity?.avatarUrl ? (
+                          <img
+                            src={userData.identity.avatarUrl}
+                            alt="You"
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <img
+                            src={getAvatar(
+                              "observer",
+                              userData?.identity?.gender,
+                            )}
+                            alt="Your Avatar"
+                            loading="lazy"
+                            decoding="async"
+                            width={44}
+                            height={44}
+                            className="w-full h-full object-contain"
+                          />
+                        )}
+                      </div>
+                      <div>
+                        <p className="text-[8px] sm:text-[9px] font-black text-white/30 uppercase tracking-widest">
+                          Your Standing
+                        </p>
+                        <p className="text-xl sm:text-2xl font-black text-[#BFA264] font-mono leading-none mt-0.5">
+                          #{myRank.toLocaleString()}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 sm:gap-3">
+                      {percentile && (
+                        <div className="px-2.5 py-1.5 bg-[rgba(191,162,100,0.10)] border border-[rgba(191,162,100,0.20)] rounded-lg text-[9px] font-black text-[#BFA264] uppercase tracking-widest whitespace-nowrap">
+                          Top {percentile}%
+                        </div>
+                      )}
+                      {nextTarget ? (
+                        <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-red-500/10 border border-red-500/20 rounded-lg shrink-0">
+                          <Crosshair className="w-3 h-3 text-red-400 shrink-0" />
+                          <span className="text-[9px] font-bold text-red-400 truncate max-w-[140px] sm:max-w-none">
+                            Target: {resolvePlayerName(nextTarget, true)}
+                            <span className="font-black ml-1 text-red-300">
+                              (+
+                              {(nextTarget.discotiveScore?.current || 0) -
+                                (userData?.discotiveScore?.current || 0)}{" "}
+                              pts)
+                            </span>
+                          </span>
+                        </div>
+                      ) : myRank === 1 ? (
+                        <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-[rgba(191,162,100,0.10)] border border-[rgba(191,162,100,0.20)] rounded-lg shrink-0">
+                          <Crown className="w-3.5 h-3.5 text-[#BFA264] animate-pulse shrink-0" />
+                          <span className="text-[9px] font-black text-[#BFA264] uppercase tracking-widest">
+                            Defend the throne
+                          </span>
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+                </motion.div>
+              )}
 
-                <div className="flex items-center gap-3 text-xs text-white/30">
-                  <span className="font-mono font-bold">Page {page}</span>
-                  {totalCount > 0 && (
-                    <span>of {Math.ceil(totalCount / filters.pageSize)}</span>
-                  )}
+              {/* ── PLAYER LIST ─────────────────────────────────────────── */}
+              <div className="bg-[#070707] border border-[#111] rounded-2xl overflow-hidden shadow-2xl">
+                <div className="hidden md:grid grid-cols-[52px_2fr_1.2fr_100px_70px_70px_100px] gap-3 px-5 py-3 border-b border-white/[0.05] bg-white/[0.01]">
+                  {[
+                    "#",
+                    "Operator",
+                    "Domain / Niche",
+                    "Level",
+                    "Vault",
+                    "Streak",
+                    "Score",
+                  ].map((h, i) => (
+                    <div
+                      key={h}
+                      className={cn(
+                        "text-[9px] font-black text-white/25 uppercase tracking-widest",
+                        i === 0 ? "text-center" : i >= 5 ? "text-right" : "",
+                      )}
+                    >
+                      {h}
+                    </div>
+                  ))}
                 </div>
 
+                {isPaging && (
+                  <div className="p-6 flex items-center justify-center gap-3 text-white/30">
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    <span className="text-xs font-bold uppercase tracking-widest">
+                      Loading…
+                    </span>
+                  </div>
+                )}
+
+                <AnimatePresence mode="popLayout">
+                  {!isPaging &&
+                    (tabListPlayers.length === 0 && arenaTab === "global" ? (
+                      <div className="p-16 text-center">
+                        <Trophy className="w-10 h-10 text-white/10 mx-auto mb-4" />
+                        <p className="text-sm font-bold text-white/25">
+                          No operators match the current filters.
+                        </p>
+                        <button
+                          onClick={clearFilters}
+                          className="mt-4 text-xs font-bold text-[#BFA264]/60 hover:text-[#BFA264] transition-colors"
+                        >
+                          Clear filters
+                        </button>
+                      </div>
+                    ) : (
+                      tabListPlayers.map((player, idx) => {
+                        const rank =
+                          arenaTab === "global" &&
+                          isFirstPage &&
+                          !filters.search
+                            ? idx + 4
+                            : (page - 1) * filters.pageSize + idx + 1;
+                        const isMe =
+                          player.id === (userData?.uid || userData?.id) ||
+                          player.identity?.username ===
+                            userData?.identity?.username;
+                        return (
+                          <PlayerRow
+                            key={player.id}
+                            player={player}
+                            rank={rank}
+                            isMe={isMe}
+                            onClick={() => {
+                              setSelectedUser(player);
+                              setIsFilterOpen(false);
+                            }}
+                            resolvePlayerName={resolvePlayerName}
+                            myRank={myRank}
+                          />
+                        );
+                      })
+                    ))}
+                </AnimatePresence>
+              </div>
+
+              {/* ── PAGINATION (global tab only) ────────────────────────── */}
+              {arenaTab === "global" && !filters.search && (
+                <div className="flex items-center justify-between mt-5">
+                  <button
+                    onClick={() => executeFetch("prev")}
+                    disabled={!hasPrev || isPaging}
+                    className={cn(
+                      "flex items-center gap-2 px-4 py-2 rounded-xl border text-xs font-bold transition-all",
+                      hasPrev && !isPaging
+                        ? "bg-white/[0.04] border-white/[0.08] text-white hover:bg-white/[0.08]"
+                        : "opacity-30 cursor-not-allowed bg-white/[0.02] border-white/[0.04] text-white/30",
+                    )}
+                  >
+                    <ChevronLeft className="w-4 h-4" /> Prev
+                  </button>
+                  <div className="flex items-center gap-3 text-xs text-white/30">
+                    <span className="font-mono font-bold">Page {page}</span>
+                    {totalCount > 0 && (
+                      <span>of {Math.ceil(totalCount / filters.pageSize)}</span>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => executeFetch("next")}
+                    disabled={!hasNext || isPaging}
+                    className={cn(
+                      "flex items-center gap-2 px-4 py-2 rounded-xl border text-xs font-bold transition-all",
+                      hasNext && !isPaging
+                        ? "bg-white/[0.04] border-white/[0.08] text-white hover:bg-white/[0.08]"
+                        : "opacity-30 cursor-not-allowed bg-white/[0.02] border-white/[0.04] text-white/30",
+                    )}
+                  >
+                    Next <ChevronRight className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
+            </div>
+            {/* END CENTER COLUMN */}
+
+            {/* ══ RIGHT TELEMETRY RAIL (xl+ only) ════════════════════════ */}
+            <div className="hidden xl:flex flex-col w-[340px] shrink-0 h-[80vh] bg-[#0a0a0a] border border-[#1a1a1a] rounded-2xl overflow-hidden relative shadow-2xl">
+              <div className="p-4 border-b border-[#1a1a1a] shrink-0 bg-[#070707] flex items-center justify-between">
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <Crosshair className="w-4 h-4 text-red-400 animate-pulse" />
+                    <h3 className="text-xs font-black text-white uppercase tracking-widest">
+                      Live Battlefield
+                    </h3>
+                  </div>
+                  <p className="text-[9px] text-white/30 uppercase tracking-widest">
+                    You vs Targets ({Math.max(0, miniLeaderboard.length - 1)})
+                  </p>
+                </div>
                 <button
-                  onClick={() => executeFetch("next")}
-                  disabled={!hasNext || isPaging}
-                  className={cn(
-                    "flex items-center gap-2 px-4 py-2 rounded-xl border text-xs font-bold transition-all",
-                    hasNext && !isPaging
-                      ? "bg-white/[0.04] border-white/[0.08] text-white hover:bg-white/[0.08]"
-                      : "opacity-30 cursor-not-allowed bg-white/[0.02] border-white/[0.04] text-white/30",
-                  )}
+                  onClick={() =>
+                    navigate("/app/connective/network/battlefield")
+                  }
+                  className="w-8 h-8 flex items-center justify-center rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 hover:bg-red-500/20 transition-all shrink-0"
+                  title="Expand Battlefield"
                 >
-                  Next <ChevronRight className="w-4 h-4" />
+                  <Maximize2 className="w-4 h-4" />
                 </button>
               </div>
-            )}
+
+              <div className="flex-1 overflow-y-auto custom-scrollbar p-3 space-y-2">
+                {miniLeaderboard.map((u, i) => {
+                  const isMe = u._isMe;
+                  const score = u.discotiveScore?.current || 0;
+                  const name = isMe
+                    ? "You"
+                    : `${u.identity?.firstName || ""} ${u.identity?.lastName || ""}`.trim() ||
+                      u.identity?.username ||
+                      "Operator";
+                  const initials = name.charAt(0).toUpperCase() || "O";
+
+                  return (
+                    <div
+                      key={u.id || i}
+                      className={cn(
+                        "flex items-center gap-3 p-3 rounded-xl border transition-all cursor-pointer group",
+                        isMe
+                          ? "bg-[rgba(191,162,100,0.08)] border-[rgba(191,162,100,0.25)] hover:bg-[rgba(191,162,100,0.12)]"
+                          : "bg-[#0f0f0f] border-white/[0.05] hover:border-white/[0.15] hover:bg-[#151515]",
+                      )}
+                      onClick={() => {
+                        if (!isMe) {
+                          setSelectedUser(u);
+                          setIsFilterOpen(false);
+                        }
+                      }}
+                    >
+                      <div className="w-6 text-center shrink-0 font-mono text-[10px] font-black text-white/30">
+                        #{i + 1}
+                      </div>
+
+                      <div
+                        className={cn(
+                          "w-8 h-8 rounded-full flex items-center justify-center text-[10px] font-black shrink-0 overflow-hidden border",
+                          isMe
+                            ? "bg-[#111] border-[#BFA264]/40 text-[#BFA264]"
+                            : "bg-[#111] border-red-500/20 text-red-400",
+                        )}
+                      >
+                        {u.identity?.avatarUrl ? (
+                          <img
+                            src={u.identity.avatarUrl}
+                            alt={name}
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          initials
+                        )}
+                      </div>
+
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <p
+                            className={cn(
+                              "text-[11px] font-bold truncate",
+                              isMe
+                                ? "text-[#BFA264]"
+                                : "text-white group-hover:text-red-300",
+                            )}
+                          >
+                            {name}
+                          </p>
+                          {u.tier === "PRO" && (
+                            <img
+                              src="/logo-premium.png"
+                              alt="PRO"
+                              className="w-3 h-3 object-contain shrink-0"
+                            />
+                          )}
+                        </div>
+                        {!isMe && u.identity?.username && (
+                          <p className="text-[9px] text-white/30 font-mono truncate">
+                            @{u.identity.username}
+                          </p>
+                        )}
+                      </div>
+
+                      <div className="text-right shrink-0">
+                        <p
+                          className={cn(
+                            "font-mono text-[11px] font-black",
+                            isMe ? "text-[#BFA264]" : "text-white/80",
+                          )}
+                        >
+                          {score.toLocaleString()}
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })}
+                {miniLeaderboard.length === 1 && (
+                  <div className="py-8 text-center px-4">
+                    <Target className="w-8 h-8 text-white/10 mx-auto mb-2" />
+                    <p className="text-[10px] text-white/30 font-bold leading-relaxed">
+                      No targets tracked. Mark targets on the network page to
+                      track their momentum here.
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+            {/* END RIGHT RAIL */}
           </div>
         </main>
 
