@@ -69,6 +69,17 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
+    // App Catalog & Verifications
+    match /app_catalog/{document=**} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+    match /app_verifications/{document=**} {
+      allow read: if isAuthenticated();
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if isAdmin();
+    }
+
     // =========================================================================
     // 4. TELEMETRY — Sanitized writes via Cloud Functions preferred;
     //    direct client writes allowed but strictly validated

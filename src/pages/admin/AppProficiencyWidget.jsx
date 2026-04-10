@@ -29,6 +29,24 @@ import {
 import { db, auth } from "../../firebase";
 import { cn } from "../../lib/cn";
 
+const APP_CATEGORIES = [
+  "Development",
+  "Design",
+  "Video & Motion",
+  "3D & Animation",
+  "Audio & Music",
+  "Marketing & SEO",
+  "Productivity",
+  "Social Media",
+  "AI & LLMs",
+  "Business & Sales",
+  "Finance",
+  "Cloud & DevOps",
+  "Cybersecurity",
+  "Data & Analytics",
+  "Other",
+];
+
 const AppProficiencyWidget = ({
   appVerifications,
   setAppVerifications,
@@ -37,10 +55,28 @@ const AppProficiencyWidget = ({
   const [isAddAppOpen, setIsAddAppOpen] = useState(false);
   const [newApp, setNewApp] = useState({
     appName: "",
-    category: "Code",
+    category: "Development",
     iconUrl: "",
   });
   const [appVerifLoading, setAppVerifLoading] = useState(false);
+  const [appCatalog, setAppCatalog] = useState([]);
+  const [catalogLoading, setCatalogLoading] = useState(false);
+
+  const fetchCatalog = async () => {
+    setCatalogLoading(true);
+    try {
+      const { getDocs, collection } = await import("firebase/firestore");
+      const snap = await getDocs(collection(db, "app_catalog"));
+      setAppCatalog(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+    } catch (err) {
+      console.error(err);
+    }
+    setCatalogLoading(false);
+  };
+
+  React.useEffect(() => {
+    if (isAddAppOpen) fetchCatalog();
+  }, [isAddAppOpen]);
 
   const handleApproveApp = async (verification) => {
     setAppVerifLoading(true);
@@ -101,18 +137,37 @@ const AppProficiencyWidget = ({
   };
 
   const handleAddAppToCatalog = async () => {
-    if (!newApp.appName.trim()) return;
+    if (!newApp.appName.trim() || !newApp.iconUrl.trim()) return;
     try {
-      await addDoc(collection(db, "app_catalog"), {
+      const { serverTimestamp, addDoc, collection } =
+        await import("firebase/firestore");
+      const docRef = await addDoc(collection(db, "app_catalog"), {
         ...newApp,
         createdAt: serverTimestamp(),
         createdBy: auth.currentUser?.email,
       });
-      setNewApp({ appName: "", category: "Code", iconUrl: "" });
-      setIsAddAppOpen(false);
+      setAppCatalog((prev) => [{ id: docRef.id, ...newApp }, ...prev]);
+      setNewApp({ appName: "", category: "Development", iconUrl: "" });
       handleRefresh();
     } catch (err) {
       console.error("[AppProficiencyWidget] Add app catalog failed:", err);
+    }
+  };
+
+  const handleDeleteCatalogApp = async (id) => {
+    if (
+      !window.confirm(
+        "Delete this app from the catalog? Users won't be able to select it anymore.",
+      )
+    )
+      return;
+    try {
+      const { deleteDoc, doc } = await import("firebase/firestore");
+      await deleteDoc(doc(db, "app_catalog", id));
+      setAppCatalog((prev) => prev.filter((a) => a.id !== id));
+      handleRefresh();
+    } catch (err) {
+      console.error("Failed to delete catalog app:", err);
     }
   };
 
@@ -143,65 +198,111 @@ const AppProficiencyWidget = ({
 
       {/* Add to Catalog Form */}
       {isAddAppOpen && (
-        <div className="mb-5 p-4 bg-[#050505] border border-violet-500/10 rounded-2xl flex flex-wrap gap-3 items-end">
-          <div className="flex-1 min-w-[160px]">
-            <label className="text-[9px] font-black text-white/30 uppercase tracking-widest block mb-1.5">
-              App Name
-            </label>
-            <input
-              value={newApp.appName}
-              onChange={(e) =>
-                setNewApp((p) => ({ ...p, appName: e.target.value }))
-              }
-              placeholder="e.g. Cursor"
-              className="w-full bg-[#111] border border-white/[0.05] rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-violet-500/40"
-            />
-          </div>
-          <div>
-            <label className="text-[9px] font-black text-white/30 uppercase tracking-widest block mb-1.5">
-              Category
-            </label>
-            <select
-              value={newApp.category}
-              onChange={(e) =>
-                setNewApp((p) => ({ ...p, category: e.target.value }))
-              }
-              className="bg-[#111] border border-white/[0.05] rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-violet-500/40"
+        <>
+          <div className="mb-5 p-4 bg-[#050505] border border-violet-500/10 rounded-2xl flex flex-wrap gap-3 items-end">
+            <div className="flex-1 min-w-[160px]">
+              <label className="text-[9px] font-black text-white/30 uppercase tracking-widest block mb-1.5">
+                App Name
+              </label>
+              <input
+                value={newApp.appName}
+                onChange={(e) =>
+                  setNewApp((p) => ({ ...p, appName: e.target.value }))
+                }
+                placeholder="e.g. Cursor"
+                className="w-full bg-[#111] border border-white/[0.05] rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-violet-500/40"
+              />
+            </div>
+            <div>
+              <label className="text-[9px] font-black text-white/30 uppercase tracking-widest block mb-1.5">
+                Category
+              </label>
+              <select
+                value={newApp.category}
+                onChange={(e) =>
+                  setNewApp((p) => ({ ...p, category: e.target.value }))
+                }
+                className="bg-[#111] border border-white/[0.05] rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-violet-500/40"
+              >
+                {APP_CATEGORIES.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="flex-1 min-w-[200px]">
+              <label className="text-[9px] font-black text-white/30 uppercase tracking-widest block mb-1.5">
+                Icon URL (SimpleIcons / Direct Link)
+              </label>
+              <input
+                value={newApp.iconUrl}
+                onChange={(e) =>
+                  setNewApp((p) => ({ ...p, iconUrl: e.target.value }))
+                }
+                placeholder="https://cdn.simpleicons.org/..."
+                className="w-full bg-[#111] border border-white/[0.05] rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-violet-500/40"
+              />
+            </div>
+            <button
+              onClick={handleAddAppToCatalog}
+              disabled={!newApp.appName.trim() || !newApp.iconUrl.trim()}
+              className="px-4 py-2 bg-violet-500 text-white text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-violet-400 disabled:opacity-50 transition-colors"
             >
-              {[
-                "Code",
-                "Design",
-                "Video Editing",
-                "Social Media",
-                "LLMs",
-                "Business",
-              ].map((c) => (
-                <option key={c} value={c}>
-                  {c}
-                </option>
-              ))}
-            </select>
+              Add App
+            </button>
           </div>
-          <div className="flex-1 min-w-[200px]">
-            <label className="text-[9px] font-black text-white/30 uppercase tracking-widest block mb-1.5">
-              Icon URL (simpleicons CDN)
-            </label>
-            <input
-              value={newApp.iconUrl}
-              onChange={(e) =>
-                setNewApp((p) => ({ ...p, iconUrl: e.target.value }))
-              }
-              placeholder="https://cdn.simpleicons.org/…"
-              className="w-full bg-[#111] border border-white/[0.05] rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-violet-500/40"
-            />
+
+          {/* Existing Catalog Grid */}
+          <div className="mb-6 border border-white/[0.05] rounded-2xl bg-[#050505] p-4 max-h-[300px] overflow-y-auto custom-scrollbar">
+            <p className="text-[9px] font-black text-white/40 uppercase tracking-widest mb-3">
+              Currently in Catalog ({appCatalog.length})
+            </p>
+            {catalogLoading ? (
+              <div className="py-4 flex justify-center">
+                <Loader2 className="w-5 h-5 animate-spin text-violet-500/50" />
+              </div>
+            ) : appCatalog.length === 0 ? (
+              <p className="text-xs text-white/20 text-center py-4 font-bold">
+                Catalog is empty.
+              </p>
+            ) : (
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                {appCatalog.map((app) => (
+                  <div
+                    key={app.id}
+                    className="flex items-center justify-between bg-[#111] border border-white/[0.05] p-2 rounded-xl group hover:border-red-500/30 transition-all"
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className="w-6 h-6 rounded flex items-center justify-center shrink-0">
+                        <img
+                          src={app.iconUrl}
+                          alt={app.appName}
+                          className="w-4 h-4 object-contain"
+                          onError={(e) => (e.target.style.display = "none")}
+                        />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-[10px] font-bold text-white truncate">
+                          {app.appName}
+                        </p>
+                        <p className="text-[8px] text-white/40 truncate">
+                          {app.category}
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => handleDeleteCatalogApp(app.id)}
+                      className="w-6 h-6 shrink-0 flex items-center justify-center text-white/20 hover:text-red-400 hover:bg-red-500/10 rounded-md transition-colors opacity-0 group-hover:opacity-100"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
-          <button
-            onClick={handleAddAppToCatalog}
-            className="px-4 py-2 bg-violet-500 text-white text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-violet-400 transition-colors"
-          >
-            Add
-          </button>
-        </div>
+        </>
       )}
 
       {appVerifications.length === 0 ? (
