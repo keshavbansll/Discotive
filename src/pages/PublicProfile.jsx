@@ -38,15 +38,18 @@ import {
   Instagram,
   Target,
   Activity,
+  Briefcase,
   ShieldCheck,
   Users,
   BookOpen,
   FolderLock,
   Download,
+  Monitor,
   Share2,
   X,
   FileText,
   CheckCircle2,
+  Clock,
   UserPlus,
   Eye,
   Zap,
@@ -337,7 +340,16 @@ const PublicProfile = () => {
     profileData?.identity?.niche || profileData?.vision?.niche || "";
   const location =
     profileData?.footprint?.location || profileData?.identity?.country || null;
-  const bio = profileData?.footprint?.bio || null;
+  const bio =
+    profileData?.professional?.bio ||
+    profileData?.identity?.bio ||
+    profileData?.footprint?.bio ||
+    null;
+  const workExperience = profileData?.professional?.workExperience || null;
+  const verifiedApps = useMemo(
+    () => profileData?.verifiedApps || [],
+    [profileData?.verifiedApps],
+  );
   const institution = profileData?.baseline?.institution || null;
   const degree = profileData?.baseline?.degree || null;
   const major = profileData?.baseline?.major || null;
@@ -1059,16 +1071,16 @@ const PublicProfile = () => {
             </div>
           </motion.div>
 
-          {/* SKILLS — xl:6 */}
+          {/* SKILLS — xl:4 */}
           <motion.div
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.16 }}
-            className="col-span-1 xl:col-span-6 bg-[#0a0a0a] border border-[#1a1a1a] rounded-[2rem] p-5 md:p-6"
+            className="col-span-1 xl:col-span-4 bg-[#0a0a0a] border border-[#1a1a1a] rounded-[2rem] p-5 md:p-6"
           >
             <h3 className="text-[9px] font-black text-white/30 uppercase tracking-[0.2em] flex items-center gap-2 mb-4">
               <Terminal className="w-3.5 h-3.5 text-white/35" />
-              Capabilities
+              Skill Stack
             </h3>
             {skills.length > 0 ? (
               <div className="flex flex-wrap gap-2">
@@ -1089,13 +1101,81 @@ const PublicProfile = () => {
             )}
           </motion.div>
 
-          {/* ACADEMIC + LINKS — xl:6 */}
+          {/* VERIFIED APP STACK — xl:4 */}
+          {verifiedApps.length > 0 && (
+            <motion.div
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.17 }}
+              className="col-span-1 xl:col-span-4 bg-[#0a0a0a] border border-[#1a1a1a] rounded-[2rem] p-5 md:p-6"
+            >
+              <h3 className="text-[9px] font-black text-white/30 uppercase tracking-[0.2em] flex items-center gap-2 mb-4">
+                <Monitor className="w-3.5 h-3.5 text-violet-400" />
+                Verified App Stack
+              </h3>
+              <div className="flex flex-wrap gap-3">
+                {verifiedApps.map((app) => (
+                  <div
+                    key={app.appId}
+                    className="relative group"
+                    title={`${app.appName} — Verified`}
+                  >
+                    <div className="w-10 h-10 rounded-xl bg-[#0f0f0f] border border-emerald-500/25 overflow-hidden flex items-center justify-center hover:scale-105 transition-transform">
+                      <img
+                        src={app.appIconUrl}
+                        alt={app.appName}
+                        className="w-6 h-6 object-contain"
+                        onError={(e) => {
+                          e.target.style.display = "none";
+                        }}
+                      />
+                    </div>
+                    <div className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-emerald-500 rounded-full border-2 border-[#0a0a0a] flex items-center justify-center pointer-events-none">
+                      <Check className="w-2 h-2 text-black" strokeWidth={3} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </motion.div>
+          )}
+
+          {/* BIO & EXPERIENCE + ACADEMIC + LINKS — xl:4 */}
           <motion.div
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.18 }}
-            className="col-span-1 xl:col-span-6 space-y-4"
+            className={`col-span-1 xl:col-span-${verifiedApps.length > 0 ? "4" : "8"} space-y-4`}
           >
+            {/* Bio & Work Experience */}
+            {(bio || workExperience) && (
+              <div className="bg-[#0a0a0a] border border-[#1a1a1a] rounded-[2rem] p-5">
+                <h3 className="text-[9px] font-black text-white/30 uppercase tracking-[0.2em] flex items-center gap-2 mb-3">
+                  <Briefcase className="w-3.5 h-3.5 text-[#BFA264]" />
+                  Professional
+                </h3>
+                {bio && (
+                  <p className="text-sm text-[#888] leading-relaxed mb-3">
+                    {bio}
+                  </p>
+                )}
+                {workExperience?.role && (
+                  <div className="flex items-center gap-3 p-3 bg-[#050505] border border-[#111] rounded-xl">
+                    <div className="w-8 h-8 rounded-xl bg-[#BFA264]/10 border border-[#BFA264]/20 flex items-center justify-center shrink-0">
+                      <Briefcase className="w-3.5 h-3.5 text-[#BFA264]" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-xs font-black text-white truncate">
+                        {workExperience.role}
+                      </p>
+                      <p className="text-[10px] text-[#666] truncate">
+                        {workExperience.company || ""}
+                        {workExperience.type ? ` · ${workExperience.type}` : ""}
+                      </p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
             {institution && (
               <div className="bg-[#0a0a0a] border border-[#1a1a1a] rounded-[2rem] p-5">
                 <h3 className="text-[9px] font-black text-white/30 uppercase tracking-[0.2em] flex items-center gap-2 mb-3">
@@ -1123,28 +1203,40 @@ const PublicProfile = () => {
                 </div>
               </div>
             )}
+            {/* Icon-only footprint */}
             {activeLinks.length > 0 && (
               <div className="bg-[#0a0a0a] border border-[#1a1a1a] rounded-[2rem] p-5">
                 <h3 className="text-[9px] font-black text-white/30 uppercase tracking-[0.2em] flex items-center gap-2 mb-3">
                   <Globe className="w-3.5 h-3.5 text-white/35" />
                   Digital Presence
                 </h3>
-                <div className="flex flex-wrap gap-2">
-                  {activeLinks.map(({ key, label, icon: Icon, color }) => (
-                    <a
-                      key={key}
-                      href={profileData.links[key]}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="flex items-center gap-2 px-3 py-2 bg-[#0f0f0f] border border-[#1a1a1a] rounded-xl hover:border-[#2a2a2a] transition-colors"
-                    >
-                      <Icon className="w-3.5 h-3.5" style={{ color }} />
-                      <span className="text-[10px] font-bold text-[#888]">
-                        {label}
-                      </span>
-                      <ExternalLink className="w-2.5 h-2.5 text-[#444]" />
-                    </a>
-                  ))}
+                <div className="flex flex-wrap gap-3">
+                  {activeLinks.map(({ key, icon: Icon, color }) => {
+                    const val = profileData.links[key];
+                    const isWebsite = key === "website";
+                    return (
+                      <a
+                        key={key}
+                        href={val}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="w-10 h-10 rounded-xl bg-[#0f0f0f] border border-[#1a1a1a] hover:border-white/20 flex items-center justify-center transition-all hover:scale-105"
+                      >
+                        {isWebsite ? (
+                          <img
+                            src={`https://www.google.com/s2/favicons?domain=${val}&sz=32`}
+                            alt="site"
+                            className="w-5 h-5 rounded-sm"
+                            onError={(e) => {
+                              e.target.style.display = "none";
+                            }}
+                          />
+                        ) : (
+                          <Icon className="w-4 h-4" style={{ color }} />
+                        )}
+                      </a>
+                    );
+                  })}
                 </div>
               </div>
             )}

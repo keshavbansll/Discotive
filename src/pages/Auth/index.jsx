@@ -972,8 +972,10 @@ const initialProfile = {
   passion: "",
   niche: "",
   parallelPath: "",
-  goal3Months: "",
-  longTermGoal: "",
+  bio: "",
+  workExperienceRole: "",
+  workExperienceCompany: "",
+  workExperienceType: "",
   rawSkills: [],
   alignedSkills: [],
   languages: [],
@@ -2657,7 +2659,7 @@ function Step3Background({
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// STEP 4 — VISION
+// STEP 4 — PROFESSIONAL CANVAS
 // ─────────────────────────────────────────────────────────────────────────────
 function Step4Vision({
   profileData,
@@ -2670,8 +2672,8 @@ function Step4Vision({
     <StepWrapper
       step={4}
       label="Step 4 of 9"
-      title="Your vision."
-      subtitle="What field are you building a career in, and what's your big goal?"
+      title="Professional canvas."
+      subtitle="Tell us what you do, what you've done, and what drives you."
     >
       <ErrorBox msg={systemStatus.error} />
       <form
@@ -2702,6 +2704,69 @@ function Step4Vision({
           />
         </div>
         <div>
+          <label className="auth-label">Professional bio (required)</label>
+          <textarea
+            className="auth-textarea"
+            value={profileData.bio}
+            onChange={(e) => setField("bio", e.target.value.slice(0, 300))}
+            placeholder="2–3 sentences. What do you build, who do you serve, what makes you different?"
+            required
+            style={{ minHeight: 96 }}
+          />
+          <CharCount value={profileData.bio} max={300} />
+        </div>
+        <div style={{ paddingTop: 8, borderTop: "0.5px solid var(--border)" }}>
+          <label className="auth-label" style={{ marginBottom: 12 }}>
+            Latest / current experience (optional)
+          </label>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            <div>
+              <label className="auth-label">Role / Title</label>
+              <input
+                className="auth-input"
+                type="text"
+                value={profileData.workExperienceRole}
+                onChange={(e) =>
+                  setField("workExperienceRole", e.target.value.slice(0, 80))
+                }
+                placeholder="e.g. SWE Intern, Founder, Product Designer…"
+                maxLength={80}
+              />
+            </div>
+            <div>
+              <label className="auth-label">Company / Organisation</label>
+              <input
+                className="auth-input"
+                type="text"
+                value={profileData.workExperienceCompany}
+                onChange={(e) =>
+                  setField("workExperienceCompany", e.target.value.slice(0, 80))
+                }
+                placeholder="e.g. Google, Self-employed, JECRC University…"
+                maxLength={80}
+              />
+            </div>
+            <div>
+              <label className="auth-label">Type</label>
+              <select
+                className="auth-select"
+                value={profileData.workExperienceType}
+                onChange={(e) => setField("workExperienceType", e.target.value)}
+              >
+                <option value="">Select type…</option>
+                <option value="Full-Time">Full-Time</option>
+                <option value="Part-Time">Part-Time</option>
+                <option value="Internship">Internship</option>
+                <option value="Freelance">Freelance</option>
+                <option value="Contract">Contract</option>
+                <option value="Founder">Founder / Co-Founder</option>
+                <option value="Research">Research</option>
+                <option value="Volunteer">Volunteer</option>
+              </select>
+            </div>
+          </div>
+        </div>
+        <div>
           <label className="auth-label">
             Are you pursuing anything else on the side? (optional)
           </label>
@@ -2712,36 +2777,6 @@ function Step4Vision({
             placeholder="e.g. a startup alongside your degree"
             allowCustom
           />
-        </div>
-        <div>
-          <label className="auth-label">
-            What do you want to achieve in the next 3 months?
-          </label>
-          <textarea
-            className="auth-textarea"
-            value={profileData.goal3Months}
-            onChange={(e) =>
-              setField("goal3Months", e.target.value.slice(0, 300))
-            }
-            placeholder="Be specific — a milestone, a skill, a project…"
-            required
-          />
-          <CharCount value={profileData.goal3Months} max={300} />
-        </div>
-        <div>
-          <label className="auth-label">
-            What does long-term success look like for you?
-          </label>
-          <textarea
-            className="auth-textarea"
-            value={profileData.longTermGoal}
-            onChange={(e) =>
-              setField("longTermGoal", e.target.value.slice(0, 400))
-            }
-            placeholder="Paint the big picture — your 5-year endgame."
-            required
-          />
-          <CharCount value={profileData.longTermGoal} max={400} />
         </div>
         <div style={{ display: "flex", gap: 12, marginTop: 8 }}>
           <button
@@ -4116,6 +4151,12 @@ export default function AuthOrchestrator() {
         ...p,
         error: "Please select your main field.",
       }));
+    if (!profileData.bio || profileData.bio.trim().length < 20)
+      return setSystemStatus((p) => ({
+        ...p,
+        error:
+          "Please write a short professional bio (at least 20 characters).",
+      }));
     if (profileData.passion === profileData.parallelPath)
       return setSystemStatus((p) => ({
         ...p,
@@ -4166,6 +4207,7 @@ export default function AuthOrchestrator() {
           niche: profileData.niche,
           parallelGoal: profileData.parallelPath,
           country: profileData.country,
+          bio: profileData.bio,
         },
         onboardingComplete: true,
         isGhostUser: false,
@@ -4184,18 +4226,27 @@ export default function AuthOrchestrator() {
           endMonth: profileData.endMonth,
           endYear: profileData.endYear,
         },
+        professional: {
+          bio: profileData.bio,
+          workExperience: profileData.workExperienceRole
+            ? {
+                role: profileData.workExperienceRole,
+                company: profileData.workExperienceCompany,
+                type: profileData.workExperienceType,
+              }
+            : null,
+        },
         vision: {
           passion: profileData.passion,
           niche: profileData.niche,
           parallelPath: profileData.parallelPath,
-          goal3Months: profileData.goal3Months,
-          longTermGoal: profileData.longTermGoal,
         },
         skills: {
           rawSkills: profileData.rawSkills,
           alignedSkills: profileData.alignedSkills,
           languages: profileData.languages,
         },
+        verifiedApps: [],
         resources: {
           guardianProfession: profileData.guardianProfession,
           incomeBracket: profileData.incomeBracket,

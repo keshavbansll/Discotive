@@ -29,6 +29,9 @@ import {
   addDoc,
   serverTimestamp,
   doc,
+  updateDoc,
+  arrayUnion,
+  deleteField,
   deleteDoc,
 } from "firebase/firestore";
 import { db, auth } from "../../firebase";
@@ -58,16 +61,19 @@ import {
   TrendingUp,
   Shield,
   LayoutDashboard,
+  Monitor,
   Video as VideoIcon,
   PlusCircle,
   X,
   Search,
+  ExternalLink,
   Plus,
   Trash2,
 } from "lucide-react";
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
 import { cn } from "../../lib/cn";
 import EfficiencyMeterWidget from "./EfficiencyMeterWidget";
+import AppProficiencyWidget from "./AppProficiencyWidget";
 
 // ============================================================================
 // TAXONOMY DICTIONARIES (Synced from Auth)
@@ -513,10 +519,13 @@ const AdminDashboard = () => {
   const [lastRefresh, setLastRefresh] = useState(null);
   const [error, setError] = useState(null);
 
-  // — Explorer State —
+  // — Learn Explorer State —
   const [activeLearnTab, setActiveLearnTab] = useState("youtube");
   const [isAddVideoOpen, setIsAddVideoOpen] = useState(false);
   const [isAddCertOpen, setIsAddCertOpen] = useState(false);
+  // — App Verifications State —
+  const [appVerifications, setAppVerifications] = useState([]);
+  const [appCatalog, setAppCatalog] = useState([]);
 
   // ── DATA FETCHER ──────────────────────────────────────────────────────────
   const fetchAllData = useCallback(async () => {
@@ -630,6 +639,33 @@ const AdminDashboard = () => {
         setLearnCerts([]);
       }
 
+      // App verifications
+      try {
+        const avSnap = await getDocs(
+          query(
+            collection(db, "app_verifications"),
+            where("status", "==", "PENDING"),
+            orderBy("submittedAt", "desc"),
+            limit(30),
+          ),
+        );
+        setAppVerifications(
+          avSnap.docs.map((d) => ({ id: d.id, ...d.data() })),
+        );
+      } catch (_) {
+        setAppVerifications([]);
+      }
+
+      // App catalog
+      try {
+        const acSnap = await getDocs(
+          query(collection(db, "app_catalog"), limit(100)),
+        );
+        setAppCatalog(acSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
+      } catch (_) {
+        setAppCatalog([]);
+      }
+
       setLastRefresh(new Date());
     } catch (err) {
       console.error("[AdminDashboard] Fetch failed:", err);
@@ -663,10 +699,9 @@ const AdminDashboard = () => {
       )
     )
       return;
-
     try {
       await deleteDoc(doc(db, collectionName, docId));
-      handleRefresh(); // Sync UI after successful deletion
+      handleRefresh();
     } catch (err) {
       console.error(`[AdminDashboard] Deletion failed:`, err);
       setError("Failed to delete resource. Check Firestore permissions.");
@@ -1519,6 +1554,13 @@ const AdminDashboard = () => {
             </div>
           </div>
         </motion.div>
+        {/* ── APP VERIFICATIONS WIDGET ── */}
+        <AppProficiencyWidget
+          appVerifications={appVerifications}
+          setAppVerifications={setAppVerifications}
+          handleRefresh={handleRefresh}
+        />
+
         {/* ── HORIZONTAL LEARN ENGINE EXPLORER WIDGET ── */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}

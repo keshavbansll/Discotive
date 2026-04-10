@@ -567,8 +567,7 @@ const OperatorAvatar = ({ player, size = "md", aura, className = "" }) => {
 };
 
 // ─── Podium card ──────────────────────────────────────────────────────────────
-const PodiumCard = ({ player, rank, resolvePlayerName, isMe }) => {
-  const navigate = useNavigate();
+const PodiumCard = ({ player, rank, resolvePlayerName, isMe, onClick }) => {
   const rankKey = rank === 1 ? "rank1" : rank === 2 ? "rank2" : "rank3";
   const heights = {
     1: "h-[260px] md:h-[320px]",
@@ -619,9 +618,7 @@ const PodiumCard = ({ player, rank, resolvePlayerName, isMe }) => {
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: rank * 0.08 }}
-      onClick={() =>
-        navigate(`/@${player.identity?.username || player.username}`)
-      }
+      onClick={onClick}
       className={cn(
         "flex flex-col items-center justify-end cursor-pointer group",
         heights[rank],
@@ -2112,6 +2109,10 @@ const Leaderboard = () => {
                               rank={rank}
                               resolvePlayerName={resolvePlayerName}
                               isMe={isMe}
+                              onClick={() => {
+                                setSelectedUser(player);
+                                setIsFilterOpen(false);
+                              }}
                             />
                           </div>
                         );
