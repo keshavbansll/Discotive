@@ -3,6 +3,7 @@ import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 import { getAnalytics, isSupported } from "firebase/analytics";
+import { getDatabase } from "firebase/database";
 import {
   initializeAppCheck,
   ReCaptchaEnterpriseProvider,
@@ -32,6 +33,7 @@ export const auth = getAuth(app);
 export const db = getFirestore(app);
 export const storage = getStorage(app);
 export const functions = getFunctions(app);
+export const rtdb = getDatabase(app);
 
 // 3. Initialize App Check Universally (Dev and Prod)
 if (import.meta.env.VITE_RECAPTCHA_KEY) {

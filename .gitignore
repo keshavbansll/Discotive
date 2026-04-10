@@ -27,7 +27,3 @@ dist-ssr
 *.sw?
 
 .vercel
-
-.rules
-
-.indexes.json

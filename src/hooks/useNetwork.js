@@ -17,6 +17,8 @@
  */
 
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { ref, set, onValue } from "firebase/database";
+import { db, rtdb } from "../firebase";
 import {
   collection,
   query,
@@ -39,7 +41,6 @@ import {
   getCountFromServer,
   setDoc,
 } from "firebase/firestore";
-import { db } from "../firebase";
 import { awardAllianceAction } from "../lib/scoreEngine";
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -151,6 +152,72 @@ export const useNetwork = (currentUser, userData) => {
   const [messages, setMessages] = useState([]);
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [dmLoading, setDmLoading] = useState(false);
+  const [isPartnerTyping, setIsPartnerTyping] = useState(false);
+  const typingTimeoutRef = useRef(null);
+
+  // ── RTDB Hybrid Ping Architecture ───────────────────────────────────────
+  useEffect(() => {
+    if (!uid || !activeConversation) {
+      setIsPartnerTyping(false);
+      return;
+    }
+
+    const convo = conversations.find((c) => c.id === activeConversation);
+    const partnerId = convo?.participantIds?.find((id) => id !== uid);
+
+    // 1. Listen for Ephemeral Typing Signal
+    let unsubTyping = () => {};
+    if (partnerId) {
+      const typingRef = ref(
+        rtdb,
+        `conversations_meta/${activeConversation}/typing/${partnerId}`,
+      );
+      const unsubscribe = onValue(typingRef, (snap) => {
+        setIsPartnerTyping(!!snap.val());
+      });
+      unsubTyping = () => unsubscribe();
+    }
+
+    // 2. Listen for Database Mutation Pings
+    const pingRef = ref(
+      rtdb,
+      `conversations_meta/${activeConversation}/lastUpdate`,
+    );
+    let initialPing = true;
+    const unsubPing = onValue(pingRef, (snap) => {
+      if (initialPing) {
+        initialPing = false;
+        return; // Ignore the first read (handled by standard fetchMessages)
+      }
+      // A mutation occurred on the other client. Resync the active page.
+      fetchMessages(activeConversation);
+      markConversationRead(activeConversation);
+    });
+
+    return () => {
+      unsubTyping();
+      unsubPing();
+    };
+  }, [activeConversation, uid, conversations]); // Ensure fetchMessages and markConversationRead dependencies are stable
+
+  const emitTyping = useCallback(
+    (conversationId) => {
+      if (!uid || !conversationId) return;
+      set(
+        ref(rtdb, `conversations_meta/${conversationId}/typing/${uid}`),
+        true,
+      );
+
+      if (typingTimeoutRef.current) clearTimeout(typingTimeoutRef.current);
+      typingTimeoutRef.current = setTimeout(() => {
+        set(
+          ref(rtdb, `conversations_meta/${conversationId}/typing/${uid}`),
+          false,
+        );
+      }, 2000);
+    },
+    [uid],
+  );
 
   // ── Admin State ─────────────────────────────────────────────────────────
   const [isAdmin, setIsAdmin] = useState(false);
@@ -1226,6 +1293,19 @@ export const useNetwork = (currentUser, userData) => {
           ),
         );
 
+        // Ping RTDB to notify partner
+        set(
+          ref(rtdb, `conversations_meta/${resolvedConversationId}/lastUpdate`),
+          Date.now(),
+        );
+        set(
+          ref(
+            rtdb,
+            `conversations_meta/${resolvedConversationId}/typing/${uid}`,
+          ),
+          false,
+        );
+
         return { messageId: msgRef.id, conversationId: resolvedConversationId };
       } catch (err) {
         console.error("[useNetwork] sendMessage failed:", err);
@@ -1254,6 +1334,55 @@ export const useNetwork = (currentUser, userData) => {
           ),
         );
       } catch (_) {}
+    },
+    [uid],
+  );
+
+  const deleteMessage = useCallback(
+    async (conversationId, messageId) => {
+      if (!uid || !conversationId || !messageId) return;
+      setMessages((prev) => prev.filter((m) => m.id !== messageId));
+      try {
+        await deleteDoc(
+          doc(db, "conversations", conversationId, "messages", messageId),
+        );
+        set(
+          ref(rtdb, `conversations_meta/${conversationId}/lastUpdate`),
+          Date.now(),
+        );
+      } catch (err) {
+        console.error(err);
+      }
+    },
+    [uid],
+  );
+
+  const editMessage = useCallback(
+    async (conversationId, messageId, newText) => {
+      if (!uid || !conversationId || !messageId || !newText.trim()) return;
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === messageId
+            ? { ...m, textContent: newText.trim(), isEdited: true }
+            : m,
+        ),
+      );
+      try {
+        await updateDoc(
+          doc(db, "conversations", conversationId, "messages", messageId),
+          {
+            textContent: newText.trim(),
+            isEdited: true,
+            editedAt: serverTimestamp(),
+          },
+        );
+        set(
+          ref(rtdb, `conversations_meta/${conversationId}/lastUpdate`),
+          Date.now(),
+        );
+      } catch (err) {
+        console.error(err);
+      }
     },
     [uid],
   );
@@ -1359,5 +1488,9 @@ export const useNetwork = (currentUser, userData) => {
     fetchMessages,
     sendMessage,
     markConversationRead,
+    deleteMessage,
+    editMessage,
+    emitTyping,
+    isPartnerTyping,
   };
 };

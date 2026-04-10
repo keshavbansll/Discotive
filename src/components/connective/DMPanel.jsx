@@ -108,61 +108,249 @@ const ConversationItem = ({ conversation, uid, isActive, onClick }) => {
   );
 };
 
-// ─── Message Bubble ────────────────────────────────────────────────────────────
-const MessageBubble = ({ message, isOwn }) => (
+// ─── Format Link Parser ────────────────────────────────────────────────────────
+const formatMessageContent = (htmlContent) => {
+  if (!htmlContent) return { __html: "" };
+  const urlRegex = /(?<!href=["'])(https?:\/\/[^\s<]+)/g;
+  const processed = htmlContent.replace(urlRegex, (url) => {
+    return `<a href="${url}" target="_blank" rel="noopener noreferrer" class="text-blue-400 hover:underline cursor-pointer" oncontextmenu="event.preventDefault(); navigator.clipboard.writeText('${url}'); alert('Link copied!');">${url}</a>`;
+  });
+  return { __html: processed };
+};
+
+// ─── Typing Indicator Component ──────────────────────────────────────────────
+const TypingIndicator = () => (
   <motion.div
-    initial={{ opacity: 0, y: 8, scale: 0.97 }}
-    animate={{ opacity: 1, y: 0, scale: 1 }}
-    className={cn(
-      "flex items-end gap-2 max-w-[80%]",
-      isOwn && "ml-auto flex-row-reverse",
-    )}
+    initial={{ opacity: 0, y: 10 }}
+    animate={{ opacity: 1, y: 0 }}
+    exit={{ opacity: 0, scale: 0.9 }}
+    className="flex items-end gap-2 max-w-[80%] mb-2"
   >
-    <div
-      className={cn(
-        "px-4 py-2.5 rounded-2xl text-sm leading-relaxed font-medium shadow-sm",
-        message._optimistic ? "opacity-60" : "",
-        isOwn
-          ? "bg-[rgba(191,162,100,0.15)] border border-[rgba(191,162,100,0.25)] text-[#D4AF78] rounded-br-sm"
-          : "bg-[#0F0F0F] border border-[rgba(255,255,255,0.05)] text-[rgba(245,240,232,0.80)] rounded-bl-sm",
-      )}
-    >
-      <p>{message.textContent}</p>
-      <div
-        className={cn(
-          "flex items-center gap-1 mt-1",
-          isOwn ? "justify-end" : "justify-start",
-        )}
-      >
-        <span className="text-[8px] opacity-40">
-          {message.timestamp instanceof Date
-            ? message.timestamp.toLocaleTimeString([], {
-                hour: "2-digit",
-                minute: "2-digit",
-              })
-            : ""}
-        </span>
-        {isOwn && !message._optimistic && (
-          <CheckCheck className="w-3 h-3 opacity-40" />
-        )}
-        {isOwn && message._optimistic && (
-          <Check className="w-3 h-3 opacity-40" />
-        )}
-      </div>
+    <div className="px-4 py-3 rounded-2xl bg-[#0F0F0F] border border-[rgba(255,255,255,0.05)] rounded-bl-sm flex items-center gap-1.5 w-fit shadow-sm">
+      <motion.div
+        animate={{ y: [0, -4, 0] }}
+        transition={{ repeat: Infinity, duration: 0.6, delay: 0 }}
+        className="w-1.5 h-1.5 rounded-full bg-[rgba(245,240,232,0.4)]"
+      />
+      <motion.div
+        animate={{ y: [0, -4, 0] }}
+        transition={{ repeat: Infinity, duration: 0.6, delay: 0.2 }}
+        className="w-1.5 h-1.5 rounded-full bg-[rgba(245,240,232,0.4)]"
+      />
+      <motion.div
+        animate={{ y: [0, -4, 0] }}
+        transition={{ repeat: Infinity, duration: 0.6, delay: 0.4 }}
+        className="w-1.5 h-1.5 rounded-full bg-[rgba(245,240,232,0.4)]"
+      />
     </div>
   </motion.div>
 );
 
+// ─── Message Bubble ────────────────────────────────────────────────────────────
+const MessageBubble = ({ message, isOwn, onDelete, onEdit }) => {
+  const [menuPos, setMenuPos] = useState(null);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editText, setEditText] = useState(message.textContent);
+  const holdTimer = useRef(null);
+
+  const handleTouchStart = (e) => {
+    const touch = e.touches[0];
+    holdTimer.current = setTimeout(() => {
+      setMenuPos({ x: touch.clientX, y: touch.clientY });
+    }, 500);
+  };
+
+  const handleTouchEnd = () => {
+    clearTimeout(holdTimer.current);
+  };
+
+  const handleContextMenu = (e) => {
+    e.preventDefault();
+    setMenuPos({ x: e.clientX, y: e.clientY });
+  };
+
+  const handleSaveEdit = () => {
+    if (editText.trim() && editText !== message.textContent) {
+      onEdit(message.id, editText);
+    }
+    setIsEditing(false);
+    setMenuPos(null);
+  };
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 8, scale: 0.97 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      className={cn(
+        "flex items-end gap-2 max-w-[80%] relative group",
+        isOwn ? "ml-auto flex-row-reverse" : "",
+      )}
+      onTouchStart={handleTouchStart}
+      onTouchEnd={handleTouchEnd}
+      onContextMenu={handleContextMenu}
+    >
+      <div
+        className={cn(
+          "px-4 py-2.5 rounded-2xl text-sm leading-relaxed font-medium shadow-sm transition-all select-text",
+          message._optimistic ? "opacity-60" : "",
+          isOwn
+            ? "bg-[rgba(191,162,100,0.15)] border border-[rgba(191,162,100,0.25)] text-[#D4AF78] rounded-br-sm"
+            : "bg-[#0F0F0F] border border-[rgba(255,255,255,0.05)] text-[rgba(245,240,232,0.80)] rounded-bl-sm",
+          menuPos ? "ring-2 ring-[#BFA264]" : "",
+        )}
+      >
+        {isEditing ? (
+          <div className="flex flex-col gap-2 min-w-[240px] md:min-w-[300px] mt-1 mb-1">
+            <div
+              contentEditable
+              className="bg-[#050505] border border-[rgba(191,162,100,0.20)] focus:border-[#D4AF78] focus:shadow-[0_0_12px_rgba(191,162,100,0.15)] rounded-xl px-3 py-2 text-sm text-[rgba(245,240,232,0.9)] outline-none transition-all max-h-[150px] overflow-y-auto custom-scrollbar"
+              onInput={(e) => setEditText(e.currentTarget.innerHTML)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !e.shiftKey) {
+                  e.preventDefault();
+                  handleSaveEdit();
+                }
+              }}
+              dangerouslySetInnerHTML={{ __html: message.textContent }}
+            />
+            <div className="flex items-center justify-between mt-1">
+              <span className="text-[8px] text-[rgba(245,240,232,0.25)] font-mono">
+                Enter to save · Shift+Enter for newline
+              </span>
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => setIsEditing(false)}
+                  className="text-[10px] text-[rgba(245,240,232,0.4)] hover:text-white transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSaveEdit}
+                  className="text-[10px] text-[#030303] bg-[#BFA264] hover:bg-[#D4AF78] px-2.5 py-1 rounded-md font-bold transition-colors shadow-sm"
+                >
+                  Save
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div
+            dangerouslySetInnerHTML={formatMessageContent(message.textContent)}
+          />
+        )}
+        <div
+          className={cn(
+            "flex items-center gap-1 mt-1",
+            isOwn ? "justify-end" : "justify-start",
+          )}
+        >
+          <span className="text-[8px] opacity-40">
+            {message.timestamp instanceof Date
+              ? message.timestamp.toLocaleTimeString([], {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })
+              : ""}
+            {message.isEdited && " (edited)"}
+          </span>
+          {isOwn && !message._optimistic && (
+            <CheckCheck className="w-3 h-3 opacity-40" />
+          )}
+          {isOwn && message._optimistic && (
+            <Check className="w-3 h-3 opacity-40" />
+          )}
+        </div>
+      </div>
+
+      <AnimatePresence>
+        {menuPos && (
+          <div
+            className="fixed inset-0 z-[99999]"
+            onClick={(e) => {
+              e.stopPropagation();
+              setMenuPos(null);
+            }}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              setMenuPos(null);
+            }}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              transition={{ type: "spring", damping: 25, stiffness: 300 }}
+              style={{
+                top: Math.min(menuPos.y, window.innerHeight - 180),
+                left: Math.min(menuPos.x, window.innerWidth - 160),
+              }}
+              className="fixed bg-[#0A0A0A] border border-[rgba(191,162,100,0.20)] rounded-xl shadow-[0_16px_40px_rgba(0,0,0,0.8)] flex flex-col overflow-hidden z-[100000] min-w-[140px] backdrop-blur-xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {isOwn && (
+                <button
+                  onClick={() => {
+                    setIsEditing(true);
+                    setMenuPos(null);
+                  }}
+                  className="flex items-center gap-2 px-4 py-3 text-xs font-bold hover:bg-[rgba(191,162,100,0.1)] text-[#D4AF78] w-full transition-colors border-b border-[rgba(255,255,255,0.04)]"
+                >
+                  Edit Signal
+                </button>
+              )}
+              {isOwn && (
+                <button
+                  onClick={() => {
+                    onDelete(message.id);
+                    setMenuPos(null);
+                  }}
+                  className="flex items-center gap-2 px-4 py-3 text-xs font-bold hover:bg-[rgba(239,68,68,0.1)] text-red-400 w-full transition-colors border-b border-[rgba(255,255,255,0.04)]"
+                >
+                  Delete
+                </button>
+              )}
+              <button
+                onClick={() => setMenuPos(null)}
+                className="flex items-center gap-2 px-4 py-3 text-xs font-bold hover:bg-[rgba(255,255,255,0.03)] text-[rgba(245,240,232,0.40)] w-full transition-colors"
+              >
+                Cancel
+              </button>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+    </motion.div>
+  );
+};
+
 // ─── Message Input ─────────────────────────────────────────────────────────────
-const MessageInput = ({ onSend, disabled }) => {
+const MessageInput = ({ onSend, disabled, onTyping }) => {
   const [text, setText] = useState("");
   const inputRef = useRef(null);
+  const typingTimeoutRef = useRef(null);
 
   const handleSend = () => {
-    if (!text.trim() || disabled) return;
+    const cleanText = text.replace(/<[^>]*>?/gm, "").trim();
+    if (!cleanText && !text.includes("<img")) return;
+    if (disabled) return;
     onSend(text);
     setText("");
-    inputRef.current?.focus();
+    if (inputRef.current) {
+      inputRef.current.innerHTML = "";
+      inputRef.current.focus();
+    }
+  };
+
+  const handleInput = (e) => {
+    setText(e.currentTarget.innerHTML);
+
+    // Throttle RTDB typing signals to prevent spamming the database
+    if (onTyping && !typingTimeoutRef.current) {
+      onTyping();
+      typingTimeoutRef.current = setTimeout(() => {
+        typingTimeoutRef.current = null;
+      }, 2000); // Only fire typing signal every 2 seconds max
+    }
   };
 
   return (
@@ -173,15 +361,19 @@ const MessageInput = ({ onSend, disabled }) => {
           "border-[rgba(191,162,100,0.20)] focus-within:border-[#D4AF78] focus-within:shadow-[0_0_15px_rgba(191,162,100,0.1)]",
         )}
       >
-        <input
+        <div
           ref={inputRef}
-          type="text"
-          value={text}
-          onChange={(e) => setText(e.target.value.slice(0, 1000))}
-          onKeyDown={(e) => e.key === "Enter" && !e.shiftKey && handleSend()}
-          placeholder="Write a message..."
-          disabled={disabled}
-          className="flex-1 bg-transparent text-sm text-[rgba(245,240,232,0.80)] placeholder-[rgba(245,240,232,0.25)] outline-none font-medium"
+          contentEditable={!disabled}
+          onInput={handleInput}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && !e.shiftKey) {
+              e.preventDefault();
+              handleSend();
+              e.currentTarget.innerHTML = "";
+            }
+          }}
+          data-placeholder="... "
+          className="flex-1 bg-transparent text-sm text-[rgba(245,240,232,0.80)] outline-none font-medium min-h-[20px] max-h-[150px] overflow-y-auto custom-scrollbar empty:before:content-[attr(data-placeholder)] empty:before:text-[rgba(245,240,232,0.25)]"
         />
         <button
           onClick={handleSend}
@@ -241,6 +433,10 @@ const DMPanel = ({
   onFetchMessages,
   onSendMessage,
   onMarkRead,
+  onDeleteMessage = () => {},
+  onEditMessage = () => {},
+  onTyping = () => {},
+  isPartnerTyping = false,
   // For opening a new DM directly to a user
   initialTargetUser = null,
   onClearInitialTarget,
@@ -484,6 +680,20 @@ const DMPanel = ({
                     </div>
                     <div className="ml-auto hidden md:flex items-center gap-2">
                       <button
+                        onClick={() => {
+                          if (
+                            window.confirm("Delete this conversation entirely?")
+                          ) {
+                            setActiveConversation(null);
+                            setActivePartner(null);
+                          }
+                        }}
+                        className="w-7 h-7 rounded-full bg-[rgba(255,50,50,0.1)] flex items-center justify-center text-red-400 hover:bg-red-500 hover:text-white transition-colors"
+                        title="Delete DM"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                      <button
                         onClick={() => setIsExpanded(!isExpanded)}
                         className="w-7 h-7 rounded-full bg-[rgba(255,255,255,0.05)] flex items-center justify-center text-[rgba(245,240,232,0.40)] hover:text-white transition-colors"
                       >
@@ -517,14 +727,29 @@ const DMPanel = ({
                             key={msg.id}
                             message={msg}
                             isOwn={msg.senderId === uid}
+                            onDelete={(msgId) =>
+                              onDeleteMessage(activeConversation, msgId)
+                            }
+                            onEdit={(msgId, newText) =>
+                              onEditMessage(activeConversation, msgId, newText)
+                            }
                           />
                         ))}
+                        <AnimatePresence>
+                          {isPartnerTyping && (
+                            <TypingIndicator key="typing-indicator" />
+                          )}
+                        </AnimatePresence>
                         <div ref={messagesEndRef} />
                       </>
                     )}
                   </div>
 
-                  <MessageInput onSend={handleSend} disabled={loadingConvo} />
+                  <MessageInput
+                    onSend={handleSend}
+                    disabled={loadingConvo}
+                    onTyping={() => onTyping(activeConversation)}
+                  />
                 </>
               ) : (
                 <div className="flex-1 flex flex-col items-center justify-center gap-4 text-center p-8">

@@ -400,8 +400,8 @@ service cloud.firestore {
               'unreadCounts', 'updatedAt'
             ]);
     
-      // Delete: only admin
-      allow delete: if isAdmin();
+     // Delete: participants can delete their view of conversation
+      allow delete: if isAdmin() || (isAuthenticated() && resource.data.participantIds.hasAny([request.auth.uid]));
     }
     
     // ─── MESSAGES (subcollection) ──────────────────────────────────────────────────
@@ -426,8 +426,10 @@ service cloud.firestore {
         || (isAuthenticated()
             && resource.data.senderId == request.auth.uid);
     
-      // No updates to messages (immutable content, no edits in v1)
-      allow update: if false;
+      // Update: allow editing own messages
+      allow update: if isAuthenticated()
+        && resource.data.senderId == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['textContent', 'isEdited', 'editedAt', 'updatedAt']);
     }
   }
 }

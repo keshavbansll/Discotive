@@ -856,6 +856,10 @@ const Connective = () => {
     fetchMessages,
     sendMessage,
     markConversationRead,
+    deleteMessage,
+    editMessage,
+    emitTyping,
+    isPartnerTyping,
   } = useNetwork(currentUser, userData);
 
   // ── GRANULAR refresh handlers (manual only — no auto-fetch on tab change) ──
@@ -1244,6 +1248,10 @@ const Connective = () => {
         onFetchMessages={fetchMessages}
         onSendMessage={sendMessage}
         onMarkRead={markConversationRead}
+        onDeleteMessage={deleteMessage}
+        onEditMessage={editMessage}
+        onTyping={emitTyping}
+        isPartnerTyping={isPartnerTyping}
         initialTargetUser={dmInitialTarget}
         onClearInitialTarget={() => {}}
       />
