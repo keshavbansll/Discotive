@@ -355,6 +355,17 @@ const PublicProfile = () => {
     ? Math.round((verifiedVault.length / profileData.vault.length) * 100)
     : 0;
 
+  // ── Dynamic Title Management ───────────────────────────────────────────────
+  useEffect(() => {
+    if (!loading && profileData && fullName !== "Operator") {
+      document.title = `${fullName} | Discotive`;
+    } else if (!loading && !profileData) {
+      document.title = `Not Found | Discotive`;
+    } else if (loading) {
+      document.title = `Loading Profile... | Discotive`;
+    }
+  }, [fullName, loading, profileData]);
+
   // ── Chart data from daily_scores ──────────────────────────────────────────
   const chartData = useMemo(() => {
     const daily = profileData?.daily_scores || {};

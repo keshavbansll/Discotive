@@ -4,6 +4,7 @@ import {
   Routes,
   Route,
   Navigate,
+  useLocation,
 } from "react-router-dom";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import { useEffect, useState } from "react";
@@ -66,6 +67,106 @@ const RouteChunkLoader = () => (
     <div className="w-8 h-8 border-2 border-amber-500 border-t-transparent rounded-full animate-spin drop-shadow-[0_0_10px_rgba(245,158,11,0.5)]" />
   </div>
 );
+
+// ── GLOBAL ROUTE TITLE MANAGER ───────────────────────────────────────────────
+const RouteTitleManager = () => {
+  const location = useLocation();
+
+  useEffect(() => {
+    const path = location.pathname;
+    let title = "Discotive | Unified Career Engine";
+
+    if (path.startsWith("/app/admin")) {
+      title = "Admin Command | Discotive";
+    } else if (path.startsWith("/app")) {
+      const subPath = path.split("/")[2] || "";
+      switch (subPath) {
+        case "":
+          title = "Dashboard | Discotive";
+          break;
+        case "leaderboard":
+          title = "Global Arena | Discotive";
+          break;
+        case "vault":
+          title = "Vault | Discotive";
+          break;
+        case "network":
+          title = "Connective | Discotive";
+          break;
+        case "learn":
+          title = "Learn | Discotive";
+          break;
+        case "settings":
+          title = "Settings | Discotive";
+          break;
+        case "profile":
+          title = path.includes("/edit")
+            ? "Edit Profile | Discotive"
+            : "Profile | Discotive";
+          break;
+        case "finance":
+          title = "Financial Ledger | Discotive";
+          break;
+        case "opportunities":
+          title = "Opportunities | Discotive";
+          break;
+        case "hubs":
+          title = "Hubs | Discotive";
+          break;
+        case "roadmap":
+          title = "Execution Agent | Discotive";
+          break;
+        case "podcasts":
+          title = "Podcasts & Media | Discotive";
+          break;
+        case "assessments":
+          title = "Workshops & Assessments | Discotive";
+          break;
+        case "discover":
+          title = "Discover | Discotive";
+          break;
+        default:
+          title = "Command Center | Discotive";
+          break;
+      }
+    } else if (path === "/about" || path === "/") {
+      title = "Discotive | Unified Career Engine";
+    } else if (path === "/auth") {
+      title = "Authenticate | Discotive";
+    } else if (path === "/premium") {
+      title = "Premium | Discotive";
+    } else if (path === "/checkout") {
+      title = "Checkout | Discotive";
+    } else if (path === "/contact") {
+      title = "Contact | Discotive";
+    } else if (path === "/privacy") {
+      title = "Privacy Policy | Discotive";
+    } else if (path === "/verify-asset") {
+      title = "Verify Asset | Discotive";
+    }
+
+    // Update title for static pages. Skip for dynamic routes (like /@username) so the target component can inject real data.
+    const isKnownStaticRoute =
+      path.startsWith("/app") ||
+      [
+        "/about",
+        "/",
+        "/auth",
+        "/premium",
+        "/checkout",
+        "/contact",
+        "/privacy",
+        "/verify-asset",
+      ].includes(path);
+
+    if (isKnownStaticRoute) {
+      document.title = title;
+    }
+  }, [location]);
+
+  return null;
+};
+
 const AppInitializer = ({ children }) => {
   const { loading } = useAuth();
   const [showBootScreen, setShowBootScreen] = useState(true);
@@ -118,6 +219,7 @@ function App() {
     <AuthProvider>
       <AppInitializer>
         <Router>
+          <RouteTitleManager />
           <PageTracker />
           <Suspense fallback={<RouteChunkLoader />}>
             <Routes>

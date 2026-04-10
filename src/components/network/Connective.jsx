@@ -1,11 +1,11 @@
 /**
- * @fileoverview ConnectionsTab v4.0 — Kinetic Battlefield Update
+ * @fileoverview Connective v4.0 — Kinetic Battlefield Update
  * CHANGELOG vs v3:
  *  ✅ "Arena" → "Battlefield" nomenclature across all labels
- *  ✅ BattlefieldWarRoom expanded view — in-place morphing layout (no modal)
+ *  ✅ Battlefield expanded view — in-place morphing layout (no modal)
  *  ✅ Data hydration fix: userData.discotiveScore.current properly bound
  *  ✅ competitors.targetScore properly mapped and displayed
- *  ✅ Animated expand: ConnectionsTab swipes LEFT, BattlefieldWarRoom slides in RIGHT
+ *  ✅ Animated expand: Connective swipes LEFT, Battlefield slides in RIGHT
  *  ✅ All existing sub-panels preserved unchanged
  */
 
@@ -43,7 +43,7 @@ import {
   Flame,
 } from "lucide-react";
 import { cn } from "../../lib/cn";
-import BattlefieldWarRoom from "./BattlefieldWarRoom";
+import Battlefield from "./Battlefield";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const timeAgo = (date) => {
@@ -1108,7 +1108,7 @@ const GlobalPanel = ({
 // ═══════════════════════════════════════════════════════════════════════════════
 // CONNECTIONS TAB V4 — Main Export
 // ═══════════════════════════════════════════════════════════════════════════════
-const ConnectionsTab = ({
+const Connective = ({
   uid,
   userData,
   alliances,
@@ -1248,4 +1248,4 @@ const ConnectionsTab = ({
   );
 };
 
-export default ConnectionsTab;
+export default Connective;

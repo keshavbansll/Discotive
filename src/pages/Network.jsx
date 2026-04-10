@@ -37,8 +37,8 @@ import { useAuth } from "../contexts/AuthContext";
 import { useUserData } from "../hooks/useUserData";
 import { useNetwork } from "../hooks/useNetwork";
 import FeedTab from "../components/network/FeedTab";
-import ConnectionsTab from "../components/network/ConnectionsTab";
-import BattlefieldWarRoom from "../components/network/BattlefieldWarRoom";
+import Connective from "../components/network/Connective";
+import Battlefield from "../components/network/Battlefield";
 import DMPanel from "../components/network/DMPanel";
 
 // ─── Reusable Refresh Button ──────────────────────────────────────────────────
@@ -1170,7 +1170,7 @@ const Network = () => {
                 onRefreshNetwork={handleRefreshNetwork}
                 isExpanded={isBattlefieldExpanded}
                 expandedContent={
-                  <BattlefieldWarRoom
+                  <Battlefield
                     userData={userData}
                     competitors={competitors}
                     onCollapse={() => setIsBattlefieldExpanded(false)}
@@ -1187,7 +1187,7 @@ const Network = () => {
                     size="md"
                   />
                 </div>
-                <ConnectionsTab
+                <Connective
                   uid={uid}
                   userData={userData}
                   alliances={alliances}

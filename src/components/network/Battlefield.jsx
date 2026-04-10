@@ -1,5 +1,5 @@
 /**
- * @fileoverview BattlefieldWarRoom.jsx — Kinetic Battlefield v1.0
+ * @fileoverview Battlefield.jsx — Kinetic Battlefield v1.0
  * @description
  * Full-screen, draggable multi-column competitive intelligence system.
  * PC: 3-column layout with draggable dividers, scroll-snap war room.
@@ -688,7 +688,7 @@ const MobileCarousel = memo(
 );
 
 // ─── MAIN COMPONENT ───────────────────────────────────────────────────────────
-const BattlefieldWarRoom = ({ userData, competitors, onCollapse }) => {
+const Battlefield = ({ userData, competitors, onCollapse }) => {
   // War room state: which targets are in the split view (max 4 for usability)
   const [warRoomTargets, setWarRoomTargets] = useState(() =>
     competitors.slice(0, 1).map((c) => ({ ...c, _isTarget: true })),
@@ -985,4 +985,4 @@ const BattlefieldWarRoom = ({ userData, competitors, onCollapse }) => {
   );
 };
 
-export default BattlefieldWarRoom;
+export default Battlefield;
