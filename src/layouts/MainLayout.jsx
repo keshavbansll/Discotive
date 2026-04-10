@@ -85,12 +85,12 @@ const upperMiddleNavItems = [
 
 const lowerMiddleNavItems = [
   { icon: FolderOpen, label: "Asset Vault", path: "/app/vault" },
-  // { icon: Users, label: "Networking", path: "/app/network" },
+  // { icon: Users, label: "Connective", path: "/app/connective" },
   // { icon: Compass, label: "Discover Hubs", path: "/app/hubs" },
 ];
 
 const upperContentNavItems = [
-  { icon: Users, label: "Networking", path: "/app/network" },
+  { icon: Users, label: "Connective", path: "/app/connective" },
   // { icon: Compass, label: "Discover Hubs", path: "/app/hubs" },
 ];
 
@@ -115,7 +115,7 @@ const bottomNavItems = [
 const GHOST_LOCKED_ROUTES = [
   "/app/roadmap",
   "/app/vault",
-  "/app/network",
+  "/app/connective",
   "/app/finance",
   "/app/opportunities",
   "/app/hubs",
@@ -684,10 +684,10 @@ const MainLayout = () => {
           <div className="flex items-center gap-2 order-3 md:order-4 shrink-0">
             {/* MESSAGES BUTTON */}
             <button
-              onClick={() => navigate("/app/network?dm=menu")}
+              onClick={() => navigate("/app/connective?dm=menu")}
               className={cn(
                 "p-2 md:p-2.5 rounded-full transition-all relative border active:scale-95 duration-150",
-                location.pathname === "/app/network" &&
+                location.pathname === "/app/connective" &&
                   location.search.includes("dm=")
                   ? "bg-[rgba(191,162,100,0.15)] text-[#D4AF78] border-[rgba(191,162,100,0.3)] shadow-[0_0_15px_rgba(191,162,100,0.1)]"
                   : "bg-[#0A0A0A] border-white/5 text-[#F5F0E8]/60 hover:text-[#D4AF78] hover:border-[rgba(191,162,100,0.2)]",
@@ -1198,7 +1198,7 @@ const MainLayout = () => {
       <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-[#0A0A0A]/90 backdrop-blur-2xl border-t border-white/5 z-[100] flex items-center justify-around px-2 pb-[env(safe-area-inset-bottom)] pt-1 min-h-[calc(4rem+env(safe-area-inset-bottom))]">
         {[
           { icon: LayoutDashboard, path: "/app", label: "Dashboard" },
-          { icon: Users, path: "/app/network", label: "Network" },
+          { icon: Users, path: "/app/connective", label: "Connective" },
           { icon: Trophy, path: "/app/leaderboard", label: "Arena" },
           { icon: FolderOpen, path: "/app/vault", label: "Vault" },
         ].map((item) => {

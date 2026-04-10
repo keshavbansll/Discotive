@@ -1,5 +1,5 @@
 /**
- * @fileoverview Network.jsx v3.0 — The Kinetic Vanguard
+ * @fileoverview Connective.jsx v3.0 — The Kinetic Vanguard
  * @description
  * V3 complete rewrite. Intelligence Hub left sidebar (Target Telemetry + Quick Profile Peek).
  * Granular refresh architecture — no auto-fetch on tab switches (Firebase quota protection).
@@ -7,7 +7,7 @@
  */
 
 import React, { useState, useEffect, useCallback } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams, useLocation, useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Zap,
@@ -36,10 +36,10 @@ import { cn } from "../lib/cn";
 import { useAuth } from "../contexts/AuthContext";
 import { useUserData } from "../hooks/useUserData";
 import { useNetwork } from "../hooks/useNetwork";
-import FeedTab from "../components/network/FeedTab";
-import Connective from "../components/network/Connective";
-import Battlefield from "../components/network/Battlefield";
-import DMPanel from "../components/network/DMPanel";
+import FeedTab from "../components/connective/FeedTab";
+import NetworkTab from "../components/connective/NetworkTab";
+import Battlefield from "../components/connective/Battlefield";
+import DMPanel from "../components/connective/DMPanel";
 
 // ─── Reusable Refresh Button ──────────────────────────────────────────────────
 const RefreshButton = ({ onRefresh, label, size = "icon" }) => {
@@ -792,12 +792,22 @@ const SideLayout = ({
 // ═══════════════════════════════════════════════════════════════════════════════
 // MAIN NETWORK PAGE V3
 // ═══════════════════════════════════════════════════════════════════════════════
-const Network = () => {
+const Connective = () => {
   const { currentUser } = useAuth();
   const { userData } = useUserData();
   const { toasts, addToast, dismissToast } = useToasts();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [activeTab, setActiveTab] = useState("feed");
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  // Derive active tab directly from URL. Defaults to 'feed' if not /network
+  const activeTab = location.pathname.includes("/network") ? "network" : "feed";
+
+  // Tab change handler that preserves existing query parameters (like ?dm=123)
+  const handleTabChange = (tabId) => {
+    navigate(`/app/connective/${tabId}${location.search}`);
+  };
+
   const [peekUser, setPeekUser] = useState(null);
   const [isBattlefieldExpanded, setIsBattlefieldExpanded] = useState(false);
 
@@ -954,7 +964,7 @@ const Network = () => {
                   className="text-base font-black tracking-tight text-[#F5F0E8] hidden sm:block"
                   style={{ fontFamily: "Montserrat, sans-serif" }}
                 >
-                  NETWORK
+                  CONNECTIVE
                 </h1>
               </div>
               <div className="flex items-center gap-1">
@@ -963,7 +973,7 @@ const Network = () => {
                     key={tab.id}
                     {...tab}
                     active={activeTab === tab.id}
-                    onClick={setActiveTab}
+                    onClick={handleTabChange}
                   />
                 ))}
               </div>
@@ -1064,7 +1074,7 @@ const Network = () => {
                           Suggested
                         </p>
                         <button
-                          onClick={() => setActiveTab("network")}
+                          onClick={() => handleTabChange("network")}
                           className="text-[9px] font-black text-[#BFA264] hover:text-[#D4AF78] uppercase tracking-widest flex items-center gap-1"
                         >
                           See All <ChevronRight className="w-3 h-3" />
@@ -1187,7 +1197,7 @@ const Network = () => {
                     size="md"
                   />
                 </div>
-                <Connective
+                <NetworkTab
                   uid={uid}
                   userData={userData}
                   alliances={alliances}
@@ -1243,4 +1253,4 @@ const Network = () => {
   );
 };
 
-export default Network;
+export default Connective;

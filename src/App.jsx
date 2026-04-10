@@ -41,7 +41,7 @@ const LearnDatabase = lazy(() => import("./pages/LearnDatabase"));
 // Stubbed/Coming Soon Modules
 const Opportunities = lazy(() => import("./pages/Opportunities"));
 const Hubs = lazy(() => import("./pages/Hubs"));
-const Network = lazy(() => import("./pages/Network"));
+const Connective = lazy(() => import("./pages/Connective"));
 
 // Admin Modules (Heavy tables, graphs, CMS logic - KEEP LAZY)
 const AdminDashboard = lazy(() => import("./pages/admin/AdminDashboard"));
@@ -90,7 +90,7 @@ const RouteTitleManager = () => {
         case "vault":
           title = "Vault | Discotive";
           break;
-        case "network":
+        case "connective":
           title = "Connective | Discotive";
           break;
         case "learn":
@@ -272,7 +272,7 @@ function App() {
                   path="finance"
                   element={<ComingSoon title="Financial Ledger" />}
                 />
-                <Route path="network" element={<Network />} />
+                <Route path="connective/*" element={<Connective />} />
                 <Route path="learn" element={<LearnDatabase />} />
                 <Route
                   path="podcasts"

@@ -1,11 +1,11 @@
 /**
- * @fileoverview Connective v4.0 — Kinetic Battlefield Update
+ * @fileoverview NetworkTab v4.0 — Kinetic Battlefield Update
  * CHANGELOG vs v3:
  *  ✅ "Arena" → "Battlefield" nomenclature across all labels
  *  ✅ Battlefield expanded view — in-place morphing layout (no modal)
  *  ✅ Data hydration fix: userData.discotiveScore.current properly bound
  *  ✅ competitors.targetScore properly mapped and displayed
- *  ✅ Animated expand: Connective swipes LEFT, Battlefield slides in RIGHT
+ *  ✅ Animated expand: NetworkTab swipes LEFT, Battlefield slides in RIGHT
  *  ✅ All existing sub-panels preserved unchanged
  */
 
@@ -1108,7 +1108,7 @@ const GlobalPanel = ({
 // ═══════════════════════════════════════════════════════════════════════════════
 // CONNECTIONS TAB V4 — Main Export
 // ═══════════════════════════════════════════════════════════════════════════════
-const Connective = ({
+const NetworkTab = ({
   uid,
   userData,
   alliances,
@@ -1248,4 +1248,4 @@ const Connective = ({
   );
 };
 
-export default Connective;
+export default NetworkTab;
