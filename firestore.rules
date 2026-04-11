@@ -120,67 +120,39 @@ service cloud.firestore {
         && request.resource.data.rating <= 5;
     }
 
-    // =========================================================================
-    // 5. CORE USER LEDGER — Strict field-level security
+// =========================================================================
+    // 5. CORE USER LEDGER — Strict field-level security (Allowlist)
     // =========================================================================
     match /users/{userId} {
       // Anyone authenticated can read public profile data
       allow read: if isAuthenticated();
 
-      // User creation: owner only, must set their own UID
-      allow create: if isOwner(userId);
+      // User creation: owner only, explicitly prevent injecting protected fields at birth
+      allow create: if isOwner(userId)
+        && !request.resource.data.keys().hasAny([
+          'discotiveScore', 'vault', 'allies', 'tier', 'onboardingComplete'
+        ]);
 
       // Soft-delete: owner only
       allow delete: if isOwner(userId);
 
-      // Update: Four distinct allowed paths
+      // Update: Strict Allowlist & Admin overrides
       allow update: if
-        // Path A: Owner updates personal data (BLOCKS score escalation & tier changes)
+        // Path A: Owner updates personal data (Manager's Strict Allowlist)
         (isOwner(userId)
-          && !request.resource.data.diff(resource.data)
-              .affectedKeys().hasAny([
-                'tier', 'isGhostUser', 'discotiveScore', 'score',
-                'profileViews', 'onboardingScoreAwarded', 'precomputed'
+          && request.resource.data.diff(resource.data).affectedKeys()
+              .hasOnly([
+                'identity', 'links', 'footprint', 'settings', 'professional',
+                'vision', 'skills', 'resources', 'wildcard', 'discotiveId',
+                'profileViews', 'pendingAppVerifications'
               ]))
 
-        // Path B: Score engine writes (client-side scoreEngine.js transactions)
-        || (isOwner(userId) && isLegitScoreWrite(request.resource, resource))
-
-        // Path C: Alliance cross-writes (another user sending/accepting requests)
-        || (isAuthenticated()
-          && request.resource.data.diff(resource.data)
-              .affectedKeys().hasOnly([
-                'inboundRequests', 'outboundRequests', 'allies',
-                'dailyAllianceSent'
-              ]))
-
-        // Path D: Profile view counter (any authenticated user, increment-only)
-        || (isAuthenticated()
-          && request.resource.data.diff(resource.data)
-              .affectedKeys().hasOnly(['profileViews'])
-          && request.resource.data.profileViews
-              == resource.data.profileViews + 1)
-
-        // Path E: Onboarding completion (owner only, one-time flag)
-        || (isOwner(userId)
-          && request.resource.data.diff(resource.data)
-              .affectedKeys().hasOnly([
-                'onboardingComplete', 'isGhostUser',
-                'identity', 'vision', 'skills', 'baseline',
-                'footprint', 'links', 'settings'
-              ]))
-
-        // Path F: Compare/leaderboard metadata (owner only)
-        || (isOwner(userId)
-          && request.resource.data.diff(resource.data)
-              .affectedKeys().hasOnly(['dailyComparisons']))
-
-        // Path G: Notification writes (owner or ally cross-write)
+        // Path B: Notification writes (Keep this ONLY if your client still writes notifications directly)
         || (isAuthenticated()
           && request.resource.data.diff(resource.data)
               .affectedKeys().hasOnly(['notifications']))
 
-        // Path H: Admin override (superuser)
+        // Path C: Admin override (superuser)
         || isAdmin();
     }
 

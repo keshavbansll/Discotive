@@ -590,12 +590,15 @@ const DetailSheet = ({
               </a>
             )}
             {!isCompleted && !isPending && (
-              <Link
-                to="/app/vault"
+              <button
+                onClick={() => {
+                  if (!requireOnboarding("learn_upload")) return;
+                  navigate("/app/vault");
+                }}
                 className="flex-1 flex items-center justify-center gap-2 py-3.5 bg-[#111] border border-[#222] hover:bg-[#1a1a1a] text-white font-black text-[10px] uppercase tracking-widest rounded-xl transition-colors"
               >
                 <Upload className="w-3.5 h-3.5" /> Upload to Vault
-              </Link>
+              </button>
             )}
           </div>
         </motion.div>
@@ -980,6 +983,7 @@ const AdminFormModal = ({ type, item, onClose, onSaved, adminEmail }) => {
 // ═══════════════════════════════════════════════════════════════════════════════
 const LearnDatabase = () => {
   const { userData, loading: userLoading } = useUserData();
+  const { requireOnboarding } = useOnboardingGate();
   const { currentUser } = useAuth();
   const navigate = useNavigate();
 

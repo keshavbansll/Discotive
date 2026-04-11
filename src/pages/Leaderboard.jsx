@@ -44,7 +44,7 @@ import {
 } from "firebase/firestore";
 import { db } from "../firebase";
 import { useAuth } from "../contexts/AuthContext";
-import { useUserData } from "../hooks/useUserData";
+import { useUserData, useOnboardingGate } from "../hooks/useUserData";
 import { useNetwork } from "../hooks/useNetwork";
 import CompareModal from "../components/CompareModal";
 import {
@@ -1280,6 +1280,7 @@ const Leaderboard = () => {
   const [searchParams] = useSearchParams();
   const { currentUser } = useAuth();
   const { userData, loading: userLoading } = useUserData();
+  const { requireOnboarding } = useOnboardingGate();
   const { competitors = [], fetchNetworkData } =
     useNetwork(currentUser, userData) || {};
 
@@ -1672,7 +1673,8 @@ const Leaderboard = () => {
 
   // ── Handlers ─────────────────────────────────────────────────────────────
   const handleCompare = (player) => {
-    if (isGhostUser || !isPro) {
+    if (!requireOnboarding("compare_xray")) return;
+    if (!isPro) {
       setIsUpsellOpen(true);
       return;
     }

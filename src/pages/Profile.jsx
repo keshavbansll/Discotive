@@ -10,10 +10,10 @@ import React, {
   useMemo,
   useRef,
   useCallback,
-  lazy,
-  Suspense,
 } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { ProfileHeader } from "../components/profile/ProfileHeader";
+import { TelemetryEngine } from "../components/profile/TelemetryEngine";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   AreaChart,
@@ -43,7 +43,7 @@ import {
 } from "firebase/firestore";
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { db, auth, storage } from "../firebase";
-import { useUserData } from "../hooks/useUserData";
+import { useUserData, useOnboardingGate } from "../hooks/useUserData";
 import { cn } from "../lib/cn";
 import {
   Activity,
@@ -95,6 +95,98 @@ import {
   X,
   MessageSquare,
 } from "lucide-react";
+
+const InlineBioEdit = ({ userData, uid, onSaved }) => {
+  const [editing, setEditing] = useState(false);
+  const [bio, setBio] = useState(
+    userData?.footprint?.bio || userData?.professional?.bio || "",
+  );
+  const [saving, setSaving] = useState(false);
+  const taRef = useRef(null);
+
+  useEffect(() => {
+    if (editing) setTimeout(() => taRef.current?.focus(), 50);
+  }, [editing]);
+
+  const save = async () => {
+    if (!uid) return;
+    setSaving(true);
+    try {
+      const { updateDoc, doc } = await import("firebase/firestore");
+      const { db } = await import("../firebase");
+      await updateDoc(doc(db, "users", uid), {
+        "footprint.bio": bio.trim(),
+        "professional.bio": bio.trim(),
+      });
+      await onSaved?.();
+      setEditing(false);
+    } catch {}
+    setSaving(false);
+  };
+
+  return (
+    <div className="bg-[#0a0a0a] border border-[#1a1a1a] rounded-[2rem] p-5 group relative">
+      <div className="flex items-center justify-between mb-3">
+        <span className="text-[9px] font-black text-white/30 uppercase tracking-[0.2em] flex items-center gap-2">
+          <Terminal className="w-3.5 h-3.5 text-white/35" />
+          Bio
+        </span>
+        {!editing && (
+          <button
+            onClick={() => setEditing(true)}
+            className="opacity-0 group-hover:opacity-100 text-[9px] font-black text-[#BFA264]/50 hover:text-[#BFA264] uppercase tracking-widest transition-all flex items-center gap-1"
+          >
+            <Edit3 className="w-3 h-3" />
+            Edit
+          </button>
+        )}
+      </div>
+      {editing ? (
+        <div className="space-y-2">
+          <textarea
+            ref={taRef}
+            value={bio}
+            onChange={(e) => setBio(e.target.value.slice(0, 300))}
+            className="w-full bg-[#050505] border border-[#BFA264]/30 rounded-xl px-4 py-3 text-sm text-white focus:outline-none resize-none min-h-[80px]"
+            placeholder="2–3 sentences about what you build…"
+          />
+          <div className="flex items-center justify-between">
+            <span className="text-[9px] text-white/20">{bio.length}/300</span>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setEditing(false)}
+                className="px-3 py-1.5 text-[10px] font-black text-white/40 hover:text-white transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={save}
+                disabled={saving}
+                className="px-4 py-1.5 bg-[#BFA264] text-black text-[10px] font-black rounded-xl hover:bg-[#D4AF78] disabled:opacity-50 transition-all flex items-center gap-1.5"
+              >
+                {saving ? (
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                ) : (
+                  <Check className="w-3 h-3" />
+                )}
+                Save
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <p
+          className="text-sm text-[#777] leading-relaxed cursor-text"
+          onClick={() => setEditing(true)}
+        >
+          {bio || (
+            <span className="text-[#333] italic">Click to add a bio…</span>
+          )}
+        </p>
+      )}
+    </div>
+  );
+};
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -313,9 +405,19 @@ const AppStackModal = ({
   const [activeTab, setActiveTab] = useState("All");
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState(null);
+  const [profileUrl, setProfileUrl] = useState("");
   const [proofUrl, setProofUrl] = useState("");
+  const [profileError, setProfileError] = useState("");
   const [submitting, setSubmitting] = useState(false);
+
   useEffect(() => {
+    setProfileUrl("");
+    setProofUrl("");
+    setProfileError("");
+  }, [selected]);
+
+  useEffect(() => {
+    // 1. Define the async function once
     const fetchCatalog = async () => {
       try {
         const snap = await getDocs(collection(db, "app_catalog"));
@@ -325,8 +427,12 @@ const AppStackModal = ({
       }
       setLoading(false);
     };
-    if (isOpen) fetchCatalog();
-  }, [isOpen]);
+
+    // 2. Call it if the condition is met
+    if (isOpen) {
+      fetchCatalog();
+    }
+  }, [isOpen]); // 3. Properly close the effect function and pass the dependency array here
 
   const categories = ["All", ...new Set(catalog.map((a) => a.category))].sort();
 
@@ -339,6 +445,25 @@ const AppStackModal = ({
   });
   const handleSubmit = async () => {
     if (!selected) return;
+
+    // Validation
+    const parentUrl = selected.parentUrl?.trim();
+    if (!profileUrl.trim()) {
+      setProfileError("Profile URL is required.");
+      return;
+    }
+    const urlPattern = new RegExp(
+      `^https://(www\\.)?.*${parentUrl ? parentUrl.replace(/[-\\/\\^$*+?.()|[\\]{}]/g, "\\$&") : ""}.*`,
+      "i",
+    );
+    if (!urlPattern.test(profileUrl.trim())) {
+      setProfileError(
+        `Invalid URL. Must start with https:// and contain ${parentUrl || "the valid app link"}`,
+      );
+      return;
+    }
+
+    setProfileError("");
     setSubmitting(true);
     await onSubmit(
       {
@@ -347,10 +472,12 @@ const AppStackModal = ({
         category: selected.category,
         iconUrl: selected.iconUrl,
       },
-      proofUrl,
+      profileUrl.trim(),
+      proofUrl.trim(),
     );
     setSubmitting(false);
     setSelected(null);
+    setProfileUrl("");
     setProofUrl("");
     onClose();
   };
@@ -467,30 +594,55 @@ const AppStackModal = ({
             )}
             {/* Selection Footer */}
             {selected && (
-              <div className="p-4 bg-[#0a0a0c]/90 border-t border-[#BFA264]/20 backdrop-blur-md flex items-center gap-4 shrink-0">
-                <div className="flex-1 relative">
-                  <Link className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#BFA264]/50" />
-                  <input
-                    type="url"
-                    value={proofUrl}
-                    onChange={(e) => setProofUrl(e.target.value)}
-                    placeholder="Proof URL (Optional)..."
-                    className="w-full bg-black/40 border border-[#BFA264]/20 rounded-xl pl-9 pr-4 py-2.5 text-xs text-white focus:outline-none focus:border-[#BFA264]/50"
-                  />
+              <div className="p-4 bg-[#0a0a0c]/90 border-t border-[#BFA264]/20 backdrop-blur-md flex flex-col gap-3 shrink-0">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
+                  <div className="flex-1 w-full relative">
+                    <Link className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#BFA264]/50" />
+                    <input
+                      type="url"
+                      value={profileUrl}
+                      onChange={(e) => {
+                        setProfileUrl(e.target.value);
+                        setProfileError("");
+                      }}
+                      placeholder={`Profile URL (e.g. https://${selected.parentUrl || "..."}) *`}
+                      className={cn(
+                        "w-full bg-black/40 border rounded-xl pl-9 pr-4 py-2.5 text-xs text-white focus:outline-none transition-colors",
+                        profileError
+                          ? "border-rose-500/50 focus:border-rose-500"
+                          : "border-[#BFA264]/20 focus:border-[#BFA264]/50",
+                      )}
+                    />
+                  </div>
+                  <div className="flex-1 w-full relative">
+                    <Link className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#BFA264]/50" />
+                    <input
+                      type="url"
+                      value={proofUrl}
+                      onChange={(e) => setProofUrl(e.target.value)}
+                      placeholder="Proof-of-Work URL (Optional, Recommended)"
+                      className="w-full bg-black/40 border border-[#BFA264]/20 rounded-xl pl-9 pr-4 py-2.5 text-xs text-white focus:outline-none focus:border-[#BFA264]/50"
+                    />
+                  </div>
+                  <button
+                    onClick={handleSubmit}
+                    disabled={submitting}
+                    className="w-full sm:w-auto px-6 py-2.5 bg-[#BFA264] text-black text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-[#D4AF78] disabled:opacity-50 transition-colors flex items-center justify-center gap-2 shrink-0"
+                  >
+                    {submitting ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <>
+                        <Check className="w-4 h-4" /> Request
+                      </>
+                    )}
+                  </button>
                 </div>
-                <button
-                  onClick={handleSubmit}
-                  disabled={submitting}
-                  className="px-6 py-2.5 bg-[#BFA264] text-black text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-[#D4AF78] disabled:opacity-50 transition-colors flex items-center gap-2"
-                >
-                  {submitting ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    <>
-                      <Check className="w-4 h-4" /> Request Verification
-                    </>
-                  )}
-                </button>
+                {profileError && (
+                  <p className="text-[10px] font-bold text-rose-400 pl-1">
+                    {profileError}
+                  </p>
+                )}
               </div>
             )}
           </div>
@@ -589,11 +741,33 @@ const AppStackModal = ({
         </div>
         {selected && (
           <div className="p-4 bg-[#0a0a0c] border-t border-[#BFA264]/20 pb-6 shrink-0 space-y-3">
+            <div>
+              <input
+                type="url"
+                value={profileUrl}
+                onChange={(e) => {
+                  setProfileUrl(e.target.value);
+                  setProfileError("");
+                }}
+                placeholder={`Profile URL (e.g. https://${selected.parentUrl || "..."}) *`}
+                className={cn(
+                  "w-full bg-[#111] border rounded-xl px-4 py-3 text-xs text-white focus:outline-none transition-colors",
+                  profileError
+                    ? "border-rose-500/50 focus:border-rose-500"
+                    : "border-[#BFA264]/20 focus:border-[#BFA264]/50",
+                )}
+              />
+              {profileError && (
+                <p className="text-[10px] font-bold text-rose-400 mt-1.5 pl-1">
+                  {profileError}
+                </p>
+              )}
+            </div>
             <input
               type="url"
               value={proofUrl}
               onChange={(e) => setProofUrl(e.target.value)}
-              placeholder="Proof URL (Optional)..."
+              placeholder="Proof-of-Work URL (Optional, Recommended)"
               className="w-full bg-[#111] border border-[#BFA264]/20 rounded-xl px-4 py-3 text-xs text-white focus:outline-none focus:border-[#BFA264]/50"
             />
             <button
@@ -643,6 +817,7 @@ const VSSBar = ({ score }) => (
 // ════════════════════════════════════════════════════════════════════════════════
 const Profile = () => {
   const { userData, loading, refreshUserData } = useUserData();
+  const { requireOnboarding } = useOnboardingGate();
   const navigate = useNavigate();
 
   const [viewDate, setViewDate] = useState(() => {
@@ -704,53 +879,48 @@ const Profile = () => {
     `${userData?.identity?.firstName?.charAt(0) || ""}${userData?.identity?.lastName?.charAt(0) || ""}`.toUpperCase() ||
     "?";
 
-  // ── Chart data ──────────────────────────────────────────────────────────────
-  useEffect(() => {
-    const build = async () => {
-      if (!userData?.uid) return;
-      setChartLoading(true);
-      try {
-        const daily = userData.daily_scores || {};
-        let src = Object.keys(daily)
-          .map((d) => ({ date: d, score: daily[d] }))
-          .sort((a, b) => a.date.localeCompare(b.date));
-        if (chartTf === "1W") {
-          const cutoff = new Date();
-          cutoff.setDate(cutoff.getDate() - 7);
-          src = src.filter((e) => new Date(e.date) >= cutoff);
-        } else if (chartTf === "1M") {
-          const cutoff = new Date();
-          cutoff.setMonth(cutoff.getMonth() - 1);
-          src = src.filter((e) => new Date(e.date) >= cutoff);
-        }
-        if (src.length < 2) {
-          src = [
-            {
-              date: new Date(Date.now() - 7 * 86400000)
-                .toISOString()
-                .split("T")[0],
-              score: Math.max(0, score - 50),
-            },
-            { date: new Date().toISOString().split("T")[0], score },
-          ];
-        }
-        setChartData(
-          src.map((e) => ({
-            day: new Date(e.date).toLocaleDateString("en-US", {
-              month: "short",
-              day: "numeric",
-            }),
-            score: e.score,
-          })),
-        );
-      } catch (e) {
-        console.error(e);
-      } finally {
-        setChartLoading(false);
+  // Chart data handled by TelemetryEngine component via useScoreHistory hook
+  const _buildChart_REMOVED = async () => {
+    if (!userData?.uid) return;
+    try {
+      let src = Object.keys(daily)
+        .map((d) => ({ date: d, score: daily[d] }))
+        .sort((a, b) => a.date.localeCompare(b.date));
+      if (chartTf === "1W") {
+        const cutoff = new Date();
+        cutoff.setDate(cutoff.getDate() - 7);
+        src = src.filter((e) => new Date(e.date) >= cutoff);
+      } else if (chartTf === "1M") {
+        const cutoff = new Date();
+        cutoff.setMonth(cutoff.getMonth() - 1);
+        src = src.filter((e) => new Date(e.date) >= cutoff);
       }
-    };
-    build();
-  }, [userData, chartTf, score]);
+      if (src.length < 2) {
+        src = [
+          {
+            date: new Date(Date.now() - 7 * 86400000)
+              .toISOString()
+              .split("T")[0],
+            score: Math.max(0, score - 50),
+          },
+          { date: new Date().toISOString().split("T")[0], score },
+        ];
+      }
+      setChartData(
+        src.map((e) => ({
+          day: new Date(e.date).toLocaleDateString("en-US", {
+            month: "short",
+            day: "numeric",
+          }),
+          score: e.score,
+        })),
+      );
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setChartLoading(false);
+    }
+  };
 
   // ── Heatmap ─────────────────────────────────────────────────────────────────
   const activeDates = useMemo(() => {
@@ -811,6 +981,7 @@ const Profile = () => {
 
   // ── Avatar upload ──────────────────────────────────────────────────────────
   const handleAvatarUpload = async (e) => {
+    if (!requireOnboarding("profile_avatar")) return;
     const file = e.target.files?.[0];
     if (!file) return;
     if (file.size > 2 * 1024 * 1024) {
@@ -836,6 +1007,7 @@ const Profile = () => {
 
   // ── Export DCI ─────────────────────────────────────────────────────────────
   const handleExportDCI = async () => {
+    if (!requireOnboarding("profile_export")) return;
     setIsExporting(true);
     showToast("Compiling DCI...", "default");
     try {
@@ -889,7 +1061,7 @@ const Profile = () => {
     setTimeout(() => setCopiedLink(false), 2000);
     showToast("Profile link copied!", "green");
   };
-  const handleAppSubmit = async (app, proofUrl) => {
+  const handleAppSubmit = async (app, profileUrl, proofUrl) => {
     if (!auth.currentUser) return;
     const uid = auth.currentUser.uid;
     try {
@@ -902,6 +1074,7 @@ const Profile = () => {
         appName: app.name,
         appIconUrl: app.iconUrl,
         appCategory: app.category,
+        profileUrl: profileUrl || "",
         proofUrl: proofUrl || "",
         status: "PENDING",
         submittedAt: serverTimestamp(),
@@ -911,6 +1084,7 @@ const Profile = () => {
           appId: app.id,
           appName: app.name,
           appIconUrl: app.iconUrl,
+          profileUrl: profileUrl || "",
           status: "PENDING",
           submittedAt: new Date().toISOString(),
         },
@@ -1007,12 +1181,22 @@ const Profile = () => {
           </div>
         </div>
 
-        {/* ── HERO IDENTITY CARD ──────────────────────────────────────────── */}
-        <motion.div
-          initial={{ opacity: 0, y: 16 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="bg-[#0a0a0a] border border-[#1a1a1a] rounded-[2rem] p-5 md:p-7 relative overflow-hidden"
-        >
+        {/* ── HEADER (split component) ──────────────────────────────────── */}
+        <ProfileHeader
+          userData={userData}
+          onAvatarUpload={handleAvatarUpload}
+          isUploadingAvatar={isUploadingAvatar}
+          onExportDCI={handleExportDCI}
+          isExporting={isExporting}
+          onCopyLink={handleCopyLink}
+          copied={copiedLink}
+        />
+
+        {/* ── TELEMETRY ENGINE (split component) ────────────────────────── */}
+        <TelemetryEngine userData={userData} />
+
+        {/* ── LEGACY HERO IDENTITY CARD (retained for fallback) ─────────── */}
+        <motion.div className="hidden">
           <div className="absolute inset-0 bg-gradient-to-br from-[#BFA264]/[0.04] to-transparent pointer-events-none" />
           <div className="absolute top-0 right-0 w-64 h-64 bg-[#BFA264] opacity-[0.03] blur-3xl rounded-full pointer-events-none" />
 
@@ -1656,19 +1840,12 @@ const Profile = () => {
             transition={{ delay: 0.22 }}
             className="col-span-1 xl:col-span-4 space-y-4"
           >
-            {/* Bio */}
-            <div className="bg-[#0a0a0a] border border-[#1a1a1a] rounded-[2rem] p-5">
-              <SLabel icon={Terminal} iconColor="text-white/35">
-                Bio
-              </SLabel>
-              <p className="text-sm text-[#777] leading-relaxed">
-                {userData.footprint?.bio || (
-                  <span className="text-[#333] italic">
-                    No biography. Add one in Profile Editor.
-                  </span>
-                )}
-              </p>
-            </div>
+            {/* Bio — inline edit */}
+            <InlineBioEdit
+              userData={userData}
+              uid={userData?.uid}
+              onSaved={refreshUserData}
+            />
             {/* Academic */}
             {userData.baseline?.institution && (
               <div className="bg-[#0a0a0a] border border-[#1a1a1a] rounded-[2rem] p-5">
@@ -1821,7 +1998,10 @@ const Profile = () => {
                 App Proficiency
               </SLabel>
               <button
-                onClick={() => setShowAppModal(true)}
+                onClick={() => {
+                  if (!requireOnboarding("profile_app")) return;
+                  setShowAppModal(true);
+                }}
                 className="flex items-center gap-1.5 px-3 py-1.5 bg-violet-500/10 border border-violet-500/20 rounded-xl text-[9px] font-black text-violet-400 hover:bg-violet-500/15 transition-all uppercase tracking-widest"
               >
                 <Plus className="w-3 h-3" /> Add App

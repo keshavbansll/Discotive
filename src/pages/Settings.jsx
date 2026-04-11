@@ -32,6 +32,7 @@ import {
 } from "firebase/auth";
 import { db, auth } from "../firebase";
 import { useUserData } from "../hooks/useUserData";
+import { useAppStore } from "../store/useAppStore";
 import { cn } from "../lib/cn";
 import {
   User,
@@ -82,6 +83,7 @@ import {
 // ─── Tab definitions ──────────────────────────────────────────────────────────
 const TABS = [
   { id: "account", label: "Account", icon: User, color: "text-white" },
+  { id: "advanced", label: "Advanced", icon: Cpu, color: "text-violet-400" },
   { id: "profile", label: "Profile", icon: Edit3, color: "text-sky-400" },
   {
     id: "connectors",
@@ -324,7 +326,8 @@ const Settings = () => {
     if (!uid) return;
     setIsSaving(true);
     try {
-      await updateDoc(doc(db, "users", uid), { [field]: value });
+      const updateSettings = httpsCallable(functions, "updateUserSettings");
+      await updateSettings({ field, value });
       await refreshUserData?.();
       showToast("Saved.", "green");
     } catch (e) {
@@ -1456,6 +1459,113 @@ const Settings = () => {
                         Pro
                       </span>
                     </div>
+                  </Card>
+                </motion.div>
+              )}
+
+              {/* ════════ ADVANCED ════════ */}
+              {activeTab === "advanced" && (
+                <motion.div
+                  key="advanced"
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0 }}
+                  className="space-y-4"
+                >
+                  <h2 className="text-lg font-black text-white mb-4">
+                    Advanced Controls
+                  </h2>
+
+                  <Card>
+                    <CardHeader
+                      icon={Cpu}
+                      iconColor="text-violet-400"
+                      title="Local Cache"
+                      subtitle="Flush IndexedDB and query cache to force a full data refresh"
+                    />
+                    <FieldRow
+                      label="Execution Cache"
+                      sublabel="Clears all locally stored execution map data"
+                    >
+                      <button
+                        onClick={() => {
+                          useAppStore.getState().flushCache();
+                          showToast("Cache flushed.", "green");
+                        }}
+                        className="px-4 py-2 bg-violet-500/10 border border-violet-500/20 text-violet-400 font-black text-xs uppercase tracking-widest rounded-xl hover:bg-violet-500/20 transition-all"
+                      >
+                        Flush Cache
+                      </button>
+                    </FieldRow>
+                    <FieldRow
+                      label="Session Storage"
+                      sublabel="Clears session-scoped profile cache"
+                      noBorder
+                    >
+                      <button
+                        onClick={() => {
+                          sessionStorage.clear();
+                          showToast("Session cleared.", "green");
+                        }}
+                        className="px-4 py-2 bg-violet-500/10 border border-violet-500/20 text-violet-400 font-black text-xs uppercase tracking-widest rounded-xl hover:bg-violet-500/20 transition-all"
+                      >
+                        Clear Session
+                      </button>
+                    </FieldRow>
+                  </Card>
+
+                  <Card>
+                    <CardHeader
+                      icon={Bell}
+                      iconColor="text-amber-400"
+                      title="Granular Notifications"
+                      subtitle="Control exactly which events trigger notifications"
+                    />
+                    {[
+                      {
+                        key: "settings.notifications.arena",
+                        label: "Arena & Rank Events",
+                        sub: "Rank changes, percentile shifts, leaderboard milestones",
+                      },
+                      {
+                        key: "settings.notifications.network",
+                        label: "Network Events",
+                        sub: "Alliance requests, competitor tracking, DMs",
+                      },
+                      {
+                        key: "settings.notifications.system",
+                        label: "System Events",
+                        sub: "Vault verifications, score mutations, streak warnings",
+                      },
+                      {
+                        key: "settings.notifications.marketing",
+                        label: "Marketing & Updates",
+                        sub: "Product announcements, feature drops",
+                      },
+                    ].map(({ key, label, sub }, i, arr) => (
+                      <FieldRow
+                        key={key}
+                        label={label}
+                        sublabel={sub}
+                        noBorder={i === arr.length - 1}
+                      >
+                        <Toggle
+                          value={
+                            userData?.settings?.notifications?.[
+                              key.split(".").pop()
+                            ] ?? true
+                          }
+                          onToggle={() =>
+                            handleToggle(
+                              key,
+                              userData?.settings?.notifications?.[
+                                key.split(".").pop()
+                              ] ?? true,
+                            )
+                          }
+                        />
+                      </FieldRow>
+                    ))}
                   </Card>
                 </motion.div>
               )}

@@ -1,0 +1,26 @@
+{
+  "rules": {
+    "conversations_meta": {
+      "$conversationId": {
+        ".read": "auth != null",
+
+        "lastUpdate": {
+          ".write": "auth != null && newData.isNumber()"
+        },
+
+        "typing": {
+          "$userId": {
+            ".write": "auth != null && auth.uid === $userId",
+            ".validate": "newData.isBoolean()"
+          }
+        }
+      }
+    },
+    "global_telemetry": {
+      "latest": {
+        ".read": "auth != null",
+        ".write": "auth != null"
+      }
+    }
+  }
+}

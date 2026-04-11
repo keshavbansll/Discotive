@@ -1,12 +1,34 @@
 import { useState, useEffect, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
 import { doc, getDoc } from "firebase/firestore";
 import { db } from "../firebase";
 import { useAuth } from "../contexts/AuthContext";
 
+export const useOnboardingGate = () => {
+  const { userData } = useUserData();
+  const navigate = useNavigate();
+
+  const requireOnboarding = useCallback(
+    (action) => {
+      if (!userData || userData.isGhostUser || !userData.onboardingComplete) {
+        navigate("/auth", { state: { isLogin: false, trigger: action } });
+        return false;
+      }
+      return true;
+    },
+    [userData, navigate],
+  );
+
+  return { requireOnboarding, isGhost: !userData?.onboardingComplete };
+};
+
 // Session-scoped cache keyed by UID — safe
 const SESSION_CACHE = new Map();
 
+import { useAppStore } from "../store/useAppStore";
+
 export const useUserData = () => {
+  const { setUserData: storeSet, patchUserData } = useAppStore();
   const { currentUser } = useAuth();
   const uid = currentUser?.uid;
 
@@ -35,6 +57,7 @@ export const useUserData = () => {
         const data = { uid: docSnap.id, ...docSnap.data() };
         SESSION_CACHE.set(uid, data);
         setUserData(data);
+        storeSet(data);
       }
     } catch (error) {
       console.error("[useUserData] Fetch failed:", error);

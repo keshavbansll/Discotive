@@ -36,7 +36,7 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import { cn } from "../lib/cn";
-import { useUserData } from "../hooks/useUserData";
+import { useUserData, useOnboardingGate } from "../hooks/useUserData";
 
 // --- LIVE FIREBASE IMPORTS ---
 import { db, storage, auth } from "../firebase";
@@ -411,6 +411,7 @@ const getAssetIcon = (category, mimeType) => {
 // ============================================================================
 const Vault = () => {
   const { userData } = useUserData();
+  const { requireOnboarding } = useOnboardingGate();
 
   const [localAssets, setLocalAssets] = useState([]);
 
@@ -541,11 +542,12 @@ const Vault = () => {
       e.preventDefault();
       e.stopPropagation();
       setIsDragging(false);
+      if (!requireOnboarding("vault_upload")) return;
       if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
         validateAndQueueFiles(e.dataTransfer.files);
       }
     },
-    [userData],
+    [userData, requireOnboarding],
   );
 
   // --- 🔴 THE REAL FIREBASE STORAGE & FIRESTORE UPLOAD PIPELINE ---
@@ -676,6 +678,7 @@ const Vault = () => {
 
   // --- 🔴 REAL FIREBASE DELETION ENGINE (REFACTORED) ---
   const handleDeleteAsset = async (assetToDelete) => {
+    if (!requireOnboarding("vault_delete")) return;
     if (!userData?.uid) return;
     setIsProcessing(true);
 
@@ -900,7 +903,10 @@ const Vault = () => {
 
           {/* Upload Button */}
           <button
-            onClick={() => setIsUploadModalOpen(true)}
+            onClick={() => {
+              if (!requireOnboarding("vault_upload")) return;
+              setIsUploadModalOpen(true);
+            }}
             className="px-5 py-2.5 bg-white text-black font-extrabold text-[10px] uppercase tracking-widest rounded-xl hover:bg-[#ccc] transition-colors flex items-center gap-2 shadow-[0_0_20px_rgba(255,255,255,0.1)]"
           >
             <Plus className="w-4 h-4" /> Sync Asset

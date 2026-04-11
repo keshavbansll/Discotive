@@ -25,6 +25,7 @@ import React, {
   useId,
   memo,
 } from "react";
+
 import { motion, AnimatePresence } from "framer-motion";
 import { useNavigate, Link } from "react-router-dom";
 import {
@@ -40,8 +41,14 @@ import {
   getDocs,
 } from "firebase/firestore";
 import { db } from "../firebase";
-import { useUserData } from "../hooks/useUserData";
+import { useUserData, useOnboardingGate } from "../hooks/useUserData";
 import { processDailyConsistency } from "../lib/scoreEngine";
+import {
+  useDashboardCore,
+  useScoreHistory,
+  usePercentiles,
+} from "../hooks/useDashboardData";
+import { useTelemetryStream } from "../hooks/useTelemetryStream";
 import TierGate from "../components/TierGate";
 import DailyExecutionLedger from "../components/DailyExecutionLedger";
 import {
@@ -512,10 +519,13 @@ const Dashboard = () => {
   const GRAD_ID = `grad_${useId().replace(/:/g, "")}`;
 
   const { userData, loading: userLoading } = useUserData();
+  const { requireOnboarding } = useOnboardingGate();
   const navigate = useNavigate();
+  const { data: coreData } = useDashboardCore();
+  const { data: telemetryEvents = [] } = { data: useTelemetryStream(userData) };
 
   // ── Core metrics ────────────────────────────────────────────────────────
-  const currentScore = userData?.discotiveScore?.current || 0;
+  const currentScore = userData?.discotiveScore?.current ?? 0;
   const last24hScore = userData?.discotiveScore?.last24h || currentScore;
   const delta = currentScore - last24hScore;
   const lastReason = userData?.discotiveScore?.lastReason || "OS Initialized";
@@ -556,13 +566,7 @@ const Dashboard = () => {
   const [lbRank, setLbRank] = useState("?");
   const [lbRefreshing, setLbRefreshing] = useState(false);
   const [lbFilterLabel, setLbFilterLabel] = useState("—");
-  const [percentiles, setPercentiles] = useState({
-    global: 100,
-    domain: 100,
-    niche: 100,
-    parallel: 100,
-  });
-  const [isCalc, setIsCalc] = useState(true);
+
   const [journalEntry, setJournalEntry] = useState("");
   const [isCommitting, setIsCommitting] = useState(false);
 
@@ -582,84 +586,85 @@ const Dashboard = () => {
   );
 
   // ── Chart & execution map data ────────────────────────────────────────────
-  const [chartData, setChartData] = useState([]);
-  const [isChartLoading, setChartLoading] = useState(false);
+  const { data: rawHistory = [], isLoading: isChartLoading } =
+    useScoreHistory(tf);
+  const chartData = rawHistory.map((e, i) => ({
+    day: fmtLabel(e.date, tf),
+    score: e.score,
+    prev: i > 0 ? rawHistory[i - 1].score : null,
+  }));
 
-  useEffect(() => {
-    const buildChart = async () => {
-      if (!userData?.uid) return;
-      setChartLoading(true);
-      try {
-        let sourceData = [];
-        const now = new Date();
-        const cutoff = new Date(now);
+  // DEPRECATED — removed manual buildChart useEffect
+  const _buildChart_REMOVED = async () => {
+    if (!userData?.uid) return;
+    setChartLoading(true);
+    try {
+      let sourceData = [];
+      const now = new Date();
+      const cutoff = new Date(now);
 
-        if (tf === "24H") {
-          const logRef = collection(db, "users", userData.uid, "score_log");
-          const cutoffIso = new Date(
-            Date.now() - 24 * 60 * 60 * 1000,
-          ).toISOString();
-          const q = query(
-            logRef,
-            where("date", ">=", cutoffIso),
-            orderBy("date", "asc"),
-          );
-          const snap = await getDocs(q);
-          sourceData = snap.docs.map((d) => ({
-            date: d.data().date,
-            score: d.data().score,
-          }));
-        } else if (tf === "1W" || tf === "1M") {
-          const daily = userData.daily_scores || {};
-          sourceData = Object.keys(daily).map((date) => ({
-            date,
-            score: daily[date],
-          }));
-          if (tf === "1W") cutoff.setDate(now.getDate() - 7);
-          if (tf === "1M") cutoff.setMonth(now.getMonth() - 1);
-          sourceData = sourceData.filter((e) => new Date(e.date) >= cutoff);
-        } else {
-          const monthly = userData.monthly_scores || {};
-          sourceData = Object.keys(monthly).map((month) => ({
-            date: `${month}-01`,
-            score: monthly[month],
-          }));
-        }
-
-        sourceData.sort((a, b) => new Date(a.date) - new Date(b.date));
-
-        // Ensure minimum 2 points to draw a line (critical for fresh accounts)
-        if (sourceData.length === 0) {
-          const baselineDate =
-            tf === "ALL" ? "2026-01-01" : cutoff.toISOString();
-          sourceData = [
-            { date: baselineDate, score: 0 },
-            { date: now.toISOString(), score: currentScore },
-          ];
-        } else if (sourceData.length === 1) {
-          const baselineDate =
-            tf === "ALL" ? "2026-01-01" : cutoff.toISOString();
-          sourceData.unshift({
-            date: baselineDate,
-            score: Math.max(0, sourceData[0].score - (lastAmount || 0)),
-          });
-        }
-
-        setChartData(
-          sourceData.map((e, i) => ({
-            day: fmtLabel(e.date, tf),
-            score: e.score,
-            prev: i > 0 ? sourceData[i - 1].score : null,
-          })),
+      if (tf === "24H") {
+        const logRef = collection(db, "users", userData.uid, "score_log");
+        const cutoffIso = new Date(
+          Date.now() - 24 * 60 * 60 * 1000,
+        ).toISOString();
+        const q = query(
+          logRef,
+          where("date", ">=", cutoffIso),
+          orderBy("date", "asc"),
         );
-      } catch (err) {
-        console.error("[Dashboard] Chart error:", err);
-      } finally {
-        setChartLoading(false);
+        const snap = await getDocs(q);
+        sourceData = snap.docs.map((d) => ({
+          date: d.data().date,
+          score: d.data().score,
+        }));
+      } else if (tf === "1W" || tf === "1M") {
+        const daily = userData.daily_scores || {};
+        sourceData = Object.keys(daily).map((date) => ({
+          date,
+          score: daily[date],
+        }));
+        if (tf === "1W") cutoff.setDate(now.getDate() - 7);
+        if (tf === "1M") cutoff.setMonth(now.getMonth() - 1);
+        sourceData = sourceData.filter((e) => new Date(e.date) >= cutoff);
+      } else {
+        const monthly = userData.monthly_scores || {};
+        sourceData = Object.keys(monthly).map((month) => ({
+          date: `${month}-01`,
+          score: monthly[month],
+        }));
       }
-    };
-    buildChart();
-  }, [userData, tf, currentScore, lastAmount]);
+
+      sourceData.sort((a, b) => new Date(a.date) - new Date(b.date));
+
+      // Ensure minimum 2 points to draw a line (critical for fresh accounts)
+      if (sourceData.length === 0) {
+        const baselineDate = tf === "ALL" ? "2026-01-01" : cutoff.toISOString();
+        sourceData = [
+          { date: baselineDate, score: 0 },
+          { date: now.toISOString(), score: currentScore },
+        ];
+      } else if (sourceData.length === 1) {
+        const baselineDate = tf === "ALL" ? "2026-01-01" : cutoff.toISOString();
+        sourceData.unshift({
+          date: baselineDate,
+          score: Math.max(0, sourceData[0].score - (lastAmount || 0)),
+        });
+      }
+
+      setChartData(
+        sourceData.map((e, i) => ({
+          day: fmtLabel(e.date, tf),
+          score: e.score,
+          prev: i > 0 ? sourceData[i - 1].score : null,
+        })),
+      );
+    } catch (err) {
+      console.error("[Dashboard] Chart error:", err);
+    } finally {
+      setChartLoading(false);
+    }
+  };
 
   // ── Execution map count ───────────────────────────────────────────────────
   useEffect(() => {
@@ -678,96 +683,101 @@ const Dashboard = () => {
     fetchMap();
   }, [userData?.uid]);
 
-  // ── Percentile engine (session-cached) ────────────────────────────────────
-  useEffect(() => {
-    const run = async () => {
-      if (!userData?.discotiveScore) return;
-      setIsCalc(true);
-      try {
-        const globalPct = userData.precomputed?.globalPercentile || 100;
-        const cacheKey = `pct_${userData.uid}_${currentScore}`;
-        const cached = sessionStorage.getItem(cacheKey);
-        if (cached) {
-          setPercentiles({ global: globalPct, ...JSON.parse(cached) });
-          setIsCalc(false);
-          return;
-        }
+  // ── Percentile engine (TanStack Query) ──────────────────────────────────
+  const { data: percentilesData, isLoading: isCalc } = usePercentiles(
+    currentScore,
+    userData,
+  );
+  const percentiles = percentilesData || {
+    global: 100,
+    domain: 100,
+    niche: 100,
+    parallel: 100,
+  };
 
-        const ref = collection(db, "users");
-        const [domainVal, nicheVal, pgVal] = [
-          resolveFilterValue(userData, "domain"),
-          resolveFilterValue(userData, "niche"),
-          resolveFilterValue(userData, "parallelGoal"),
-        ];
-
-        const pct = (totalSnap, rankSnap) => {
-          if (!totalSnap || !rankSnap) return 100;
-          const t = totalSnap.data().count;
-          return t === 0
-            ? 1
-            : Math.max(1, Math.ceil(((rankSnap.data().count + 1) / t) * 100));
-        };
-
-        const fetches = await Promise.all([
-          domainVal
-            ? getCountFromServer(
-                query(ref, where("identity.domain", "==", domainVal)),
-              )
-            : null,
-          domainVal
-            ? getCountFromServer(
-                query(
-                  ref,
-                  where("identity.domain", "==", domainVal),
-                  where("discotiveScore.current", ">", currentScore),
-                ),
-              )
-            : null,
-          nicheVal
-            ? getCountFromServer(
-                query(ref, where("identity.niche", "==", nicheVal)),
-              )
-            : null,
-          nicheVal
-            ? getCountFromServer(
-                query(
-                  ref,
-                  where("identity.niche", "==", nicheVal),
-                  where("discotiveScore.current", ">", currentScore),
-                ),
-              )
-            : null,
-          pgVal
-            ? getCountFromServer(
-                query(ref, where("identity.parallelGoal", "==", pgVal)),
-              )
-            : null,
-          pgVal
-            ? getCountFromServer(
-                query(
-                  ref,
-                  where("identity.parallelGoal", "==", pgVal),
-                  where("discotiveScore.current", ">", currentScore),
-                ),
-              )
-            : null,
-        ]);
-
-        const calculated = {
-          domain: domainVal ? pct(fetches[0], fetches[1]) : 100,
-          niche: nicheVal ? pct(fetches[2], fetches[3]) : 100,
-          parallel: pgVal ? pct(fetches[4], fetches[5]) : 100,
-        };
-        sessionStorage.setItem(cacheKey, JSON.stringify(calculated));
-        setPercentiles({ global: globalPct, ...calculated });
-      } catch (e) {
-        console.error(e);
-      } finally {
+  const _OLD_percentile_effect_REMOVED = async () => {
+    if (!userData?.discotiveScore) return;
+    try {
+      const globalPct = userData.precomputed?.globalPercentile || 100;
+      const cacheKey = `pct_${userData.uid}_${currentScore}`;
+      const cached = sessionStorage.getItem(cacheKey);
+      if (cached) {
+        setPercentiles({ global: globalPct, ...JSON.parse(cached) });
         setIsCalc(false);
+        return;
       }
-    };
-    if (!userLoading) run();
-  }, [userLoading, currentScore, userData]);
+
+      const ref = collection(db, "users");
+      const [domainVal, nicheVal, pgVal] = [
+        resolveFilterValue(userData, "domain"),
+        resolveFilterValue(userData, "niche"),
+        resolveFilterValue(userData, "parallelGoal"),
+      ];
+
+      const pct = (totalSnap, rankSnap) => {
+        if (!totalSnap || !rankSnap) return 100;
+        const t = totalSnap.data().count;
+        return t === 0
+          ? 1
+          : Math.max(1, Math.ceil(((rankSnap.data().count + 1) / t) * 100));
+      };
+
+      const fetches = await Promise.all([
+        domainVal
+          ? getCountFromServer(
+              query(ref, where("identity.domain", "==", domainVal)),
+            )
+          : null,
+        domainVal
+          ? getCountFromServer(
+              query(
+                ref,
+                where("identity.domain", "==", domainVal),
+                where("discotiveScore.current", ">", currentScore),
+              ),
+            )
+          : null,
+        nicheVal
+          ? getCountFromServer(
+              query(ref, where("identity.niche", "==", nicheVal)),
+            )
+          : null,
+        nicheVal
+          ? getCountFromServer(
+              query(
+                ref,
+                where("identity.niche", "==", nicheVal),
+                where("discotiveScore.current", ">", currentScore),
+              ),
+            )
+          : null,
+        pgVal
+          ? getCountFromServer(
+              query(ref, where("identity.parallelGoal", "==", pgVal)),
+            )
+          : null,
+        pgVal
+          ? getCountFromServer(
+              query(
+                ref,
+                where("identity.parallelGoal", "==", pgVal),
+                where("discotiveScore.current", ">", currentScore),
+              ),
+            )
+          : null,
+      ]);
+
+      const calculated = {
+        domain: domainVal ? pct(fetches[0], fetches[1]) : 100,
+        niche: nicheVal ? pct(fetches[2], fetches[3]) : 100,
+        parallel: pgVal ? pct(fetches[4], fetches[5]) : 100,
+      };
+      sessionStorage.setItem(cacheKey, JSON.stringify(calculated));
+      setPercentiles({ global: globalPct, ...calculated });
+    } catch (e) {
+      console.error(e);
+    }
+  };
 
   // ── Leaderboard rank engine ───────────────────────────────────────────────
   const fetchWidgetRank = useCallback(async () => {
@@ -1025,11 +1035,14 @@ const Dashboard = () => {
                       link: "/app/settings",
                     },
                   ].map((m, i) => (
-                    <Link
+                    <button
                       key={i}
-                      to={m.link}
+                      onClick={() => {
+                        if (!requireOnboarding("dashboard_action")) return;
+                        navigate(m.link);
+                      }}
                       className={cn(
-                        "flex items-center justify-between p-4 rounded-xl border transition-all",
+                        "w-full text-left flex items-center justify-between p-4 rounded-xl border transition-all",
                         m.done
                           ? "bg-emerald-500/5 border-emerald-500/20 opacity-60"
                           : "bg-black/40 border-white/10 hover:border-[#BFA264]/40 group",
@@ -1067,7 +1080,7 @@ const Dashboard = () => {
                       {!m.done && (
                         <ArrowUpRight className="w-4 h-4 text-white/20 group-hover:text-[#BFA264] transition-colors" />
                       )}
-                    </Link>
+                    </button>
                   ))}
                 </div>
               </div>
@@ -1510,34 +1523,57 @@ const Dashboard = () => {
               </div>
             ) : (
               <>
-                {/* Radial rings grid */}
+                {/* Radial rings grid — Volatile with decay delta */}
                 <div className="grid grid-cols-4 gap-4 mb-5">
-                  <RadialRing
-                    pct={percentiles.global}
-                    label="Global"
-                    color="#BFA264"
-                  />
-                  <RadialRing
-                    pct={percentiles.domain}
-                    label={
-                      resolveFilterValue(userData, "domain")?.split(" ")[0] ||
-                      "Domain"
-                    }
-                    color="#10b981"
-                  />
-                  <RadialRing
-                    pct={percentiles.niche}
-                    label={
-                      resolveFilterValue(userData, "niche")?.split(" ")[0] ||
-                      "Niche"
-                    }
-                    color="#38bdf8"
-                  />
-                  <RadialRing
-                    pct={percentiles.parallel}
-                    label="Path"
-                    color="#8b5cf6"
-                  />
+                  {[
+                    {
+                      pct: percentiles.global,
+                      label: "Global",
+                      color: "#BFA264",
+                    },
+                    {
+                      pct: percentiles.domain,
+                      label:
+                        resolveFilterValue(userData, "domain")?.split(" ")[0] ||
+                        "Domain",
+                      color: "#10b981",
+                    },
+                    {
+                      pct: percentiles.niche,
+                      label:
+                        resolveFilterValue(userData, "niche")?.split(" ")[0] ||
+                        "Niche",
+                      color: "#38bdf8",
+                    },
+                    {
+                      pct: percentiles.parallel,
+                      label: "Path",
+                      color: "#8b5cf6",
+                    },
+                  ].map(({ pct, label, color }) => {
+                    const prev = percentilesData?.previousGlobal;
+                    const delta = prev ? pct - prev : 0;
+                    return (
+                      <div
+                        key={label}
+                        className="flex flex-col items-center gap-1"
+                      >
+                        <RadialRing pct={pct} label={label} color={color} />
+                        {delta !== 0 && (
+                          <span
+                            className={cn(
+                              "text-[8px] font-black font-mono",
+                              delta > 0 ? "text-rose-400" : "text-emerald-400",
+                            )}
+                          >
+                            {delta > 0
+                              ? `▼ +${delta}%`
+                              : `▲ ${Math.abs(delta)}%`}
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
                 </div>
 
                 {/* Legend */}
@@ -1817,6 +1853,58 @@ const Dashboard = () => {
                     </div>
                   ))}
                 </div>
+              )}
+            </div>
+          </motion.div>
+
+          {/* ── 8b. LIVE TELEMETRY STREAM (8 col) ─────────────────────── */}
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.24 }}
+            className="col-span-1 sm:col-span-2 xl:col-span-8 bg-[#0a0a0c] border border-white/[0.05] rounded-[2rem] p-5 md:p-6 shadow-2xl"
+          >
+            <div className="flex items-center justify-between mb-4">
+              <WLabel icon={Activity} iconColor="text-amber-400">
+                Live Arena Telemetry
+              </WLabel>
+              <div className="flex items-center gap-1.5">
+                <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                <span className="text-[9px] font-black text-emerald-400 uppercase tracking-widest">
+                  Live
+                </span>
+              </div>
+            </div>
+            <div className="space-y-2">
+              {telemetryEvents.length === 0 ? (
+                <div className="flex items-center justify-center py-8">
+                  <span className="text-[10px] text-white/20 uppercase tracking-widest">
+                    Awaiting signal…
+                  </span>
+                </div>
+              ) : (
+                <AnimatePresence mode="popLayout">
+                  {telemetryEvents.slice(0, 6).map((evt) => (
+                    <motion.div
+                      key={evt.id}
+                      initial={{ opacity: 0, x: -12 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      exit={{ opacity: 0, x: 12 }}
+                      className="flex items-center gap-3 p-3 bg-white/[0.02] border border-white/[0.04] rounded-xl"
+                    >
+                      <div className="w-1.5 h-1.5 rounded-full bg-amber-500 shrink-0 animate-pulse" />
+                      <span className="text-[11px] font-mono text-white/50 flex-1">
+                        {evt.text}
+                      </span>
+                      <span className="text-[9px] text-white/20 shrink-0 font-mono">
+                        {new Date(evt.ts).toLocaleTimeString([], {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </span>
+                    </motion.div>
+                  ))}
+                </AnimatePresence>
               )}
             </div>
           </motion.div>

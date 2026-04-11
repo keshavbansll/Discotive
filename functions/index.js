@@ -1619,3 +1619,60 @@ exports.verifyEmailOTP = onCall(async (request) => {
 
   return { status: "VERIFIED" };
 });
+
+// In your Cloud Functions file — add this handler
+const { z } = require("zod");
+
+const ALLOWED_SETTINGS_FIELDS = new Set([
+  "settings.mlConsent",
+  "settings.newsletter",
+  "settings.emailNotifications",
+  "settings.weeklyReport",
+  "settings.publicProfile",
+  "settings.showScore",
+  "settings.notifications.arena",
+  "settings.notifications.network",
+  "settings.notifications.system",
+  "settings.notifications.marketing",
+  "links.github",
+  "links.linkedin",
+  "links.twitter",
+  "links.youtube",
+  "links.instagram",
+  "links.website",
+  "links.discord",
+]);
+
+exports.updateUserSettings = onCall(async (request) => {
+  // 1. Auth check (V2: request.auth instead of context.auth)
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "Login required.");
+  }
+
+  // 2. Data extraction (V2: request.data instead of data)
+  const { field, value } = request.data;
+
+  if (!ALLOWED_SETTINGS_FIELDS.has(field)) {
+    throw new HttpsError(
+      "invalid-argument",
+      `Field '${field}' is not settable.`,
+    );
+  }
+
+  if (typeof value !== "boolean" && typeof value !== "string") {
+    throw new HttpsError(
+      "invalid-argument",
+      "Value must be boolean or string.",
+    );
+  }
+
+  if (typeof value === "string" && value.length > 300) {
+    throw new HttpsError("invalid-argument", "Value too long.");
+  }
+
+  // 3. Database operation (Using your existing global 'db' variable)
+  const userRef = db.collection("users").doc(request.auth.uid);
+  await userRef.update({ [field]: value });
+
+  return { success: true };
+});

@@ -43,34 +43,4 @@
 
 /* ── DISCOTIVE NATIVE CURSOR OVERRIDE ── */
 
-@media (pointer: fine) {
-  /* Fallback sequence: 
-    1. Try our custom Discotive Default SVGs
-    2. Fallback to native OS cursors if network fails
-  */
-  * {
-    cursor:
-      url("/cursor-default.svg") 2 2,
-      default !important;
-  }
-
-  /* Interactive execution nodes */
-  a,
-  button,
-  [role="button"],
-  input[type="submit"],
-  select,
-  .cursor-pointer {
-    cursor:
-      url("/cursor-pointer.svg") 10 4,
-      pointer !important;
-  }
-
-  /* Text selection fields */
-  input[type="text"],
-  input[type="email"],
-  input[type="password"],
-  textarea {
-    cursor: text !important; /* Keep native OS text bar for precision */
-  }
-}
+/* Custom cursors removed */

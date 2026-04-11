@@ -327,9 +327,14 @@ const SearchableSelect = ({
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [query, setQuery] = useState(value || "");
+  const [prevValue, setPrevValue] = useState(value); // Track previous value
   const wrapperRef = useRef(null);
 
-  useEffect(() => setQuery(value || ""), [value]);
+  // Sync state during render instead of inside an effect
+  if (value !== prevValue) {
+    setPrevValue(value);
+    setQuery(value || "");
+  }
   useEffect(() => {
     const handler = (e) => {
       if (wrapperRef.current && !wrapperRef.current.contains(e.target))

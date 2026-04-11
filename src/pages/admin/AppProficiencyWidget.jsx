@@ -28,6 +28,7 @@ import {
 } from "firebase/firestore";
 import { db, auth } from "../../firebase";
 import { cn } from "../../lib/cn";
+import { Link } from "react-router-dom";
 
 const APP_CATEGORIES = [
   "Development",
@@ -57,6 +58,7 @@ const AppProficiencyWidget = ({
     appName: "",
     category: "Development",
     iconUrl: "",
+    parentUrl: "",
   });
   const [appVerifLoading, setAppVerifLoading] = useState(false);
   const [appCatalog, setAppCatalog] = useState([]);
@@ -94,6 +96,7 @@ const AppProficiencyWidget = ({
           appName: verification.appName,
           appIconUrl: verification.appIconUrl,
           appCategory: verification.appCategory,
+          profileUrl: verification.profileUrl || "",
           proofUrl: verification.proofUrl || "",
           verifiedAt: new Date().toISOString(),
         }),
@@ -137,7 +140,12 @@ const AppProficiencyWidget = ({
   };
 
   const handleAddAppToCatalog = async () => {
-    if (!newApp.appName.trim() || !newApp.iconUrl.trim()) return;
+    if (
+      !newApp.appName.trim() ||
+      !newApp.iconUrl.trim() ||
+      !newApp.parentUrl.trim()
+    )
+      return;
     try {
       const { serverTimestamp, addDoc, collection } =
         await import("firebase/firestore");
@@ -147,7 +155,12 @@ const AppProficiencyWidget = ({
         createdBy: auth.currentUser?.email,
       });
       setAppCatalog((prev) => [{ id: docRef.id, ...newApp }, ...prev]);
-      setNewApp({ appName: "", category: "Development", iconUrl: "" });
+      setNewApp({
+        appName: "",
+        category: "Development",
+        iconUrl: "",
+        parentUrl: "",
+      });
       handleRefresh();
     } catch (err) {
       console.error("[AppProficiencyWidget] Add app catalog failed:", err);
@@ -178,15 +191,21 @@ const AppProficiencyWidget = ({
       transition={{ delay: 0.45 }}
       className="bg-[#0a0a0c] border border-white/[0.05] rounded-[2rem] p-6 mb-4"
     >
-      <div className="flex items-center justify-between mb-5">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-5">
         <h2 className="text-[10px] font-bold text-white/40 uppercase tracking-widest flex items-center gap-2">
           <Monitor className="w-4 h-4 text-violet-400" /> App Proficiency
           Verifications
         </h2>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
           <span className="text-2xl font-black text-violet-400 font-mono">
             {appVerifications.length}
           </span>
+          <Link
+            to="/app/admin/appcheck"
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-violet-500/10 border border-violet-500/20 text-violet-400 text-[9px] font-black uppercase tracking-widest rounded-xl hover:bg-violet-500/15 transition-all"
+          >
+            Manage All <ExternalLink className="w-3 h-3" />
+          </Link>
           <button
             onClick={() => setIsAddAppOpen(!isAddAppOpen)}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-violet-500/10 border border-violet-500/20 text-violet-400 text-[9px] font-black uppercase tracking-widest rounded-xl hover:bg-violet-500/15 transition-all"
@@ -244,9 +263,26 @@ const AppProficiencyWidget = ({
                 className="w-full bg-[#111] border border-white/[0.05] rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-violet-500/40"
               />
             </div>
+            <div className="flex-1 min-w-[160px]">
+              <label className="text-[9px] font-black text-white/30 uppercase tracking-widest block mb-1.5">
+                Parent URL *
+              </label>
+              <input
+                value={newApp.parentUrl}
+                onChange={(e) =>
+                  setNewApp((p) => ({ ...p, parentUrl: e.target.value }))
+                }
+                placeholder="e.g. instagram.com/"
+                className="w-full bg-[#111] border border-white/[0.05] rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-violet-500/40"
+              />
+            </div>
             <button
               onClick={handleAddAppToCatalog}
-              disabled={!newApp.appName.trim() || !newApp.iconUrl.trim()}
+              disabled={
+                !newApp.appName.trim() ||
+                !newApp.iconUrl.trim() ||
+                !newApp.parentUrl.trim()
+              }
               className="px-4 py-2 bg-violet-500 text-white text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-violet-400 disabled:opacity-50 transition-colors"
             >
               Add App
@@ -342,17 +378,30 @@ const AppProficiencyWidget = ({
                   Pending
                 </span>
               </div>
-              {v.proofUrl && (
-                <a
-                  href={v.proofUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="flex items-center gap-1.5 text-[10px] text-sky-400 hover:text-sky-300 transition-colors truncate"
-                >
-                  <ExternalLink className="w-3 h-3 shrink-0" />
-                  <span className="truncate">{v.proofUrl}</span>
-                </a>
-              )}
+              <div className="flex flex-col gap-1.5">
+                {v.profileUrl && (
+                  <a
+                    href={v.profileUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex items-center gap-1.5 text-[10px] text-amber-400 hover:text-amber-300 transition-colors truncate"
+                  >
+                    <ExternalLink className="w-3 h-3 shrink-0" />
+                    <span className="truncate">Profile: {v.profileUrl}</span>
+                  </a>
+                )}
+                {v.proofUrl && (
+                  <a
+                    href={v.proofUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex items-center gap-1.5 text-[10px] text-sky-400 hover:text-sky-300 transition-colors truncate"
+                  >
+                    <ExternalLink className="w-3 h-3 shrink-0" />
+                    <span className="truncate">Proof: {v.proofUrl}</span>
+                  </a>
+                )}
+              </div>
               <div className="flex gap-2">
                 <button
                   onClick={() => handleApproveApp(v)}

@@ -13,7 +13,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { increment, doc, updateDoc } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
 import { db, auth, functions } from "../firebase";
-import { useUserData } from "../hooks/useUserData";
+import { useUserData, useOnboardingGate } from "../hooks/useUserData";
 import { cn } from "../lib/cn";
 import {
   RadarChart,
@@ -243,6 +243,7 @@ const PublicProfile = () => {
     ? handle.slice(1).toLowerCase()
     : handle?.toLowerCase();
   const { userData: viewerData } = useUserData();
+  const { requireOnboarding } = useOnboardingGate();
   const navigate = useNavigate();
 
   const [profileData, setProfileData] = useState(null);
@@ -425,6 +426,7 @@ const PublicProfile = () => {
       navigate("/");
       return;
     }
+    if (!requireOnboarding("network_connect")) return;
     if (!targetId || !viewerData?.uid || allyStatus !== "none") return;
     setAllyStatus("sending");
     try {
@@ -461,6 +463,7 @@ const PublicProfile = () => {
 
   // ── Export PDF ────────────────────────────────────────────────────────────
   const handleExportPDF = async () => {
+    if (!requireOnboarding("profile_export")) return;
     setIsExporting(true);
     showToast("Compiling DCI document…");
     try {

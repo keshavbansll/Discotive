@@ -56,6 +56,13 @@ const ProtectedRoute = ({ children }) => {
   return children;
 };
 
+// Ghost users can browse read-only pages; onboarding modal triggers on action
+const GhostAwareRoute = ({ children }) => {
+  const { currentUser } = useAuth();
+  if (!currentUser) return <Navigate to="/" replace />;
+  return children;
+};
+
 const PublicRoute = ({ children }) => {
   const { currentUser } = useAuth();
   if (currentUser) return <Navigate to="/app" replace />;
@@ -257,7 +264,14 @@ function App() {
                   path="roadmap"
                   element={<ComingSoon title="Execution Agent" />}
                 />
-                <Route path="leaderboard" element={<Leaderboard />} />
+                <Route
+                  path="leaderboard"
+                  element={
+                    <GhostAwareRoute>
+                      <Leaderboard />
+                    </GhostAwareRoute>
+                  }
+                />
                 <Route
                   path="opportunities"
                   element={<ComingSoon title="Opportunities" />}

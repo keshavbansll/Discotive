@@ -6,7 +6,7 @@
  * Arena split-screen. Alumni clustering. Proof-of-Work feed integration.
  */
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useMemo } from "react";
 import { useSearchParams, useLocation, useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import {
@@ -34,7 +34,7 @@ import {
 } from "lucide-react";
 import { cn } from "../lib/cn";
 import { useAuth } from "../contexts/AuthContext";
-import { useUserData } from "../hooks/useUserData";
+import { useUserData, useOnboardingGate } from "../hooks/useUserData";
 import { useNetwork } from "../hooks/useNetwork";
 import FeedTab from "../components/connective/FeedTab";
 import NetworkTab from "../components/connective/NetworkTab";
@@ -202,19 +202,19 @@ const IntelligenceHub = ({
   isCollapsed = false,
 }) => {
   const [view, setView] = useState("telemetry");
-  const [logs, setLogs] = useState([]);
+  const [prevPeekUser, setPrevPeekUser] = useState(peekUser); // Track previous peekUser
   const [isScanning, setIsScanning] = useState(false);
 
-  // Automatically switch to Profile Peek view when a user is clicked
-  useEffect(() => {
+  // 1. Automatically switch to Profile Peek (Render Phase Update)
+  if (peekUser !== prevPeekUser) {
+    setPrevPeekUser(peekUser);
     if (peekUser) setView("peek");
-  }, [peekUser]);
+  }
 
-  // Terminal Ambient Log Generator using REAL Target Data
-  useEffect(() => {
+  // 2. Terminal Ambient Log Generator using useMemo instead of useEffect/useState
+  const logs = useMemo(() => {
     if (!competitors || competitors.length === 0) {
-      setLogs([{ text: "Radar empty. No signals detected.", type: "dim" }]);
-      return;
+      return [{ text: "Radar empty. No signals detected.", type: "dim" }];
     }
 
     const newLogs = [];
@@ -227,7 +227,6 @@ const IntelligenceHub = ({
       const streak = c.targetStreak || 0;
       const vault = c.targetVault || 0;
 
-      // Artificial time offsets to create a staggered chronological feed effect
       newLogs.push({
         text: `@${name} currently at ${score.toLocaleString()} pts.`,
         type: "dim",
@@ -237,13 +236,13 @@ const IntelligenceHub = ({
       if (streak > 0) {
         newLogs.push({
           text: `@${name} maintains a ${streak}d execution streak.`,
-          type: "red", // target positive
+          type: "red",
           timeOffset: idx * 5 + 2,
         });
       } else {
         newLogs.push({
           text: `@${name} broke consistency. Streak reset to 0.`,
-          type: "green", // target negative
+          type: "green",
           timeOffset: idx * 5 + 2,
         });
       }
@@ -251,7 +250,7 @@ const IntelligenceHub = ({
       if (vault > 0) {
         newLogs.push({
           text: `@${name} secured ${vault} asset(s) in Vault.`,
-          type: "red", // target positive
+          type: "red",
           timeOffset: idx * 5 + 4,
         });
       }
@@ -273,7 +272,7 @@ const IntelligenceHub = ({
       };
     });
 
-    setLogs(finalLogs.slice(-15)); // Keep terminal clean with last 15 entries
+    return finalLogs.slice(-15);
   }, [competitors]);
 
   const handleRefresh = async () => {
@@ -795,6 +794,7 @@ const SideLayout = ({
 const Connective = () => {
   const { currentUser } = useAuth();
   const { userData } = useUserData();
+  const { requireOnboarding } = useOnboardingGate();
   const { toasts, addToast, dismissToast } = useToasts();
   const [searchParams, setSearchParams] = useSearchParams();
   const location = useLocation();
@@ -884,6 +884,7 @@ const Connective = () => {
   }, []); // eslint-disable-line
 
   const handlePost = async (text, meta) => {
+    if (!requireOnboarding("network_post")) return null;
     const id = await createPost(text, meta);
     if (id) addToast("Signal transmitted.", "success");
     else addToast("Transmission failed.", "error");
@@ -897,11 +898,13 @@ const Connective = () => {
   };
 
   const handleAccept = async (connectionId, requesterId) => {
+    if (!requireOnboarding("network_accept")) return;
     await acceptAllianceRequest(connectionId, requesterId);
     addToast("+15 pts: Alliance Formed! ⚡", "success");
   };
 
   const handleSendRequest = async (targetUser) => {
+    if (!requireOnboarding("network_connect")) return;
     const result = await sendAllianceRequest(targetUser);
     if (result.success) {
       addToast(
@@ -922,6 +925,7 @@ const Connective = () => {
   };
 
   const handleMarkCompetitor = async (targetUser) => {
+    if (!requireOnboarding("network_competitor")) return;
     const result = await markAsCompetitor(targetUser);
     if (result?.error) addToast(result.error, "warning");
     else if (result?.untracked) addToast("Removed from Radar.", "info");
@@ -929,6 +933,7 @@ const Connective = () => {
   };
 
   const handleOpenDM = (targetId = null, targetUser = null) => {
+    if (!requireOnboarding("network_dm")) return;
     if (targetUser) setSearchParams({ new_dm: targetUser.id });
     else setSearchParams({ dm: "menu" });
   };
