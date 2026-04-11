@@ -28,8 +28,8 @@ import {
   Briefcase,
 } from "lucide-react";
 import { motion } from "framer-motion";
-import { NODE_STATES } from "../../../stores/useRoadmapStore";
-import { useRoadmapStore } from "../../../stores/useRoadmapStore";
+import { NODE_STATES } from "../../../store/useRoadmapStore";
+import { useRoadmapStore } from "../../../store/useRoadmapStore";
 
 const NODE_W = 220;
 

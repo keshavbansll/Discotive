@@ -1,46 +1,11 @@
-/**
- * DISCOTIVE — Auth Orchestrator (Redesigned)
- *
- * Key improvements:
- * - Email verification moved to after Step 1 (before coordinates)
- * - Left panel with animated quotes + imagery — working
- * - Apple-inspired dark aesthetic matching Landing page (Montserrat + Poppins, gold accents)
- * - Step 2 dropdowns fully visible with correct z-index layering
- * - Username availability check working with debounce
- * - Character limits on all text areas
- * - Plain language throughout — no jargon barriers
- * - SetupSequence animation on-theme with gold score reveal
- * - Smooth, MAANG-grade micro-interactions throughout
- */
+// src/pages/Auth/index.jsx
 
-import React, {
-  useState,
-  useEffect,
-  useCallback,
-  useReducer,
-  useRef,
-} from "react";
-import { useNavigate, useLocation, Link } from "react-router-dom";
+import React, { useState, useEffect, useRef, useCallback } from "react";
+import { useNavigate, Link } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import {
-  collection,
-  query,
-  where,
-  getDocs,
-  getDoc,
-  doc,
-  setDoc,
-} from "firebase/firestore";
-import {
-  createUserWithEmailAndPassword,
-  signInWithEmailAndPassword,
-  signInWithPopup,
-  GoogleAuthProvider,
-} from "firebase/auth";
-import { auth, db } from "../../firebase";
-import { awardOnboardingComplete } from "../../lib/scoreEngine";
 import { httpsCallable } from "firebase/functions";
-import { functions } from "../../firebase";
+import { auth, functions } from "../../firebase";
+import { createPortal } from "react-dom";
 import {
   ChevronRight,
   CheckCircle2,
@@ -68,10 +33,28 @@ import {
   Activity,
   AlertTriangle,
 } from "lucide-react";
-import { createPortal } from "react-dom";
+
+// Hook & Data Imports
+import useAuthFlow from "./hooks/useAuthFlow";
+import {
+  START_YEARS,
+  END_YEARS,
+  COUNTRIES,
+  INDIAN_STATES,
+  INSTITUTIONS,
+  COURSES,
+  SPECIALIZATIONS,
+  MACRO_DOMAINS,
+  MICRO_NICHES,
+  RAW_SKILLS,
+  LANGUAGES,
+  CURRENT_STATUSES,
+  MONTHS,
+  COUNTRY_CODES,
+} from "./constants/taxonomy";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// DESIGN TOKENS — matches Landing page exactly
+// DESIGN TOKENS
 // ─────────────────────────────────────────────────────────────────────────────
 const CSS = `
   @import url('https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,300..900;1,300..900&family=Poppins:wght@300;400;500;600;700&display=swap');
@@ -568,472 +551,6 @@ const CSS = `
 `;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// TAXONOMY DATA (unchanged from original)
-// ─────────────────────────────────────────────────────────────────────────────
-const currentYear = new Date().getFullYear();
-const START_YEARS = Array.from({ length: 16 }, (_, i) =>
-  (currentYear - 15 + i).toString(),
-).reverse();
-const END_YEARS = Array.from({ length: 16 }, (_, i) =>
-  (currentYear + i).toString(),
-);
-
-const COUNTRIES = [
-  "India",
-  "United States of America",
-  "United Kingdom",
-  "Canada",
-  "Australia",
-  "Singapore",
-  "Germany",
-  "France",
-  "United Arab Emirates",
-  "Japan",
-  "South Korea",
-  "Afghanistan",
-  "Albania",
-  "Algeria",
-  "Argentina",
-  "Armenia",
-  "Austria",
-  "Bangladesh",
-  "Belgium",
-  "Brazil",
-  "Bulgaria",
-  "Chile",
-  "China",
-  "Colombia",
-  "Croatia",
-  "Cuba",
-  "Cyprus",
-  "Czechia",
-  "Denmark",
-  "Egypt",
-  "Estonia",
-  "Fiji",
-  "Finland",
-  "Georgia",
-  "Ghana",
-  "Greece",
-  "Hungary",
-  "Iceland",
-  "Indonesia",
-  "Iran",
-  "Iraq",
-  "Ireland",
-  "Israel",
-  "Italy",
-  "Jamaica",
-  "Jordan",
-  "Kazakhstan",
-  "Kenya",
-  "Kuwait",
-  "Lebanon",
-  "Malaysia",
-  "Maldives",
-  "Mauritius",
-  "Mexico",
-  "Morocco",
-  "Myanmar",
-  "Nepal",
-  "Netherlands",
-  "New Zealand",
-  "Nigeria",
-  "Norway",
-  "Oman",
-  "Pakistan",
-  "Philippines",
-  "Poland",
-  "Portugal",
-  "Qatar",
-  "Romania",
-  "Russia",
-  "Saudi Arabia",
-  "South Africa",
-  "Spain",
-  "Sri Lanka",
-  "Sweden",
-  "Switzerland",
-  "Syria",
-  "Taiwan",
-  "Thailand",
-  "Turkey",
-  "Ukraine",
-  "Vietnam",
-  "Zambia",
-  "Zimbabwe",
-].sort();
-
-const INDIAN_STATES = [
-  "Andaman and Nicobar Islands",
-  "Andhra Pradesh",
-  "Arunachal Pradesh",
-  "Assam",
-  "Bihar",
-  "Chandigarh",
-  "Chhattisgarh",
-  "Delhi",
-  "Goa",
-  "Gujarat",
-  "Haryana",
-  "Himachal Pradesh",
-  "Jammu and Kashmir",
-  "Jharkhand",
-  "Karnataka",
-  "Kerala",
-  "Ladakh",
-  "Lakshadweep",
-  "Madhya Pradesh",
-  "Maharashtra",
-  "Manipur",
-  "Meghalaya",
-  "Mizoram",
-  "Nagaland",
-  "Odisha",
-  "Puducherry",
-  "Punjab",
-  "Rajasthan",
-  "Sikkim",
-  "Tamil Nadu",
-  "Telangana",
-  "Tripura",
-  "Uttar Pradesh",
-  "Uttarakhand",
-  "West Bengal",
-];
-
-const INSTITUTIONS = [
-  "IIT Bombay",
-  "IIT Delhi",
-  "IIT Madras",
-  "IIT Kanpur",
-  "IIT Kharagpur",
-  "IIT Roorkee",
-  "IIT Guwahati",
-  "IIT Hyderabad",
-  "IIT Indore",
-  "BITS Pilani",
-  "VIT Vellore",
-  "SRM University",
-  "Manipal University",
-  "DTU Delhi",
-  "NSUT Delhi",
-  "IIIT Hyderabad",
-  "IIIT Delhi",
-  "NIT Trichy",
-  "NIT Warangal",
-  "NIT Surathkal",
-  "NIT Calicut",
-  "MNIT Jaipur",
-  "JECRC Foundation",
-  "JECRC University",
-  "LNMIIT Jaipur",
-  "Manipal University Jaipur",
-  "Poornima College of Engineering",
-  "Amity University",
-  "Master's Union",
-  "Scaler School of Technology",
-].sort();
-
-const COURSES = [
-  "B.Tech",
-  "B.E.",
-  "BCA",
-  "B.Sc",
-  "BBA",
-  "B.Com",
-  "B.A.",
-  "B.Des",
-  "B.Arch",
-  "MBBS",
-  "LLB",
-  "M.Tech",
-  "MCA",
-  "M.Sc",
-  "MBA",
-  "PGDM",
-  "M.Com",
-  "MD",
-  "Ph.D",
-  "Diploma",
-  "Bootcamp",
-  "Self-Taught",
-].sort();
-
-const SPECIALIZATIONS = [
-  "Computer Science (CSE)",
-  "Information Technology",
-  "Artificial Intelligence & Machine Learning",
-  "Data Science",
-  "Cybersecurity",
-  "Software Engineering",
-  "Electronics & Communication (ECE)",
-  "Electrical Engineering",
-  "Mechanical Engineering",
-  "Civil Engineering",
-  "Finance",
-  "Marketing",
-  "Human Resources",
-  "Business Analytics",
-  "UI/UX Design",
-  "Graphic Design",
-  "Product Design",
-  "Physics",
-  "Mathematics",
-  "Economics",
-  "Psychology",
-  "Corporate Law",
-  "General Medicine",
-].sort();
-
-const MACRO_DOMAINS = [
-  "Engineering",
-  "Design",
-  "Business / Operations",
-  "Marketing",
-  "Sales",
-  "Science",
-  "Healthcare",
-  "Arts & Humanities",
-  "Legal",
-  "Finance & Accounting",
-  "Content Creation",
-  "Education",
-  "Architecture",
-  "Government & Policy",
-  "Filmmaking",
-].sort();
-
-const MICRO_NICHES = [
-  "Software Engineer",
-  "Frontend Developer",
-  "Backend Developer",
-  "Full-Stack Developer",
-  "AI / ML Engineer",
-  "Data Scientist",
-  "Data Analyst",
-  "DevOps Engineer",
-  "UI/UX Designer",
-  "Product Designer",
-  "Graphic Designer",
-  "3D Artist",
-  "Director / Filmmaker",
-  "Video Editor",
-  "Founder / CEO",
-  "Product Manager",
-  "Venture Capitalist",
-  "Investment Banker",
-  "Financial Analyst",
-  "Growth Marketer",
-  "Digital Marketer",
-  "SEO Specialist",
-  "B2B Sales",
-  "Copywriter",
-  "Journalist",
-  "Physician",
-  "Researcher",
-  "Professor",
-  "Corporate Lawyer",
-].sort();
-
-const RAW_SKILLS = [
-  "Python",
-  "JavaScript",
-  "TypeScript",
-  "React.js",
-  "Next.js",
-  "Node.js",
-  "Django",
-  "Flask",
-  "Java",
-  "C++",
-  "Go",
-  "Rust",
-  "SQL",
-  "PostgreSQL",
-  "MongoDB",
-  "Redis",
-  "Firebase",
-  "AWS",
-  "Google Cloud",
-  "Azure",
-  "Docker",
-  "Kubernetes",
-  "Git",
-  "Machine Learning",
-  "Deep Learning",
-  "TensorFlow",
-  "PyTorch",
-  "Computer Vision",
-  "NLP",
-  "Figma",
-  "Adobe XD",
-  "Photoshop",
-  "Illustrator",
-  "Premiere Pro",
-  "After Effects",
-  "Blender",
-  "Unity",
-  "Unreal Engine",
-  "SEO",
-  "SEM",
-  "Google Analytics",
-  "Copywriting",
-  "B2B Sales",
-  "Public Speaking",
-  "Financial Modeling",
-  "Project Management",
-  "Agile",
-  "Tableau",
-  "Power BI",
-  "Blockchain",
-].sort();
-
-const LANGUAGES = [
-  "English",
-  "Hindi",
-  "Mandarin",
-  "Spanish",
-  "French",
-  "Arabic",
-  "Bengali",
-  "Portuguese",
-  "German",
-  "Japanese",
-  "Korean",
-  "Tamil",
-  "Telugu",
-  "Marathi",
-  "Turkish",
-  "Urdu",
-  "Indonesian",
-  "Russian",
-  "Persian",
-];
-
-const CURRENT_STATUSES = [
-  "School Student",
-  "Undergraduate Student",
-  "Postgraduate Student",
-  "Working Professional",
-  "Content Creator / Influencer",
-  "Freelancer",
-  "Dropped Out",
-  "Building My Own Thing",
-];
-
-const MONTHS = [
-  "January",
-  "February",
-  "March",
-  "April",
-  "May",
-  "June",
-  "July",
-  "August",
-  "September",
-  "October",
-  "November",
-  "December",
-];
-
-const COUNTRY_CODES = [
-  "+91 🇮🇳",
-  "+1 🇺🇸",
-  "+44 🇬🇧",
-  "+61 🇦🇺",
-  "+65 🇸🇬",
-  "+971 🇦🇪",
-  "+81 🇯🇵",
-];
-
-// ─────────────────────────────────────────────────────────────────────────────
-// STATE
-// ─────────────────────────────────────────────────────────────────────────────
-const initialProfile = {
-  email: "",
-  password: "",
-  firstName: "",
-  lastName: "",
-  username: "",
-  gender: "",
-  userState: "",
-  country: "",
-  countryCode: "+91 🇮🇳",
-  mobileNumber: "",
-  currentStatus: "",
-  institution: "",
-  course: "",
-  specialization: "",
-  startMonth: "",
-  startYear: "",
-  endMonth: "",
-  endYear: "",
-  passion: "",
-  niche: "",
-  parallelPath: "",
-  bio: "",
-  workExperienceRole: "",
-  workExperienceCompany: "",
-  workExperienceType: "",
-  rawSkills: [],
-  alignedSkills: [],
-  languages: [],
-  guardianProfession: "",
-  incomeBracket: "",
-  financialLaunchpad: "",
-  investmentCapacity: "",
-  personalFootprint: {
-    linkedin: "",
-    github: "",
-    instagram: "",
-    twitter: "",
-    youtube: "",
-    linktree: "",
-    website: "",
-  },
-  commercialFootprint: {
-    linkedinCompany: "",
-    github: "",
-    instagram: "",
-    twitter: "",
-    youtube: "",
-    linktree: "",
-    website: "",
-  },
-  wildcardInfo: "",
-  coreMotivation: "",
-};
-
-function profileReducer(state, action) {
-  switch (action.type) {
-    case "SET_FIELD":
-      return { ...state, [action.field]: action.value };
-    case "SET_NESTED":
-      return {
-        ...state,
-        [action.parent]: {
-          ...state[action.parent],
-          [action.field]: action.value,
-        },
-      };
-    case "HYDRATE":
-      return { ...state, ...action.payload };
-    default:
-      return state;
-  }
-}
-
-function useDebounce(value, delay) {
-  const [dv, setDv] = useState(value);
-  useEffect(() => {
-    const t = setTimeout(() => setDv(value), delay);
-    return () => clearTimeout(t);
-  }, [value, delay]);
-  return dv;
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 // SMALL UI COMPONENTS
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -1333,26 +850,14 @@ function MultiSelect({
 // LEFT PANEL — animated quote carousel + architectural lines
 // ─────────────────────────────────────────────────────────────────────────────
 const QUOTES = [
-  {
-    text: "Everything's got a price.",
-    author: "John Wick",
-  },
-  {
-    text: "We can’t win if We can’t if we don’t try.",
-    author: "Sonny Hayes",
-  },
-  {
-    text: "The future is real. The past is all made up.",
-    author: "Logan Roy",
-  },
+  { text: "Everything's got a price.", author: "John Wick" },
+  { text: "We can’t win if We can’t if we don’t try.", author: "Sonny Hayes" },
+  { text: "The future is real. The past is all made up.", author: "Logan Roy" },
   {
     text: "I want you to deal with your problems by becoming rich!",
     author: "Jordan Belfort",
   },
-  {
-    text: "it's all a Fugazzi",
-    author: "Mark Hanna",
-  },
+  { text: "it's all a Fugazzi", author: "Mark Hanna" },
 ];
 
 function LeftPanel({ step }) {
@@ -1395,8 +900,6 @@ function LeftPanel({ step }) {
           />
         ))}
       </div>
-
-      {/* Top logo */}
       <div style={{ padding: "32px 40px", position: "relative", zIndex: 1 }}>
         <Link
           to="/"
@@ -1425,8 +928,6 @@ function LeftPanel({ step }) {
           </span>
         </Link>
       </div>
-
-      {/* Visual art — geometric gold rings */}
       <div
         style={{
           flex: 1,
@@ -1438,7 +939,6 @@ function LeftPanel({ step }) {
         }}
       >
         <div style={{ position: "relative", width: 260, height: 260 }}>
-          {/* Outer ring */}
           <motion.div
             animate={{ rotate: 360 }}
             transition={{ duration: 40, repeat: Infinity, ease: "linear" }}
@@ -1449,7 +949,6 @@ function LeftPanel({ step }) {
               border: "0.5px solid rgba(191,162,100,0.15)",
             }}
           />
-          {/* Mid ring */}
           <motion.div
             animate={{ rotate: -360 }}
             transition={{ duration: 25, repeat: Infinity, ease: "linear" }}
@@ -1461,7 +960,6 @@ function LeftPanel({ step }) {
               borderTopColor: "var(--gold-2)",
             }}
           />
-          {/* Inner ring */}
           <motion.div
             animate={{ rotate: 360 }}
             transition={{ duration: 15, repeat: Infinity, ease: "linear" }}
@@ -1474,7 +972,6 @@ function LeftPanel({ step }) {
               borderRightColor: "transparent",
             }}
           />
-          {/* Center dot */}
           <div
             style={{
               position: "absolute",
@@ -1496,7 +993,6 @@ function LeftPanel({ step }) {
               }}
             />
           </div>
-          {/* Step indicator on ring */}
           {step >= 1 && step <= 9 && (
             <div
               style={{
@@ -1528,8 +1024,6 @@ function LeftPanel({ step }) {
           )}
         </div>
       </div>
-
-      {/* Quote */}
       <div style={{ padding: "0 40px 48px", position: "relative", zIndex: 1 }}>
         <div
           style={{
@@ -2001,10 +1495,9 @@ function Step1Identity({
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// STEP 1.5 — EMAIL VERIFICATION (after Step 1, before Step 2)
+// STEP 1.5 — EMAIL VERIFICATION
 // ─────────────────────────────────────────────────────────────────────────────
 function StepEmailVerify({ email, firstName, onVerified, onChangeEmail }) {
-  // <-- Added onChangeEmail
   const [otp, setOtp] = useState(["", "", "", "", "", ""]);
   const [verifying, setVerifying] = useState(false);
   const [resending, setResending] = useState(false);
@@ -2233,7 +1726,6 @@ function StepEmailVerify({ email, firstName, onVerified, onChangeEmail }) {
         )}
       </button>
 
-      {/* RE-ADDED SPACE-BETWEEN FOR THE TWO BUTTONS */}
       <div
         style={{
           display: "flex",
@@ -2272,8 +1764,6 @@ function StepEmailVerify({ email, firstName, onVerified, onChangeEmail }) {
               ? "Sending…"
               : "Resend code"}
         </button>
-
-        {/* NEW WRONG EMAIL BUTTON */}
         <button
           type="button"
           onClick={onChangeEmail}
@@ -2301,7 +1791,7 @@ function StepEmailVerify({ email, firstName, onVerified, onChangeEmail }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// STEP 2 — COORDINATES (username, gender, location)
+// STEP 2 — COORDINATES
 // ─────────────────────────────────────────────────────────────────────────────
 function Step2Coordinates({
   profileData,
@@ -2537,7 +2027,6 @@ function Step3Background({
             />
           </div>
         </div>
-
         <div style={{ paddingTop: 8, borderTop: "0.5px solid var(--border)" }}>
           <label className="auth-label" style={{ marginBottom: 12 }}>
             Study period (optional)
@@ -2636,7 +2125,6 @@ function Step3Background({
             </div>
           </div>
         </div>
-
         <div style={{ display: "flex", gap: 12, marginTop: 8 }}>
           <button
             type="button"
@@ -2806,7 +2294,7 @@ function Step5Skills({
   profileData,
   setField,
   systemStatus,
-  setSystemStatus,
+  handleStep4Submit,
   setStep,
 }) {
   const handleSubmit = (e) => {
@@ -3230,7 +2718,7 @@ function Step8Canvas({
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// SETUP SEQUENCE — on-theme MAANG-grade animation
+// SETUP SEQUENCE
 // ─────────────────────────────────────────────────────────────────────────────
 function SetupSequence({ onComplete }) {
   const [taskIndex, setTaskIndex] = useState(0);
@@ -3317,7 +2805,6 @@ function SetupSequence({ onComplete }) {
         fontFamily: "var(--font-body)",
       }}
     >
-      {/* Background orb */}
       <div
         style={{
           position: "absolute",
@@ -3331,8 +2818,6 @@ function SetupSequence({ onComplete }) {
           pointerEvents: "none",
         }}
       />
-
-      {/* Logo */}
       <motion.div
         initial={{ opacity: 0, y: -16 }}
         animate={{ opacity: 1, y: 0 }}
@@ -3370,7 +2855,6 @@ function SetupSequence({ onComplete }) {
             alignItems: "center",
           }}
         >
-          {/* Task list */}
           <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
             {tasks.map((task, i) => {
               if (i > taskIndex) return null;
@@ -3425,7 +2909,6 @@ function SetupSequence({ onComplete }) {
             })}
           </div>
 
-          {/* Score display */}
           <div
             style={{
               display: "flex",
@@ -3528,7 +3011,6 @@ function SetupSequence({ onComplete }) {
         </div>
       </div>
 
-      {/* Toast stack */}
       {createPortal(
         <div
           style={{
@@ -3836,31 +3318,30 @@ function PremiumPrompt({ firstName, onUpgrade, onContinue }) {
 // ─────────────────────────────────────────────────────────────────────────────
 export default function AuthOrchestrator() {
   const navigate = useNavigate();
-  const location = useLocation();
 
-  const [isLogin, setIsLogin] = useState(location.state?.isLogin !== false);
-  const [step, setStep] = useState(1);
-  const [systemStatus, setSystemStatus] = useState({
-    loading: false,
-    error: "",
-    success: "",
-    isBooting: false,
-    showSetupSequence: false,
-  });
-  const [profileData, dispatch] = useReducer(profileReducer, initialProfile);
-  const [usernameAvailable, setUsernameAvailable] = useState(null);
-  const [isGoogleUser, setIsGoogleUser] = useState(false);
-
-  const debouncedUsername = useDebounce(profileData.username, 600);
-  const setField = useCallback(
-    (field, value) => dispatch({ type: "SET_FIELD", field, value }),
-    [],
-  );
-  const setNestedField = useCallback(
-    (parent, field, value) =>
-      dispatch({ type: "SET_NESTED", parent, field, value }),
-    [],
-  );
+  // Use the extracted hook
+  const {
+    isLogin,
+    setIsLogin,
+    step,
+    setStep,
+    systemStatus,
+    setSystemStatus,
+    profileData,
+    setField,
+    setNestedField,
+    usernameAvailable,
+    debouncedUsername,
+    pwScore,
+    handleLogin,
+    handleSocialAuth,
+    handleStep1,
+    handleStep2,
+    handleStep3,
+    handleStep4,
+    handleStep7,
+    handleFinalSubmit,
+  } = useAuthFlow();
 
   // CSS injection
   useEffect(() => {
@@ -3878,423 +3359,6 @@ export default function AuthOrchestrator() {
     return () => document.head.removeChild(el);
   }, []);
 
-  // Username availability check
-  useEffect(() => {
-    if (debouncedUsername.length < 3) {
-      setUsernameAvailable(null);
-      return;
-    }
-    let active = true;
-    (async () => {
-      try {
-        const snap = await getDocs(
-          query(
-            collection(db, "users"),
-            where("identity.username", "==", debouncedUsername.toLowerCase()),
-          ),
-        );
-        if (active) setUsernameAvailable(snap.empty);
-      } catch {}
-    })();
-    return () => {
-      active = false;
-    };
-  }, [debouncedUsername]);
-
-  // Auth state observer
-  useEffect(() => {
-    const unsub = auth.onAuthStateChanged(async (user) => {
-      // 🔴 MAANG-GRADE FIX: Observer Trap
-      // If the user is actively progressing through onboarding, do not force them back to Step 2.
-      if (
-        !user ||
-        systemStatus.isBooting ||
-        systemStatus.showSetupSequence ||
-        step === "premium_prompt" ||
-        step === "verify_email" ||
-        (typeof step === "number" && step > 1)
-      )
-        return;
-      try {
-        const snap = await getDoc(doc(db, "users", user.uid));
-        if (snap.exists()) {
-          const data = snap.data();
-          if (
-            data?.onboardingComplete === false ||
-            data?.isGhostUser === true
-          ) {
-            setIsLogin(false);
-            setIsGoogleUser(
-              !!user.providerData?.find((p) => p.providerId === "google.com"),
-            );
-            dispatch({
-              type: "HYDRATE",
-              payload: {
-                firstName: data?.identity?.firstName || "",
-                lastName: data?.identity?.lastName || "",
-                email: data?.identity?.email || user.email || "",
-                username: data?.identity?.username || "",
-              },
-            });
-            setStep(2);
-            return;
-          }
-          navigate("/app", { replace: true });
-        } else {
-          setIsLogin(false);
-          setStep(2);
-        }
-      } catch {}
-    });
-    return unsub;
-  }, [navigate, systemStatus.isBooting, systemStatus.showSetupSequence, step]);
-
-  const pwScore = (() => {
-    const p = profileData.password;
-    let s = 0;
-    if (p.length > 7) s++;
-    if (/[a-z]/.test(p) && /[A-Z]/.test(p)) s++;
-    if (/\d/.test(p)) s++;
-    if (/[^a-zA-Z0-9]/.test(p)) s++;
-    return s;
-  })();
-
-  // ── HANDLERS ──
-  const handleLogin = async (email, password) => {
-    setSystemStatus((p) => ({ ...p, loading: true, error: "" }));
-    try {
-      await signInWithEmailAndPassword(auth, email, password);
-      navigate("/app", { replace: true });
-    } catch {
-      setSystemStatus((p) => ({
-        ...p,
-        loading: false,
-        error: "Incorrect email or password. Please try again.",
-      }));
-    }
-  };
-
-  const handleSocialAuth = async () => {
-    setSystemStatus((p) => ({ ...p, loading: true, error: "" }));
-    try {
-      const provider = new GoogleAuthProvider();
-      const result = await signInWithPopup(auth, provider);
-      const user = result.user;
-      const safeEmail = user.email;
-      const existingSnap = await getDoc(doc(db, "users", user.uid));
-      if (existingSnap.exists()) {
-        const userData = existingSnap.data();
-        if (
-          userData?.onboardingComplete === false ||
-          userData?.isGhostUser === true
-        ) {
-          setIsGoogleUser(true);
-          setIsLogin(false);
-          setSystemStatus((p) => ({ ...p, loading: false }));
-          setStep(2);
-          return;
-        }
-        setSystemStatus((p) => ({ ...p, loading: false }));
-        navigate("/app", { replace: true });
-        return;
-      }
-      const nameParts = (user.displayName || "Operator").split(" ");
-      dispatch({
-        type: "HYDRATE",
-        payload: {
-          firstName: nameParts[0],
-          lastName: nameParts.slice(1).join(" "),
-          email: safeEmail,
-          username: safeEmail
-            .split("@")[0]
-            .toLowerCase()
-            .replace(/[^a-z0-9]/g, ""),
-        },
-      });
-      const today = new Date().toISOString().split("T")[0];
-      await setDoc(doc(db, "users", user.uid), {
-        identity: {
-          firstName: nameParts[0],
-          lastName: nameParts.slice(1).join(" "),
-          email: safeEmail,
-          username: "",
-          gender: "",
-        },
-        onboardingComplete: false,
-        isGhostUser: true,
-        createdAt: new Date().toISOString(),
-        discotiveScore: {
-          current: 0,
-          streak: 0,
-          lastLoginDate: today,
-          lastAmount: 0,
-          lastReason: "Ghost — Pending",
-          lastUpdatedAt: new Date().toISOString(),
-        },
-        login_history: [today],
-      });
-      setIsGoogleUser(true);
-      setIsLogin(false);
-      setSystemStatus((p) => ({ ...p, loading: false }));
-      setStep(2);
-    } catch (err) {
-      setSystemStatus((p) => ({
-        ...p,
-        loading: false,
-        error: err.message.replace("Firebase: ", ""),
-      }));
-    }
-  };
-
-  // Step 1 — validate and move to email verify
-  const handleStep1 = async (e) => {
-    e.preventDefault();
-    if (
-      !profileData.email ||
-      !profileData.password ||
-      !profileData.firstName ||
-      !profileData.lastName
-    )
-      return setSystemStatus((p) => ({
-        ...p,
-        error: "Please fill in all fields before continuing.",
-      }));
-    if (pwScore < 2)
-      return setSystemStatus((p) => ({
-        ...p,
-        error:
-          "Your password is too weak. Add numbers and a mix of upper/lowercase.",
-      }));
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(profileData.email))
-      return setSystemStatus((p) => ({
-        ...p,
-        error: "That doesn't look like a valid email address.",
-      }));
-
-    setSystemStatus((p) => ({ ...p, loading: true, error: "" }));
-    try {
-      const methods = await import("firebase/auth").then((m) =>
-        m.fetchSignInMethodsForEmail(auth, profileData.email),
-      );
-      if (methods && methods.length > 0)
-        return setSystemStatus((p) => ({
-          ...p,
-          loading: false,
-          error: "An account with this email already exists. Sign in instead.",
-        }));
-
-      // Send verification email before moving to email verify step
-      try {
-        const sendFn = httpsCallable(functions, "sendVerificationEmail");
-        await sendFn({
-          email: profileData.email,
-          firstName: profileData.firstName,
-        });
-      } catch {}
-
-      setSystemStatus((p) => ({ ...p, loading: false }));
-      setStep("verify_email");
-    } catch (err) {
-      setSystemStatus((p) => ({
-        ...p,
-        loading: false,
-        error:
-          err.code === "auth/invalid-email"
-            ? "Invalid email format."
-            : "Verification failed. Please try again.",
-      }));
-    }
-  };
-
-  const handleStep2 = (e) => {
-    e.preventDefault();
-    if (
-      !profileData.username ||
-      !profileData.userState ||
-      !profileData.country ||
-      !profileData.gender
-    )
-      return setSystemStatus((p) => ({
-        ...p,
-        error: "Please fill in all required fields.",
-      }));
-    if (usernameAvailable === false)
-      return setSystemStatus((p) => ({
-        ...p,
-        error: "That username is already taken. Please choose another.",
-      }));
-    setSystemStatus((p) => ({ ...p, error: "" }));
-    setStep(3);
-  };
-
-  const handleStep3 = (e) => {
-    e.preventDefault();
-    if (profileData.startMonth && !profileData.startYear)
-      return setSystemStatus((p) => ({
-        ...p,
-        error: "Please add a start year too.",
-      }));
-    if (profileData.endMonth && !profileData.endYear)
-      return setSystemStatus((p) => ({
-        ...p,
-        error: "Please add an end year too.",
-      }));
-    setSystemStatus((p) => ({ ...p, error: "" }));
-    setStep(4);
-  };
-
-  const handleStep4 = (e) => {
-    e.preventDefault();
-    if (!profileData.passion)
-      return setSystemStatus((p) => ({
-        ...p,
-        error: "Please select your main field.",
-      }));
-    if (!profileData.bio || profileData.bio.trim().length < 20)
-      return setSystemStatus((p) => ({
-        ...p,
-        error:
-          "Please write a short professional bio (at least 20 characters).",
-      }));
-    if (profileData.passion === profileData.parallelPath)
-      return setSystemStatus((p) => ({
-        ...p,
-        error: "Your main field and side pursuit cannot be the same.",
-      }));
-    setSystemStatus((p) => ({ ...p, error: "" }));
-    setStep(5);
-  };
-
-  const handleStep7 = (e) => {
-    e.preventDefault();
-    setSystemStatus((p) => ({ ...p, error: "" }));
-    setStep(8);
-  };
-
-  const handleFinalSubmit = async (e) => {
-    e.preventDefault();
-    if (!profileData.coreMotivation.trim())
-      return setSystemStatus((p) => ({
-        ...p,
-        error:
-          "Please share your motivation — it helps us personalise your journey.",
-      }));
-
-    setSystemStatus((p) => ({ ...p, isBooting: true, error: "" }));
-    try {
-      let uid;
-      if (auth.currentUser) {
-        uid = auth.currentUser.uid;
-      } else {
-        const cred = await createUserWithEmailAndPassword(
-          auth,
-          profileData.email,
-          profileData.password,
-        );
-        uid = cred.user.uid;
-      }
-
-      const today = new Date().toISOString().split("T")[0];
-      const payload = {
-        identity: {
-          firstName: profileData.firstName,
-          lastName: profileData.lastName,
-          email: profileData.email,
-          username: profileData.username.toLowerCase(),
-          gender: profileData.gender,
-          domain: profileData.passion,
-          niche: profileData.niche,
-          parallelGoal: profileData.parallelPath,
-          country: profileData.country,
-          bio: profileData.bio,
-        },
-        onboardingComplete: true,
-        isGhostUser: false,
-        location: {
-          state: profileData.userState,
-          country: profileData.country,
-          displayLocation: `${profileData.userState}, ${profileData.country}`,
-        },
-        baseline: {
-          currentStatus: profileData.currentStatus,
-          institution: profileData.institution,
-          course: profileData.course,
-          specialization: profileData.specialization,
-          startMonth: profileData.startMonth,
-          startYear: profileData.startYear,
-          endMonth: profileData.endMonth,
-          endYear: profileData.endYear,
-        },
-        professional: {
-          bio: profileData.bio,
-          workExperience: profileData.workExperienceRole
-            ? {
-                role: profileData.workExperienceRole,
-                company: profileData.workExperienceCompany,
-                type: profileData.workExperienceType,
-              }
-            : null,
-        },
-        vision: {
-          passion: profileData.passion,
-          niche: profileData.niche,
-          parallelPath: profileData.parallelPath,
-        },
-        skills: {
-          rawSkills: profileData.rawSkills,
-          alignedSkills: profileData.alignedSkills,
-          languages: profileData.languages,
-        },
-        verifiedApps: [],
-        resources: {
-          guardianProfession: profileData.guardianProfession,
-          incomeBracket: profileData.incomeBracket,
-          financialLaunchpad: profileData.financialLaunchpad,
-          investmentCapacity: profileData.investmentCapacity,
-        },
-        footprint: {
-          personal: profileData.personalFootprint,
-          commercial: profileData.commercialFootprint,
-          location: `${profileData.userState}, ${profileData.country}`,
-        },
-        wildcard: {
-          wildcardInfo: profileData.wildcardInfo,
-          coreMotivation: profileData.coreMotivation,
-        },
-        discotiveScore: {
-          current: 0,
-          last24h: 0,
-          lastLoginDate: today,
-          streak: 1,
-          lastAmount: 0,
-          lastReason: "OS Booted",
-          lastUpdatedAt: new Date().toISOString(),
-        },
-        score_history: [{ date: today, score: 0 }],
-        consistency_log: [today],
-        login_history: [today],
-        createdAt: new Date().toISOString(),
-      };
-
-      await setDoc(doc(db, "users", uid), payload, { merge: true });
-      await awardOnboardingComplete(uid);
-
-      setSystemStatus((p) => ({
-        ...p,
-        isBooting: false,
-        showSetupSequence: true,
-      }));
-    } catch (err) {
-      setSystemStatus((p) => ({
-        ...p,
-        isBooting: false,
-        error: err.message.replace("Firebase: ", ""),
-      }));
-    }
-  };
-
-  // ── RENDER ──
   const numericStep = typeof step === "number" ? step : 0;
 
   return (
