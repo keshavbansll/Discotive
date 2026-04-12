@@ -39,91 +39,8 @@ import { awardOnboardingComplete } from "../../lib/scoreEngine";
 import { useOnboardingStore } from "../../stores/useOnboardingStore";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// SEED DATA — Curated operators for network seeding
+// DATA STORES
 // ─────────────────────────────────────────────────────────────────────────────
-const SEED_OPERATORS = [
-  {
-    id: "s1",
-    name: "Aryan Kapoor",
-    handle: "aryankapoor",
-    domain: "Engineering & Tech",
-    score: 1840,
-    avatar: null,
-    initials: "AK",
-    verified: true,
-  },
-  {
-    id: "s2",
-    name: "Priya Sharma",
-    handle: "priyasharma",
-    domain: "Design & Creative",
-    score: 2210,
-    avatar: null,
-    initials: "PS",
-    verified: true,
-  },
-  {
-    id: "s3",
-    name: "Rahul Mehta",
-    handle: "rahulmehta",
-    domain: "Finance & Accounting",
-    score: 1590,
-    avatar: null,
-    initials: "RM",
-    verified: true,
-  },
-  {
-    id: "s4",
-    name: "Zara Ahmed",
-    handle: "zaraahmed",
-    domain: "Marketing",
-    score: 1720,
-    avatar: null,
-    initials: "ZA",
-    verified: true,
-  },
-  {
-    id: "s5",
-    name: "Dev Patel",
-    handle: "devpatel",
-    domain: "Business / Operations",
-    score: 2050,
-    avatar: null,
-    initials: "DP",
-    verified: true,
-  },
-  {
-    id: "s6",
-    name: "Ananya Singh",
-    handle: "ananyasingh",
-    domain: "Content Creation",
-    score: 1380,
-    avatar: null,
-    initials: "AS",
-    verified: false,
-  },
-  {
-    id: "s7",
-    name: "Rohan Gupta",
-    handle: "rohangupta",
-    domain: "Engineering & Tech",
-    score: 3100,
-    avatar: null,
-    initials: "RG",
-    verified: true,
-  },
-  {
-    id: "s8",
-    name: "Meera Joshi",
-    handle: "meerajoshi",
-    domain: "Healthcare",
-    score: 980,
-    avatar: null,
-    initials: "MJ",
-    verified: false,
-  },
-];
-
 const DOMAIN_MAIN = [
   { value: "Engineering & Tech", label: "Engineering", img: "/onboarding/engineering.png" },
   { value: "Design & Creative", label: "Design", img: "/onboarding/design.png" },
@@ -765,7 +682,6 @@ function LeftPanel({ stepIndex, onBack }) {
     "Identity",
     "Baseline",
     "Intent",
-    "Network",
     "Connectors",
     "Motivation",
     "Premium",
@@ -2118,7 +2034,7 @@ const DomainCard = ({ item, active, onClick, isMore }) => (
         fontWeight: 800,
         fontSize: 14,
         letterSpacing: "-0.01em",
-        color: active ? "var(--gold-2)" : "var(--text-primary)",
+        color: "#FFFFFF", // Absolute pure white forced for contrast
         zIndex: 2,
         transition: "color 0.3s",
         textShadow: "0 2px 8px rgba(0,0,0,0.9)",
@@ -2198,8 +2114,8 @@ function StepIntent({ onSubmit, onBack, loading, error }) {
     >
       <StepHeader
         step={4}
-        total={9}
-        overline="Step 4 of 9"
+        total={8}
+        overline="Step 4 of 8"
         title="Your domain."
         subtitle="Where does your ambition live? This powers your execution map."
       />
@@ -2270,7 +2186,7 @@ function StepIntent({ onSubmit, onBack, loading, error }) {
                 }}
               >
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
-                  <h3 style={{ fontFamily: "var(--font-display)", fontWeight: 800, fontSize: 22, margin: 0, color: "var(--text-primary)" }}>
+                  <h3 style={{ fontFamily: "var(--font-display)", fontWeight: 800, fontSize: 22, margin: 0, color: "#FFFFFF" }}>
                     Extended Domains
                   </h3>
                   <button
@@ -2311,235 +2227,7 @@ function StepIntent({ onSubmit, onBack, loading, error }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// STEP 5 — NETWORK SEEDING (follow 3 minimum)
-// ─────────────────────────────────────────────────────────────────────────────
-function StepNetwork({ onSubmit, onBack, loading, error }) {
-  const { followedSeeds, toggleSeed, passion } = useOnboardingStore();
-
-  // Prioritize seeds matching user's domain
-  const sorted = useMemo(() => {
-    return [...SEED_OPERATORS].sort((a, b) => {
-      const aMatch = a.domain === passion ? 1 : 0;
-      const bMatch = b.domain === passion ? 1 : 0;
-      return bMatch - aMatch;
-    });
-  }, [passion]);
-
-  const canContinue = followedSeeds.length >= 3;
-
-  return (
-    <motion.div
-      variants={STEP_VARIANTS}
-      initial="initial"
-      animate="animate"
-      exit="exit"
-      transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
-    >
-      <StepHeader
-        step={5}
-        total={9}
-        overline="Step 5 of 9"
-        title="Seed your network."
-        subtitle={`Follow at least 3 operators to populate your arena feed. ${followedSeeds.length}/3 minimum.`}
-      />
-
-      <ErrorBox msg={error} />
-
-      <div
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          gap: 8,
-          marginBottom: 24,
-        }}
-      >
-        {sorted.map((op) => {
-          const active = followedSeeds.includes(op.id);
-          return (
-            <motion.div
-              key={op.id}
-              whileTap={{ scale: 0.98 }}
-              className="ob-seed-card"
-              data-active={active ? "true" : "false"}
-              onClick={() => toggleSeed(op.id)}
-            >
-              <div
-                style={{
-                  width: 40,
-                  height: 40,
-                  borderRadius: "50%",
-                  background: active
-                    ? "rgba(191,162,100,0.15)"
-                    : "rgba(255,255,255,0.06)",
-                  border: `1px solid ${active ? "rgba(191,162,100,0.3)" : "var(--border)"}`,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  fontSize: 13,
-                  fontWeight: 700,
-                  fontFamily: "var(--font-display)",
-                  color: active ? "var(--gold-2)" : "var(--text-secondary)",
-                  flexShrink: 0,
-                }}
-              >
-                {op.initials}
-              </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <p
-                    style={{
-                      fontSize: 13,
-                      fontWeight: 600,
-                      color: "var(--text-primary)",
-                      fontFamily: "var(--font-body)",
-                    }}
-                  >
-                    {op.name}
-                  </p>
-                  {op.verified && (
-                    <svg width={12} height={12} viewBox="0 0 24 24" fill="none">
-                      <path
-                        d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"
-                        fill="var(--gold-2)"
-                        opacity="0.9"
-                      />
-                    </svg>
-                  )}
-                </div>
-                <p
-                  style={{
-                    fontSize: 11,
-                    color: "var(--text-dim)",
-                    fontFamily: "var(--font-body)",
-                  }}
-                >
-                  @{op.handle} · {op.domain}
-                </p>
-              </div>
-              <div
-                style={{
-                  display: "flex",
-                  flexDirection: "column",
-                  alignItems: "flex-end",
-                  gap: 4,
-                }}
-              >
-                <p
-                  style={{
-                    fontSize: 12,
-                    fontWeight: 700,
-                    fontFamily: "var(--font-display)",
-                    color: active ? "var(--gold-2)" : "var(--text-dim)",
-                  }}
-                >
-                  {op.score.toLocaleString()}
-                </p>
-                <div
-                  style={{
-                    width: 28,
-                    height: 28,
-                    borderRadius: "50%",
-                    background: active
-                      ? "rgba(191,162,100,0.2)"
-                      : "var(--surface)",
-                    border: `0.5px solid ${active ? "rgba(191,162,100,0.4)" : "var(--border)"}`,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    transition: "all 0.15s",
-                  }}
-                >
-                  {active ? (
-                    <CheckIcon size={12} />
-                  ) : (
-                    <svg
-                      width={12}
-                      height={12}
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="var(--text-dim)"
-                      strokeWidth="2"
-                    >
-                      <line x1="12" y1="5" x2="12" y2="19" />
-                      <line x1="5" y1="12" x2="19" y2="12" />
-                    </svg>
-                  )}
-                </div>
-              </div>
-            </motion.div>
-          );
-        })}
-      </div>
-
-      {/* Progress indicator */}
-      <div
-        style={{
-          padding: "12px 16px",
-          background: "var(--surface)",
-          border: "0.5px solid var(--border)",
-          borderRadius: "var(--r-sm)",
-          marginBottom: 20,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-        }}
-      >
-        <span
-          style={{
-            fontSize: 12,
-            color: "var(--text-secondary)",
-            fontFamily: "var(--font-body)",
-          }}
-        >
-          Following
-        </span>
-        <div style={{ display: "flex", gap: 4 }}>
-          {[0, 1, 2].map((i) => (
-            <div
-              key={i}
-              style={{
-                width: 24,
-                height: 4,
-                borderRadius: 2,
-                background:
-                  followedSeeds.length > i ? "var(--gold-2)" : "var(--border)",
-                transition: "background 0.3s",
-              }}
-            />
-          ))}
-        </div>
-        <span
-          style={{
-            fontSize: 12,
-            fontWeight: 700,
-            color: canContinue ? "var(--gold-2)" : "var(--text-dim)",
-            fontFamily: "var(--font-body)",
-          }}
-        >
-          {followedSeeds.length} / 3+
-        </span>
-      </div>
-
-      <div style={{ display: "flex", gap: 12 }}>
-        <button type="button" className="ob-btn-ghost" onClick={onBack}>
-          Back
-        </button>
-        <button
-          className="ob-btn-primary"
-          style={{ flex: 1 }}
-          onClick={onSubmit}
-          disabled={!canContinue || loading}
-        >
-          {loading ? <Spinner size={14} color="#0a0a0a" /> : "Continue"}{" "}
-          {!loading && <ChevronRight />}
-        </button>
-      </div>
-    </motion.div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// STEP 6 — CONNECTORS (GitHub, X, Instagram, YouTube — no LinkedIn)
+// STEP 5 — CONNECTORS (GitHub, X, Instagram, YouTube — no LinkedIn)
 // ─────────────────────────────────────────────────────────────────────────────
 const CONNECTORS = [
   {
@@ -2619,9 +2307,9 @@ function StepConnectors({ onSubmit, onBack, loading, error }) {
       transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
     >
       <StepHeader
-        step={6}
-        total={9}
-        overline="Step 6 of 9"
+        step={5}
+        total={8}
+        overline="Step 5 of 8"
         title="Your digital footprint."
         subtitle="Link your presence. Everything here is optional — but operators who link earn more visibility."
       />
@@ -2716,9 +2404,9 @@ function StepMotivation({ onSubmit, onBack, loading, error }) {
       transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
     >
       <StepHeader
-        step={7}
-        total={9}
-        overline="Step 7 of 9"
+        step={6}
+        total={8}
+        overline="Step 6 of 8"
         title="Your drive."
         subtitle="What brings you to the arena? Select up to 5."
       />
@@ -2773,7 +2461,7 @@ function StepMotivation({ onSubmit, onBack, loading, error }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// STEP 8 — PREMIUM GATE
+// STEP 7 — PREMIUM GATE
 // ─────────────────────────────────────────────────────────────────────────────
 function StepPremium({ firstName, onUpgrade, onSkip, loading }) {
   const features = [
@@ -2801,7 +2489,7 @@ function StepPremium({ firstName, onUpgrade, onSkip, loading }) {
       exit="exit"
       transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
     >
-      <ProgressBar current={8} total={9} />
+      <ProgressBar current={7} total={8} />
 
       <div style={{ textAlign: "center", marginBottom: 28 }}>
         <div
@@ -3549,12 +3237,6 @@ export default function AuthOrchestrator() {
   // ── HANDLER: Intent → next ────────────────────────────────────────────────
   const handleIntentSubmit = () => {
     clearErr();
-    store.setStep("network");
-  };
-
-  // ── HANDLER: Network → next ───────────────────────────────────────────────
-  const handleNetworkSubmit = () => {
-    clearErr();
     store.setStep("connectors");
   };
 
@@ -3706,8 +3388,7 @@ export default function AuthOrchestrator() {
         identity: store.isGoogleUser ? "login" : "auth",
         baseline: "identity",
         intent: "baseline",
-        network: "intent",
-        connectors: "network",
+        connectors: "intent",
         motivation: "connectors",
         premium: "motivation",
       }[store.step];
@@ -3725,10 +3406,9 @@ export default function AuthOrchestrator() {
       identity: 2,
       baseline: 3,
       intent: 4,
-      network: 5,
-      connectors: 6,
-      motivation: 7,
-      premium: 8,
+      connectors: 5,
+      motivation: 6,
+      premium: 7,
     }[store.step] ?? 0;
 
   return (
@@ -3843,20 +3523,11 @@ export default function AuthOrchestrator() {
                 error={localError}
               />
             )}
-            {store.step === "network" && (
-              <StepNetwork
-                key="network"
-                onSubmit={handleNetworkSubmit}
-                onBack={() => store.setStep("intent")}
-                loading={localLoading}
-                error={localError}
-              />
-            )}
             {store.step === "connectors" && (
               <StepConnectors
                 key="connectors"
                 onSubmit={handleConnectorsSubmit}
-                onBack={() => store.setStep("network")}
+                onBack={() => store.setStep("intent")}
                 loading={localLoading}
                 error={localError}
               />
