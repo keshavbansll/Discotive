@@ -12,7 +12,8 @@ import { AnimatePresence } from "framer-motion";
 
 // ── EAGER IMPORTS (The Critical Path) ──
 // These MUST load immediately. Landing is the entry point. MainLayout is the shell.
-import Landing from "./pages/Landing";
+import Landing from "./pages/Landing"; // The new acquisition engine
+import About from "./pages/About"; // The legacy informational view
 import MainLayout from "./layouts/MainLayout";
 import GlobalLoader from "./components/GlobalLoader";
 import PageTracker from "./components/PageTracker";
@@ -230,12 +231,19 @@ function App() {
           <PageTracker />
           <Suspense fallback={<RouteChunkLoader />}>
             <Routes>
-              <Route path="/" element={<Navigate to="/about" replace />} />
+              <Route
+                path="/"
+                element={
+                  <PublicRoute>
+                    <Landing />
+                  </PublicRoute>
+                }
+              />
               <Route
                 path="/about"
                 element={
                   <PublicRoute>
-                    <Landing />
+                    <About />
                   </PublicRoute>
                 }
               />

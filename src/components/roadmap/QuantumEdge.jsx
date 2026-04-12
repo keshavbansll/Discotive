@@ -24,7 +24,7 @@ import {
   getBezierPath,
   useStore,
 } from "reactflow";
-import { NODE_STATES } from "../../store/useRoadmapStore";
+import { NODE_STATES } from "../../stores/useRoadmapStore";
 
 // ── Inject CSS keyframes once ─────────────────────────────────────────────────
 let _injected = false;

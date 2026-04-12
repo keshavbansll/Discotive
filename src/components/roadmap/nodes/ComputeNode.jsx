@@ -17,8 +17,8 @@ import React, { memo, useState, useEffect } from "react";
 import { Handle, Position } from "reactflow";
 import { motion } from "framer-motion";
 import { Cpu, CheckCircle, AlertCircle, Loader, Zap, Lock } from "lucide-react";
-import { NODE_STATES } from "../../../store/useRoadmapStore";
-import { useRoadmapStore } from "../../../store/useRoadmapStore";
+import { NODE_STATES } from "../../../stores/useRoadmapStore";
+import { useRoadmapStore } from "../../../stores/useRoadmapStore";
 
 const SIZE = 64;
 

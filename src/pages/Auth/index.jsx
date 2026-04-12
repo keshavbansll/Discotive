@@ -1,561 +1,614 @@
 // src/pages/Auth/index.jsx
+// Complete rebuild — 8-step Discotive Onboarding Engine
+// Requires: npm install zustand framer-motion (already in project)
 
-import React, { useState, useEffect, useRef, useCallback } from "react";
-import { useNavigate, Link } from "react-router-dom";
-import { motion, AnimatePresence } from "framer-motion";
+import React, {
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+  useMemo,
+} from "react";
+import { useNavigate, Link, useLocation } from "react-router-dom";
+import {
+  motion,
+  AnimatePresence,
+  useMotionValue,
+  useSpring,
+} from "framer-motion";
 import { httpsCallable } from "firebase/functions";
-import { auth, functions } from "../../firebase";
+import {
+  createUserWithEmailAndPassword,
+  signInWithEmailAndPassword,
+  signInWithPopup,
+  GoogleAuthProvider,
+  fetchSignInMethodsForEmail,
+} from "firebase/auth";
+import {
+  collection,
+  query,
+  where,
+  getDocs,
+  doc,
+  setDoc,
+  getDoc,
+} from "firebase/firestore";
+import { auth, db, functions } from "../../firebase";
 import { createPortal } from "react-dom";
-import {
-  ChevronRight,
-  CheckCircle2,
-  X,
-  Loader2,
-  Eye,
-  EyeOff,
-  AlertCircle,
-  RefreshCw,
-  ArrowRight,
-  ShieldCheck,
-  Globe,
-  Linkedin,
-  Github,
-  Twitter,
-  Instagram,
-  Youtube,
-  Link as LinkIcon,
-  Crown,
-  Zap,
-  Database,
-  BarChart2,
-  Check,
-  Sparkles,
-  Activity,
-  AlertTriangle,
-} from "lucide-react";
-
-// Hook & Data Imports
-import useAuthFlow from "./hooks/useAuthFlow";
-import {
-  START_YEARS,
-  END_YEARS,
-  COUNTRIES,
-  INDIAN_STATES,
-  INSTITUTIONS,
-  COURSES,
-  SPECIALIZATIONS,
-  MACRO_DOMAINS,
-  MICRO_NICHES,
-  RAW_SKILLS,
-  LANGUAGES,
-  CURRENT_STATUSES,
-  MONTHS,
-  COUNTRY_CODES,
-} from "./constants/taxonomy";
+import { awardOnboardingComplete } from "../../lib/scoreEngine";
+import { useOnboardingStore } from "../../stores/useOnboardingStore";
 
 // ─────────────────────────────────────────────────────────────────────────────
-// DESIGN TOKENS
+// SEED DATA — Curated operators for network seeding
 // ─────────────────────────────────────────────────────────────────────────────
-const CSS = `
-  @import url('https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,300..900;1,300..900&family=Poppins:wght@300;400;500;600;700&display=swap');
+const SEED_OPERATORS = [
+  {
+    id: "s1",
+    name: "Aryan Kapoor",
+    handle: "aryankapoor",
+    domain: "Engineering & Tech",
+    score: 1840,
+    avatar: null,
+    initials: "AK",
+    verified: true,
+  },
+  {
+    id: "s2",
+    name: "Priya Sharma",
+    handle: "priyasharma",
+    domain: "Design & Creative",
+    score: 2210,
+    avatar: null,
+    initials: "PS",
+    verified: true,
+  },
+  {
+    id: "s3",
+    name: "Rahul Mehta",
+    handle: "rahulmehta",
+    domain: "Finance & Accounting",
+    score: 1590,
+    avatar: null,
+    initials: "RM",
+    verified: true,
+  },
+  {
+    id: "s4",
+    name: "Zara Ahmed",
+    handle: "zaraahmed",
+    domain: "Marketing",
+    score: 1720,
+    avatar: null,
+    initials: "ZA",
+    verified: true,
+  },
+  {
+    id: "s5",
+    name: "Dev Patel",
+    handle: "devpatel",
+    domain: "Business / Operations",
+    score: 2050,
+    avatar: null,
+    initials: "DP",
+    verified: true,
+  },
+  {
+    id: "s6",
+    name: "Ananya Singh",
+    handle: "ananyasingh",
+    domain: "Content Creation",
+    score: 1380,
+    avatar: null,
+    initials: "AS",
+    verified: false,
+  },
+  {
+    id: "s7",
+    name: "Rohan Gupta",
+    handle: "rohangupta",
+    domain: "Engineering & Tech",
+    score: 3100,
+    avatar: null,
+    initials: "RG",
+    verified: true,
+  },
+  {
+    id: "s8",
+    name: "Meera Joshi",
+    handle: "meerajoshi",
+    domain: "Healthcare",
+    score: 980,
+    avatar: null,
+    initials: "MJ",
+    verified: false,
+  },
+];
 
-  .auth-root {
-    --void: #030303;
-    --depth: #0a0a0a;
-    --surface: #111111;
-    --elevated: #161616;
-    --border: rgba(255,255,255,0.07);
-    --border-gold: rgba(191,162,100,0.28);
-    --gold-1: #BFA264;
-    --gold-2: #D4AF78;
-    --gold-3: #8B7240;
-    --gold-4: #E8D5A3;
-    --gold-dim: rgba(191,162,100,0.08);
-    --text-primary: #F5F0E8;
-    --text-secondary: rgba(245,240,232,0.6);
-    --text-dim: rgba(245,240,232,0.28);
-    --font-display: 'Montserrat', sans-serif;
-    --font-body: 'Poppins', sans-serif;
-    --radius: 18px;
-    --radius-sm: 12px;
-  }
+const DOMAIN_MAIN = [
+  { value: "Engineering & Tech", label: "Engineering", img: "/onboarding/engineering.png" },
+  { value: "Design & Creative", label: "Design", img: "/onboarding/design.png" },
+  { value: "Business / Operations", label: "Business", img: "/onboarding/business.png" },
+  { value: "Marketing", label: "Marketing", img: "/onboarding/marketing.png" },
+  { value: "Finance & Accounting", label: "Finance", img: "/onboarding/finance.png" },
+  { value: "Content Creation", label: "Content", img: "/onboarding/content.png" },
+  { value: "Healthcare", label: "Healthcare", img: "/onboarding/healthcare.png" },
+];
 
-  .auth-root * { box-sizing: border-box; }
+const DOMAIN_MORE = [
+  { value: "Product Management", label: "Product", img: "/onboarding/product.png" },
+  { value: "Data & Analytics", label: "Data", img: "/onboarding/data.png" },
+  { value: "Sales", label: "Sales", img: "/onboarding/sales.png" },
+  { value: "Legal & Policy", label: "Legal", img: "/onboarding/legal.png" },
+  { value: "Human Resources", label: "HR", img: "/onboarding/hr.png" },
+  { value: "Education", label: "Education", img: "/onboarding/education.png" },
+  { value: "Real Estate", label: "Real Estate", img: "/onboarding/realestate.png" },
+  { value: "Other", label: "Other", img: "/onboarding/other.png" },
+];
 
-  .auth-root {
-    min-height: 100svh;
-    background: var(--void);
-    color: var(--text-primary);
-    font-family: var(--font-body);
+const BASELINE_OPTIONS = [
+  { value: "Student", label: "Student", img: "/onboarding/student.png" },
+  {
+    value: "Working Professional",
+    label: "Professional",
+    img: "/onboarding/professional.png",
+  },
+  {
+    value: "Freelancer",
+    label: "Freelancer",
+    img: "/onboarding/freelancer.png",
+  },
+  {
+    value: "Entrepreneur",
+    label: "Entrepreneur",
+    img: "/onboarding/entrepreneur.png",
+  },
+  { value: "Creator", label: "Creator", img: "/onboarding/creator.png" },
+  { value: "Other", label: "Other", img: "/onboarding/other.png" },
+  { value: "None", label: "None", img: "/onboarding/none.png" },
+];
+
+const WHY_HERE = [
+  "Land a top internship",
+  "Build my startup",
+  "Get placed at MAANG",
+  "Grow my freelance income",
+  "Build a personal brand",
+  "Stay consistent",
+  "Outperform peers",
+  "Track my progress",
+  "Level up my skills",
+  "Find my domain",
+];
+
+const QUOTES = [
+  { text: "Everything's got a price.", author: "John Wick" },
+  { text: "We can't win if we don't try.", author: "Sonny Hayes" },
+  { text: "The future is real. The past is all made up.", author: "Logan Roy" },
+  {
+    text: "I want you to deal with your problems by becoming rich!",
+    author: "Jordan Belfort",
+  },
+  { text: "It's all a Fugazzi.", author: "Mark Hanna" },
+];
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CSS — injected globally at mount
+// ─────────────────────────────────────────────────────────────────────────────
+const GLOBAL_CSS = `
+@import url('https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,300..900;1,300..900&family=Poppins:wght@300;400;500;600;700&display=swap');
+
+.ob-root {
+  --void: #030303;
+  --depth: #0a0a0a;
+  --surface: #111111;
+  --elevated: #161616;
+  --border: rgba(255,255,255,0.07);
+  --border-gold: rgba(191,162,100,0.28);
+  --gold-1: #BFA264;
+  --gold-2: #D4AF78;
+  --gold-3: #8B7240;
+  --gold-4: #E8D5A3;
+  --gold-dim: rgba(191,162,100,0.08);
+  --text-primary: #F5F0E8;
+  --text-secondary: rgba(245,240,232,0.6);
+  --text-dim: rgba(245,240,232,0.28);
+  --font-display: 'Montserrat', sans-serif;
+  --font-body: 'Poppins', sans-serif;
+  --r: 18px;
+  --r-sm: 12px;
+}
+
+.ob-root * { box-sizing: border-box; margin: 0; padding: 0; }
+
+.ob-root {
+  min-height: 100svh;
+  background: var(--void);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  display: flex;
+  position: relative;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+.ob-mobile-only-logo { display: block; height: 22px; opacity: 0.9; }
+@media (min-width: 900px) { .ob-mobile-only-logo { display: none; } }
+
+/* LEFT PANEL */
+.ob-left {
+  display: none;
+  width: 42%;
+  flex-shrink: 0;
+  position: relative;
+  overflow: hidden;
+  background: var(--depth);
+  border-right: 0.5px solid rgba(255,255,255,0.04);
+  flex-direction: column;
+  box-shadow: 20px 0 60px rgba(0,0,0,0.5);
+  z-index: 10;
+}
+@media (min-width: 900px) { .ob-left { display: flex; } }
+
+/* RIGHT PANEL */
+.ob-right {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  overflow-y: auto;
+  padding: 24px 20px;
+  background: radial-gradient(circle at 50% -20%, rgba(191,162,100,0.07) 0%, var(--void) 65%), var(--void);
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255,255,255,0.08) transparent;
+}
+@media (min-width: 640px) { .ob-right { padding: 40px 32px; } }
+.ob-right::-webkit-scrollbar { width: 4px; }
+.ob-right::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 4px; }
+
+.ob-form-wrap {
+  width: 100%;
+  max-width: 440px;
+  padding: 28px 0 80px;
+}
+
+ /* INPUTS */
+.ob-input-group {
+  position: relative;
+  width: 100%;
+}
+.ob-input {
+  width: 100%;
+  background: var(--surface);
+  border: 0.5px solid var(--border);
+  border-radius: var(--r-sm);
+  padding: 28px 16px 8px 16px;
+  height: 64px;
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.2s, background 0.2s, box-shadow 0.2s;
+  -webkit-appearance: none;
+}
+.ob-input::placeholder { color: transparent; }
+.ob-input:focus {
+  border-color: rgba(191,162,100,0.5);
+  background: var(--elevated);
+  box-shadow: 0 0 0 3px rgba(191,162,100,0.06);
+}
+
+.ob-floating-label {
+  position: absolute;
+  left: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  font-size: 14px;
+  color: var(--text-dim);
+  pointer-events: none;
+  transition: all 0.2s cubic-bezier(0.23, 1, 0.32, 1);
+  font-family: var(--font-body);
+}
+.ob-input:focus ~ .ob-floating-label,
+.ob-input:not(:placeholder-shown) ~ .ob-floating-label {
+  top: 16px;
+  transform: translateY(0);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--gold-2);
+}
+
+/* BUTTONS */
+.ob-btn-primary {
+  width: 100%;
+  padding: 15px 24px;
+  background: linear-gradient(135deg, #8B7240 0%, #BFA264 40%, #D4AF78 60%, #BFA264 80%, #6B5530 100%);
+  color: #0a0a0a;
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  border: none;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: opacity 0.2s, transform 0.2s, box-shadow 0.2s;
+}
+.ob-btn-primary:hover:not(:disabled) {
+  opacity: 0.9;
+  transform: translateY(-1px);
+  box-shadow: 0 12px 32px rgba(191,162,100,0.22);
+}
+.ob-btn-primary:active:not(:disabled) { transform: scale(0.98); }
+.ob-btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+
+.ob-btn-ghost {
+  background: transparent;
+  border: 0.5px solid var(--border);
+  border-radius: var(--r-sm);
+  color: var(--text-secondary);
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 14px 20px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  transition: color 0.2s, border-color 0.2s;
+}
+.ob-btn-ghost:hover { color: var(--text-primary); border-color: rgba(255,255,255,0.15); }
+
+.ob-oauth-btn {
+  width: 100%;
+  padding: 14px 20px;
+  background: var(--surface);
+  border: 0.5px solid var(--border);
+  border-radius: var(--r-sm);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  transition: background 0.2s, border-color 0.2s;
+}
+.ob-oauth-btn:hover:not(:disabled) { background: var(--elevated); border-color: rgba(255,255,255,0.14); }
+.ob-oauth-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* PROGRESS BAR */
+.ob-progress {
+  display: flex;
+  gap: 5px;
+  margin-bottom: 32px;
+}
+.ob-progress-seg {
+  height: 3px;
+  border-radius: 2px;
+  flex: 1;
+  background: var(--border);
+  transition: background 0.4s;
+}
+.ob-progress-seg[data-done="true"] { background: rgba(191,162,100,0.4); }
+.ob-progress-seg[data-active="true"] { background: var(--gold-2); }
+
+/* DIVIDER */
+.ob-divider {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin: 18px 0;
+}
+.ob-divider-line { flex: 1; height: 0.5px; background: var(--border); }
+.ob-divider span {
+  font-size: 10px; font-weight: 700; color: var(--text-dim);
+  letter-spacing: 0.2em; font-family: var(--font-body);
+}
+
+/* ERROR */
+.ob-error {
+  padding: 12px 16px;
+  background: rgba(239,68,68,0.08);
+  border: 0.5px solid rgba(239,68,68,0.2);
+  border-radius: var(--r-sm);
+  display: flex; align-items: center; gap: 10px;
+  font-size: 13px; color: #F87171;
+  font-family: var(--font-body);
+  margin-bottom: 20px;
+}
+
+/* PASSWORD STRENGTH */
+.pw-bar { height: 3px; border-radius: 2px; transition: background 0.3s; background: var(--elevated); }
+
+/* STATUS CARD */
+.ob-status-card {
+  padding: 16px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  background: var(--surface);
+  transition: all 0.15s;
+  text-align: center;
+  min-height: 80px;
+  justify-content: center;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+.ob-status-card[data-active="true"] {
+  background: rgba(191,162,100,0.1);
+  border-color: rgba(191,162,100,0.5);
+}
+
+/* DOMAIN CARD */
+.ob-domain-card {
+  padding: 14px 10px;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  transition: all 0.15s;
+  text-align: center;
+  border: 1px solid transparent;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+
+/* WHY-HERE TAG */
+.ob-tag {
+  padding: 9px 14px;
+  border-radius: 99px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  font-family: var(--font-body);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-secondary);
+  transition: all 0.15s;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  white-space: nowrap;
+}
+.ob-tag[data-active="true"] {
+  background: rgba(191,162,100,0.1);
+  border-color: rgba(191,162,100,0.45);
+  color: var(--gold-2);
+}
+
+/* SEED CARD */
+.ob-seed-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  transition: all 0.15s;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+}
+.ob-seed-card[data-active="true"] {
+  background: rgba(191,162,100,0.06);
+  border-color: rgba(191,162,100,0.3);
+}
+
+/* CONNECTOR INPUT */
+.ob-connector {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  background: var(--surface);
+  border: 0.5px solid var(--border);
+  border-radius: var(--r-sm);
+  transition: border-color 0.2s;
+}
+.ob-connector:focus-within {
+  border-color: rgba(191,162,100,0.4);
+}
+.ob-connector input {
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  font-size: 13px;
+  flex: 1;
+}
+.ob-connector input::placeholder { color: var(--text-dim); }
+
+/* OTP */
+.ob-otp {
+  width: 48px; height: 56px;
+  text-align: center;
+  font-size: 22px; font-weight: 800;
+  font-family: var(--font-display);
+  background: var(--surface);
+  border: 0.5px solid var(--border);
+  border-radius: var(--r-sm);
+  color: var(--text-primary);
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  caret-color: var(--gold-2);
+}
+.ob-otp:focus {
+  border-color: rgba(191,162,100,0.6);
+  box-shadow: 0 0 0 3px rgba(191,162,100,0.08);
+}
+.ob-otp[data-filled="true"] { border-color: rgba(191,162,100,0.4); color: var(--gold-2); }
+
+/* GRAIN OVERLAY */
+.ob-grain {
+  position: absolute; inset: -50%;
+  width: 200%; height: 200%;
+  opacity: 0.015;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  pointer-events: none;
+}
+
+/* ANIMATIONS */
+@keyframes ob-spin { to { transform: rotate(360deg); } }
+@keyframes ob-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.4; } }
+@keyframes ob-count { from { opacity:0; transform: translateY(6px); } to { opacity:1; transform:translateY(0); } }
+
+/* SCORE POP */
+.score-pop {
+  animation: ob-count 0.4s cubic-bezier(0.23, 1, 0.32, 1) forwards;
+}
+
+/* MOBILE BOTTOM SAFE AREA */
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+  .ob-form-wrap { padding-bottom: calc(80px + env(safe-area-inset-bottom)); }
+}
+
+/* NAV PC/MOBILE LOGIC */
+.nav-mobile {
+  position: absolute; top: 24px; left: 20px; z-index: 50;
+  display: flex; align-items: center; gap: 16px;
+}
+@media (min-width: 640px) {
+  .nav-mobile { top: 28px; left: 28px; }
+}
+@media (min-width: 900px) {
+  .nav-mobile { display: none; }
+}
+
+.logo-pc {
+  display: none;
+}
+@media (min-width: 900px) {
+  .logo-pc {
     display: flex;
-    position: relative;
-    overflow: hidden;
-  }
-
-  /* ── LEFT PANEL ── */
-  .auth-left {
-    display: none;
-    width: 42%;
-    flex-shrink: 0;
-    position: relative;
-    overflow: hidden;
-    background: var(--depth);
-    border-right: 0.5px solid var(--border);
-  }
-  @media (min-width: 900px) { .auth-left { display: flex; flex-direction: column; } }
-
-  .auth-left-bg {
-    position: absolute;
-    inset: 0;
-    background: radial-gradient(ellipse at 30% 40%, rgba(191,162,100,0.07) 0%, transparent 65%),
-                radial-gradient(ellipse at 70% 80%, rgba(139,114,64,0.05) 0%, transparent 55%);
-    pointer-events: none;
-  }
-
-  .auth-left-lines {
-    position: absolute;
-    inset: 0;
-    overflow: hidden;
-    pointer-events: none;
-  }
-
-  .auth-left-line {
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    width: 0.5px;
-    background: linear-gradient(180deg, transparent 0%, rgba(191,162,100,0.06) 30%, rgba(191,162,100,0.06) 70%, transparent 100%);
-  }
-
-  /* ── RIGHT PANEL ── */
-  .auth-right {
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    align-items: flex-start;
     justify-content: center;
-    overflow-y: auto;
-    padding: 24px 20px;
-    background: var(--void);
-    scrollbar-width: thin;
-    scrollbar-color: rgba(255,255,255,0.08) transparent;
-  }
-  @media (min-width: 640px) { .auth-right { padding: 40px 32px; } }
-
-  .auth-right::-webkit-scrollbar { width: 4px; }
-  .auth-right::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 4px; }
-
-  .auth-form-container {
-    width: 100%;
-    max-width: 440px;
-    padding: 28px 0 60px;
-  }
-
-  /* ── INPUTS ── */
-  .auth-input {
-    width: 100%;
-    background: var(--surface);
-    border: 0.5px solid var(--border);
-    border-radius: var(--radius-sm);
-    padding: 14px 16px;
-    color: var(--text-primary);
-    font-family: var(--font-body);
-    font-size: 14px;
-    font-weight: 400;
-    outline: none;
-    transition: border-color 0.25s ease, background 0.25s ease, box-shadow 0.25s ease;
-    -webkit-appearance: none;
-  }
-
-  .auth-input::placeholder { color: var(--text-dim); }
-
-  .auth-input:focus {
-    border-color: rgba(191,162,100,0.5);
-    background: var(--elevated);
-    box-shadow: 0 0 0 3px rgba(191,162,100,0.06);
-  }
-
-  .auth-input:focus-visible { outline: none; }
-
-  .auth-label {
-    display: block;
-    font-size: 10px;
-    font-weight: 700;
-    letter-spacing: 0.18em;
-    text-transform: uppercase;
-    color: var(--text-dim);
-    margin-bottom: 8px;
-    font-family: var(--font-body);
-  }
-
-  .auth-select {
-    width: 100%;
-    background: var(--surface);
-    border: 0.5px solid var(--border);
-    border-radius: var(--radius-sm);
-    padding: 14px 16px;
-    color: var(--text-primary);
-    font-family: var(--font-body);
-    font-size: 14px;
-    outline: none;
-    -webkit-appearance: none;
-    appearance: none;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='rgba(245,240,232,0.3)' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
-    background-repeat: no-repeat;
-    background-position: right 14px center;
-    cursor: pointer;
-    transition: border-color 0.2s, box-shadow 0.2s;
-  }
-
-  .auth-select:focus {
-    border-color: rgba(191,162,100,0.5);
-    box-shadow: 0 0 0 3px rgba(191,162,100,0.06);
-  }
-
-  /* ── BUTTONS ── */
-  .auth-btn-primary {
-    width: 100%;
-    padding: 15px 24px;
-    background: linear-gradient(135deg, #8B7240 0%, #BFA264 40%, #D4AF78 60%, #BFA264 80%, #6B5530 100%);
-    color: #0a0a0a;
-    font-family: var(--font-body);
-    font-size: 12px;
-    font-weight: 700;
-    letter-spacing: 0.15em;
-    text-transform: uppercase;
-    border: none;
-    border-radius: var(--radius-sm);
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    transition: opacity 0.2s, transform 0.2s, box-shadow 0.2s;
-    position: relative;
-    overflow: hidden;
-  }
-
-  .auth-btn-primary:hover:not(:disabled) {
-    opacity: 0.92;
-    transform: translateY(-1px);
-    box-shadow: 0 12px 32px rgba(191,162,100,0.25);
-  }
-
-  .auth-btn-primary:active:not(:disabled) { transform: scale(0.98); }
-  .auth-btn-primary:disabled { opacity: 0.45; cursor: not-allowed; }
-
-  .auth-btn-secondary {
-    padding: 14px 20px;
-    background: var(--surface);
-    border: 0.5px solid var(--border);
-    border-radius: var(--radius-sm);
-    color: var(--text-secondary);
-    font-family: var(--font-body);
-    font-size: 12px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: background 0.2s, border-color 0.2s;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-  }
-
-  .auth-btn-secondary:hover { background: var(--elevated); border-color: rgba(255,255,255,0.12); }
-
-  .auth-btn-ghost {
-    background: transparent;
-    border: 0.5px solid var(--border);
-    border-radius: var(--radius-sm);
-    color: var(--text-secondary);
-    font-family: var(--font-body);
-    font-size: 12px;
-    font-weight: 600;
-    cursor: pointer;
-    padding: 14px 20px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    transition: color 0.2s, border-color 0.2s;
-  }
-
-  .auth-btn-ghost:hover { color: var(--text-primary); border-color: rgba(255,255,255,0.15); }
-
-  /* ── OAUTH BUTTON ── */
-  .auth-oauth-btn {
-    width: 100%;
-    padding: 14px 20px;
-    background: var(--surface);
-    border: 0.5px solid var(--border);
-    border-radius: var(--radius-sm);
-    color: var(--text-primary);
-    font-family: var(--font-body);
-    font-size: 13px;
-    font-weight: 600;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 10px;
-    transition: background 0.2s, border-color 0.2s, transform 0.15s;
-  }
-
-  .auth-oauth-btn:hover:not(:disabled) { background: var(--elevated); border-color: rgba(255,255,255,0.15); }
-  .auth-oauth-btn:disabled { opacity: 0.5; cursor: not-allowed; }
-
-  /* ── CUSTOM DROPDOWN ── */
-  .auth-dropdown-wrap {
-    position: relative;
-  }
-
-  .auth-dropdown-trigger {
-    width: 100%;
-    background: var(--surface);
-    border: 0.5px solid var(--border);
-    border-radius: var(--radius-sm);
-    padding: 14px 16px;
-    color: var(--text-primary);
-    font-family: var(--font-body);
-    font-size: 14px;
-    outline: none;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    transition: border-color 0.25s, box-shadow 0.25s;
-    text-align: left;
-  }
-
-  .auth-dropdown-trigger[data-open="true"] {
-    border-color: rgba(191,162,100,0.5);
-    box-shadow: 0 0 0 3px rgba(191,162,100,0.06);
-    border-radius: var(--radius-sm) var(--radius-sm) 0 0;
-  }
-
-  .auth-dropdown-trigger span.placeholder { color: var(--text-dim); }
-
-  .auth-dropdown-menu {
-    position: absolute;
-    top: 100%;
-    left: 0;
-    right: 0;
-    background: var(--elevated);
-    border: 0.5px solid rgba(191,162,100,0.3);
-    border-top: none;
-    border-radius: 0 0 var(--radius-sm) var(--radius-sm);
-    max-height: 220px;
-    overflow-y: auto;
-    z-index: 9999;
-    scrollbar-width: thin;
-    scrollbar-color: rgba(255,255,255,0.1) transparent;
-    box-shadow: 0 24px 48px rgba(0,0,0,0.6);
-  }
-
-  .auth-dropdown-search {
-    width: 100%;
-    padding: 10px 14px;
-    background: var(--surface);
-    border: none;
-    border-bottom: 0.5px solid var(--border);
-    color: var(--text-primary);
-    font-family: var(--font-body);
-    font-size: 13px;
-    outline: none;
-  }
-
-  .auth-dropdown-search::placeholder { color: var(--text-dim); }
-
-  .auth-dropdown-item {
-    padding: 11px 14px;
-    font-family: var(--font-body);
-    font-size: 13px;
-    color: var(--text-secondary);
-    cursor: pointer;
-    transition: background 0.15s, color 0.15s;
-  }
-
-  .auth-dropdown-item:hover, .auth-dropdown-item[data-selected="true"] {
-    background: rgba(191,162,100,0.08);
-    color: var(--gold-2);
-  }
-
-  /* ── MULTI SELECT ── */
-  .auth-multi-tags {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    margin-top: 8px;
-  }
-
-  .auth-tag {
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    padding: 5px 10px;
-    background: rgba(191,162,100,0.1);
-    border: 0.5px solid rgba(191,162,100,0.25);
-    border-radius: 99px;
-    font-size: 11px;
-    color: var(--gold-2);
-    font-family: var(--font-body);
-    font-weight: 500;
-  }
-
-  .auth-tag button {
-    background: none;
-    border: none;
-    cursor: pointer;
-    color: var(--gold-3);
-    padding: 0;
-    line-height: 1;
-    display: flex;
-    align-items: center;
-  }
-
-  /* ── ERROR / STATUS ── */
-  .auth-error {
-    padding: 12px 16px;
-    background: rgba(239,68,68,0.08);
-    border: 0.5px solid rgba(239,68,68,0.2);
-    border-radius: var(--radius-sm);
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    font-size: 13px;
-    color: #F87171;
-    font-family: var(--font-body);
-  }
-
-  /* ── STEP INDICATOR ── */
-  .auth-step-dots {
-    display: flex;
-    gap: 6px;
     margin-bottom: 32px;
   }
-
-  .auth-step-dot {
-    height: 3px;
-    border-radius: 2px;
-    background: var(--border);
-    transition: background 0.3s, width 0.3s;
-    flex: 1;
-  }
-
-  .auth-step-dot[data-active="true"] { background: var(--gold-2); }
-  .auth-step-dot[data-done="true"] { background: rgba(191,162,100,0.4); }
-
-  /* ── DIVIDER ── */
-  .auth-divider {
-    display: flex;
-    align-items: center;
-    gap: 14px;
-    margin: 20px 0;
-  }
-
-  .auth-divider-line {
-    flex: 1;
-    height: 0.5px;
-    background: var(--border);
-  }
-
-  .auth-divider span {
-    font-size: 10px;
-    font-weight: 700;
-    color: var(--text-dim);
-    letter-spacing: 0.2em;
-    font-family: var(--font-body);
-  }
-
-  /* ── PW STRENGTH ── */
-  .pw-bar { height: 3px; border-radius: 2px; transition: background 0.3s; background: var(--elevated); }
-
-  /* ── CHAR COUNT ── */
-  .char-count {
-    font-size: 10px;
-    color: var(--text-dim);
-    font-family: var(--font-body);
-    text-align: right;
-    margin-top: 4px;
-  }
-
-  /* ── SETUP SEQUENCE ── */
-  @keyframes auth-fade-in { from { opacity: 0; } to { opacity: 1; } }
-  @keyframes auth-count-up { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
-  @keyframes auth-glow-pulse { 0%, 100% { text-shadow: 0 0 30px rgba(191,162,100,0.4); } 50% { text-shadow: 0 0 60px rgba(212,175,120,0.7), 0 0 100px rgba(191,162,100,0.3); } }
-
-  /* OTP inputs */
-  .otp-input {
-    width: 48px;
-    height: 56px;
-    text-align: center;
-    font-size: 22px;
-    font-weight: 800;
-    font-family: var(--font-display);
-    background: var(--surface);
-    border: 0.5px solid var(--border);
-    border-radius: var(--radius-sm);
-    color: var(--text-primary);
-    outline: none;
-    transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
-    -webkit-appearance: none;
-    caret-color: var(--gold-2);
-  }
-
-  .otp-input:focus {
-    border-color: rgba(191,162,100,0.6);
-    background: var(--elevated);
-    box-shadow: 0 0 0 3px rgba(191,162,100,0.08);
-  }
-
-  .otp-input[data-filled="true"] {
-    border-color: rgba(191,162,100,0.4);
-    color: var(--gold-2);
-  }
-
-  /* ── TEXTAREA ── */
-  .auth-textarea {
-    width: 100%;
-    background: var(--surface);
-    border: 0.5px solid var(--border);
-    border-radius: var(--radius-sm);
-    padding: 14px 16px;
-    color: var(--text-primary);
-    font-family: var(--font-body);
-    font-size: 14px;
-    outline: none;
-    resize: vertical;
-    min-height: 96px;
-    max-height: 200px;
-    transition: border-color 0.25s, box-shadow 0.25s;
-    line-height: 1.6;
-  }
-
-  .auth-textarea::placeholder { color: var(--text-dim); }
-
-  .auth-textarea:focus {
-    border-color: rgba(191,162,100,0.5);
-    box-shadow: 0 0 0 3px rgba(191,162,100,0.06);
-  }
-
-  /* ── LEFT PANEL QUOTE SLIDER ── */
-  @keyframes slide-quote { 0% { opacity: 0; transform: translateY(12px); } 15% { opacity: 1; transform: translateY(0); } 85% { opacity: 1; transform: translateY(0); } 100% { opacity: 0; transform: translateY(-12px); } }
-
-  .grain-auth {
-    position: absolute;
-    inset: -50%;
-    width: 200%;
-    height: 200%;
-    opacity: 0.015;
-    background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-    pointer-events: none;
-  }
+}
 `;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// SMALL UI COMPONENTS
+// MICRO COMPONENTS
 // ─────────────────────────────────────────────────────────────────────────────
 
 const GoogleIcon = () => (
-  <svg viewBox="0 0 24 24" style={{ width: 18, height: 18, flexShrink: 0 }}>
+  <svg viewBox="0 0 24 24" width={18} height={18} style={{ flexShrink: 0 }}>
     <path
       fill="#4285F4"
       d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
@@ -575,359 +628,212 @@ const GoogleIcon = () => (
   </svg>
 );
 
-function StepDots({ current, total = 9 }) {
-  return (
-    <div className="auth-step-dots">
-      {Array.from({ length: total }).map((_, i) => (
-        <div
-          key={i}
-          className="auth-step-dot"
-          data-active={i + 1 === current ? "true" : "false"}
-          data-done={i + 1 < current ? "true" : "false"}
-        />
-      ))}
-    </div>
-  );
-}
+const Spinner = ({ size = 16, color = "var(--gold-2)" }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    style={{ animation: "ob-spin 0.8s linear infinite", flexShrink: 0 }}
+  >
+    <circle
+      cx="12"
+      cy="12"
+      r="10"
+      stroke={color}
+      strokeWidth="2"
+      strokeOpacity="0.2"
+    />
+    <path
+      d="M12 2a10 10 0 0 1 10 10"
+      stroke={color}
+      strokeWidth="2"
+      strokeLinecap="round"
+    />
+  </svg>
+);
 
-function ErrorBox({ msg }) {
+const CheckIcon = ({ size = 16, color = "#22C55E" }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke={color}
+    strokeWidth="2.5"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <polyline points="20 6 9 17 4 12" />
+  </svg>
+);
+
+const XIcon = ({ size = 16, color = "#F87171" }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke={color}
+    strokeWidth="2"
+    strokeLinecap="round"
+  >
+    <line x1="18" y1="6" x2="6" y2="18" />
+    <line x1="6" y1="6" x2="18" y2="18" />
+  </svg>
+);
+
+const ChevronRight = ({ size = 14 }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2.5"
+    strokeLinecap="round"
+  >
+    <polyline points="9 18 15 12 9 6" />
+  </svg>
+);
+
+const ErrorBox = ({ msg }) => {
   if (!msg) return null;
   return (
-    <div className="auth-error" style={{ marginBottom: 20 }}>
-      <AlertCircle size={15} style={{ flexShrink: 0 }} />
-      <span>{msg}</span>
-    </div>
-  );
-}
-
-function CharCount({ value, max }) {
-  const len = (value || "").length;
-  const warn = len > max * 0.85;
-  return (
-    <div
-      className="char-count"
-      style={{
-        color: len > max ? "#F87171" : warn ? "var(--gold-3)" : undefined,
-      }}
-    >
-      {len}/{max}
-    </div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// CUSTOM SEARCH SELECT (dropdown with search, fully visible)
-// ─────────────────────────────────────────────────────────────────────────────
-function SearchSelect({
-  options = [],
-  value,
-  onChange,
-  placeholder = "Select…",
-  allowCustom = false,
-  required = false,
-}) {
-  const [open, setOpen] = useState(false);
-  const [search, setSearch] = useState("");
-  const ref = useRef(null);
-
-  useEffect(() => {
-    const handler = (e) => {
-      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, []);
-
-  const filtered = options
-    .filter((o) => o.toLowerCase().includes(search.toLowerCase()))
-    .slice(0, 60);
-
-  const handleSelect = (opt) => {
-    onChange(opt);
-    setOpen(false);
-    setSearch("");
-  };
-
-  return (
-    <div ref={ref} className="auth-dropdown-wrap">
-      <button
-        type="button"
-        className="auth-dropdown-trigger"
-        data-open={open ? "true" : "false"}
-        onClick={() => setOpen((o) => !o)}
+    <div className="ob-error">
+      <svg
+        width={14}
+        height={14}
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="#F87171"
+        strokeWidth="2"
+        style={{ flexShrink: 0 }}
       >
-        {value ? (
-          <span style={{ color: "var(--text-primary)", fontSize: 14 }}>
-            {value}
-          </span>
-        ) : (
-          <span className="placeholder">{placeholder}</span>
-        )}
-        <svg
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          style={{
-            color: "var(--text-dim)",
-            flexShrink: 0,
-            transition: "transform 0.2s",
-            transform: open ? "rotate(180deg)" : "none",
-          }}
-        >
-          <path d="M6 9l6 6 6-6" />
-        </svg>
-      </button>
-      <AnimatePresence>
-        {open && (
-          <motion.div
-            initial={{ opacity: 0, y: -4 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -4 }}
-            transition={{ duration: 0.15 }}
-            className="auth-dropdown-menu"
-          >
-            <input
-              autoFocus
-              className="auth-dropdown-search"
-              placeholder="Search…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && allowCustom && search) {
-                  handleSelect(search);
-                }
-              }}
-            />
-            {filtered.length === 0 && allowCustom && search && (
-              <div
-                className="auth-dropdown-item"
-                onClick={() => handleSelect(search)}
-              >
-                + Use "<strong>{search}</strong>"
-              </div>
-            )}
-            {filtered.map((opt) => (
-              <div
-                key={opt}
-                className="auth-dropdown-item"
-                data-selected={value === opt ? "true" : "false"}
-                onClick={() => handleSelect(opt)}
-              >
-                {opt}
-              </div>
-            ))}
-          </motion.div>
-        )}
-      </AnimatePresence>
+        <circle cx="12" cy="12" r="10" />
+        <line x1="12" y1="8" x2="12" y2="12" />
+        <line x1="12" y1="16" x2="12.01" y2="16" />
+      </svg>
+      {msg}
     </div>
   );
-}
+};
 
-// ─────────────────────────────────────────────────────────────────────────────
-// MULTI SELECT
-// ─────────────────────────────────────────────────────────────────────────────
-function MultiSelect({
-  options = [],
-  selected = [],
-  onChange,
-  placeholder = "Add…",
-  allowCustom = false,
-}) {
-  const [open, setOpen] = useState(false);
-  const [search, setSearch] = useState("");
-  const ref = useRef(null);
+const ProgressBar = ({ current, total = 8 }) => (
+  <div className="ob-progress">
+    {Array.from({ length: total }).map((_, i) => (
+      <div
+        key={i}
+        className="ob-progress-seg"
+        data-done={i + 1 < current ? "true" : "false"}
+        data-active={i + 1 === current ? "true" : "false"}
+      />
+    ))}
+  </div>
+);
 
+function useDebounce(value, delay) {
+  const [dv, setDv] = useState(value);
   useEffect(() => {
-    const handler = (e) => {
-      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, []);
-
-  const filtered = options
-    .filter(
-      (o) =>
-        !selected.includes(o) && o.toLowerCase().includes(search.toLowerCase()),
-    )
-    .slice(0, 50);
-
-  const add = (opt) => {
-    onChange([...selected, opt]);
-    setSearch("");
-  };
-  const remove = (opt) => onChange(selected.filter((s) => s !== opt));
-
-  return (
-    <div ref={ref} className="auth-dropdown-wrap">
-      <button
-        type="button"
-        className="auth-dropdown-trigger"
-        data-open={open ? "true" : "false"}
-        onClick={() => setOpen((o) => !o)}
-        style={{ minHeight: 48 }}
-      >
-        <span
-          className="placeholder"
-          style={{
-            color: selected.length
-              ? "var(--text-secondary)"
-              : "var(--text-dim)",
-          }}
-        >
-          {selected.length ? `${selected.length} selected` : placeholder}
-        </span>
-        <svg
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          style={{ color: "var(--text-dim)", flexShrink: 0 }}
-        >
-          <path d="M6 9l6 6 6-6" />
-        </svg>
-      </button>
-      <AnimatePresence>
-        {open && (
-          <motion.div
-            initial={{ opacity: 0, y: -4 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -4 }}
-            transition={{ duration: 0.15 }}
-            className="auth-dropdown-menu"
-          >
-            <input
-              autoFocus
-              className="auth-dropdown-search"
-              placeholder="Search…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && search) {
-                  if (allowCustom || options.includes(search)) add(search);
-                }
-              }}
-            />
-            {allowCustom && search && !options.includes(search) && (
-              <div className="auth-dropdown-item" onClick={() => add(search)}>
-                + Add "<strong>{search}</strong>"
-              </div>
-            )}
-            {filtered.map((opt) => (
-              <div
-                key={opt}
-                className="auth-dropdown-item"
-                onClick={() => add(opt)}
-              >
-                {opt}
-              </div>
-            ))}
-          </motion.div>
-        )}
-      </AnimatePresence>
-      {selected.length > 0 && (
-        <div className="auth-multi-tags">
-          {selected.map((s) => (
-            <span key={s} className="auth-tag">
-              {s}
-              <button type="button" onClick={() => remove(s)}>
-                <X size={10} />
-              </button>
-            </span>
-          ))}
-        </div>
-      )}
-    </div>
-  );
+    const t = setTimeout(() => setDv(value), delay);
+    return () => clearTimeout(t);
+  }, [value, delay]);
+  return dv;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// LEFT PANEL — animated quote carousel + architectural lines
+// LEFT PANEL
 // ─────────────────────────────────────────────────────────────────────────────
-const QUOTES = [
-  { text: "Everything's got a price.", author: "John Wick" },
-  { text: "We can’t win if We can’t if we don’t try.", author: "Sonny Hayes" },
-  { text: "The future is real. The past is all made up.", author: "Logan Roy" },
-  {
-    text: "I want you to deal with your problems by becoming rich!",
-    author: "Jordan Belfort",
-  },
-  { text: "it's all a Fugazzi", author: "Mark Hanna" },
-];
-
-function LeftPanel({ step }) {
+function LeftPanel({ stepIndex, onBack }) {
   const [quoteIdx, setQuoteIdx] = useState(0);
-  const [visible, setVisible] = useState(true);
+  const [vis, setVis] = useState(true);
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      setVisible(false);
+    const iv = setInterval(() => {
+      setVis(false);
       setTimeout(() => {
         setQuoteIdx((i) => (i + 1) % QUOTES.length);
-        setVisible(true);
+        setVis(true);
       }, 400);
     }, 6000);
-    return () => clearInterval(interval);
+    return () => clearInterval(iv);
   }, []);
 
-  const stepLabels = [
+  const STEP_LABELS = [
+    "Gateway",
+    "Auth",
     "Identity",
-    "Email",
-    "Location",
-    "Background",
-    "Vision",
-    "Skills",
-    "Resources",
-    "Footprint",
-    "Canvas",
+    "Baseline",
+    "Intent",
+    "Network",
+    "Connectors",
+    "Motivation",
+    "Premium",
+    "Launch",
   ];
 
   return (
-    <div className="auth-left">
-      <div className="auth-left-bg" />
-      <div className="grain-auth" />
-      <div className="auth-left-lines">
-        {[0.2, 0.5, 0.8].map((pos, i) => (
-          <div
-            key={i}
-            className="auth-left-line"
-            style={{ left: `${pos * 100}%` }}
-          />
-        ))}
-      </div>
+    <div className="ob-left">
+      <div
+        style={{
+          position: "absolute",
+          inset: 0,
+          background:
+            "radial-gradient(ellipse at 30% 40%, rgba(191,162,100,0.07) 0%, transparent 65%), radial-gradient(ellipse at 70% 80%, rgba(139,114,64,0.05) 0%, transparent 55%)",
+          pointerEvents: "none",
+        }}
+      />
+      <div className="ob-grain" />
+      {[0.2, 0.5, 0.8].map((p, i) => (
+        <div
+          key={i}
+          style={{
+            position: "absolute",
+            top: 0,
+            bottom: 0,
+            left: `${p * 100}%`,
+            width: "0.5px",
+            background:
+              "linear-gradient(180deg, transparent, rgba(191,162,100,0.06) 30%, rgba(191,162,100,0.06) 70%, transparent)",
+            pointerEvents: "none",
+          }}
+        />
+      ))}
+
       <div style={{ padding: "32px 40px", position: "relative", zIndex: 1 }}>
-        <Link
-          to="/"
+        <button
+          onClick={onBack}
           style={{
             display: "flex",
             alignItems: "center",
-            gap: 10,
-            textDecoration: "none",
+            gap: 16,
+            background: "none",
+            border: "none",
+            cursor: "pointer",
+            color: "var(--text-primary)",
+            opacity: 0.8,
+            transition: "opacity 0.2s",
+            padding: 0,
           }}
+          onMouseOver={(e) => (e.currentTarget.style.opacity = 1)}
+          onMouseOut={(e) => (e.currentTarget.style.opacity = 0.8)}
         >
-          <img
-            src="/logo.png"
-            alt="Discotive"
-            style={{ height: 28, objectFit: "contain" }}
-          />
-          <span
-            style={{
-              fontFamily: "var(--font-display)",
-              fontWeight: 800,
-              fontSize: 17,
-              color: "var(--text-primary)",
-              letterSpacing: "-0.01em",
-            }}
+          <svg
+            width={20}
+            height={20}
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
           >
-            DISCOTIVE
-          </span>
-        </Link>
+            <line x1="19" y1="12" x2="5" y2="12" />
+            <polyline points="12 19 5 12 12 5" />
+          </svg>
+        </button>
       </div>
+
       <div
         style={{
           flex: 1,
@@ -938,40 +844,33 @@ function LeftPanel({ step }) {
           zIndex: 1,
         }}
       >
-        <div style={{ position: "relative", width: 260, height: 260 }}>
-          <motion.div
-            animate={{ rotate: 360 }}
-            transition={{ duration: 40, repeat: Infinity, ease: "linear" }}
-            style={{
-              position: "absolute",
-              inset: 0,
-              borderRadius: "50%",
-              border: "0.5px solid rgba(191,162,100,0.15)",
-            }}
-          />
-          <motion.div
-            animate={{ rotate: -360 }}
-            transition={{ duration: 25, repeat: Infinity, ease: "linear" }}
-            style={{
-              position: "absolute",
-              inset: 40,
-              borderRadius: "50%",
-              border: "0.5px solid rgba(191,162,100,0.25)",
-              borderTopColor: "var(--gold-2)",
-            }}
-          />
-          <motion.div
-            animate={{ rotate: 360 }}
-            transition={{ duration: 15, repeat: Infinity, ease: "linear" }}
-            style={{
-              position: "absolute",
-              inset: 80,
-              borderRadius: "50%",
-              border: "1px solid rgba(191,162,100,0.35)",
-              borderTopColor: "transparent",
-              borderRightColor: "transparent",
-            }}
-          />
+        <div style={{ position: "relative", width: 240, height: 240 }}>
+          {[
+            { inset: 0, duration: 40 },
+            { inset: 40, duration: 25, reverse: true },
+            { inset: 80, duration: 15 },
+          ].map((ring, i) => (
+            <motion.div
+              key={i}
+              animate={{ rotate: ring.reverse ? -360 : 360 }}
+              transition={{
+                duration: ring.duration,
+                repeat: Infinity,
+                ease: "linear",
+              }}
+              style={{
+                position: "absolute",
+                inset: ring.inset,
+                borderRadius: "50%",
+                border:
+                  i === 0
+                    ? "0.5px solid rgba(191,162,100,0.12)"
+                    : i === 1
+                      ? "0.5px solid rgba(191,162,100,0.22)"
+                      : "0.5px solid rgba(191,162,100,0.3)",
+              }}
+            />
+          ))}
           <div
             style={{
               position: "absolute",
@@ -982,22 +881,22 @@ function LeftPanel({ step }) {
             }}
           >
             <motion.div
-              animate={{ scale: [1, 1.1, 1], opacity: [0.6, 1, 0.6] }}
+              animate={{ scale: [1, 1.15, 1], opacity: [0.7, 1, 0.7] }}
               transition={{ duration: 3, repeat: Infinity }}
               style={{
-                width: 10,
-                height: 10,
+                width: 8,
+                height: 8,
                 borderRadius: "50%",
                 background: "var(--gold-2)",
-                boxShadow: "0 0 20px var(--gold-2)",
+                boxShadow: "0 0 16px var(--gold-2)",
               }}
             />
           </div>
-          {step >= 1 && step <= 9 && (
+          {stepIndex > 0 && (
             <div
               style={{
                 position: "absolute",
-                inset: -24,
+                inset: -20,
                 borderRadius: "50%",
                 display: "flex",
                 alignItems: "flex-start",
@@ -1006,51 +905,52 @@ function LeftPanel({ step }) {
             >
               <div
                 style={{
-                  background: "rgba(191,162,100,0.1)",
+                  background: "rgba(191,162,100,0.08)",
                   border: "0.5px solid var(--border-gold)",
                   borderRadius: 99,
-                  padding: "4px 14px",
+                  padding: "3px 12px",
                   fontSize: 9,
-                  letterSpacing: "0.2em",
+                  letterSpacing: "0.22em",
                   color: "var(--gold-2)",
                   fontFamily: "var(--font-body)",
                   textTransform: "uppercase",
-                  marginTop: 8,
+                  marginTop: 6,
                 }}
               >
-                {stepLabels[step - 1] || "Setup"}
+                {STEP_LABELS[stepIndex] || "Setup"}
               </div>
             </div>
           )}
         </div>
       </div>
+
       <div style={{ padding: "0 40px 48px", position: "relative", zIndex: 1 }}>
         <div
           style={{
-            height: 0.5,
+            height: "0.5px",
             background:
               "linear-gradient(90deg, transparent, var(--border-gold), transparent)",
-            marginBottom: 28,
+            marginBottom: 24,
           }}
         />
         <AnimatePresence mode="wait">
-          {visible && (
+          {vis && (
             <motion.div
               key={quoteIdx}
-              initial={{ opacity: 0, y: 10 }}
+              initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -8 }}
-              transition={{ duration: 0.5 }}
+              exit={{ opacity: 0, y: -6 }}
+              transition={{ duration: 0.4 }}
             >
               <p
                 style={{
                   fontFamily: "var(--font-display)",
                   fontStyle: "italic",
                   fontWeight: 300,
-                  fontSize: 15,
-                  lineHeight: 1.6,
+                  fontSize: 14,
+                  lineHeight: 1.65,
                   color: "var(--text-secondary)",
-                  marginBottom: 12,
+                  marginBottom: 10,
                 }}
               >
                 "{QUOTES[quoteIdx].text}"
@@ -1059,7 +959,7 @@ function LeftPanel({ step }) {
                 style={{
                   fontFamily: "var(--font-body)",
                   fontSize: 10,
-                  letterSpacing: "0.2em",
+                  letterSpacing: "0.22em",
                   textTransform: "uppercase",
                   color: "var(--gold-3)",
                 }}
@@ -1075,175 +975,311 @@ function LeftPanel({ step }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// STEP WRAPPER — consistent heading + step dots
+// STEP HEADER
 // ─────────────────────────────────────────────────────────────────────────────
-function StepWrapper({ step, total = 9, label, title, subtitle, children }) {
+function StepHeader({ step, total = 8, title }) {
   return (
-    <motion.div
-      key={step}
-      initial={{ opacity: 0, x: 16 }}
-      animate={{ opacity: 1, x: 0 }}
-      exit={{ opacity: 0, x: -16 }}
-      transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
-    >
-      <StepDots current={step} total={total} />
-      {label && (
-        <p
-          style={{
-            fontSize: 10,
-            fontWeight: 700,
-            letterSpacing: "0.25em",
-            textTransform: "uppercase",
-            color: "var(--gold-3)",
-            fontFamily: "var(--font-body)",
-            marginBottom: 10,
-          }}
-        >
-          {label}
-        </p>
-      )}
+    <div style={{ marginBottom: 32 }}>
+      <ProgressBar current={step} total={total} />
       <h2
         style={{
           fontFamily: "var(--font-display)",
           fontWeight: 800,
-          fontSize: "clamp(26px, 5vw, 34px)",
+          fontSize: "clamp(26px, 5vw, 33px)",
           letterSpacing: "-0.03em",
           lineHeight: 1.1,
           color: "var(--text-primary)",
-          marginBottom: 6,
+          margin: 0,
         }}
       >
         {title}
       </h2>
-      {subtitle && (
-        <p
-          style={{
-            fontSize: 14,
-            color: "var(--text-secondary)",
-            fontFamily: "var(--font-body)",
-            marginBottom: 28,
-            lineHeight: 1.6,
-          }}
-        >
-          {subtitle}
-        </p>
-      )}
-      {children}
-    </motion.div>
+    </div>
   );
 }
 
+const STEP_VARIANTS = {
+  initial: { opacity: 0, y: 15, scale: 0.98 },
+  animate: {
+    opacity: 1,
+    y: 0,
+    scale: 1,
+    transition: { type: "spring", stiffness: 350, damping: 30, mass: 0.8 },
+  },
+  exit: {
+    opacity: 0,
+    y: -10,
+    scale: 0.98,
+    transition: { duration: 0.2 },
+  },
+};
+
 // ─────────────────────────────────────────────────────────────────────────────
-// STEP 0 — LOGIN
+// STEP 1A — LOGIN
 // ─────────────────────────────────────────────────────────────────────────────
-function Step0Login({
-  onSubmit,
-  onOAuth,
-  goToSignup,
-  authError,
-  isProcessing,
-}) {
-  const [email, setEmail] = useState("");
+function StepLogin({ onSubmit, onOAuth, onSwitch, loading, error }) {
+  const store = useOnboardingStore();
   const [password, setPassword] = useState("");
   const [showPw, setShowPw] = useState(false);
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 12 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0 }}
-      transition={{ duration: 0.35 }}
+      variants={STEP_VARIANTS}
+      initial="initial"
+      animate="animate"
+      exit="exit"
     >
-      <div style={{ marginBottom: 36 }}>
-        <p
-          style={{
-            fontSize: 10,
-            fontWeight: 700,
-            letterSpacing: "0.25em",
-            textTransform: "uppercase",
-            color: "var(--gold-3)",
-            fontFamily: "var(--font-body)",
-            marginBottom: 10,
-          }}
-        >
-          Welcome Back
-        </p>
+      <div style={{ marginBottom: 32 }}>
         <h2
           style={{
             fontFamily: "var(--font-display)",
             fontWeight: 800,
-            fontSize: "clamp(28px, 5vw, 36px)",
-            letterSpacing: "-0.03em",
+            fontSize: "clamp(28px, 6vw, 36px)",
+            letterSpacing: "-0.04em",
             color: "var(--text-primary)",
-            marginBottom: 6,
+            margin: 0,
           }}
         >
-          Sign In
+          Welcome back.
         </h2>
-        <p
-          style={{
-            fontSize: 14,
-            color: "var(--text-secondary)",
-            fontFamily: "var(--font-body)",
-          }}
-        >
-          Pick up where you left off.
-        </p>
       </div>
 
-      <ErrorBox msg={authError} />
+      <ErrorBox msg={error} />
 
       <button
         type="button"
-        className="auth-oauth-btn"
+        className="ob-oauth-btn"
         onClick={onOAuth}
-        disabled={isProcessing}
-        style={{ marginBottom: 16 }}
+        disabled={loading}
+        style={{ marginBottom: 20 }}
       >
-        {isProcessing ? (
-          <Loader2 size={16} style={{ animation: "spin 1s linear infinite" }} />
-        ) : (
-          <GoogleIcon />
-        )}
-        Continue with Google
+        {loading ? <Spinner /> : <GoogleIcon />}
+        Sign in with Google
       </button>
 
-      <div className="auth-divider">
-        <div className="auth-divider-line" />
+      <div className="ob-divider">
+        <div className="ob-divider-line" />
         <span>or</span>
-        <div className="auth-divider-line" />
+        <div className="ob-divider-line" />
       </div>
 
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          onSubmit(email, password);
+          onSubmit(store.email, password);
         }}
         style={{ display: "flex", flexDirection: "column", gap: 16 }}
       >
-        <div>
-          <label className="auth-label">Email address</label>
+        <div className="ob-input-group">
           <input
+            className="ob-input"
             type="email"
-            className="auth-input"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="you@example.com"
+            value={store.email}
+            onChange={(e) => store.setField("email", e.target.value)}
+            placeholder=" "
             required
           />
+          <label className="ob-floating-label">Email address</label>
         </div>
-        <div>
-          <label className="auth-label">Password</label>
-          <div style={{ position: "relative" }}>
+
+        <div className="ob-input-group">
+          <input
+            className="ob-input"
+            type={showPw ? "text" : "password"}
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder=" "
+            required
+            style={{ paddingRight: 48 }}
+          />
+          <label className="ob-floating-label">Password</label>
+          <button
+            type="button"
+            onClick={() => setShowPw((v) => !v)}
+            style={{
+              position: "absolute",
+              right: 14,
+              top: "50%",
+              transform: "translateY(-50%)",
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              color: "var(--text-dim)",
+              padding: 0,
+            }}
+          >
+            {showPw ? (
+              <svg
+                width={16}
+                height={16}
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+              >
+                <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24M1 1l22 22" />
+              </svg>
+            ) : (
+              <svg
+                width={16}
+                height={16}
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+              >
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                <circle cx="12" cy="12" r="3" />
+              </svg>
+            )}
+          </button>
+        </div>
+
+        <button
+          type="submit"
+          className="ob-btn-primary"
+          disabled={loading}
+          style={{ marginTop: 8 }}
+        >
+          {loading ? <Spinner size={14} color="#0a0a0a" /> : "Sign In"}
+          {!loading && <ChevronRight />}
+        </button>
+      </form>
+
+      <div style={{ marginTop: 24, textAlign: "center" }}>
+        <p style={{ fontSize: 13, color: "var(--text-secondary)" }}>
+          Don't have an account?{" "}
+          <button
+            onClick={onSwitch}
+            style={{
+              background: "none",
+              border: "none",
+              color: "var(--gold-2)",
+              fontWeight: 600,
+              cursor: "pointer",
+              fontFamily: "var(--font-body)",
+              padding: 0,
+            }}
+          >
+            Sign up
+          </button>
+        </p>
+      </div>
+    </motion.div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STEP 1B — SIGN UP AUTH (new user)
+// ─────────────────────────────────────────────────────────────────────────────
+function StepAuth({ onSubmit, onOAuth, onSwitch, loading, error }) {
+  const store = useOnboardingStore();
+  const { setField } = store;
+  const [showPw, setShowPw] = useState(false);
+  const pwColors = ["#EF4444", "#EF4444", "#F59E0B", "#22C55E", "#22C55E"];
+
+  const pwScore = (() => {
+    const p = store.password;
+    let s = 0;
+    if (p.length > 7) s++;
+    if (/[a-z]/.test(p) && /[A-Z]/.test(p)) s++;
+    if (/\d/.test(p)) s++;
+    if (/[^a-zA-Z0-9]/.test(p)) s++;
+    return s;
+  })();
+
+  return (
+    <motion.div
+      variants={STEP_VARIANTS}
+      initial="initial"
+      animate="animate"
+      exit="exit"
+    >
+      <StepHeader
+        step={1}
+        overline="Step 1 of 8"
+        title="Create identity."
+        subtitle="Who are you? This is the foundation."
+      />
+
+      <ErrorBox msg={error} />
+
+      <button
+        type="button"
+        className="ob-oauth-btn"
+        onClick={onOAuth}
+        disabled={loading}
+        style={{ marginBottom: 20 }}
+      >
+        {loading ? <Spinner /> : <GoogleIcon />}
+        Sign up with Google
+      </button>
+
+      <div className="ob-divider">
+        <div className="ob-divider-line" />
+        <span>or</span>
+        <div className="ob-divider-line" />
+      </div>
+
+      <form
+        onSubmit={onSubmit}
+        style={{ display: "flex", flexDirection: "column", gap: 16 }}
+      >
+        <div
+          style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}
+        >
+          <div className="ob-input-group">
             <input
-              type={showPw ? "text" : "password"}
-              className="auth-input"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••••"
+              className="ob-input"
+              type="text"
+              value={store.firstName}
+              onChange={(e) => setField("firstName", e.target.value)}
+              placeholder=" "
               required
+              maxLength={50}
+            />
+            <label className="ob-floating-label">First name</label>
+          </div>
+          <div className="ob-input-group">
+            <input
+              className="ob-input"
+              type="text"
+              value={store.lastName}
+              onChange={(e) => setField("lastName", e.target.value)}
+              placeholder=" "
+              required
+              maxLength={50}
+            />
+            <label className="ob-floating-label">Last name</label>
+          </div>
+        </div>
+
+        <div className="ob-input-group">
+          <input
+            className="ob-input"
+            type="email"
+            value={store.email}
+            onChange={(e) => setField("email", e.target.value)}
+            placeholder=" "
+            required
+            maxLength={120}
+          />
+          <label className="ob-floating-label">Email address</label>
+        </div>
+
+        <div>
+          <div className="ob-input-group">
+            <input
+              className="ob-input"
+              type={showPw ? "text" : "password"}
+              value={store.password}
+              onChange={(e) => setField("password", e.target.value)}
+              placeholder=" "
+              required
+              minLength={8}
               style={{ paddingRight: 48 }}
             />
+            <label className="ob-floating-label">Password</label>
             <button
               type="button"
               onClick={() => setShowPw((v) => !v)}
@@ -1259,175 +1295,30 @@ function Step0Login({
                 padding: 0,
               }}
             >
-              {showPw ? <EyeOff size={16} /> : <Eye size={16} />}
-            </button>
-          </div>
-        </div>
-        <button
-          type="submit"
-          className="auth-btn-primary"
-          disabled={isProcessing}
-          style={{ marginTop: 8 }}
-        >
-          {isProcessing ? (
-            <Loader2
-              size={16}
-              style={{ animation: "spin 1s linear infinite" }}
-            />
-          ) : (
-            "Sign In"
-          )}
-        </button>
-      </form>
-
-      <p
-        style={{
-          marginTop: 24,
-          textAlign: "center",
-          fontSize: 13,
-          color: "var(--text-dim)",
-          fontFamily: "var(--font-body)",
-        }}
-      >
-        Don't have an account?{" "}
-        <button
-          type="button"
-          onClick={goToSignup}
-          style={{
-            background: "none",
-            border: "none",
-            cursor: "pointer",
-            color: "var(--gold-2)",
-            fontWeight: 600,
-            fontSize: 13,
-            fontFamily: "var(--font-body)",
-          }}
-        >
-          Create one
-        </button>
-      </p>
-    </motion.div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// STEP 1 — IDENTITY
-// ─────────────────────────────────────────────────────────────────────────────
-function Step1Identity({
-  profileData,
-  setField,
-  systemStatus,
-  handleSubmit,
-  handleOAuth,
-  setIsLogin,
-  pwScore,
-}) {
-  const [showPw, setShowPw] = useState(false);
-  const pwColors = ["#EF4444", "#EF4444", "#F59E0B", "#22C55E", "#22C55E"];
-
-  return (
-    <StepWrapper
-      step={1}
-      label="Step 1 of 9"
-      title="Create your identity."
-      subtitle="Tell us who you are. This is the foundation of your profile."
-    >
-      <ErrorBox msg={systemStatus.error} />
-
-      <button
-        type="button"
-        className="auth-oauth-btn"
-        onClick={handleOAuth}
-        disabled={systemStatus.loading}
-        style={{ marginBottom: 16 }}
-      >
-        {systemStatus.loading ? (
-          <Loader2 size={16} style={{ animation: "spin 1s linear infinite" }} />
-        ) : (
-          <GoogleIcon />
-        )}
-        Continue with Google
-      </button>
-
-      <div className="auth-divider">
-        <div className="auth-divider-line" />
-        <span>or</span>
-        <div className="auth-divider-line" />
-      </div>
-
-      <form
-        onSubmit={handleSubmit}
-        style={{ display: "flex", flexDirection: "column", gap: 16 }}
-        noValidate
-      >
-        <div
-          style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}
-        >
-          <div>
-            <label className="auth-label">First name</label>
-            <input
-              className="auth-input"
-              type="text"
-              value={profileData.firstName}
-              onChange={(e) => setField("firstName", e.target.value)}
-              placeholder="Alex"
-              required
-              maxLength={50}
-            />
-          </div>
-          <div>
-            <label className="auth-label">Last name</label>
-            <input
-              className="auth-input"
-              type="text"
-              value={profileData.lastName}
-              onChange={(e) => setField("lastName", e.target.value)}
-              placeholder="Chen"
-              required
-              maxLength={50}
-            />
-          </div>
-        </div>
-        <div>
-          <label className="auth-label">Email address</label>
-          <input
-            className="auth-input"
-            type="email"
-            value={profileData.email}
-            onChange={(e) => setField("email", e.target.value)}
-            placeholder="you@example.com"
-            required
-            maxLength={120}
-          />
-        </div>
-        <div>
-          <label className="auth-label">Password</label>
-          <div style={{ position: "relative" }}>
-            <input
-              className="auth-input"
-              type={showPw ? "text" : "password"}
-              value={profileData.password}
-              onChange={(e) => setField("password", e.target.value)}
-              placeholder="Minimum 8 characters"
-              required
-              minLength={8}
-              style={{ paddingRight: 48 }}
-            />
-            <button
-              type="button"
-              onClick={() => setShowPw((v) => !v)}
-              style={{
-                position: "absolute",
-                right: 14,
-                top: "50%",
-                transform: "translateY(-50%)",
-                background: "none",
-                border: "none",
-                cursor: "pointer",
-                color: "var(--text-dim)",
-              }}
-            >
-              {showPw ? <EyeOff size={16} /> : <Eye size={16} />}
+              {showPw ? (
+                <svg
+                  width={16}
+                  height={16}
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
+                  <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24M1 1l22 22" />
+                </svg>
+              ) : (
+                <svg
+                  width={16}
+                  height={16}
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                  <circle cx="12" cy="12" r="3" />
+                </svg>
+              )}
             </button>
           </div>
           <div style={{ display: "flex", gap: 4, marginTop: 8 }}>
@@ -1437,7 +1328,10 @@ function Step1Identity({
                 className="pw-bar"
                 style={{
                   flex: 1,
-                  background: pwScore >= l ? pwColors[pwScore] : undefined,
+                  background:
+                    store.password.length > 0 && pwScore >= l
+                      ? pwColors[pwScore]
+                      : undefined,
                 }}
               />
             ))}
@@ -1446,75 +1340,76 @@ function Step1Identity({
 
         <button
           type="submit"
-          className="auth-btn-primary"
-          disabled={systemStatus.loading}
-          style={{ marginTop: 8 }}
+          className="ob-btn-primary"
+          disabled={loading}
+          style={{ marginTop: 4 }}
         >
-          {systemStatus.loading ? (
-            <Loader2
-              size={16}
-              style={{ animation: "spin 1s linear infinite" }}
-            />
-          ) : (
-            <>
-              <span>Continue</span>
-              <ChevronRight size={15} />
-            </>
-          )}
+          {loading ? <Spinner size={14} color="#0a0a0a" /> : "Continue"}{" "}
+          {!loading && <ChevronRight />}
         </button>
       </form>
 
-      <p
-        style={{
-          marginTop: 24,
-          textAlign: "center",
-          fontSize: 13,
-          color: "var(--text-dim)",
-          fontFamily: "var(--font-body)",
-        }}
-      >
-        Already have an account?{" "}
-        <button
-          type="button"
-          onClick={() => setIsLogin(true)}
-          style={{
-            background: "none",
-            border: "none",
-            cursor: "pointer",
-            color: "var(--gold-2)",
-            fontWeight: 600,
-            fontSize: 13,
-            fontFamily: "var(--font-body)",
-          }}
-        >
-          Sign in
-        </button>
-      </p>
-    </StepWrapper>
+      <div style={{ marginTop: 24, textAlign: "center" }}>
+        <p style={{ fontSize: 13, color: "var(--text-secondary)" }}>
+          Already an operator?{" "}
+          <button
+            type="button"
+            onClick={onSwitch}
+            style={{
+              background: "none",
+              border: "none",
+              color: "var(--gold-2)",
+              fontWeight: 600,
+              cursor: "pointer",
+              fontFamily: "var(--font-body)",
+              padding: 0,
+            }}
+          >
+            Log in
+          </button>
+        </p>
+      </div>
+    </motion.div>
   );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// STEP 1.5 — EMAIL VERIFICATION
+// STEP 1.5 — EMAIL OTP VERIFY
 // ─────────────────────────────────────────────────────────────────────────────
-function StepEmailVerify({ email, firstName, onVerified, onChangeEmail }) {
+function StepVerifyEmail({ email, firstName, onVerified, onBack }) {
   const [otp, setOtp] = useState(["", "", "", "", "", ""]);
   const [verifying, setVerifying] = useState(false);
   const [resending, setResending] = useState(false);
   const [error, setError] = useState("");
-  const [success, setSuccess] = useState(false);
   const [cooldown, setCooldown] = useState(0);
+  const [success, setSuccess] = useState(false);
   const refs = useRef([]);
 
   useEffect(() => {
     refs.current[0]?.focus();
   }, []);
-
   useEffect(() => {
     if (cooldown <= 0) return;
     const t = setInterval(() => setCooldown((c) => c - 1), 1000);
     return () => clearInterval(t);
   }, [cooldown]);
+
+  const verify = async (code) => {
+    setVerifying(true);
+    setError("");
+    try {
+      const fn = httpsCallable(functions, "verifyEmailOTP");
+      await fn({ otp: code, email });
+      setSuccess(true);
+      setTimeout(() => onVerified(), 1400);
+    } catch (err) {
+      setError(err.message || "Incorrect code. Try again.");
+      setOtp(["", "", "", "", "", ""]);
+      refs.current[0]?.focus();
+    } finally {
+      setVerifying(false);
+    }
+  };
 
   const handleChange = (i, val) => {
     if (!/^\d*$/.test(val)) return;
@@ -1540,23 +1435,6 @@ function StepEmailVerify({ email, firstName, onVerified, onChangeEmail }) {
       setOtp(arr);
       refs.current[5]?.focus();
       verify(pasted);
-    }
-  };
-
-  const verify = async (code) => {
-    setVerifying(true);
-    setError("");
-    try {
-      const fn = httpsCallable(functions, "verifyEmailOTP");
-      await fn({ otp: code, email: email });
-      setSuccess(true);
-      setTimeout(() => onVerified(), 1400);
-    } catch (err) {
-      setError(err.message || "That code is incorrect. Please try again.");
-      setOtp(["", "", "", "", "", ""]);
-      refs.current[0]?.focus();
-    } finally {
-      setVerifying(false);
     }
   };
 
@@ -1595,15 +1473,24 @@ function StepEmailVerify({ email, firstName, onVerified, onChangeEmail }) {
             width: 80,
             height: 80,
             borderRadius: "50%",
-            background: "rgba(34,197,94,0.1)",
-            border: "0.5px solid rgba(34,197,94,0.3)",
+            background: "rgba(34,197,94,0.08)",
+            border: "0.5px solid rgba(34,197,94,0.25)",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
             marginBottom: 24,
           }}
         >
-          <ShieldCheck size={36} style={{ color: "#22C55E" }} />
+          <svg
+            width={36}
+            height={36}
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="#22C55E"
+            strokeWidth="2"
+          >
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+          </svg>
         </motion.div>
         <h3
           style={{
@@ -1614,7 +1501,7 @@ function StepEmailVerify({ email, firstName, onVerified, onChangeEmail }) {
             marginBottom: 8,
           }}
         >
-          Email verified.
+          Identity confirmed.
         </h3>
         <p
           style={{
@@ -1623,7 +1510,7 @@ function StepEmailVerify({ email, firstName, onVerified, onChangeEmail }) {
             fontFamily: "var(--font-body)",
           }}
         >
-          Identity confirmed. Moving forward…
+          Booting your OS…
         </p>
       </motion.div>
     );
@@ -1631,25 +1518,13 @@ function StepEmailVerify({ email, firstName, onVerified, onChangeEmail }) {
 
   return (
     <motion.div
-      initial={{ opacity: 0, x: 16 }}
-      animate={{ opacity: 1, x: 0 }}
-      exit={{ opacity: 0, x: -16 }}
-      transition={{ duration: 0.3 }}
+      variants={STEP_VARIANTS}
+      initial="initial"
+      animate="animate"
+      exit="exit"
+      transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
     >
       <div style={{ marginBottom: 32 }}>
-        <p
-          style={{
-            fontSize: 10,
-            fontWeight: 700,
-            letterSpacing: "0.25em",
-            textTransform: "uppercase",
-            color: "var(--gold-3)",
-            fontFamily: "var(--font-body)",
-            marginBottom: 10,
-          }}
-        >
-          Email Verification
-        </p>
         <h2
           style={{
             fontFamily: "var(--font-display)",
@@ -1667,21 +1542,11 @@ function StepEmailVerify({ email, firstName, onVerified, onChangeEmail }) {
             fontSize: 14,
             color: "var(--text-secondary)",
             fontFamily: "var(--font-body)",
-            lineHeight: 1.6,
+            lineHeight: 1.65,
           }}
         >
-          We sent a 6-digit code to{" "}
+          6-digit code sent to{" "}
           <strong style={{ color: "var(--text-primary)" }}>{email}</strong>
-        </p>
-        <p
-          style={{
-            fontSize: 12,
-            color: "var(--text-dim)",
-            fontFamily: "var(--font-body)",
-            marginTop: 6,
-          }}
-        >
-          Check your spam folder if you don't see it within a minute.
         </p>
       </div>
 
@@ -1696,68 +1561,51 @@ function StepEmailVerify({ email, firstName, onVerified, onChangeEmail }) {
         }}
         onPaste={handlePaste}
       >
-        {otp.map((digit, i) => (
+        {otp.map((d, i) => (
           <input
             key={i}
             ref={(el) => (refs.current[i] = el)}
             type="text"
             inputMode="numeric"
             maxLength={1}
-            value={digit}
+            value={d}
             onChange={(e) => handleChange(i, e.target.value)}
             onKeyDown={(e) => handleKey(i, e)}
-            className="otp-input"
-            data-filled={digit ? "true" : "false"}
+            className="ob-otp"
+            data-filled={d ? "true" : "false"}
           />
         ))}
       </div>
 
       <button
-        type="button"
-        className="auth-btn-primary"
+        className="ob-btn-primary"
         onClick={() => verify(otp.join(""))}
         disabled={verifying || otp.some((d) => !d)}
         style={{ marginBottom: 16 }}
       >
-        {verifying ? (
-          <Loader2 size={16} style={{ animation: "spin 1s linear infinite" }} />
-        ) : (
-          "Verify Code"
-        )}
+        {verifying ? <Spinner size={14} color="#0a0a0a" /> : "Verify Code"}
       </button>
 
       <div
         style={{
           display: "flex",
-          alignItems: "center",
           justifyContent: "space-between",
+          alignItems: "center",
         }}
       >
         <button
-          type="button"
           onClick={resend}
           disabled={resending || cooldown > 0}
           style={{
             background: "none",
             border: "none",
             cursor: "pointer",
-            fontSize: 13,
+            fontSize: 12,
             color: "var(--text-dim)",
             fontFamily: "var(--font-body)",
-            display: "flex",
-            alignItems: "center",
-            gap: 6,
-            opacity: resending || cooldown > 0 ? 0.5 : 1,
-            transition: "opacity 0.2s, color 0.2s",
+            opacity: cooldown > 0 ? 0.5 : 1,
           }}
-          onMouseEnter={(e) =>
-            (e.currentTarget.style.color = "var(--text-primary)")
-          }
-          onMouseLeave={(e) =>
-            (e.currentTarget.style.color = "var(--text-dim)")
-          }
         >
-          <RefreshCw size={13} />
           {cooldown > 0
             ? `Resend in ${cooldown}s`
             : resending
@@ -1765,23 +1613,15 @@ function StepEmailVerify({ email, firstName, onVerified, onChangeEmail }) {
               : "Resend code"}
         </button>
         <button
-          type="button"
-          onClick={onChangeEmail}
+          onClick={onBack}
           style={{
             background: "none",
             border: "none",
             cursor: "pointer",
-            fontSize: 13,
+            fontSize: 12,
             color: "var(--text-dim)",
             fontFamily: "var(--font-body)",
-            transition: "color 0.2s",
           }}
-          onMouseEnter={(e) =>
-            (e.currentTarget.style.color = "var(--text-primary)")
-          }
-          onMouseLeave={(e) =>
-            (e.currentTarget.style.color = "var(--text-dim)")
-          }
         >
           Wrong email?
         </button>
@@ -1791,60 +1631,102 @@ function StepEmailVerify({ email, firstName, onVerified, onChangeEmail }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// STEP 2 — COORDINATES
+// STEP 2 — IDENTITY (username)
 // ─────────────────────────────────────────────────────────────────────────────
-function Step2Coordinates({
-  profileData,
-  setField,
-  systemStatus,
-  handleSubmit,
-  setStep,
-  usernameAvailable,
-  debouncedUsername,
-}) {
+function StepIdentity({ onSubmit, onBack, loading, error }) {
+  const { username, setField } = useOnboardingStore();
+  const [available, setAvailable] = useState(null);
+  const [checking, setChecking] = useState(false);
+  const debouncedUN = useDebounce(username, 600);
+
+  useEffect(() => {
+    if (debouncedUN.length < 3) {
+      setAvailable(null);
+      return;
+    }
+    setChecking(true);
+    let active = true;
+    (async () => {
+      try {
+        const snap = await getDocs(
+          query(
+            collection(db, "users"),
+            where("identity.username", "==", debouncedUN.toLowerCase()),
+          ),
+        );
+        if (active) setAvailable(snap.empty);
+      } catch {
+      } finally {
+        if (active) setChecking(false);
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [debouncedUN]);
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (!username || username.length < 3) return;
+    if (available === false) return;
+    onSubmit(available);
+  };
+
   return (
-    <StepWrapper
-      step={2}
-      label="Step 2 of 9"
-      title="Your coordinates."
-      subtitle="Where are you based, and what should people call you?"
+    <motion.div
+      variants={STEP_VARIANTS}
+      initial="initial"
+      animate="animate"
+      exit="exit"
+      transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
     >
-      <ErrorBox msg={systemStatus.error} />
+      <StepHeader
+        step={2}
+        overline="Step 2 of 8"
+        title="Your handle."
+        subtitle="How will operators find you on the global arena?"
+      />
+
+      <ErrorBox msg={error} />
+
       <form
         onSubmit={handleSubmit}
-        style={{ display: "flex", flexDirection: "column", gap: 16 }}
+        style={{ display: "flex", flexDirection: "column", gap: 20 }}
       >
         <div>
-          <label className="auth-label">Your unique username (handle)</label>
-          <div style={{ position: "relative" }}>
+          <div className="ob-input-group">
             <span
               style={{
                 position: "absolute",
-                left: 14,
-                top: "50%",
-                transform: "translateY(-50%)",
+                left: 16,
+                top: 26,
                 color: "var(--text-dim)",
                 fontFamily: "var(--font-body)",
-                fontSize: 14,
+                fontSize: 12,
+                pointerEvents: "none",
+                zIndex: 10,
               }}
             >
               @
             </span>
             <input
-              className="auth-input"
-              style={{ paddingLeft: 30, paddingRight: 44 }}
+              className="ob-input"
+              style={{ paddingLeft: 34, paddingRight: 44 }}
               type="text"
-              value={profileData.username}
+              value={username}
               onChange={(e) =>
                 setField(
                   "username",
                   e.target.value.replace(/[^a-zA-Z0-9_]/g, "").toLowerCase(),
                 )
               }
-              placeholder="yourname"
+              placeholder=" "
               required
               maxLength={30}
             />
+            <label className="ob-floating-label" style={{ left: 34 }}>
+              Unique username
+            </label>
             <div
               style={{
                 position: "absolute",
@@ -1853,36 +1735,25 @@ function Step2Coordinates({
                 transform: "translateY(-50%)",
               }}
             >
-              {usernameAvailable === true && (
-                <CheckCircle2 size={16} style={{ color: "#22C55E" }} />
-              )}
-              {usernameAvailable === false && (
-                <X size={16} style={{ color: "#EF4444" }} />
-              )}
-              {usernameAvailable === null && debouncedUsername.length > 2 && (
-                <Loader2
-                  size={16}
-                  style={{
-                    color: "var(--text-dim)",
-                    animation: "spin 1s linear infinite",
-                  }}
-                />
+              {checking && <Spinner size={14} />}
+              {!checking && available === false && username.length >= 3 && (
+                <XIcon size={14} />
               )}
             </div>
           </div>
-          {usernameAvailable === false && (
+          {available === false && (
             <p
               style={{
                 fontSize: 11,
-                color: "#EF4444",
+                color: "#F87171",
                 fontFamily: "var(--font-body)",
                 marginTop: 4,
               }}
             >
-              This username is taken. Try another one.
+              This handle is taken. Try another.
             </p>
           )}
-          {usernameAvailable === true && (
+          {available === true && (
             <p
               style={{
                 fontSize: 11,
@@ -1891,1353 +1762,1170 @@ function Step2Coordinates({
                 marginTop: 4,
               }}
             >
-              Great, that's available!
+              That handle is available!
             </p>
           )}
-        </div>
-
-        <div>
-          <label className="auth-label">How do you identify?</label>
-          <select
-            className="auth-select"
-            value={profileData.gender}
-            onChange={(e) => setField("gender", e.target.value)}
-            required
-          >
-            <option value="" disabled>
-              Select…
-            </option>
-            <option value="Male">Male</option>
-            <option value="Female">Female</option>
-            <option value="Other">Non-binary / Other</option>
-            <option value="Prefer not to say">Prefer not to say</option>
-          </select>
-        </div>
-
-        <div
-          style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}
-        >
-          <div>
-            <label className="auth-label">State / Province</label>
-            <SearchSelect
-              options={INDIAN_STATES}
-              value={profileData.userState}
-              onChange={(v) => setField("userState", v)}
-              placeholder="e.g. Rajasthan"
-              allowCustom
-            />
-          </div>
-          <div>
-            <label className="auth-label">Country</label>
-            <SearchSelect
-              options={COUNTRIES}
-              value={profileData.country}
-              onChange={(v) => setField("country", v)}
-              placeholder="e.g. India"
-            />
-          </div>
-        </div>
-
-        <div style={{ display: "flex", gap: 12, marginTop: 8 }}>
-          <button
-            type="button"
-            className="auth-btn-ghost"
-            onClick={() => setStep(1)}
-          >
-            Back
-          </button>
-          <button
-            type="submit"
-            className="auth-btn-primary"
-            style={{ flex: 1 }}
-          >
-            Continue <ChevronRight size={15} />
-          </button>
-        </div>
-      </form>
-    </StepWrapper>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// STEP 3 — BACKGROUND
-// ─────────────────────────────────────────────────────────────────────────────
-function Step3Background({
-  profileData,
-  setField,
-  systemStatus,
-  handleSubmit,
-  setStep,
-}) {
-  return (
-    <StepWrapper
-      step={3}
-      label="Step 3 of 9"
-      title="Your background."
-      subtitle="Tell us where you're starting from — school, college, or work."
-    >
-      <ErrorBox msg={systemStatus.error} />
-      <form
-        onSubmit={handleSubmit}
-        style={{ display: "flex", flexDirection: "column", gap: 16 }}
-      >
-        <div>
-          <label className="auth-label">Current situation</label>
-          <SearchSelect
-            options={CURRENT_STATUSES}
-            value={profileData.currentStatus}
-            onChange={(v) => setField("currentStatus", v)}
-            placeholder="Pick the one that fits you"
-            required
-          />
-        </div>
-        <div>
-          <label className="auth-label">
-            College / University / Organisation (optional)
-          </label>
-          <SearchSelect
-            options={INSTITUTIONS}
-            value={profileData.institution}
-            onChange={(v) => setField("institution", v)}
-            placeholder="Search or type yours…"
-            allowCustom
-          />
-        </div>
-        <div
-          style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}
-        >
-          <div>
-            <label className="auth-label">Degree / Course (optional)</label>
-            <SearchSelect
-              options={COURSES}
-              value={profileData.course}
-              onChange={(v) => setField("course", v)}
-              placeholder="e.g. B.Tech"
-              allowCustom
-            />
-          </div>
-          <div>
-            <label className="auth-label">Specialisation (optional)</label>
-            <SearchSelect
-              options={SPECIALIZATIONS}
-              value={profileData.specialization}
-              onChange={(v) => setField("specialization", v)}
-              placeholder="e.g. Computer Science"
-              allowCustom
-            />
-          </div>
-        </div>
-        <div style={{ paddingTop: 8, borderTop: "0.5px solid var(--border)" }}>
-          <label className="auth-label" style={{ marginBottom: 12 }}>
-            Study period (optional)
-          </label>
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "1fr 1fr",
-              gap: 12,
-              marginBottom: 12,
-            }}
-          >
-            <div>
-              <p
-                style={{
-                  fontSize: 10,
-                  color: "var(--text-dim)",
-                  marginBottom: 6,
-                  fontFamily: "var(--font-body)",
-                  letterSpacing: "0.1em",
-                  textTransform: "uppercase",
-                }}
-              >
-                Start month
-              </p>
-              <SearchSelect
-                options={MONTHS}
-                value={profileData.startMonth}
-                onChange={(v) => setField("startMonth", v)}
-                placeholder="Month"
-              />
-            </div>
-            <div>
-              <p
-                style={{
-                  fontSize: 10,
-                  color: "var(--text-dim)",
-                  marginBottom: 6,
-                  fontFamily: "var(--font-body)",
-                  letterSpacing: "0.1em",
-                  textTransform: "uppercase",
-                }}
-              >
-                Start year
-              </p>
-              <SearchSelect
-                options={START_YEARS}
-                value={profileData.startYear}
-                onChange={(v) => setField("startYear", v)}
-                placeholder="Year"
-              />
-            </div>
-          </div>
-          <div
-            style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}
-          >
-            <div>
-              <p
-                style={{
-                  fontSize: 10,
-                  color: "var(--text-dim)",
-                  marginBottom: 6,
-                  fontFamily: "var(--font-body)",
-                  letterSpacing: "0.1em",
-                  textTransform: "uppercase",
-                }}
-              >
-                End / graduation month
-              </p>
-              <SearchSelect
-                options={MONTHS}
-                value={profileData.endMonth}
-                onChange={(v) => setField("endMonth", v)}
-                placeholder="Month"
-              />
-            </div>
-            <div>
-              <p
-                style={{
-                  fontSize: 10,
-                  color: "var(--text-dim)",
-                  marginBottom: 6,
-                  fontFamily: "var(--font-body)",
-                  letterSpacing: "0.1em",
-                  textTransform: "uppercase",
-                }}
-              >
-                End / graduation year
-              </p>
-              <SearchSelect
-                options={END_YEARS}
-                value={profileData.endYear}
-                onChange={(v) => setField("endYear", v)}
-                placeholder="Year"
-              />
-            </div>
-          </div>
-        </div>
-        <div style={{ display: "flex", gap: 12, marginTop: 8 }}>
-          <button
-            type="button"
-            className="auth-btn-ghost"
-            onClick={() => setStep(2)}
-          >
-            Back
-          </button>
-          <button
-            type="submit"
-            className="auth-btn-primary"
-            style={{ flex: 1 }}
-          >
-            Continue <ChevronRight size={15} />
-          </button>
-        </div>
-      </form>
-    </StepWrapper>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// STEP 4 — PROFESSIONAL CANVAS
-// ─────────────────────────────────────────────────────────────────────────────
-function Step4Vision({
-  profileData,
-  setField,
-  systemStatus,
-  handleSubmit,
-  setStep,
-}) {
-  return (
-    <StepWrapper
-      step={4}
-      label="Step 4 of 9"
-      title="Professional canvas."
-      subtitle="Tell us what you do, what you've done, and what drives you."
-    >
-      <ErrorBox msg={systemStatus.error} />
-      <form
-        onSubmit={handleSubmit}
-        style={{ display: "flex", flexDirection: "column", gap: 16 }}
-      >
-        <div>
-          <label className="auth-label">Your main field / domain</label>
-          <SearchSelect
-            options={MACRO_DOMAINS}
-            value={profileData.passion}
-            onChange={(v) => setField("passion", v)}
-            placeholder="e.g. Engineering, Design, Business…"
-            allowCustom
-            required
-          />
-        </div>
-        <div>
-          <label className="auth-label">
-            Your specific role / title (optional)
-          </label>
-          <SearchSelect
-            options={MICRO_NICHES}
-            value={profileData.niche}
-            onChange={(v) => setField("niche", v)}
-            placeholder="e.g. Full-Stack Developer, Product Manager…"
-            allowCustom
-          />
-        </div>
-        <div>
-          <label className="auth-label">Professional bio (required)</label>
-          <textarea
-            className="auth-textarea"
-            value={profileData.bio}
-            onChange={(e) => setField("bio", e.target.value.slice(0, 300))}
-            placeholder="2–3 sentences. What do you build, who do you serve, what makes you different?"
-            required
-            style={{ minHeight: 96 }}
-          />
-          <CharCount value={profileData.bio} max={300} />
-        </div>
-        <div style={{ paddingTop: 8, borderTop: "0.5px solid var(--border)" }}>
-          <label className="auth-label" style={{ marginBottom: 12 }}>
-            Latest / current experience (optional)
-          </label>
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            <div>
-              <label className="auth-label">Role / Title</label>
-              <input
-                className="auth-input"
-                type="text"
-                value={profileData.workExperienceRole}
-                onChange={(e) =>
-                  setField("workExperienceRole", e.target.value.slice(0, 80))
-                }
-                placeholder="e.g. SWE Intern, Founder, Product Designer…"
-                maxLength={80}
-              />
-            </div>
-            <div>
-              <label className="auth-label">Company / Organisation</label>
-              <input
-                className="auth-input"
-                type="text"
-                value={profileData.workExperienceCompany}
-                onChange={(e) =>
-                  setField("workExperienceCompany", e.target.value.slice(0, 80))
-                }
-                placeholder="e.g. Google, Self-employed, JECRC University…"
-                maxLength={80}
-              />
-            </div>
-            <div>
-              <label className="auth-label">Type</label>
-              <select
-                className="auth-select"
-                value={profileData.workExperienceType}
-                onChange={(e) => setField("workExperienceType", e.target.value)}
-              >
-                <option value="">Select type…</option>
-                <option value="Full-Time">Full-Time</option>
-                <option value="Part-Time">Part-Time</option>
-                <option value="Internship">Internship</option>
-                <option value="Freelance">Freelance</option>
-                <option value="Contract">Contract</option>
-                <option value="Founder">Founder / Co-Founder</option>
-                <option value="Research">Research</option>
-                <option value="Volunteer">Volunteer</option>
-              </select>
-            </div>
-          </div>
-        </div>
-        <div>
-          <label className="auth-label">
-            Are you pursuing anything else on the side? (optional)
-          </label>
-          <SearchSelect
-            options={MACRO_DOMAINS}
-            value={profileData.parallelPath}
-            onChange={(v) => setField("parallelPath", v)}
-            placeholder="e.g. a startup alongside your degree"
-            allowCustom
-          />
-        </div>
-        <div style={{ display: "flex", gap: 12, marginTop: 8 }}>
-          <button
-            type="button"
-            className="auth-btn-ghost"
-            onClick={() => setStep(3)}
-          >
-            Back
-          </button>
-          <button
-            type="submit"
-            className="auth-btn-primary"
-            style={{ flex: 1 }}
-          >
-            Continue <ChevronRight size={15} />
-          </button>
-        </div>
-      </form>
-    </StepWrapper>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// STEP 5 — SKILLS
-// ─────────────────────────────────────────────────────────────────────────────
-function Step5Skills({
-  profileData,
-  setField,
-  systemStatus,
-  handleStep4Submit,
-  setStep,
-}) {
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    if (profileData.languages.length === 0)
-      return setSystemStatus((p) => ({
-        ...p,
-        error: "Please add at least one language you speak.",
-      }));
-    setSystemStatus((p) => ({ ...p, error: "" }));
-    setStep(6);
-  };
-
-  return (
-    <StepWrapper
-      step={5}
-      label="Step 5 of 9"
-      title="Your skills."
-      subtitle="What do you know? Add tools, technologies, and languages you use."
-    >
-      <ErrorBox msg={systemStatus.error} />
-      <form
-        onSubmit={handleSubmit}
-        style={{ display: "flex", flexDirection: "column", gap: 16 }}
-      >
-        <div>
-          <label className="auth-label">Skills & tools (optional)</label>
-          <MultiSelect
-            options={RAW_SKILLS}
-            selected={profileData.rawSkills}
-            onChange={(v) => setField("rawSkills", v)}
-            placeholder="Search and add skills…"
-            allowCustom
-          />
-        </div>
-        {profileData.rawSkills.length > 0 && (
-          <div>
-            <label className="auth-label">
-              Which of these are your strongest? (optional)
-            </label>
-            <MultiSelect
-              options={profileData.rawSkills}
-              selected={profileData.alignedSkills}
-              onChange={(v) => setField("alignedSkills", v)}
-              placeholder="Pick your top skills…"
-            />
-          </div>
-        )}
-        <div>
-          <label className="auth-label">Languages you speak (required)</label>
-          <MultiSelect
-            options={LANGUAGES}
-            selected={profileData.languages}
-            onChange={(v) => setField("languages", v)}
-            placeholder="Add languages…"
-            allowCustom
-          />
-        </div>
-        <div style={{ display: "flex", gap: 12, marginTop: 8 }}>
-          <button
-            type="button"
-            className="auth-btn-ghost"
-            onClick={() => setStep(4)}
-          >
-            Back
-          </button>
-          <button
-            type="submit"
-            className="auth-btn-primary"
-            style={{ flex: 1 }}
-          >
-            Continue <ChevronRight size={15} />
-          </button>
-        </div>
-      </form>
-    </StepWrapper>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// STEP 6 — RESOURCES
-// ─────────────────────────────────────────────────────────────────────────────
-function Step6Resources({ profileData, setField, setSystemStatus, setStep }) {
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    setSystemStatus((p) => ({ ...p, error: "" }));
-    setStep(7);
-  };
-
-  return (
-    <StepWrapper
-      step={6}
-      label="Step 6 of 9"
-      title="Your resources."
-      subtitle="We use this to suggest the most realistic paths and tools for you."
-    >
-      <form
-        onSubmit={handleSubmit}
-        style={{ display: "flex", flexDirection: "column", gap: 16 }}
-      >
-        <div>
-          <label className="auth-label">
-            What's your parent's / guardian's profession? (optional)
-          </label>
-          <SearchSelect
-            options={MACRO_DOMAINS}
-            value={profileData.guardianProfession}
-            onChange={(v) => setField("guardianProfession", v)}
-            placeholder="e.g. Business, Healthcare…"
-            allowCustom
-          />
-        </div>
-        <div>
-          <label className="auth-label">
-            Approximate household income bracket (optional)
-          </label>
-          <select
-            className="auth-select"
-            value={profileData.incomeBracket}
-            onChange={(e) => setField("incomeBracket", e.target.value)}
-          >
-            <option value="">Prefer not to say</option>
-            <option value="< 5L">Less than ₹5 Lakhs / year</option>
-            <option value="5L - 10L">₹5L – ₹10L / year</option>
-            <option value="> 10L">More than ₹10L / year</option>
-          </select>
-        </div>
-        <div>
-          <label className="auth-label">
-            How are you funding your journey?
-          </label>
-          <select
-            className="auth-select"
-            value={profileData.financialLaunchpad}
-            onChange={(e) => setField("financialLaunchpad", e.target.value)}
-            required
-          >
-            <option value="" disabled>
-              Select…
-            </option>
-            <option value="Bootstrapping">Self-funded / Bootstrapping</option>
-            <option value="Limited Support">Some family support</option>
-            <option value="Highly Backed">
-              Well funded / Highly supported
-            </option>
-          </select>
-        </div>
-        <div>
-          <label className="auth-label">
-            How much can you invest in your career? (tools, courses, gear)
-          </label>
-          <select
-            className="auth-select"
-            value={profileData.investmentCapacity}
-            onChange={(e) => setField("investmentCapacity", e.target.value)}
-            required
-          >
-            <option value="" disabled>
-              Select…
-            </option>
-            <option value="Minimal">Minimal — free tools only</option>
-            <option value="Moderate">
-              Moderate — occasional paid tools / courses
-            </option>
-            <option value="High">
-              High — premium setups, mentors, subscriptions
-            </option>
-          </select>
-        </div>
-        <div style={{ display: "flex", gap: 12, marginTop: 8 }}>
-          <button
-            type="button"
-            className="auth-btn-ghost"
-            onClick={() => setStep(5)}
-          >
-            Back
-          </button>
-          <button
-            type="submit"
-            className="auth-btn-primary"
-            style={{ flex: 1 }}
-          >
-            Continue <ChevronRight size={15} />
-          </button>
-        </div>
-      </form>
-    </StepWrapper>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// STEP 7 — DIGITAL FOOTPRINT
-// ─────────────────────────────────────────────────────────────────────────────
-function Step7Footprint({
-  profileData,
-  setNestedField,
-  systemStatus,
-  handleSubmit,
-  setStep,
-}) {
-  const fields = [
-    { key: "website", icon: Globe, label: "Website" },
-    { key: "linkedin", icon: Linkedin, label: "LinkedIn" },
-    { key: "github", icon: Github, label: "GitHub" },
-    { key: "twitter", icon: Twitter, label: "X / Twitter" },
-    { key: "instagram", icon: Instagram, label: "Instagram" },
-    { key: "youtube", icon: Youtube, label: "YouTube" },
-    { key: "linktree", icon: LinkIcon, label: "Linktree" },
-  ];
-
-  return (
-    <StepWrapper
-      step={7}
-      label="Step 7 of 9"
-      title="Your online presence."
-      subtitle="Add your links so others can find you. Everything here is optional."
-    >
-      <ErrorBox msg={systemStatus.error} />
-      <form
-        onSubmit={handleSubmit}
-        style={{ display: "flex", flexDirection: "column", gap: 20 }}
-      >
-        <div>
           <p
             style={{
               fontSize: 11,
-              fontWeight: 700,
               color: "var(--text-dim)",
-              letterSpacing: "0.18em",
-              textTransform: "uppercase",
               fontFamily: "var(--font-body)",
-              marginBottom: 12,
+              marginTop: 6,
+              lineHeight: 1.5,
             }}
           >
-            Personal
+            Letters, numbers, underscores only. Min 3 characters. This cannot be
+            changed easily.
           </p>
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            {fields.map(({ key, icon: Icon, label }) => (
-              <div key={key} style={{ position: "relative" }}>
-                <Icon
-                  size={15}
-                  style={{
-                    position: "absolute",
-                    left: 14,
-                    top: "50%",
-                    transform: "translateY(-50%)",
-                    color: "var(--text-dim)",
-                  }}
-                />
-                <input
-                  type="url"
-                  className="auth-input"
-                  style={{ paddingLeft: 40, fontSize: 13 }}
-                  value={profileData.personalFootprint[key] || ""}
-                  onChange={(e) =>
-                    setNestedField("personalFootprint", key, e.target.value)
-                  }
-                  placeholder={label}
-                />
-              </div>
-            ))}
-          </div>
         </div>
 
-        <div style={{ borderTop: "0.5px solid var(--border)", paddingTop: 16 }}>
-          <p
-            style={{
-              fontSize: 11,
-              fontWeight: 700,
-              color: "var(--text-dim)",
-              letterSpacing: "0.18em",
-              textTransform: "uppercase",
-              fontFamily: "var(--font-body)",
-              marginBottom: 12,
-            }}
-          >
-            Professional / Brand
-          </p>
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            {fields.map(({ key, icon: Icon, label }) => {
-              const commKey = key === "linkedin" ? "linkedinCompany" : key;
-              return (
-                <div key={commKey} style={{ position: "relative" }}>
-                  <Icon
-                    size={15}
-                    style={{
-                      position: "absolute",
-                      left: 14,
-                      top: "50%",
-                      transform: "translateY(-50%)",
-                      color: "var(--text-dim)",
-                    }}
-                  />
-                  <input
-                    type="url"
-                    className="auth-input"
-                    style={{ paddingLeft: 40, fontSize: 13 }}
-                    value={profileData.commercialFootprint[commKey] || ""}
-                    onChange={(e) =>
-                      setNestedField(
-                        "commercialFootprint",
-                        commKey,
-                        e.target.value,
-                      )
-                    }
-                    placeholder={
-                      label +
-                      (key === "linkedin" ? " Company" : " (brand / business)")
-                    }
-                  />
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        <div style={{ display: "flex", gap: 12, marginTop: 8 }}>
-          <button
-            type="button"
-            className="auth-btn-ghost"
-            onClick={() => setStep(6)}
-          >
+        <div style={{ display: "flex", gap: 12 }}>
+          <button type="button" className="ob-btn-ghost" onClick={onBack}>
             Back
           </button>
           <button
             type="submit"
-            className="auth-btn-primary"
+            className="ob-btn-primary"
             style={{ flex: 1 }}
+            disabled={
+              loading || checking || username.length < 3 || available === false
+            }
           >
-            Continue <ChevronRight size={15} />
+            {loading ? <Spinner size={14} color="#0a0a0a" /> : "Continue"}{" "}
+            {!loading && <ChevronRight />}
           </button>
         </div>
       </form>
-    </StepWrapper>
+    </motion.div>
   );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// STEP 8 — FINAL CANVAS
+// STEP 3 — BASELINE (Cinematic selection architecture)
 // ─────────────────────────────────────────────────────────────────────────────
-function Step8Canvas({
-  profileData,
-  setField,
-  systemStatus,
-  handleSubmit,
-  setStep,
-}) {
-  return (
-    <StepWrapper
-      step={8}
-      label="Last step"
-      title="One final thing."
-      subtitle="Let us understand what truly drives you — and anything we should know."
+const BaselineCard = ({ item, active, onClick, index }) => (
+  <motion.div
+    initial={{ opacity: 0, x: 40 }}
+    animate={{ opacity: 1, x: 0 }}
+    transition={{
+      duration: 0.6,
+      delay: index * 0.06,
+      ease: [0.23, 1, 0.32, 1],
+    }}
+    whileTap={{ scale: 0.96 }}
+    onClick={() => onClick(item.value)}
+    style={{
+      position: "relative",
+      width: 140,
+      height: 190,
+      borderRadius: 12,
+      overflow: "hidden",
+      cursor: "pointer",
+      background: "var(--depth)",
+      border: active
+        ? "1.5px solid var(--gold-2)"
+        : "1px solid rgba(255,255,255,0.06)",
+      boxShadow: active ? "0 0 24px rgba(191,162,100,0.15)" : "none",
+      userSelect: "none",
+      WebkitTapHighlightColor: "transparent",
+      flexShrink: 0,
+      scrollSnapAlign: "start",
+    }}
+  >
+    <img
+      src={item.img}
+      alt={item.label}
+      loading="lazy"
+      onError={(e) => (e.currentTarget.style.opacity = 0)}
+      style={{
+        position: "absolute",
+        inset: 0,
+        width: "100%",
+        height: "100%",
+        objectFit: "cover",
+        opacity: active ? 0.8 : 0.35,
+        transition: "transform 0.8s ease-out, opacity 0.4s",
+        transform: active ? "scale(1.08)" : "scale(1)",
+      }}
+    />
+    <div
+      style={{
+        position: "absolute",
+        inset: 0,
+        background: active
+          ? "linear-gradient(to top, rgba(3,3,3,0.95) 0%, rgba(191,162,100,0.2) 100%)"
+          : "linear-gradient(to top, rgba(3,3,3,0.98) 0%, rgba(3,3,3,0.4) 60%, transparent 100%)",
+        transition: "background 0.4s",
+      }}
+    />
+    <span
+      style={{
+        position: "absolute",
+        bottom: 14,
+        left: 14,
+        right: 14,
+        fontFamily: "var(--font-display)",
+        fontWeight: 800,
+        fontSize: 14,
+        letterSpacing: "-0.01em",
+        color: active ? "var(--gold-2)" : "var(--text-primary)",
+        zIndex: 2,
+        transition: "color 0.3s",
+        textShadow: "0 2px 10px rgba(0,0,0,0.9)",
+      }}
     >
-      <ErrorBox msg={systemStatus.error} />
-      <form
-        onSubmit={handleSubmit}
-        style={{ display: "flex", flexDirection: "column", gap: 16 }}
-      >
-        <div>
-          <label className="auth-label">
-            What's your biggest motivation? Why are you building this?
-            (required)
-          </label>
-          <textarea
-            className="auth-textarea"
-            value={profileData.coreMotivation}
-            onChange={(e) =>
-              setField("coreMotivation", e.target.value.slice(0, 600))
-            }
-            placeholder="Be honest — is it financial freedom, impact, recognition, passion? Whatever it is, write it here."
-            required
-            style={{ minHeight: 120 }}
-          />
-          <CharCount value={profileData.coreMotivation} max={600} />
-        </div>
-        <div>
-          <label className="auth-label">
-            Anything else we should know about you? (optional)
-          </label>
-          <textarea
-            className="auth-textarea"
-            value={profileData.wildcardInfo}
-            onChange={(e) =>
-              setField("wildcardInfo", e.target.value.slice(0, 1000))
-            }
-            placeholder="Unique challenges you're facing, mentors you admire, unconventional things about your path…"
-          />
-          <CharCount value={profileData.wildcardInfo} max={1000} />
-        </div>
-        <div style={{ display: "flex", gap: 12, marginTop: 8 }}>
-          <button
-            type="button"
-            className="auth-btn-ghost"
-            onClick={() => setStep(7)}
-          >
-            Back
-          </button>
-          <button
-            type="submit"
-            className="auth-btn-primary"
-            disabled={systemStatus.isBooting}
-            style={{ flex: 1, position: "relative" }}
-          >
-            {systemStatus.isBooting ? (
-              <>
-                <Loader2
-                  size={16}
-                  style={{ animation: "spin 1s linear infinite" }}
-                />{" "}
-                Setting up…
-              </>
-            ) : (
-              "Launch My OS"
-            )}
-          </button>
-        </div>
-      </form>
-    </StepWrapper>
-  );
-}
+      {item.label}
+    </span>
+    <AnimatePresence>
+      {active && (
+        <motion.div
+          initial={{ scale: 0, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          exit={{ scale: 0, opacity: 0 }}
+          style={{ position: "absolute", top: 12, right: 12, zIndex: 2 }}
+        >
+          <CheckIcon size={16} color="var(--gold-2)" />
+        </motion.div>
+      )}
+    </AnimatePresence>
+  </motion.div>
+);
 
-// ─────────────────────────────────────────────────────────────────────────────
-// SETUP SEQUENCE
-// ─────────────────────────────────────────────────────────────────────────────
-function SetupSequence({ onComplete }) {
-  const [taskIndex, setTaskIndex] = useState(0);
-  const [score, setScore] = useState(0);
-  const [phase, setPhase] = useState("tasks");
-  const [toasts, setToasts] = useState([]);
+function StepBaseline({ onSubmit, onBack, loading, error }) {
+  const { currentStatus, setField } = useOnboardingStore();
 
-  const addToast = useCallback((msg, type = "grey") => {
-    const id = Date.now() + Math.random();
-    setToasts((p) => [...p.slice(-3), { id, msg, type }]);
-    setTimeout(() => setToasts((p) => p.filter((t) => t.id !== id)), 4000);
-  }, []);
+  const handleToggle = (val) => {
+    let next = [...currentStatus];
 
-  const tasks = [
-    "Initializing your command center",
-    "Building your execution timeline",
-    "Connecting to the global leaderboard",
-    "Securing your asset vault",
-    "Creating your operator profile",
-    "Everything's ready",
-  ];
-
-  const animateScore = useCallback((start, end, ms = 30) => {
-    let cur = start;
-    const interval = setInterval(() => {
-      cur += 1;
-      setScore(cur);
-      if (cur >= end) clearInterval(interval);
-    }, ms);
-  }, []);
-
-  useEffect(() => {
-    if (phase !== "tasks") return;
-    if (taskIndex < tasks.length) {
-      const t = setTimeout(
-        () => {
-          if (taskIndex === 0) animateScore(0, 20, 50);
-          setTaskIndex((i) => i + 1);
-        },
-        taskIndex === 0 ? 2200 : 1100,
-      );
-      return () => clearTimeout(t);
+    if (val === "None") {
+      next = next.includes("None") ? [] : ["None"];
     } else {
-      const t = setTimeout(() => setPhase("bonus"), 400);
-      return () => clearTimeout(t);
-    }
-  }, [taskIndex, phase, tasks.length, animateScore]);
+      next = next.filter((s) => s !== "None");
 
-  useEffect(() => {
-    if (phase === "bonus") {
-      addToast("Initialization bonus credited", "green");
-      const t1 = setTimeout(() => {
-        animateScore(20, 70, 25);
-        const t2 = setTimeout(() => setPhase("done"), 2800);
-        return () => clearTimeout(t2);
-      }, 1200);
-      return () => clearTimeout(t1);
-    }
-  }, [phase, animateScore, addToast]);
+      const selfEmployed = ["Entrepreneur", "Freelancer", "Creator"];
 
-  useEffect(() => {
-    if (phase === "done") {
-      const t = setTimeout(() => onComplete(), 600);
-      return () => clearTimeout(t);
+      if (next.includes(val)) {
+        next = next.filter((s) => s !== val);
+      } else {
+        if (val === "Working Professional") {
+          next = next.filter((s) => !selfEmployed.includes(s));
+        } else if (selfEmployed.includes(val)) {
+          next = next.filter((s) => s !== "Working Professional");
+        }
+        if (next.length < 3) next.push(val);
+      }
     }
-  }, [phase, onComplete]);
+    setField("currentStatus", next);
+  };
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (!currentStatus.length) return;
+    onSubmit();
+  };
 
   return (
     <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0, scale: 0.98 }}
-      transition={{ duration: 0.6 }}
-      style={{
-        position: "fixed",
-        inset: 0,
-        zIndex: 9999,
-        background: "#030303",
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: 32,
-        fontFamily: "var(--font-body)",
-      }}
+      variants={STEP_VARIANTS}
+      initial="initial"
+      animate="animate"
+      exit="exit"
+      transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
     >
-      <div
-        style={{
-          position: "absolute",
-          top: "30%",
-          left: "50%",
-          transform: "translate(-50%,-50%)",
-          width: 500,
-          height: 500,
-          background:
-            "radial-gradient(ellipse, rgba(191,162,100,0.05) 0%, transparent 70%)",
-          pointerEvents: "none",
-        }}
-      />
-      <motion.div
-        initial={{ opacity: 0, y: -16 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.3 }}
-        style={{ position: "absolute", top: 40, textAlign: "center" }}
-      >
-        <p
+      <div style={{ marginBottom: 32 }}>
+        <ProgressBar current={3} total={9} />
+        <div
           style={{
-            fontSize: 10,
-            letterSpacing: "0.4em",
-            textTransform: "uppercase",
-            color: "rgba(191,162,100,0.5)",
-            fontFamily: "var(--font-display)",
-            fontWeight: 700,
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "flex-end",
+            marginBottom: 8,
           }}
         >
-          DISCOTIVE OS
-        </p>
-      </motion.div>
+          <h2
+            style={{
+              fontFamily: "var(--font-display)",
+              fontWeight: 800,
+              fontSize: "clamp(26px, 5vw, 33px)",
+              letterSpacing: "-0.03em",
+              lineHeight: 1.1,
+              color: "var(--text-primary)",
+              margin: 0,
+            }}
+          >
+            Your situation.
+          </h2>
+          <span
+            style={{
+              fontSize: 10,
+              fontWeight: 700,
+              color: "var(--gold-2)",
+              letterSpacing: "0.15em",
+              textTransform: "uppercase",
+              fontFamily: "var(--font-body)",
+            }}
+          >
+            Enter Max: 3
+          </span>
+        </div>
+      </div>
 
-      <div
-        style={{
-          width: "100%",
-          maxWidth: 800,
-          display: "grid",
-          gridTemplateColumns: "1fr",
-          gap: 48,
-        }}
+      <ErrorBox msg={error} />
+
+      <form
+        onSubmit={handleSubmit}
+        style={{ display: "flex", flexDirection: "column", gap: 24 }}
+      >
+        <div
+          style={{
+            display: "flex",
+            overflowX: "auto",
+            gap: 12,
+            paddingBottom: 16,
+            margin: "0 -20px",
+            paddingLeft: 20,
+            paddingRight: 20,
+            scrollSnapType: "x mandatory",
+            WebkitOverflowScrolling: "touch",
+            scrollbarWidth: "none",
+            msOverflowStyle: "none",
+          }}
+        >
+          <style>{`.ob-right ::-webkit-scrollbar { display: none; }`}</style>
+
+          {BASELINE_OPTIONS.map((item, i) => (
+            <BaselineCard
+              key={item.value}
+              item={item}
+              index={i}
+              active={currentStatus.includes(item.value)}
+              onClick={handleToggle}
+            />
+          ))}
+        </div>
+
+        <AnimatePresence>
+          {currentStatus.length > 0 && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                gap: 6,
+                overflow: "hidden",
+              }}
+            >
+              {currentStatus.map((s) => (
+                <motion.span
+                  key={s}
+                  initial={{ scale: 0.8, opacity: 0 }}
+                  animate={{ scale: 1, opacity: 1 }}
+                  exit={{ scale: 0.8, opacity: 0 }}
+                  style={{
+                    padding: "5px 14px",
+                    background: "rgba(191,162,100,0.1)",
+                    border: "0.5px solid rgba(191,162,100,0.25)",
+                    borderRadius: 99,
+                    fontSize: 11,
+                    color: "var(--gold-2)",
+                    fontFamily: "var(--font-body)",
+                    fontWeight: 500,
+                  }}
+                >
+                  {s}
+                </motion.span>
+              ))}
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        <div style={{ display: "flex", gap: 12 }}>
+          <button type="button" className="ob-btn-ghost" onClick={onBack}>
+            Back
+          </button>
+          <button
+            type="submit"
+            className="ob-btn-primary"
+            style={{ flex: 1 }}
+            disabled={!currentStatus.length || loading}
+          >
+            {loading ? <Spinner size={14} color="#0a0a0a" /> : "Continue"}{" "}
+            {!loading && <ChevronRight />}
+          </button>
+        </div>
+      </form>
+    </motion.div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STEP 4 — INTENT & DOMAIN
+// ─────────────────────────────────────────────────────────────────────────────
+const DomainCard = ({ item, active, onClick, isMore }) => (
+  <motion.div
+    whileTap={{ scale: 0.96 }}
+    onClick={() => onClick(item.value)}
+    style={{
+      position: "relative",
+      height: 90, // Cinematic horizontal poster card
+      borderRadius: 12,
+      overflow: "hidden",
+      cursor: "pointer",
+      background: "var(--surface)",
+      border: active
+        ? "1.5px solid var(--gold-2)"
+        : "1px solid rgba(255,255,255,0.06)",
+      boxShadow: active ? "0 0 20px rgba(191,162,100,0.15)" : "none",
+      userSelect: "none",
+      WebkitTapHighlightColor: "transparent",
+    }}
+  >
+    <img
+      src={item.img}
+      alt={item.label}
+      loading="lazy"
+      onError={(e) => (e.currentTarget.style.opacity = 0)}
+      style={{
+        position: "absolute",
+        inset: 0,
+        width: "100%",
+        height: "100%",
+        objectFit: "cover",
+        opacity: active || isMore ? 0.8 : 0.35, // Ensures "More" button remains highly visible
+        transition: "transform 0.6s ease-out, opacity 0.3s",
+        transform: active ? "scale(1.08)" : "scale(1)",
+      }}
+    />
+    <div
+      style={{
+        position: "absolute",
+        inset: 0,
+        background: active
+          ? "linear-gradient(to right, rgba(3,3,3,0.95) 0%, rgba(191,162,100,0.2) 100%)"
+          : "linear-gradient(to right, rgba(3,3,3,0.98) 0%, rgba(3,3,3,0.3) 70%, transparent 100%)",
+        transition: "background 0.3s",
+      }}
+    />
+    <span
+      style={{
+        position: "absolute",
+        top: "50%",
+        left: 16,
+        transform: "translateY(-50%)",
+        fontFamily: "var(--font-display)",
+        fontWeight: 800,
+        fontSize: 14,
+        letterSpacing: "-0.01em",
+        color: active ? "var(--gold-2)" : "var(--text-primary)",
+        zIndex: 2,
+        transition: "color 0.3s",
+        textShadow: "0 2px 8px rgba(0,0,0,0.9)",
+      }}
+    >
+      {item.label}
+    </span>
+    <AnimatePresence>
+      {active && !isMore && (
+        <motion.div
+          initial={{ scale: 0, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          exit={{ scale: 0, opacity: 0 }}
+          style={{
+            position: "absolute",
+            top: "50%",
+            right: 14,
+            transform: "translateY(-50%)",
+            zIndex: 2,
+            background: "rgba(3,3,3,0.5)",
+            backdropFilter: "blur(4px)",
+            borderRadius: "50%",
+            padding: 6,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <XIcon size={12} color="var(--gold-2)" />
+        </motion.div>
+      )}
+    </AnimatePresence>
+  </motion.div>
+);
+
+function StepIntent({ onSubmit, onBack, loading, error }) {
+  const { passion, setField } = useOnboardingStore();
+  const [showMore, setShowMore] = useState(false);
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (!passion) return;
+    onSubmit();
+  };
+
+  // Compile visual grid: If the active passion is inside DOMAIN_MORE, explicitly inject it before the "More" trigger
+  const selectedMoreOption = DOMAIN_MORE.find((d) => d.value === passion);
+  const visibleDomains = [...DOMAIN_MAIN];
+  
+  if (selectedMoreOption) {
+    visibleDomains.push(selectedMoreOption);
+  }
+  
+  visibleDomains.push({
+    value: "MORE_TRIGGER",
+    label: "More",
+    img: "/onboarding/more.png",
+  });
+
+  const handleDomainClick = (val) => {
+    if (val === "MORE_TRIGGER") {
+      setShowMore(true);
+    } else if (passion === val) {
+      setField("passion", ""); // Deselect
+    } else {
+      setField("passion", val); // Select
+    }
+  };
+
+  return (
+    <motion.div
+      variants={STEP_VARIANTS}
+      initial="initial"
+      animate="animate"
+      exit="exit"
+      transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
+    >
+      <StepHeader
+        step={4}
+        total={9}
+        overline="Step 4 of 9"
+        title="Your domain."
+        subtitle="Where does your ambition live? This powers your execution map."
+      />
+
+      <ErrorBox msg={error} />
+
+      <form
+        onSubmit={handleSubmit}
+        style={{ display: "flex", flexDirection: "column", gap: 28 }}
       >
         <div
           style={{
             display: "grid",
-            gridTemplateColumns: window.innerWidth > 640 ? "1fr 1fr" : "1fr",
-            gap: 40,
-            alignItems: "center",
+            gridTemplateColumns: "1fr 1fr",
+            gap: 12,
           }}
         >
-          <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
-            {tasks.map((task, i) => {
-              if (i > taskIndex) return null;
-              const isDone = i < taskIndex || phase !== "tasks";
-              const isActive = i === taskIndex && phase === "tasks";
-              return (
-                <motion.div
-                  key={task}
-                  initial={{ opacity: 0, x: -16 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ duration: 0.4 }}
-                  style={{ display: "flex", alignItems: "center", gap: 14 }}
-                >
-                  <div
-                    style={{
-                      width: 24,
-                      height: 24,
-                      flexShrink: 0,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                    }}
-                  >
-                    {isActive && (
-                      <Loader2
-                        size={18}
-                        style={{
-                          color: "var(--gold-2)",
-                          animation: "spin 1s linear infinite",
-                        }}
-                      />
-                    )}
-                    {isDone && (
-                      <CheckCircle2 size={18} style={{ color: "#22C55E" }} />
-                    )}
-                  </div>
-                  <span
-                    style={{
-                      fontSize: 14,
-                      fontWeight: isDone ? 400 : 600,
-                      color: isDone
-                        ? "rgba(245,240,232,0.35)"
-                        : "var(--text-primary)",
-                      fontFamily: "var(--font-body)",
-                      transition: "color 0.4s",
-                    }}
-                  >
-                    {task}
-                  </span>
-                </motion.div>
-              );
-            })}
-          </div>
-
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              borderLeft:
-                window.innerWidth > 640
-                  ? "0.5px solid rgba(255,255,255,0.06)"
-                  : "none",
-              paddingLeft: window.innerWidth > 640 ? 40 : 0,
-            }}
-          >
-            <p
-              style={{
-                fontSize: 9,
-                letterSpacing: "0.3em",
-                textTransform: "uppercase",
-                color: "var(--text-dim)",
-                marginBottom: 16,
-              }}
-            >
-              Discotive Score
-            </p>
-            <motion.div style={{ position: "relative" }}>
-              <motion.span
-                key={score}
-                style={{
-                  fontSize: "clamp(72px, 14vw, 110px)",
-                  fontWeight: 900,
-                  fontFamily: "var(--font-display)",
-                  letterSpacing: "-0.04em",
-                  lineHeight: 1,
-                  display: "block",
-                  color:
-                    phase === "bonus" ? "var(--gold-2)" : "var(--text-primary)",
-                  transition: "color 0.6s",
-                  textShadow:
-                    phase === "bonus"
-                      ? "0 0 40px rgba(212,175,120,0.4)"
-                      : "none",
-                }}
-              >
-                {score}
-              </motion.span>
-              <AnimatePresence>
-                {phase === "bonus" && (
-                  <motion.span
-                    initial={{ opacity: 0, y: 16, x: 16, scale: 0.7 }}
-                    animate={{ opacity: 1, y: -32, x: 32, scale: 1 }}
-                    exit={{ opacity: 0 }}
-                    transition={{ duration: 0.6, type: "spring" }}
-                    style={{
-                      position: "absolute",
-                      top: 0,
-                      right: 0,
-                      fontSize: 28,
-                      fontWeight: 900,
-                      color: "var(--gold-2)",
-                      fontFamily: "var(--font-display)",
-                    }}
-                  >
-                    +50
-                  </motion.span>
-                )}
-              </AnimatePresence>
-            </motion.div>
-
-            <AnimatePresence>
-              {phase === "bonus" && (
-                <motion.div
-                  initial={{ opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  style={{
-                    marginTop: 16,
-                    padding: "6px 16px",
-                    background: "rgba(191,162,100,0.1)",
-                    border: "0.5px solid rgba(191,162,100,0.3)",
-                    borderRadius: 99,
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 8,
-                  }}
-                >
-                  <Sparkles size={13} style={{ color: "var(--gold-2)" }} />
-                  <span
-                    style={{
-                      fontSize: 10,
-                      fontWeight: 700,
-                      color: "var(--gold-2)",
-                      textTransform: "uppercase",
-                      letterSpacing: "0.2em",
-                    }}
-                  >
-                    Initialization Bonus
-                  </span>
-                </motion.div>
-              )}
-            </AnimatePresence>
-          </div>
+          {visibleDomains.map((d) => (
+            <DomainCard
+              key={d.value}
+              item={d}
+              active={passion === d.value}
+              isMore={d.value === "MORE_TRIGGER"}
+              onClick={handleDomainClick}
+            />
+          ))}
         </div>
-      </div>
 
+        <div style={{ display: "flex", gap: 12 }}>
+          <button type="button" className="ob-btn-ghost" onClick={onBack}>
+            Back
+          </button>
+          <button
+            type="submit"
+            className="ob-btn-primary"
+            style={{ flex: 1 }}
+            disabled={!passion || loading}
+          >
+            {loading ? <Spinner size={14} color="#0a0a0a" /> : "Continue"}{" "}
+            {!loading && <ChevronRight />}
+          </button>
+        </div>
+      </form>
+
+      {/* Floating Domain Modal */}
       {createPortal(
-        <div
-          style={{
-            position: "fixed",
-            bottom: 24,
-            left: 20,
-            right: 20,
-            zIndex: 99999,
-            display: "flex",
-            flexDirection: "column",
-            gap: 8,
-            pointerEvents: "none",
-            maxWidth: 360,
-          }}
-        >
-          <AnimatePresence>
-            {toasts.map((t) => (
+        <AnimatePresence>
+          {showMore && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              style={{
+                position: "fixed", inset: 0, zIndex: 99999, background: "rgba(0,0,0,0.8)", backdropFilter: "blur(16px)",
+                display: "flex", alignItems: "center", justifyContent: "center", padding: 20
+              }}
+              onClick={() => setShowMore(false)}
+            >
               <motion.div
-                key={t.id}
-                initial={{ opacity: 0, y: 10, x: -8 }}
-                animate={{ opacity: 1, y: 0, x: 0 }}
-                exit={{ opacity: 0, x: -12 }}
-                transition={{ type: "spring", damping: 22, stiffness: 280 }}
+                initial={{ opacity: 0, scale: 0.95, y: 30 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: 30 }}
+                transition={{ type: "spring", damping: 25, stiffness: 300 }}
+                onClick={(e) => e.stopPropagation()}
                 style={{
-                  padding: "12px 16px",
-                  borderRadius: 12,
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 10,
-                  fontSize: 12,
-                  fontFamily: "var(--font-body)",
-                  fontWeight: 600,
-                  pointerEvents: "auto",
-                  ...(t.type === "green"
-                    ? {
-                        background: "rgba(4,31,16,0.95)",
-                        border: "0.5px solid rgba(34,197,94,0.3)",
-                        color: "#4ADE80",
-                      }
-                    : t.type === "red"
-                      ? {
-                          background: "rgba(26,5,5,0.95)",
-                          border: "0.5px solid rgba(239,68,68,0.3)",
-                          color: "#F87171",
-                        }
-                      : {
-                          background: "rgba(22,22,22,0.95)",
-                          border: "0.5px solid rgba(255,255,255,0.08)",
-                          color: "var(--text-secondary)",
-                        }),
+                  width: "100%", maxWidth: 440, background: "var(--depth)", border: "0.5px solid rgba(255,255,255,0.08)",
+                  borderRadius: 24, padding: "28px 24px", boxShadow: "0 32px 80px rgba(0,0,0,0.8)"
                 }}
               >
-                {t.type === "green" && <CheckCircle2 size={14} />}
-                {t.type === "red" && <AlertTriangle size={14} />}
-                {t.type === "grey" && (
-                  <Activity
-                    size={14}
-                    style={{ color: "rgba(255,255,255,0.3)" }}
-                  />
-                )}
-                {t.msg}
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
+                  <h3 style={{ fontFamily: "var(--font-display)", fontWeight: 800, fontSize: 22, margin: 0, color: "var(--text-primary)" }}>
+                    Extended Domains
+                  </h3>
+                  <button
+                    onClick={() => setShowMore(false)}
+                    style={{
+                      background: "rgba(255,255,255,0.06)", border: "none", width: 34, height: 34, borderRadius: "50%",
+                      display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: "var(--text-secondary)", transition: "background 0.2s"
+                    }}
+                    onMouseOver={(e) => e.currentTarget.style.background = "rgba(255,255,255,0.12)"}
+                    onMouseOut={(e) => e.currentTarget.style.background = "rgba(255,255,255,0.06)"}
+                  >
+                    <XIcon size={16} />
+                  </button>
+                </div>
+                
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                  {DOMAIN_MORE.map((d) => 
+                    <DomainCard
+                      key={d.value}
+                      item={d}
+                      active={passion === d.value}
+                      isMore={false}
+                      onClick={() => {
+                        setField("passion", passion === d.value ? "" : d.value);
+                        setShowMore(false);
+                      }}
+                    />
+                  )}
+                </div>
               </motion.div>
-            ))}
-          </AnimatePresence>
-        </div>,
-        document.body,
+            </motion.div>
+          )}
+        </AnimatePresence>,
+        document.body
       )}
     </motion.div>
   );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PREMIUM PROMPT
+// STEP 5 — NETWORK SEEDING (follow 3 minimum)
 // ─────────────────────────────────────────────────────────────────────────────
-function PremiumPrompt({ firstName, onUpgrade, onContinue }) {
-  const features = [
-    { icon: Zap, label: "Unlimited execution nodes", sub: "No 15-node cap" },
-    {
-      icon: Database,
-      label: "100MB asset vault",
-      sub: "Up to 50 verified assets",
-    },
-    {
-      icon: BarChart2,
-      label: "Competitor insights",
-      sub: "See what top-ranked operators do differently",
-    },
-    {
-      icon: Crown,
-      label: "Daily execution journal",
-      sub: "Pro-only reflection system",
-    },
-  ];
+function StepNetwork({ onSubmit, onBack, loading, error }) {
+  const { followedSeeds, toggleSeed, passion } = useOnboardingStore();
+
+  // Prioritize seeds matching user's domain
+  const sorted = useMemo(() => {
+    return [...SEED_OPERATORS].sort((a, b) => {
+      const aMatch = a.domain === passion ? 1 : 0;
+      const bMatch = b.domain === passion ? 1 : 0;
+      return bMatch - aMatch;
+    });
+  }, [passion]);
+
+  const canContinue = followedSeeds.length >= 3;
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 16 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0 }}
-      transition={{ duration: 0.4 }}
-      style={{ textAlign: "center" }}
+      variants={STEP_VARIANTS}
+      initial="initial"
+      animate="animate"
+      exit="exit"
+      transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
     >
-      <div
-        style={{
-          width: 64,
-          height: 64,
-          borderRadius: 18,
-          background: "linear-gradient(135deg, #8B7240, #D4AF78)",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          margin: "0 auto 20px",
-          boxShadow: "0 0 32px rgba(191,162,100,0.25)",
-        }}
-      >
-        <Crown size={28} style={{ color: "#0a0a0a" }} />
-      </div>
-      <div
-        style={{
-          display: "inline-flex",
-          alignItems: "center",
-          gap: 6,
-          padding: "4px 14px",
-          background: "rgba(191,162,100,0.08)",
-          border: "0.5px solid rgba(191,162,100,0.25)",
-          borderRadius: 99,
-          marginBottom: 16,
-        }}
-      >
-        <div
-          style={{
-            width: 6,
-            height: 6,
-            borderRadius: "50%",
-            background: "var(--gold-2)",
-            animation: "pulse 2s infinite",
-          }}
-        />
-        <span
-          style={{
-            fontSize: 9,
-            fontWeight: 700,
-            color: "var(--gold-3)",
-            letterSpacing: "0.2em",
-            textTransform: "uppercase",
-            fontFamily: "var(--font-body)",
-          }}
-        >
-          Launch pricing
-        </span>
-      </div>
-      <h2
-        style={{
-          fontFamily: "var(--font-display)",
-          fontWeight: 800,
-          fontSize: "clamp(24px, 5vw, 30px)",
-          letterSpacing: "-0.03em",
-          color: "var(--text-primary)",
-          marginBottom: 6,
-        }}
-      >
-        Welcome, {firstName}.
-      </h2>
-      <p
-        style={{
-          fontFamily: "var(--font-display)",
-          fontStyle: "italic",
-          fontWeight: 300,
-          fontSize: 20,
-          color: "var(--gold-2)",
-          marginBottom: 24,
-        }}
-      >
-        Build without limits.
-      </p>
-      <p
-        style={{
-          fontSize: 14,
-          color: "var(--text-secondary)",
-          fontFamily: "var(--font-body)",
-          lineHeight: 1.7,
-          maxWidth: 360,
-          margin: "0 auto 28px",
-        }}
-      >
-        You're on the Essential plan. Upgrade to Pro for{" "}
-        <strong style={{ color: "var(--text-primary)" }}>₹99/month</strong> to
-        unlock the full career engine.
-      </p>
+      <StepHeader
+        step={5}
+        total={9}
+        overline="Step 5 of 9"
+        title="Seed your network."
+        subtitle={`Follow at least 3 operators to populate your arena feed. ${followedSeeds.length}/3 minimum.`}
+      />
+
+      <ErrorBox msg={error} />
 
       <div
         style={{
           display: "flex",
           flexDirection: "column",
           gap: 8,
-          marginBottom: 28,
-          textAlign: "left",
+          marginBottom: 24,
         }}
       >
-        {features.map(({ icon: Icon, label, sub }) => (
+        {sorted.map((op) => {
+          const active = followedSeeds.includes(op.id);
+          return (
+            <motion.div
+              key={op.id}
+              whileTap={{ scale: 0.98 }}
+              className="ob-seed-card"
+              data-active={active ? "true" : "false"}
+              onClick={() => toggleSeed(op.id)}
+            >
+              <div
+                style={{
+                  width: 40,
+                  height: 40,
+                  borderRadius: "50%",
+                  background: active
+                    ? "rgba(191,162,100,0.15)"
+                    : "rgba(255,255,255,0.06)",
+                  border: `1px solid ${active ? "rgba(191,162,100,0.3)" : "var(--border)"}`,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  fontSize: 13,
+                  fontWeight: 700,
+                  fontFamily: "var(--font-display)",
+                  color: active ? "var(--gold-2)" : "var(--text-secondary)",
+                  flexShrink: 0,
+                }}
+              >
+                {op.initials}
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <p
+                    style={{
+                      fontSize: 13,
+                      fontWeight: 600,
+                      color: "var(--text-primary)",
+                      fontFamily: "var(--font-body)",
+                    }}
+                  >
+                    {op.name}
+                  </p>
+                  {op.verified && (
+                    <svg width={12} height={12} viewBox="0 0 24 24" fill="none">
+                      <path
+                        d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"
+                        fill="var(--gold-2)"
+                        opacity="0.9"
+                      />
+                    </svg>
+                  )}
+                </div>
+                <p
+                  style={{
+                    fontSize: 11,
+                    color: "var(--text-dim)",
+                    fontFamily: "var(--font-body)",
+                  }}
+                >
+                  @{op.handle} · {op.domain}
+                </p>
+              </div>
+              <div
+                style={{
+                  display: "flex",
+                  flexDirection: "column",
+                  alignItems: "flex-end",
+                  gap: 4,
+                }}
+              >
+                <p
+                  style={{
+                    fontSize: 12,
+                    fontWeight: 700,
+                    fontFamily: "var(--font-display)",
+                    color: active ? "var(--gold-2)" : "var(--text-dim)",
+                  }}
+                >
+                  {op.score.toLocaleString()}
+                </p>
+                <div
+                  style={{
+                    width: 28,
+                    height: 28,
+                    borderRadius: "50%",
+                    background: active
+                      ? "rgba(191,162,100,0.2)"
+                      : "var(--surface)",
+                    border: `0.5px solid ${active ? "rgba(191,162,100,0.4)" : "var(--border)"}`,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    transition: "all 0.15s",
+                  }}
+                >
+                  {active ? (
+                    <CheckIcon size={12} />
+                  ) : (
+                    <svg
+                      width={12}
+                      height={12}
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="var(--text-dim)"
+                      strokeWidth="2"
+                    >
+                      <line x1="12" y1="5" x2="12" y2="19" />
+                      <line x1="5" y1="12" x2="19" y2="12" />
+                    </svg>
+                  )}
+                </div>
+              </div>
+            </motion.div>
+          );
+        })}
+      </div>
+
+      {/* Progress indicator */}
+      <div
+        style={{
+          padding: "12px 16px",
+          background: "var(--surface)",
+          border: "0.5px solid var(--border)",
+          borderRadius: "var(--r-sm)",
+          marginBottom: 20,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+        }}
+      >
+        <span
+          style={{
+            fontSize: 12,
+            color: "var(--text-secondary)",
+            fontFamily: "var(--font-body)",
+          }}
+        >
+          Following
+        </span>
+        <div style={{ display: "flex", gap: 4 }}>
+          {[0, 1, 2].map((i) => (
+            <div
+              key={i}
+              style={{
+                width: 24,
+                height: 4,
+                borderRadius: 2,
+                background:
+                  followedSeeds.length > i ? "var(--gold-2)" : "var(--border)",
+                transition: "background 0.3s",
+              }}
+            />
+          ))}
+        </div>
+        <span
+          style={{
+            fontSize: 12,
+            fontWeight: 700,
+            color: canContinue ? "var(--gold-2)" : "var(--text-dim)",
+            fontFamily: "var(--font-body)",
+          }}
+        >
+          {followedSeeds.length} / 3+
+        </span>
+      </div>
+
+      <div style={{ display: "flex", gap: 12 }}>
+        <button type="button" className="ob-btn-ghost" onClick={onBack}>
+          Back
+        </button>
+        <button
+          className="ob-btn-primary"
+          style={{ flex: 1 }}
+          onClick={onSubmit}
+          disabled={!canContinue || loading}
+        >
+          {loading ? <Spinner size={14} color="#0a0a0a" /> : "Continue"}{" "}
+          {!loading && <ChevronRight />}
+        </button>
+      </div>
+    </motion.div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STEP 6 — CONNECTORS (GitHub, X, Instagram, YouTube — no LinkedIn)
+// ─────────────────────────────────────────────────────────────────────────────
+const CONNECTORS = [
+  {
+    key: "github",
+    label: "GitHub",
+    placeholder: "github.com/yourname",
+    icon: (
+      <svg width={11} height={11} viewBox="0 0 24 24" fill="var(--text-dim)">
+        <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z" />
+      </svg>
+    ),
+  },
+  {
+    key: "twitter",
+    label: "X / Twitter",
+    placeholder: "x.com/yourname",
+    icon: (
+      <svg width={10} height={10} viewBox="0 0 24 24" fill="var(--text-dim)">
+        <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
+      </svg>
+    ),
+  },
+  {
+    key: "instagram",
+    label: "Instagram",
+    placeholder: "instagram.com/yourname",
+    icon: (
+      <svg
+        width={11}
+        height={11}
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="var(--text-dim)"
+        strokeWidth="2.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <rect x="2" y="2" width="20" height="20" rx="5" ry="5" />
+        <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z" />
+        <line x1="17.5" y1="6.5" x2="17.51" y2="6.5" />
+      </svg>
+    ),
+  },
+  {
+    key: "youtube",
+    label: "YouTube",
+    placeholder: "youtube.com/@yourname",
+    icon: (
+      <svg
+        width={12}
+        height={12}
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="var(--text-dim)"
+        strokeWidth="2.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M22.54 6.42a2.78 2.78 0 0 0-1.95-1.96C18.88 4 12 4 12 4s-6.88 0-8.59.46a2.78 2.78 0 0 0-1.95 1.96A29 29 0 0 0 1 12a29 29 0 0 0 .46 5.58A2.78 2.78 0 0 0 3.41 19.6C5.12 20 12 20 12 20s6.88 0 8.59-.46a2.78 2.78 0 0 0 1.95-1.95A29 29 0 0 0 23 12a29 29 0 0 0-.46-5.58z" />
+        <polygon points="9.75 15.02 15.5 12 9.75 8.98 9.75 15.02" />
+      </svg>
+    ),
+  },
+];
+
+function StepConnectors({ onSubmit, onBack, loading, error }) {
+  const { github, twitter, instagram, youtube, setField } =
+    useOnboardingStore();
+  const vals = { github, twitter, instagram, youtube };
+
+  return (
+    <motion.div
+      variants={STEP_VARIANTS}
+      initial="initial"
+      animate="animate"
+      exit="exit"
+      transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
+    >
+      <StepHeader
+        step={6}
+        total={9}
+        overline="Step 6 of 9"
+        title="Your digital footprint."
+        subtitle="Link your presence. Everything here is optional — but operators who link earn more visibility."
+      />
+
+      <ErrorBox msg={error} />
+
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: 10,
+          marginBottom: 24,
+        }}
+      >
+        {CONNECTORS.map(({ key, label, placeholder, icon }) => (
+          <div key={key} className="ob-input-group">
+            <div
+              style={{
+                position: "absolute",
+                left: 16,
+                top: "50%",
+                transform: "translateY(-50%)",
+                pointerEvents: "none",
+                zIndex: 10,
+              }}
+            >
+              {icon}
+            </div>
+            <input
+              className="ob-input"
+              type="url"
+              value={vals[key]}
+              onChange={(e) => setField(key, e.target.value)}
+              placeholder=" "
+              style={{ paddingLeft: 44, paddingRight: vals[key] ? 44 : 16 }}
+            />
+            <label className="ob-floating-label" style={{ left: 44 }}>
+              {label} ({placeholder})
+            </label>
+            {vals[key] && (
+              <div
+                style={{
+                  position: "absolute",
+                  right: 16,
+                  top: "50%",
+                  transform: "translateY(-50%)",
+                }}
+              >
+                <CheckIcon size={14} />
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+
+      <div style={{ display: "flex", gap: 12 }}>
+        <button type="button" className="ob-btn-ghost" onClick={onBack}>
+          Back
+        </button>
+        <button
+          className="ob-btn-primary"
+          style={{ flex: 1 }}
+          onClick={onSubmit}
+          disabled={loading}
+        >
+          {loading ? <Spinner size={14} color="#0a0a0a" /> : "Continue"}{" "}
+          {!loading && <ChevronRight />}
+        </button>
+      </div>
+    </motion.div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STEP 7 — MOTIVATION (Why are you here?)
+// ─────────────────────────────────────────────────────────────────────────────
+function StepMotivation({ onSubmit, onBack, loading, error }) {
+  const { whyHere, toggleWhyHere } = useOnboardingStore();
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if (!whyHere.length) return;
+    onSubmit();
+  };
+
+  return (
+    <motion.div
+      variants={STEP_VARIANTS}
+      initial="initial"
+      animate="animate"
+      exit="exit"
+      transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
+    >
+      <StepHeader
+        step={7}
+        total={9}
+        overline="Step 7 of 9"
+        title="Your drive."
+        subtitle="What brings you to the arena? Select up to 5."
+      />
+
+      <ErrorBox msg={error} />
+
+      <form
+        onSubmit={handleSubmit}
+        style={{ display: "flex", flexDirection: "column", gap: 24 }}
+      >
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+          {WHY_HERE.map((tag, i) => {
+            const active = whyHere.includes(tag);
+            return (
+              <motion.div
+                key={tag}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.3, delay: i * 0.04 }}
+                whileTap={{ scale: 0.94 }}
+                className="ob-tag"
+                data-active={active ? "true" : "false"}
+                onClick={() => toggleWhyHere(tag)}
+                style={{
+                  padding: "12px 18px",
+                  fontSize: 13,
+                }}
+              >
+                {tag}
+              </motion.div>
+            );
+          })}
+        </div>
+
+        <div style={{ display: "flex", gap: 12, marginTop: 12 }}>
+          <button type="button" className="ob-btn-ghost" onClick={onBack}>
+            Back
+          </button>
+          <button
+            type="submit"
+            className="ob-btn-primary"
+            style={{ flex: 1 }}
+            disabled={!whyHere.length || loading}
+          >
+            {loading ? <Spinner size={14} color="#0a0a0a" /> : "Continue"}{" "}
+            {!loading && <ChevronRight />}
+          </button>
+        </div>
+      </form>
+    </motion.div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STEP 8 — PREMIUM GATE
+// ─────────────────────────────────────────────────────────────────────────────
+function StepPremium({ firstName, onUpgrade, onSkip, loading }) {
+  const features = [
+    {
+      label: "Unlimited execution nodes",
+      sub: "No 15-node cap on your roadmap",
+    },
+    { label: "100MB asset vault", sub: "50 verified assets vs 5 on Essential" },
+    { label: "Competitor X-Ray", sub: "See who is tracking you on the arena" },
+    {
+      label: "Daily execution journal",
+      sub: "Pro-only reflection and tracking system",
+    },
+    {
+      label: "Priority asset verification",
+      sub: "48h vs standard 7-day queue",
+    },
+  ];
+
+  return (
+    <motion.div
+      variants={STEP_VARIANTS}
+      initial="initial"
+      animate="animate"
+      exit="exit"
+      transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
+    >
+      <ProgressBar current={8} total={9} />
+
+      <div style={{ textAlign: "center", marginBottom: 28 }}>
+        <div
+          style={{
+            width: 56,
+            height: 56,
+            borderRadius: 16,
+            background: "linear-gradient(135deg, #8B7240, #D4AF78)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            margin: "0 auto 16px",
+            boxShadow: "0 0 28px rgba(191,162,100,0.2)",
+          }}
+        >
+          <svg
+            width={24}
+            height={24}
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="#0a0a0a"
+            strokeWidth="2"
+          >
+            <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+          </svg>
+        </div>
+        <div
+          style={{
+            display: "inline-flex",
+            alignItems: "center",
+            gap: 6,
+            padding: "3px 12px",
+            background: "rgba(191,162,100,0.08)",
+            border: "0.5px solid rgba(191,162,100,0.2)",
+            borderRadius: 99,
+            marginBottom: 14,
+          }}
+        >
+          <div
+            style={{
+              width: 6,
+              height: 6,
+              borderRadius: "50%",
+              background: "var(--gold-2)",
+              animation: "ob-pulse 2s infinite",
+            }}
+          />
+          <span
+            style={{
+              fontSize: 9,
+              fontWeight: 700,
+              color: "var(--gold-3)",
+              letterSpacing: "0.22em",
+              textTransform: "uppercase",
+              fontFamily: "var(--font-body)",
+            }}
+          >
+            Launch pricing
+          </span>
+        </div>
+        <h2
+          style={{
+            fontFamily: "var(--font-display)",
+            fontWeight: 800,
+            fontSize: "clamp(24px, 5vw, 30px)",
+            letterSpacing: "-0.03em",
+            color: "var(--text-primary)",
+            marginBottom: 6,
+          }}
+        >
+          Welcome, {firstName || "Operator"}.
+        </h2>
+        <p
+          style={{
+            fontFamily: "var(--font-display)",
+            fontStyle: "italic",
+            fontWeight: 300,
+            fontSize: 18,
+            color: "var(--gold-2)",
+            marginBottom: 18,
+          }}
+        >
+          Build without limits.
+        </p>
+        <p
+          style={{
+            fontSize: 14,
+            color: "var(--text-secondary)",
+            fontFamily: "var(--font-body)",
+            lineHeight: 1.7,
+            maxWidth: 360,
+            margin: "0 auto",
+          }}
+        >
+          You're on{" "}
+          <strong style={{ color: "var(--text-primary)" }}>Essential</strong>.
+          Upgrade to Pro for{" "}
+          <strong style={{ color: "var(--gold-2)" }}>₹139/month</strong> and
+          unlock the full OS.
+        </p>
+      </div>
+
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: 8,
+          marginBottom: 24,
+        }}
+      >
+        {features.map(({ label, sub }) => (
           <div
             key={label}
             style={{
               display: "flex",
               alignItems: "center",
               gap: 12,
-              padding: "12px 16px",
+              padding: "12px 14px",
               background: "var(--surface)",
               border: "0.5px solid var(--border)",
-              borderRadius: 12,
+              borderRadius: "var(--r-sm)",
             }}
           >
-            <div
-              style={{
-                width: 36,
-                height: 36,
-                borderRadius: 10,
-                background: "rgba(191,162,100,0.1)",
-                border: "0.5px solid rgba(191,162,100,0.2)",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                flexShrink: 0,
-              }}
-            >
-              <Icon size={16} style={{ color: "var(--gold-2)" }} />
-            </div>
+            <CheckIcon size={14} />
             <div>
               <p
                 style={{
@@ -3259,29 +2947,24 @@ function PremiumPrompt({ firstName, onUpgrade, onContinue }) {
                 {sub}
               </p>
             </div>
-            <Check
-              size={14}
-              style={{
-                color: "var(--gold-3)",
-                marginLeft: "auto",
-                flexShrink: 0,
-              }}
-            />
           </div>
         ))}
       </div>
 
       <button
-        type="button"
-        className="auth-btn-primary"
+        className="ob-btn-primary"
         onClick={onUpgrade}
+        disabled={loading}
         style={{ marginBottom: 10 }}
       >
-        <Crown size={15} /> Upgrade to Pro — ₹99/month
+        {loading ? (
+          <Spinner size={14} color="#0a0a0a" />
+        ) : (
+          "Upgrade to Pro — ₹139/month"
+        )}
       </button>
       <button
-        type="button"
-        onClick={onContinue}
+        onClick={onSkip}
         style={{
           background: "none",
           border: "none",
@@ -3297,18 +2980,330 @@ function PremiumPrompt({ firstName, onUpgrade, onContinue }) {
           gap: 6,
         }}
       >
-        Continue with Essential <ArrowRight size={13} />
+        Continue with Essential <ChevronRight size={12} />
       </button>
       <p
         style={{
           fontSize: 10,
-          color: "rgba(255,255,255,0.15)",
+          color: "rgba(255,255,255,0.13)",
           fontFamily: "var(--font-body)",
-          marginTop: 16,
+          marginTop: 14,
+          textAlign: "center",
         }}
       >
-        Cancel anytime. Indian pricing — ₹99/month. No hidden fees.
+        Cancel anytime · Indian pricing · No hidden fees.
       </p>
+    </motion.div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STEP 8 — EXECUTION SEQUENCE (Final boot animation + Firestore write)
+// ─────────────────────────────────────────────────────────────────────────────
+function StepExecution({ uid, onComplete }) {
+  const [phase, setPhase] = useState("tasks"); // tasks | bonus | done
+  const [taskIdx, setTaskIdx] = useState(0);
+  const [score, setScore] = useState(0);
+  const [toasts, setToasts] = useState([]);
+
+  const tasks = [
+    "Initializing command center",
+    "Compiling your execution map",
+    "Connecting to the global arena",
+    "Seeding your operator network",
+    "Securing your asset vault",
+    "All systems operational",
+  ];
+
+  const addToast = useCallback((msg, type = "grey") => {
+    const id = Date.now() + Math.random();
+    setToasts((p) => [...p.slice(-3), { id, msg, type }]);
+    setTimeout(() => setToasts((p) => p.filter((t) => t.id !== id)), 4200);
+  }, []);
+
+  const animScore = useCallback((from, to, ms = 30) => {
+    let cur = from;
+    const iv = setInterval(() => {
+      cur += 1;
+      setScore(cur);
+      if (cur >= to) clearInterval(iv);
+    }, ms);
+  }, []);
+
+  useEffect(() => {
+    if (phase !== "tasks") return;
+    if (taskIdx < tasks.length) {
+      const t = setTimeout(
+        () => {
+          setTaskIdx((i) => i + 1);
+        },
+        taskIdx === 0 ? 2000 : 900,
+      );
+      return () => clearTimeout(t);
+    }
+    const t = setTimeout(() => setPhase("bonus"), 300);
+    return () => clearTimeout(t);
+  }, [taskIdx, phase, tasks.length]);
+
+  useEffect(() => {
+    if (phase === "bonus") {
+      addToast("Initialization bonus: +70 pts", "green");
+      animScore(0, 70, 20);
+      const t = setTimeout(() => setPhase("done"), 2600);
+      return () => clearTimeout(t);
+    }
+  }, [phase, animScore, addToast]);
+
+  useEffect(() => {
+    if (phase === "done") {
+      const t = setTimeout(() => onComplete(), 800);
+      return () => clearTimeout(t);
+    }
+  }, [phase, onComplete]);
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0, scale: 0.98 }}
+      transition={{ duration: 0.5 }}
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 9999,
+        background: "#030303",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 32,
+        fontFamily: "var(--font-body)",
+      }}
+    >
+      <div
+        style={{
+          position: "absolute",
+          top: "35%",
+          left: "50%",
+          transform: "translate(-50%, -50%)",
+          width: 480,
+          height: 480,
+          background:
+            "radial-gradient(ellipse, rgba(191,162,100,0.05) 0%, transparent 70%)",
+          pointerEvents: "none",
+        }}
+      />
+
+      <motion.p
+        initial={{ opacity: 0, y: -12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.3 }}
+        style={{
+          position: "absolute",
+          top: 40,
+          fontSize: 10,
+          letterSpacing: "0.4em",
+          textTransform: "uppercase",
+          color: "rgba(191,162,100,0.4)",
+          fontFamily: "var(--font-display)",
+          fontWeight: 700,
+        }}
+      >
+        DISCOTIVE OS
+      </motion.p>
+
+      <div
+        style={{
+          width: "100%",
+          maxWidth: 720,
+          display: "grid",
+          gridTemplateColumns: window.innerWidth > 640 ? "1fr 1fr" : "1fr",
+          gap: 48,
+          alignItems: "center",
+        }}
+      >
+        {/* Task list */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+          {tasks.map((task, i) => {
+            if (i > taskIdx) return null;
+            const done = i < taskIdx || phase !== "tasks";
+            const active = i === taskIdx && phase === "tasks";
+            return (
+              <motion.div
+                key={task}
+                initial={{ opacity: 0, x: -16 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ duration: 0.35 }}
+                style={{ display: "flex", alignItems: "center", gap: 14 }}
+              >
+                <div
+                  style={{
+                    width: 22,
+                    height: 22,
+                    flexShrink: 0,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  {active && <Spinner />}
+                  {done && <CheckIcon size={18} />}
+                </div>
+                <span
+                  style={{
+                    fontSize: 14,
+                    fontWeight: done ? 400 : 600,
+                    color: done
+                      ? "rgba(245,240,232,0.3)"
+                      : "var(--text-primary)",
+                    fontFamily: "var(--font-body)",
+                    transition: "color 0.4s",
+                  }}
+                >
+                  {task}
+                </span>
+              </motion.div>
+            );
+          })}
+        </div>
+
+        {/* Score counter */}
+        {window.innerWidth > 640 && (
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              borderLeft: "0.5px solid rgba(255,255,255,0.06)",
+              paddingLeft: 40,
+            }}
+          >
+            <p
+              style={{
+                fontSize: 9,
+                letterSpacing: "0.3em",
+                textTransform: "uppercase",
+                color: "var(--text-dim)",
+                marginBottom: 14,
+              }}
+            >
+              Discotive Score
+            </p>
+            <motion.span
+              key={score}
+              className="score-pop"
+              style={{
+                fontSize: "clamp(64px, 14vw, 100px)",
+                fontWeight: 900,
+                fontFamily: "var(--font-display)",
+                letterSpacing: "-0.04em",
+                lineHeight: 1,
+                display: "block",
+                color:
+                  phase === "bonus" ? "var(--gold-2)" : "var(--text-primary)",
+                transition: "color 0.5s",
+              }}
+            >
+              {score}
+            </motion.span>
+            <AnimatePresence>
+              {phase === "bonus" && (
+                <motion.div
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0 }}
+                  style={{
+                    marginTop: 16,
+                    padding: "5px 14px",
+                    background: "rgba(191,162,100,0.1)",
+                    border: "0.5px solid rgba(191,162,100,0.3)",
+                    borderRadius: 99,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 8,
+                  }}
+                >
+                  <div
+                    style={{
+                      width: 6,
+                      height: 6,
+                      borderRadius: "50%",
+                      background: "var(--gold-2)",
+                      animation: "ob-pulse 1.5s infinite",
+                    }}
+                  />
+                  <span
+                    style={{
+                      fontSize: 10,
+                      fontWeight: 700,
+                      color: "var(--gold-2)",
+                      textTransform: "uppercase",
+                      letterSpacing: "0.2em",
+                    }}
+                  >
+                    Initialization Bonus
+                  </span>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        )}
+      </div>
+
+      {createPortal(
+        <div
+          style={{
+            position: "fixed",
+            bottom: 24,
+            left: 20,
+            right: 20,
+            zIndex: 99999,
+            display: "flex",
+            flexDirection: "column",
+            gap: 8,
+            pointerEvents: "none",
+            maxWidth: 360,
+          }}
+        >
+          <AnimatePresence>
+            {toasts.map((t) => (
+              <motion.div
+                key={t.id}
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0 }}
+                transition={{ type: "spring", damping: 22, stiffness: 280 }}
+                style={{
+                  padding: "11px 16px",
+                  borderRadius: 12,
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                  fontSize: 12,
+                  fontFamily: "var(--font-body)",
+                  fontWeight: 600,
+                  pointerEvents: "auto",
+                  ...(t.type === "green"
+                    ? {
+                        background: "rgba(4,31,16,0.95)",
+                        border: "0.5px solid rgba(34,197,94,0.3)",
+                        color: "#4ADE80",
+                      }
+                    : {
+                        background: "rgba(22,22,22,0.95)",
+                        border: "0.5px solid rgba(255,255,255,0.08)",
+                        color: "var(--text-secondary)",
+                      }),
+                }}
+              >
+                {t.type === "green" && <CheckIcon size={13} />}
+                {t.msg}
+              </motion.div>
+            ))}
+          </AnimatePresence>
+        </div>,
+        document.body,
+      )}
     </motion.div>
   );
 }
@@ -3318,171 +3313,570 @@ function PremiumPrompt({ firstName, onUpgrade, onContinue }) {
 // ─────────────────────────────────────────────────────────────────────────────
 export default function AuthOrchestrator() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const store = useOnboardingStore();
+  const [localLoading, setLocalLoading] = useState(false);
+  const [localError, setLocalError] = useState("");
+  const [showExecution, setShowExecution] = useState(false);
 
-  // Use the extracted hook
-  const {
-    isLogin,
-    setIsLogin,
-    step,
-    setStep,
-    systemStatus,
-    setSystemStatus,
-    profileData,
-    setField,
-    setNestedField,
-    usernameAvailable,
-    debouncedUsername,
-    pwScore,
-    handleLogin,
-    handleSocialAuth,
-    handleStep1,
-    handleStep2,
-    handleStep3,
-    handleStep4,
-    handleStep7,
-    handleFinalSubmit,
-  } = useAuthFlow();
-
-  // CSS injection
+  // Inject CSS
   useEffect(() => {
     const el = document.createElement("style");
-    el.textContent = CSS;
+    el.textContent = GLOBAL_CSS;
     document.head.appendChild(el);
     return () => document.head.removeChild(el);
   }, []);
 
-  // spin keyframe
+  // Initialize from Landing Page payload
   useEffect(() => {
-    const el = document.createElement("style");
-    el.textContent = `@keyframes spin { to { transform: rotate(360deg); } }`;
-    document.head.appendChild(el);
-    return () => document.head.removeChild(el);
-  }, []);
+    // 1. Process Router Payload Injection
+    if (location.state?.isLogin !== undefined || location.state?.email) {
+      if (location.state.email) {
+        store.setField("email", location.state.email);
+      }
+      store.setStep(location.state.isLogin ? "login" : "auth");
 
-  const numericStep = typeof step === "number" ? step : 0;
+      // MAANG Standard: Clear React Router state natively to break the infinite read loop
+      navigate(location.pathname, { replace: true, state: null });
+      return;
+    }
+
+    // 2. Fallback execution boundary
+    if (store.step === "gateway") {
+      store.setStep("auth");
+    }
+
+    // Strict Dep Guard: Do NOT include 'store' here. Zustand mutations will cause infinite loops.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    location.state?.isLogin,
+    location.state?.email,
+    location.pathname,
+    navigate,
+  ]);
+
+  // Guard: if already authed + onboarded, redirect
+  useEffect(() => {
+    const unsub = auth.onAuthStateChanged(async (user) => {
+      if (!user) return;
+      try {
+        const snap = await getDoc(doc(db, "users", user.uid));
+        if (snap.exists() && snap.data()?.onboarding_status === "completed") {
+          navigate("/app", { replace: true });
+        }
+      } catch {}
+    });
+    return unsub;
+  }, [navigate]);
+
+  const setErr = (msg) => setLocalError(msg);
+  const clearErr = () => setLocalError("");
+
+  // ── HANDLER: Google OAuth ────────────────────────────────────────────────
+  const handleOAuth = async () => {
+    setLocalLoading(true);
+    clearErr();
+    try {
+      const provider = new GoogleAuthProvider();
+      const result = await signInWithPopup(auth, provider);
+      const user = result.user;
+      const nameParts = (user.displayName || "Operator").split(" ");
+
+      const snap = await getDoc(doc(db, "users", user.uid));
+      if (snap.exists() && snap.data()?.onboarding_status === "completed") {
+        navigate("/app", { replace: true });
+        return;
+      }
+
+      store.setField("uid", user.uid);
+      store.setField("isGoogleUser", true);
+      store.setField("email", user.email);
+      store.setField(
+        "firstName",
+        snap.data()?.identity?.firstName || nameParts[0],
+      );
+      store.setField(
+        "lastName",
+        snap.data()?.identity?.lastName || nameParts.slice(1).join(" "),
+      );
+      store.setField("avatarUrl", user.photoURL || "");
+      store.setField(
+        "username",
+        snap.data()?.identity?.username ||
+          user.email
+            .split("@")[0]
+            .toLowerCase()
+            .replace(/[^a-z0-9]/g, ""),
+      );
+
+      // Create ghost doc if new
+      if (!snap.exists()) {
+        const today = new Date().toISOString().split("T")[0];
+        await setDoc(doc(db, "users", user.uid), {
+          identity: {
+            firstName: nameParts[0],
+            lastName: nameParts.slice(1).join(" "),
+            email: user.email,
+            avatarUrl: user.photoURL || "",
+            username: "",
+          },
+          onboarding_status: "pending",
+          isGhostUser: true,
+          createdAt: new Date().toISOString(),
+          discotiveScore: {
+            current: 0,
+            streak: 0,
+            lastLoginDate: today,
+            lastAmount: 0,
+            lastReason: "Ghost — Pending",
+            lastUpdatedAt: new Date().toISOString(),
+          },
+          login_history: [today],
+        });
+      }
+
+      store.setStep("identity");
+    } catch (err) {
+      setErr(err.message.replace("Firebase: ", ""));
+    } finally {
+      setLocalLoading(false);
+    }
+  };
+
+  // ── HANDLER: Login ────────────────────────────────────────────────────────
+  const handleLogin = async (email, password) => {
+    setLocalLoading(true);
+    clearErr();
+    try {
+      await signInWithEmailAndPassword(auth, email, password);
+      navigate("/app", { replace: true });
+    } catch {
+      setErr("Incorrect email or password. Please try again.");
+    } finally {
+      setLocalLoading(false);
+    }
+  };
+
+  // ── HANDLER: Email/pass signup → send OTP ────────────────────────────────
+  const handleAuthSubmit = async (e) => {
+    e.preventDefault();
+    const { firstName, lastName, email, password } = store;
+    if (!firstName || !lastName) return setErr("Please fill in all fields.");
+    if (password.length < 8)
+      return setErr("Password must be at least 8 characters.");
+    const pwScore = (() => {
+      let s = 0;
+      if (password.length > 7) s++;
+      if (/[a-z]/.test(password) && /[A-Z]/.test(password)) s++;
+      if (/\d/.test(password)) s++;
+      if (/[^a-zA-Z0-9]/.test(password)) s++;
+      return s;
+    })();
+    if (pwScore < 2)
+      return setErr(
+        "Password too weak. Mix uppercase, lowercase, and numbers.",
+      );
+
+    setLocalLoading(true);
+    clearErr();
+    try {
+      // Pre-flight check: Does this operator already exist?
+      const normalizedEmail = email.trim().toLowerCase();
+      let exists = false;
+
+      try {
+        const methods = await fetchSignInMethodsForEmail(auth, normalizedEmail);
+        if (methods && methods.length > 0) {
+          exists = true;
+        }
+      } catch (err) {
+        console.warn(
+          "[AuthEngine] Enumeration protection active or network failure:",
+          err,
+        );
+      }
+
+      if (exists) {
+        // Email already registered. Reroute seamlessly to login.
+        store.setStep("login");
+        setLocalLoading(false);
+        return;
+      }
+
+      // Safe to proceed for new operator
+      const sendFn = httpsCallable(functions, "sendVerificationEmail");
+      await sendFn({ email, firstName });
+      store.setStep("verify");
+    } catch (err) {
+      setErr("Failed to send verification email. Please try again.");
+    } finally {
+      // Ensure loading drops if we didn't early return
+      if (store.step !== "login") {
+        setLocalLoading(false);
+      }
+    }
+  };
+
+  // ── HANDLER: OTP verified → create Firebase auth account ─────────────────
+  const handleOTPVerified = async () => {
+    const { email, password } = store;
+    setLocalLoading(true);
+    clearErr();
+    try {
+      const cred = await createUserWithEmailAndPassword(auth, email, password);
+      store.setField("uid", cred.user.uid);
+      store.setStep("identity");
+    } catch (err) {
+      setErr(err.message.replace("Firebase: ", ""));
+    } finally {
+      setLocalLoading(false);
+    }
+  };
+
+  // ── HANDLER: Identity → next ──────────────────────────────────────────────
+  const handleIdentitySubmit = (available) => {
+    if (!available && available !== null) return setErr("Username is taken.");
+    clearErr();
+    store.setStep("baseline");
+  };
+
+  // ── HANDLER: Baseline → next ──────────────────────────────────────────────
+  const handleBaselineSubmit = () => {
+    clearErr();
+    store.setStep("intent");
+  };
+
+  // ── HANDLER: Intent → next ────────────────────────────────────────────────
+  const handleIntentSubmit = () => {
+    clearErr();
+    store.setStep("network");
+  };
+
+  // ── HANDLER: Network → next ───────────────────────────────────────────────
+  const handleNetworkSubmit = () => {
+    clearErr();
+    store.setStep("connectors");
+  };
+
+  // ── HANDLER: Connectors → next ────────────────────────────────────────────
+  const handleConnectorsSubmit = () => {
+    clearErr();
+    store.setStep("motivation");
+  };
+
+  // ── HANDLER: Motivation → next ────────────────────────────────────────────
+  const handleMotivationSubmit = () => {
+    clearErr();
+    store.setStep("premium");
+  };
+
+  // ── HANDLER: Premium skip/upgrade ────────────────────────────────────────
+  const handlePremiumSkip = () => {
+    clearErr();
+    triggerExecution();
+  };
+
+  const handlePremiumUpgrade = () => {
+    navigate("/premium");
+  };
+
+  // ── FINAL: Batch Firestore write ──────────────────────────────────────────
+  const triggerExecution = async () => {
+    const uid = store.uid || auth.currentUser?.uid;
+    if (!uid) return;
+    setShowExecution(true);
+
+    const {
+      firstName,
+      lastName,
+      email,
+      username,
+      passion,
+      whyHere,
+      currentStatus,
+      github,
+      twitter,
+      instagram,
+      youtube,
+      avatarUrl,
+      followedSeeds,
+    } = store;
+
+    const today = new Date().toISOString().split("T")[0];
+
+    try {
+      // 1. Core user doc (users/{uid})
+      await setDoc(
+        doc(db, "users", uid),
+        {
+          identity: {
+            firstName,
+            lastName,
+            email: email || auth.currentUser?.email || "",
+            username: username.toLowerCase(),
+            avatarUrl: avatarUrl || "",
+            domain: passion,
+            niche: "",
+          },
+          vision: { passion, whyHere },
+          baseline: { currentStatus },
+          skills: { rawSkills: [], alignedSkills: [], languages: [] },
+          onboarding_status: "completed",
+          onboardingComplete: true,
+          isGhostUser: false,
+          profileCompleteness: 25,
+          deferredOnboarding: {
+            location: false,
+            background: false,
+            professional: false,
+            skills: false,
+            resources: false,
+            footprint: false,
+            motivation: false,
+          },
+          discotiveScore: {
+            current: 0,
+            last24h: 0,
+            lastLoginDate: today,
+            streak: 1,
+            lastAmount: 0,
+            lastReason: "OS Booted",
+            lastUpdatedAt: new Date().toISOString(),
+          },
+          score_history: [{ date: today, score: 0 }],
+          consistency_log: [today],
+          login_history: [today],
+          createdAt: new Date().toISOString(),
+        },
+        { merge: true },
+      );
+
+      // 2. Public profile doc (profiles/{uid})
+      await setDoc(
+        doc(db, "profiles", uid),
+        {
+          identity: {
+            firstName,
+            lastName,
+            username: username.toLowerCase(),
+            domain: passion,
+            avatarUrl: avatarUrl || "",
+          },
+          baseline: { currentStatus },
+          vision: { passion, whyHere },
+          links: { github, twitter, instagram, youtube },
+          followedSeeds,
+          tier: "ESSENTIAL",
+          updatedAt: new Date().toISOString(),
+        },
+        { merge: true },
+      );
+
+      // 3. Metrics doc (user_metrics/{uid})
+      await setDoc(
+        doc(db, "user_metrics", uid),
+        {
+          discotiveScore: { current: 0, streak: 1, lastLoginDate: today },
+          consistency_log: [today],
+          login_history: [today],
+          daily_scores: { [today]: 0 },
+          monthly_scores: { [today.substring(0, 7)]: 0 },
+        },
+        { merge: true },
+      );
+
+      await awardOnboardingComplete(uid);
+      store.setField("onboardingComplete", true);
+    } catch (err) {
+      console.error("[Onboarding] Final write failed:", err);
+    }
+  };
+
+  const handleExecutionComplete = () => {
+    store.reset();
+    navigate("/app", { replace: true });
+  };
+
+  const handleGlobalBack = () => {
+    if (store.step === "auth" || store.step === "login") {
+      navigate("/");
+    } else {
+      const prev = {
+        verify: "auth",
+        identity: store.isGoogleUser ? "login" : "auth",
+        baseline: "identity",
+        intent: "baseline",
+        network: "intent",
+        connectors: "network",
+        motivation: "connectors",
+        premium: "motivation",
+      }[store.step];
+      if (prev) store.setStep(prev);
+    }
+  };
+
+  // ── Step → left panel index ───────────────────────────────────────────────
+  const leftIdx =
+    {
+      gateway: 0,
+      login: 0,
+      auth: 1,
+      verify: 1,
+      identity: 2,
+      baseline: 3,
+      intent: 4,
+      network: 5,
+      connectors: 6,
+      motivation: 7,
+      premium: 8,
+    }[store.step] ?? 0;
 
   return (
-    <div className="auth-root">
-      <LeftPanel step={numericStep} />
+    <div className="ob-root">
+      <LeftPanel stepIndex={leftIdx} onBack={handleGlobalBack} />
 
-      <div className="auth-right">
-        <div className="auth-form-container">
+      <div className="ob-right" style={{ position: "relative" }}>
+        <div
+          style={{
+            position: "absolute",
+            top: 28,
+            left: 28,
+            zIndex: 50,
+            display: "flex",
+            alignItems: "center",
+            gap: 16,
+          }}
+        >
+          <button
+            onClick={handleGlobalBack}
+            style={{
+              background: "none",
+              border: "none",
+              cursor: "pointer",
+              color: "var(--text-primary)",
+              display: "flex",
+              alignItems: "center",
+              padding: 0,
+              opacity: 0.8,
+              transition: "opacity 0.2s",
+            }}
+            onMouseOver={(e) => (e.currentTarget.style.opacity = 1)}
+            onMouseOut={(e) => (e.currentTarget.style.opacity = 0.8)}
+          >
+            <svg
+              width={20}
+              height={20}
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2.5"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <line x1="19" y1="12" x2="5" y2="12" />
+              <polyline points="12 19 5 12 12 5" />
+            </svg>
+          </button>
+          <img
+            src="/Logo with Title.png"
+            alt="Discotive"
+            style={{ height: 22, opacity: 0.9 }}
+          />
+        </div>
+        <div className="ob-form-wrap" style={{ marginTop: 24 }}>
           <AnimatePresence mode="wait">
-            {isLogin && (
-              <Step0Login
+            {store.step === "login" && (
+              <StepLogin
                 key="login"
+                onOAuth={handleOAuth}
+                onSwitch={() => store.setStep("auth")}
                 onSubmit={handleLogin}
-                onOAuth={handleSocialAuth}
-                goToSignup={() => {
-                  setIsLogin(false);
-                  setStep(1);
-                }}
-                authError={systemStatus.error}
-                isProcessing={systemStatus.loading}
+                loading={localLoading}
+                error={localError}
               />
             )}
-            {!isLogin && step === 1 && (
-              <Step1Identity
-                key="s1"
-                profileData={profileData}
-                setField={setField}
-                systemStatus={systemStatus}
-                handleSubmit={handleStep1}
-                handleOAuth={handleSocialAuth}
-                setIsLogin={setIsLogin}
-                pwScore={pwScore}
+            {store.step === "auth" && (
+              <StepAuth
+                key="auth"
+                onOAuth={handleOAuth}
+                onSwitch={() => store.setStep("login")}
+                onSubmit={handleAuthSubmit}
+                loading={localLoading}
+                error={localError}
               />
             )}
-            {!isLogin && step === "verify_email" && (
-              <StepEmailVerify
+            {store.step === "verify" && (
+              <StepVerifyEmail
                 key="verify"
-                email={profileData.email}
-                firstName={profileData.firstName}
-                onVerified={() => setStep(2)}
-                onChangeEmail={() => setStep(1)}
+                email={store.email}
+                firstName={store.firstName}
+                onVerified={handleOTPVerified}
+                onBack={() => store.setStep("auth")}
               />
             )}
-            {!isLogin && step === 2 && (
-              <Step2Coordinates
-                key="s2"
-                profileData={profileData}
-                setField={setField}
-                systemStatus={systemStatus}
-                handleSubmit={handleStep2}
-                setStep={setStep}
-                usernameAvailable={usernameAvailable}
-                debouncedUsername={debouncedUsername}
-              />
-            )}
-            {!isLogin && step === 3 && (
-              <Step3Background
-                key="s3"
-                profileData={profileData}
-                setField={setField}
-                systemStatus={systemStatus}
-                handleSubmit={handleStep3}
-                setStep={setStep}
-              />
-            )}
-            {!isLogin && step === 4 && (
-              <Step4Vision
-                key="s4"
-                profileData={profileData}
-                setField={setField}
-                systemStatus={systemStatus}
-                handleSubmit={handleStep4}
-                setStep={setStep}
-              />
-            )}
-            {!isLogin && step === 5 && (
-              <Step5Skills
-                key="s5"
-                profileData={profileData}
-                setField={setField}
-                systemStatus={systemStatus}
-                setSystemStatus={setSystemStatus}
-                setStep={setStep}
-              />
-            )}
-            {!isLogin && step === 6 && (
-              <Step6Resources
-                key="s6"
-                profileData={profileData}
-                setField={setField}
-                setSystemStatus={setSystemStatus}
-                setStep={setStep}
-              />
-            )}
-            {!isLogin && step === 7 && (
-              <Step7Footprint
-                key="s7"
-                profileData={profileData}
-                setNestedField={setNestedField}
-                systemStatus={systemStatus}
-                handleSubmit={handleStep7}
-                setStep={setStep}
-              />
-            )}
-            {!isLogin && step === 8 && (
-              <Step8Canvas
-                key="s8"
-                profileData={profileData}
-                setField={setField}
-                systemStatus={systemStatus}
-                handleSubmit={handleFinalSubmit}
-                setStep={setStep}
-              />
-            )}
-            {step === "premium_prompt" && (
-              <PremiumPrompt
-                key="premium"
-                firstName={
-                  profileData.firstName ||
-                  auth.currentUser?.displayName?.split(" ")[0] ||
-                  "Operator"
+            {store.step === "identity" && (
+              <StepIdentity
+                key="identity"
+                onSubmit={handleIdentitySubmit}
+                onBack={() =>
+                  store.setStep(store.isGoogleUser ? "gateway" : "auth")
                 }
-                onUpgrade={() => navigate("/premium")}
-                onContinue={() => navigate("/app", { replace: true })}
+                loading={localLoading}
+                error={localError}
+              />
+            )}
+            {store.step === "baseline" && (
+              <StepBaseline
+                key="baseline"
+                onSubmit={handleBaselineSubmit}
+                onBack={() => store.setStep("identity")}
+                loading={localLoading}
+                error={localError}
+              />
+            )}
+            {store.step === "intent" && (
+              <StepIntent
+                key="intent"
+                onSubmit={handleIntentSubmit}
+                onBack={() => store.setStep("baseline")}
+                loading={localLoading}
+                error={localError}
+              />
+            )}
+            {store.step === "network" && (
+              <StepNetwork
+                key="network"
+                onSubmit={handleNetworkSubmit}
+                onBack={() => store.setStep("intent")}
+                loading={localLoading}
+                error={localError}
+              />
+            )}
+            {store.step === "connectors" && (
+              <StepConnectors
+                key="connectors"
+                onSubmit={handleConnectorsSubmit}
+                onBack={() => store.setStep("network")}
+                loading={localLoading}
+                error={localError}
+              />
+            )}
+            {store.step === "motivation" && (
+              <StepMotivation
+                key="motivation"
+                onSubmit={handleMotivationSubmit}
+                onBack={() => store.setStep("connectors")}
+                loading={localLoading}
+                error={localError}
+              />
+            )}
+            {store.step === "premium" && (
+              <StepPremium
+                key="premium"
+                firstName={store.firstName}
+                onUpgrade={handlePremiumUpgrade}
+                onSkip={handlePremiumSkip}
+                loading={localLoading}
               />
             )}
           </AnimatePresence>
@@ -3490,12 +3884,10 @@ export default function AuthOrchestrator() {
       </div>
 
       <AnimatePresence>
-        {systemStatus.showSetupSequence && (
-          <SetupSequence
-            onComplete={() => {
-              setSystemStatus((p) => ({ ...p, showSetupSequence: false }));
-              setStep("premium_prompt");
-            }}
+        {showExecution && (
+          <StepExecution
+            uid={store.uid || auth.currentUser?.uid}
+            onComplete={handleExecutionComplete}
           />
         )}
       </AnimatePresence>

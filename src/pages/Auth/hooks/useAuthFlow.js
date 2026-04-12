@@ -1,4 +1,5 @@
 // src/pages/Auth/hooks/useAuthFlow.js
+// REFACTORED: Zero-friction 3-step onboarding. Full profile deferred to in-app completeness widget.
 
 import { useState, useEffect, useCallback, useReducer } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
@@ -21,76 +22,25 @@ import { auth, db, functions } from "../../../firebase";
 import { httpsCallable } from "firebase/functions";
 import { awardOnboardingComplete } from "../../../lib/scoreEngine";
 
-// ─────────────────────────────────────────────────────────────────────────────
-// STATE & REDUCERS
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── MINIMAL INITIAL PROFILE (only what's needed for first launch) ───────────
 const initialProfile = {
+  // Step 1: Auth
   email: "",
   password: "",
   firstName: "",
   lastName: "",
+  avatarUrl: "", // hydrated from Google OAuth
+
+  // Step 2: Handle + one big question
   username: "",
-  gender: "",
-  userState: "",
-  country: "",
-  countryCode: "+91 🇮🇳",
-  mobileNumber: "",
-  currentStatus: "",
-  institution: "",
-  course: "",
-  specialization: "",
-  startMonth: "",
-  startYear: "",
-  endMonth: "",
-  endYear: "",
-  passion: "",
-  niche: "",
-  parallelPath: "",
-  bio: "",
-  workExperienceRole: "",
-  workExperienceCompany: "",
-  workExperienceType: "",
-  rawSkills: [],
-  alignedSkills: [],
-  languages: [],
-  guardianProfession: "",
-  incomeBracket: "",
-  financialLaunchpad: "",
-  investmentCapacity: "",
-  personalFootprint: {
-    linkedin: "",
-    github: "",
-    instagram: "",
-    twitter: "",
-    youtube: "",
-    linktree: "",
-    website: "",
-  },
-  commercialFootprint: {
-    linkedinCompany: "",
-    github: "",
-    instagram: "",
-    twitter: "",
-    youtube: "",
-    linktree: "",
-    website: "",
-  },
-  wildcardInfo: "",
-  coreMotivation: "",
+  passion: "", // domain/macro-field — feeds the algorithm immediately
+  currentStatus: [], // Student / Professional / Founder / etc. (Array format for multi-select up to 3)
 };
 
 function profileReducer(state, action) {
   switch (action.type) {
     case "SET_FIELD":
       return { ...state, [action.field]: action.value };
-    case "SET_NESTED":
-      return {
-        ...state,
-        [action.parent]: {
-          ...state[action.parent],
-          [action.field]: action.value,
-        },
-      };
     case "HYDRATE":
       return { ...state, ...action.payload };
     default:
@@ -107,20 +57,18 @@ function useDebounce(value, delay) {
   return dv;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// MAIN HOOK
-// ─────────────────────────────────────────────────────────────────────────────
+// ─── MAIN HOOK ─────────────────────────────────────────────────────────────────
 export default function useAuthFlow() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const [isLogin, setIsLogin] = useState(location.state?.isLogin !== false);
-  const [step, setStep] = useState(1);
+  // "login" | "signup_auth" | "verify_email" | "signup_intent" | "booting" | "premium_prompt"
+  const [step, setStep] = useState(
+    location.state?.isLogin === false ? "signup_auth" : "login",
+  );
   const [systemStatus, setSystemStatus] = useState({
     loading: false,
     error: "",
-    success: "",
-    isBooting: false,
     showSetupSequence: false,
   });
   const [profileData, dispatch] = useReducer(profileReducer, initialProfile);
@@ -131,11 +79,6 @@ export default function useAuthFlow() {
 
   const setField = useCallback(
     (field, value) => dispatch({ type: "SET_FIELD", field, value }),
-    [],
-  );
-  const setNestedField = useCallback(
-    (parent, field, value) =>
-      dispatch({ type: "SET_NESTED", parent, field, value }),
     [],
   );
 
@@ -155,7 +98,7 @@ export default function useAuthFlow() {
       setUsernameAvailable(null);
       return;
     }
-    setUsernameAvailable(null); // Immediately reset to trigger loader while fetching
+    setUsernameAvailable(null);
     let active = true;
     (async () => {
       try {
@@ -173,52 +116,57 @@ export default function useAuthFlow() {
     };
   }, [debouncedUsername]);
 
-  // Auth state observer
+  // Auth state observer — fast-tracks already-authenticated users
   useEffect(() => {
+    const guardSteps = [
+      "verify_email",
+      "signup_intent",
+      "booting",
+      "premium_prompt",
+      "signup_auth",
+      "login",
+    ];
+    if (!guardSteps.includes(step) && typeof step !== "string") return;
+
     const unsub = auth.onAuthStateChanged(async (user) => {
-      if (
-        !user ||
-        systemStatus.isBooting ||
-        systemStatus.showSetupSequence ||
-        step === "premium_prompt" ||
-        step === "verify_email" ||
-        (typeof step === "number" && step > 1)
-      )
+      if (!user || systemStatus.loading || systemStatus.showSetupSequence)
         return;
+      if (step !== "login" && step !== "signup_auth") return;
 
       try {
         const snap = await getDoc(doc(db, "users", user.uid));
         if (snap.exists()) {
           const data = snap.data();
-          if (
-            data?.onboardingComplete === false ||
-            data?.isGhostUser === true
-          ) {
-            setIsLogin(false);
-            setIsGoogleUser(
-              !!user.providerData?.find((p) => p.providerId === "google.com"),
-            );
+          if (data?.onboardingComplete === true) {
+            navigate("/app", { replace: true });
+          } else {
+            // Incomplete ghost — fast-track to intent step
+            setIsGoogleUser(true);
             dispatch({
               type: "HYDRATE",
               payload: {
-                firstName: data?.identity?.firstName || "",
-                lastName: data?.identity?.lastName || "",
+                firstName:
+                  data?.identity?.firstName ||
+                  user.displayName?.split(" ")[0] ||
+                  "",
+                lastName:
+                  data?.identity?.lastName ||
+                  user.displayName?.split(" ").slice(1).join(" ") ||
+                  "",
                 email: data?.identity?.email || user.email || "",
                 username: data?.identity?.username || "",
+                avatarUrl: user.photoURL || "",
               },
             });
-            setStep(2);
-            return;
+            setStep("signup_intent");
           }
-          navigate("/app", { replace: true });
-        } else {
-          setIsLogin(false);
-          setStep(2);
         }
       } catch {}
     });
     return unsub;
-  }, [navigate, systemStatus.isBooting, systemStatus.showSetupSequence, step]);
+  }, [navigate, step, systemStatus.loading, systemStatus.showSetupSequence]);
+
+  // ── HANDLERS ──────────────────────────────────────────────────────────────
 
   const handleLogin = async (email, password) => {
     setSystemStatus((p) => ({ ...p, loading: true, error: "" }));
@@ -240,45 +188,61 @@ export default function useAuthFlow() {
       const provider = new GoogleAuthProvider();
       const result = await signInWithPopup(auth, provider);
       const user = result.user;
-      const safeEmail = user.email;
+      const nameParts = (user.displayName || "Operator").split(" ");
+
       const existingSnap = await getDoc(doc(db, "users", user.uid));
       if (existingSnap.exists()) {
         const userData = existingSnap.data();
-        if (
-          userData?.onboardingComplete === false ||
-          userData?.isGhostUser === true
-        ) {
-          setIsGoogleUser(true);
-          setIsLogin(false);
-          setSystemStatus((p) => ({ ...p, loading: false }));
-          setStep(2);
+        if (userData?.onboardingComplete === true) {
+          navigate("/app", { replace: true });
           return;
         }
+        // Incomplete — go to intent
+        dispatch({
+          type: "HYDRATE",
+          payload: {
+            firstName: userData?.identity?.firstName || nameParts[0],
+            lastName:
+              userData?.identity?.lastName || nameParts.slice(1).join(" "),
+            email: user.email,
+            username:
+              userData?.identity?.username ||
+              user.email
+                .split("@")[0]
+                .toLowerCase()
+                .replace(/[^a-z0-9]/g, ""),
+            avatarUrl: user.photoURL || "",
+          },
+        });
+        setIsGoogleUser(true);
         setSystemStatus((p) => ({ ...p, loading: false }));
-        navigate("/app", { replace: true });
+        setStep("signup_intent");
         return;
       }
-      const nameParts = (user.displayName || "Operator").split(" ");
+
+      // Brand new Google user — create ghost doc and go to intent
       dispatch({
         type: "HYDRATE",
         payload: {
           firstName: nameParts[0],
           lastName: nameParts.slice(1).join(" "),
-          email: safeEmail,
-          username: safeEmail
+          email: user.email,
+          username: user.email
             .split("@")[0]
             .toLowerCase()
             .replace(/[^a-z0-9]/g, ""),
+          avatarUrl: user.photoURL || "",
         },
       });
+
       const today = new Date().toISOString().split("T")[0];
       await setDoc(doc(db, "users", user.uid), {
         identity: {
           firstName: nameParts[0],
           lastName: nameParts.slice(1).join(" "),
-          email: safeEmail,
+          email: user.email,
+          avatarUrl: user.photoURL || "",
           username: "",
-          gender: "",
         },
         onboardingComplete: false,
         isGhostUser: true,
@@ -293,10 +257,10 @@ export default function useAuthFlow() {
         },
         login_history: [today],
       });
+
       setIsGoogleUser(true);
-      setIsLogin(false);
       setSystemStatus((p) => ({ ...p, loading: false }));
-      setStep(2);
+      setStep("signup_intent");
     } catch (err) {
       setSystemStatus((p) => ({
         ...p,
@@ -306,51 +270,42 @@ export default function useAuthFlow() {
     }
   };
 
-  const handleStep1 = async (e) => {
-    e.preventDefault();
-    if (
-      !profileData.email ||
-      !profileData.password ||
-      !profileData.firstName ||
-      !profileData.lastName
-    )
+  // Step 1 for email/pass: validate → send OTP → verify_email
+  const handleEmailSignup = async (e) => {
+    e?.preventDefault();
+    const { email, password, firstName, lastName } = profileData;
+    if (!email || !password || !firstName || !lastName)
       return setSystemStatus((p) => ({
         ...p,
-        error: "Please fill in all fields before continuing.",
+        error: "Please fill in all fields.",
       }));
     if (pwScore < 2)
       return setSystemStatus((p) => ({
         ...p,
-        error:
-          "Your password is too weak. Add numbers and a mix of upper/lowercase.",
+        error: "Password too weak. Mix upper/lowercase + numbers.",
       }));
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(profileData.email))
+    if (!emailRegex.test(email))
       return setSystemStatus((p) => ({
         ...p,
-        error: "That doesn't look like a valid email address.",
+        error: "That doesn't look like a valid email.",
       }));
 
     setSystemStatus((p) => ({ ...p, loading: true, error: "" }));
     try {
       const methods = await import("firebase/auth").then((m) =>
-        m.fetchSignInMethodsForEmail(auth, profileData.email),
+        m.fetchSignInMethodsForEmail(auth, email),
       );
-      if (methods && methods.length > 0)
+      if (methods?.length > 0)
         return setSystemStatus((p) => ({
           ...p,
           loading: false,
-          error: "An account with this email already exists. Sign in instead.",
+          error: "Account already exists with this email. Sign in instead.",
         }));
-
       try {
         const sendFn = httpsCallable(functions, "sendVerificationEmail");
-        await sendFn({
-          email: profileData.email,
-          firstName: profileData.firstName,
-        });
+        await sendFn({ email, firstName });
       } catch {}
-
       setSystemStatus((p) => ({ ...p, loading: false }));
       setStep("verify_email");
     } catch (err) {
@@ -359,87 +314,50 @@ export default function useAuthFlow() {
         loading: false,
         error:
           err.code === "auth/invalid-email"
-            ? "Invalid email format."
-            : "Verification failed. Please try again.",
+            ? "Invalid email."
+            : "Failed. Please try again.",
       }));
     }
   };
 
-  const handleStep2 = (e) => {
-    e.preventDefault();
-    if (
-      !profileData.username ||
-      !profileData.userState ||
-      !profileData.country ||
-      !profileData.gender
-    )
+  // Step 2 (intent): handle + domain + status → create account → boot
+  const handleIntentSubmit = async (e) => {
+    e?.preventDefault();
+    const {
+      username,
+      passion,
+      currentStatus,
+      email,
+      password,
+      firstName,
+      lastName,
+      avatarUrl,
+    } = profileData;
+    if (!username || username.length < 3)
       return setSystemStatus((p) => ({
         ...p,
-        error: "Please fill in all required fields.",
+        error: "Pick a unique username (min 3 chars).",
       }));
     if (usernameAvailable === false)
       return setSystemStatus((p) => ({
         ...p,
-        error: "That username is already taken. Please choose another.",
+        error: "Username taken. Try another.",
       }));
-    setSystemStatus((p) => ({ ...p, error: "" }));
-    setStep(3);
-  };
-
-  const handleStep3 = (e) => {
-    e.preventDefault();
-    if (profileData.startMonth && !profileData.startYear)
+    if (!passion)
       return setSystemStatus((p) => ({
         ...p,
-        error: "Please add a start year too.",
+        error: "Select your primary domain.",
       }));
-    if (profileData.endMonth && !profileData.endYear)
+    if (
+      !currentStatus ||
+      (Array.isArray(currentStatus) && currentStatus.length === 0)
+    )
       return setSystemStatus((p) => ({
         ...p,
-        error: "Please add an end year too.",
-      }));
-    setSystemStatus((p) => ({ ...p, error: "" }));
-    setStep(4);
-  };
-
-  const handleStep4 = (e) => {
-    e.preventDefault();
-    if (!profileData.passion)
-      return setSystemStatus((p) => ({
-        ...p,
-        error: "Please select your main field.",
-      }));
-    if (!profileData.bio || profileData.bio.trim().length < 20)
-      return setSystemStatus((p) => ({
-        ...p,
-        error:
-          "Please write a short professional bio (at least 20 characters).",
-      }));
-    if (profileData.passion === profileData.parallelPath)
-      return setSystemStatus((p) => ({
-        ...p,
-        error: "Your main field and side pursuit cannot be the same.",
-      }));
-    setSystemStatus((p) => ({ ...p, error: "" }));
-    setStep(5);
-  };
-
-  const handleStep7 = (e) => {
-    e.preventDefault();
-    setSystemStatus((p) => ({ ...p, error: "" }));
-    setStep(8);
-  };
-
-  const handleFinalSubmit = async (e) => {
-    e.preventDefault();
-    if (!profileData.coreMotivation.trim())
-      return setSystemStatus((p) => ({
-        ...p,
-        error:
-          "Please share your motivation — it helps us personalise your journey.",
+        error: "Select at least one current situation.",
       }));
 
-    setSystemStatus((p) => ({ ...p, isBooting: true, error: "" }));
+    setSystemStatus((p) => ({ ...p, loading: true, error: "" }));
     try {
       let uid;
       if (auth.currentUser) {
@@ -447,78 +365,42 @@ export default function useAuthFlow() {
       } else {
         const cred = await createUserWithEmailAndPassword(
           auth,
-          profileData.email,
-          profileData.password,
+          email,
+          password,
         );
         uid = cred.user.uid;
       }
 
       const today = new Date().toISOString().split("T")[0];
+
+      // Minimal but immediately useful payload — deferred fields filled via dashboard completeness widget
       const payload = {
         identity: {
-          firstName: profileData.firstName,
-          lastName: profileData.lastName,
-          email: profileData.email,
-          username: profileData.username.toLowerCase(),
-          gender: profileData.gender,
-          domain: profileData.passion,
-          niche: profileData.niche,
-          parallelGoal: profileData.parallelPath,
-          country: profileData.country,
-          bio: profileData.bio,
+          firstName,
+          lastName,
+          email: email || auth.currentUser?.email || "",
+          username: username.toLowerCase(),
+          avatarUrl: avatarUrl || "",
+          domain: passion,
+          niche: "",
+          country: "",
+          bio: "",
         },
+        vision: { passion, niche: "" },
+        baseline: { currentStatus },
+        skills: { rawSkills: [], alignedSkills: [], languages: [] },
         onboardingComplete: true,
         isGhostUser: false,
-        location: {
-          state: profileData.userState,
-          country: profileData.country,
-          displayLocation: `${profileData.userState}, ${profileData.country}`,
-        },
-        baseline: {
-          currentStatus: profileData.currentStatus,
-          institution: profileData.institution,
-          course: profileData.course,
-          specialization: profileData.specialization,
-          startMonth: profileData.startMonth,
-          startYear: profileData.startYear,
-          endMonth: profileData.endMonth,
-          endYear: profileData.endYear,
-        },
-        professional: {
-          bio: profileData.bio,
-          workExperience: profileData.workExperienceRole
-            ? {
-                role: profileData.workExperienceRole,
-                company: profileData.workExperienceCompany,
-                type: profileData.workExperienceType,
-              }
-            : null,
-        },
-        vision: {
-          passion: profileData.passion,
-          niche: profileData.niche,
-          parallelPath: profileData.parallelPath,
-        },
-        skills: {
-          rawSkills: profileData.rawSkills,
-          alignedSkills: profileData.alignedSkills,
-          languages: profileData.languages,
-        },
-        verifiedApps: [],
-        resources: {
-          guardianProfession: profileData.guardianProfession,
-          incomeBracket: profileData.incomeBracket,
-          financialLaunchpad: profileData.financialLaunchpad,
-          investmentCapacity: profileData.investmentCapacity,
-        },
-        footprint: {
-          personal: profileData.personalFootprint,
-          commercial: profileData.commercialFootprint,
-          location: `${profileData.userState}, ${profileData.country}`,
-        },
-        wildcard: {
-          wildcardInfo: profileData.wildcardInfo,
-          coreMotivation: profileData.coreMotivation,
+        profileCompleteness: 20, // Gamification: starts at 20% to create "almost there" tension
+        deferredOnboarding: {
+          // Tracks which deferred steps are still pending
+          location: false,
+          background: false,
+          professional: false,
+          skills: false,
+          resources: false,
+          footprint: false,
+          motivation: false,
         },
         discotiveScore: {
           current: 0,
@@ -540,40 +422,42 @@ export default function useAuthFlow() {
 
       setSystemStatus((p) => ({
         ...p,
-        isBooting: false,
+        loading: false,
         showSetupSequence: true,
       }));
     } catch (err) {
       setSystemStatus((p) => ({
         ...p,
-        isBooting: false,
+        loading: false,
         error: err.message.replace("Firebase: ", ""),
       }));
     }
   };
 
   return {
-    isLogin,
-    setIsLogin,
     step,
     setStep,
     systemStatus,
     setSystemStatus,
     profileData,
-    dispatch,
     setField,
-    setNestedField,
     usernameAvailable,
     debouncedUsername,
     pwScore,
     isGoogleUser,
+    // Alias for backward compat
+    isLogin: step === "login",
+    setIsLogin: (v) => setStep(v ? "login" : "signup_auth"),
     handleLogin,
     handleSocialAuth,
-    handleStep1,
-    handleStep2,
-    handleStep3,
-    handleStep4,
-    handleStep7,
-    handleFinalSubmit,
+    handleEmailSignup,
+    handleIntentSubmit,
+    // Legacy no-ops (remove once old step components are retired)
+    handleStep1: handleEmailSignup,
+    handleStep2: () => {},
+    handleStep3: () => {},
+    handleStep4: () => {},
+    handleStep7: () => {},
+    handleFinalSubmit: handleIntentSubmit,
   };
 }

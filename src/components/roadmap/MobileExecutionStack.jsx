@@ -41,7 +41,7 @@ import {
   Calendar,
 } from "lucide-react";
 import { cn } from "../../lib/cn";
-import { useRoadmapStore, NODE_STATES } from "../../store/useRoadmapStore";
+import { useRoadmapStore, NODE_STATES } from "../../stores/useRoadmapStore";
 
 // ── Design tokens (same as canvas) ───────────────────────────────────────────
 const STATE_CFG = {

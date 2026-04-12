@@ -51,6 +51,7 @@ import {
 import { useTelemetryStream } from "../hooks/useTelemetryStream";
 import TierGate from "../components/TierGate";
 import DailyExecutionLedger from "../components/DailyExecutionLedger";
+import ProfileCompletenessWidget from "../components/dashboard/ProfileCompletenessWidget";
 import {
   Activity,
   Database,
@@ -937,7 +938,7 @@ const Dashboard = () => {
               </div>
             </div>
             <h1 className="text-2xl sm:text-3xl md:text-4xl font-black tracking-tight text-white">
-              Welcome back,{" "}
+              Welcome,{" "}
               <span className="bg-gradient-to-r from-[#BFA264] to-[#D4AF78] bg-clip-text text-transparent">
                 {operatorName}
               </span>
@@ -1087,6 +1088,23 @@ const Dashboard = () => {
             </motion.div>
           )}
         </AnimatePresence>
+
+        {/* ── DEFERRED ONBOARDING ENGINE ─────────────────────────────────── */}
+        {userData && userData.deferredOnboarding && (
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="w-full"
+          >
+            <ProfileCompletenessWidget
+              userData={userData}
+              onUpdate={() => {
+                // State hydrates automatically if useUserData utilizes Firestore onSnapshot.
+                // Add any manual invalidation/refetch logic here if you aren't using live listeners.
+              }}
+            />
+          </motion.div>
+        )}
 
         {/* ══════════════ MAIN BENTO GRID ══════════════════════════════════ */}
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-12 gap-4">

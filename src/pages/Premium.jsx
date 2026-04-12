@@ -59,8 +59,8 @@ const Premium = () => {
   // --- PRICING DATA MATRIX ---
   const PRICING = {
     INR: {
-      monthly: { current: "99", crossed: "139", symbol: "₹" },
-      yearly: { current: "999", crossed: "1,499", symbol: "₹" },
+      monthly: { current: "139", crossed: "199", symbol: "₹" },
+      yearly: { current: "999", crossed: "1668", symbol: "₹" },
     },
     USD: {
       monthly: { current: "1.99", crossed: "2.99", symbol: "$" },

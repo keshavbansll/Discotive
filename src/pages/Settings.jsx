@@ -32,7 +32,7 @@ import {
 } from "firebase/auth";
 import { db, auth } from "../firebase";
 import { useUserData } from "../hooks/useUserData";
-import { useAppStore } from "../store/useAppStore";
+import { useAppStore } from "../stores/useAppStore";
 import { cn } from "../lib/cn";
 import {
   User,

@@ -25,7 +25,7 @@ export const useOnboardingGate = () => {
 // Session-scoped cache keyed by UID — safe
 const SESSION_CACHE = new Map();
 
-import { useAppStore } from "../store/useAppStore";
+import { useAppStore } from "../stores/useAppStore";
 
 export const useUserData = () => {
   const { setUserData: storeSet, patchUserData } = useAppStore();

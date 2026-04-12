@@ -1,3 +1,5 @@
+// firestore.rules — UPDATED for 3-collection onboarding architecture
+// Deploy: firebase deploy --only firestore:rules  (run in project root)
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
@@ -15,9 +17,6 @@ service cloud.firestore {
     function isOwner(userId) {
       return isAuthenticated() && request.auth.uid == userId;
     }
-
-    // ── Validates the TOP-LEVEL execution map document (nodes[] + edges[]) ──
-    // Does NOT try to validate individual node fields — that's the Cloud Function's job.
     function isValidMapDocument(doc) {
       return doc.keys().hasAll(['nodes', 'edges', 'updatedAt'])
         && doc.nodes is list
@@ -26,22 +25,8 @@ service cloud.firestore {
         && doc.edges.size() <= 500;
     }
 
-    // ── Validates a score mutation from the client (scoreEngine.js) ──
-    // Only allows changes to fields that score engine legitimately updates.
-    function isLegitScoreWrite(incoming, existing) {
-      let allowedScoreKeys = [
-        'discotiveScore.current', 'discotiveScore.lastLoginDate',
-        'discotiveScore.streak', 'discotiveScore.lastAmount',
-        'discotiveScore.lastReason', 'discotiveScore.lastUpdatedAt',
-        'discotiveScore.last24h', 'daily_scores', 'monthly_scores',
-        'consistency_log', 'login_history'
-      ];
-      let changedKeys = incoming.data.diff(existing.data).affectedKeys();
-      return changedKeys.hasOnly(allowedScoreKeys);
-    }
-
     // =========================================================================
-    // 1. ADMIN REGISTRY — Read-only for owner/admin, never writable by client
+    // 0. ADMIN REGISTRY
     // =========================================================================
     match /admins/{adminId} {
       allow read: if isOwner(adminId) || isAdmin();
@@ -49,16 +34,15 @@ service cloud.firestore {
     }
 
     // =========================================================================
-    // 2. EMAIL VERIFICATIONS — Owned by email address, written by CF only
+    // 1. EMAIL VERIFICATIONS
     // =========================================================================
     match /email_verifications/{email} {
-      allow read: if isAuthenticated()
-        && request.auth.token.email == email;
+      allow read: if isAuthenticated() && request.auth.token.email == email;
       allow write: if false;
     }
 
     // =========================================================================
-    // 3. DISCOTIVE LEARN ENGINE — Read-authenticated, write admin-only
+    // 2. DISCOTIVE LEARN ENGINE
     // =========================================================================
     match /discotive_videos/{document=**} {
       allow read: if isAuthenticated();
@@ -68,8 +52,6 @@ service cloud.firestore {
       allow read: if isAuthenticated();
       allow write: if isAdmin();
     }
-
-    // App Catalog & Verifications
     match /app_catalog/{document=**} {
       allow read: if isAuthenticated();
       allow write: if isAdmin();
@@ -81,8 +63,7 @@ service cloud.firestore {
     }
 
     // =========================================================================
-    // 4. TELEMETRY — Sanitized writes via Cloud Functions preferred;
-    //    direct client writes allowed but strictly validated
+    // 3. SUPPORT & TELEMETRY
     // =========================================================================
     match /support_tickets/{ticketId} {
       allow read: if isAdmin()
@@ -100,7 +81,6 @@ service cloud.firestore {
               .affectedKeys().hasOnly(['status']));
       allow delete: if isAdmin();
     }
-
     match /reports/{reportId} {
       allow read: if isAdmin()
         || (isAuthenticated() && resource.data.reporterUid == request.auth.uid);
@@ -110,7 +90,6 @@ service cloud.firestore {
         && request.resource.data.reason.size() <= 200;
       allow update, delete: if isAdmin();
     }
-
     match /feedback/{userId} {
       allow read: if isAdmin() || isOwner(userId);
       allow write: if isOwner(userId)
@@ -120,58 +99,114 @@ service cloud.firestore {
         && request.resource.data.rating <= 5;
     }
 
-// =========================================================================
-    // 5. CORE USER LEDGER — Strict field-level security (Allowlist)
+    // =========================================================================
+    // 4. CORE USER AUTH LEDGER — Minimal: tier, onboarding_status, email
+    //    NOTE: onboarding_status: "pending" | "completed"
     // =========================================================================
     match /users/{userId} {
-      // Anyone authenticated can read public profile data
-      allow read: if isAuthenticated();
+      allow read: if true; // Public for username availability + SEO
 
-      // User creation: owner only, explicitly prevent injecting protected fields at birth
       allow create: if isOwner(userId)
-        && !request.resource.data.keys().hasAny([
-          'discotiveScore', 'vault', 'allies', 'tier', 'onboardingComplete'
-        ]);
+        // Zero-trust: no tier escalation, no pre-seeded scores
+        && (!("tier" in request.resource.data) || request.resource.data.tier == "ESSENTIAL")
+        && (!("discotiveScore" in request.resource.data) || request.resource.data.discotiveScore.current == 0)
+        // Onboarding status must be explicitly set
+        && request.resource.data.onboarding_status in ["pending", "completed"];
 
-      // Soft-delete: owner only
       allow delete: if isOwner(userId);
 
-      // Update: Strict Allowlist & Admin overrides
       allow update: if
-        // Path A: Owner updates personal data (Manager's Strict Allowlist)
         (isOwner(userId)
           && request.resource.data.diff(resource.data).affectedKeys()
               .hasOnly([
+                // Onboarding completion
+                'onboarding_status', 'onboardingComplete', 'isGhostUser',
+                'createdAt', 'onboardingScoreAwarded',
+
+                // Identity fields (writable during onboarding)
                 'identity', 'links', 'footprint', 'settings', 'professional',
                 'vision', 'skills', 'resources', 'wildcard', 'discotiveId',
-                'profileViews', 'pendingAppVerifications'
+                'profileViews', 'pendingAppVerifications', 'profileCompleteness',
+                'deferredOnboarding', 'baseline',
+
+                // Gamification & Consistency Engine
+                'discotiveScore', 'score_history', 'consistency_log',
+                'login_history', 'daily_scores', 'monthly_scores',
+                'dailyAllianceSent', 'journal_ledger',
+
+                // UI States
+                'notifications', 'hasUnreadNotifications'
               ]))
-
-        // Path B: Notification writes (Keep this ONLY if your client still writes notifications directly)
-        || (isAuthenticated()
-          && request.resource.data.diff(resource.data)
-              .affectedKeys().hasOnly(['notifications']))
-
-        // Path C: Admin override (superuser)
         || isAdmin();
     }
 
     // =========================================================================
-    // 6. EXECUTION MAP — Single document at /current, array-based
+    // 5. PUBLIC PROFILES — Visible even to unauthenticated (SEO)
+    //    Writes require: owner + onboarding completed
     // =========================================================================
-    // The execution map is ONE document: users/{uid}/execution_map/current
-    // It contains { nodes: [], edges: [], updatedAt: timestamp, mapMeta: {} }
+    match /profiles/{userId} {
+      // Public read for SEO and public profile pages
+      allow read: if true;
+
+      // Owner can create their profile (only after onboarding)
+      allow create: if isOwner(userId)
+        && get(/databases/$(database)/documents/users/$(userId))
+            .data.onboarding_status == "completed";
+
+      // Owner can update their own profile
+      allow update: if isOwner(userId)
+        && get(/databases/$(database)/documents/users/$(userId))
+            .data.onboarding_status == "completed"
+        && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly([
+              'identity', 'vision', 'skills', 'baseline', 'footprint',
+              'links', 'bio', 'domain', 'niche', 'country', 'userState',
+              'institution', 'course', 'guardianProfession', 'updatedAt',
+              'profileCompleteness', 'tier', 'avatarUrl'
+            ]);
+
+      allow delete: if isOwner(userId) || isAdmin();
+    }
+
+    // =========================================================================
+    // 6. USER METRICS — Score, rank, streaks — client writes via scoreEngine.js
+    //    Writes ONLY for allowed score fields. No tier escalation via metrics.
+    // =========================================================================
+    match /user_metrics/{userId} {
+      // Owner can read. Admin can read all.
+      allow read: if isOwner(userId) || isAdmin();
+
+      // Create: only owner, no pre-seeded artificially high scores
+      allow create: if isOwner(userId)
+        && (!("discotiveScore" in request.resource.data)
+          || request.resource.data.discotiveScore.current == 0);
+
+      // Update: strictly allowlisted score-engine fields only
+      allow update: if isOwner(userId)
+        && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly([
+              'discotiveScore', 'score_history', 'consistency_log',
+              'login_history', 'daily_scores', 'monthly_scores',
+              'dailyAllianceSent', 'precomputed', 'tier'
+            ])
+        || isAdmin();
+
+      allow delete: if isAdmin();
+    }
+
+    // =========================================================================
+    // 7. EXECUTION MAP
+    // =========================================================================
     match /users/{userId}/execution_map/current {
       allow read: if isOwner(userId);
       allow write: if isOwner(userId) && isValidMapDocument(request.resource.data);
     }
-    // Block any other documents in this subcollection
     match /users/{userId}/execution_map/{docId} {
       allow read, write: if docId == "current" && isOwner(userId);
     }
 
     // =========================================================================
-    // 7. VERIFICATION REQUESTS — Owner create, admin update
+    // 8. VERIFICATION REQUESTS
     // =========================================================================
     match /users/{userId}/verification_requests/{reqId} {
       allow read: if isOwner(userId) || isAdmin();
@@ -186,7 +221,7 @@ service cloud.firestore {
     }
 
     // =========================================================================
-    // 8. SUBSCRIPTION — Read owner, write CF only (no client writes)
+    // 9. SUBSCRIPTION — Read owner, write CF only
     // =========================================================================
     match /users/{userId}/subscription/{document=**} {
       allow read: if isOwner(userId);
@@ -194,15 +229,13 @@ service cloud.firestore {
     }
 
     // =========================================================================
-    // 9. JOURNAL — PRO/ENTERPRISE only, owner-scoped
+    // 10. JOURNAL — PRO/ENTERPRISE only
     // =========================================================================
-    // JournalModal writes to /users/{uid}/journal/{dateStr}
     match /users/{userId}/journal/{entryId} {
       allow read, write: if isOwner(userId)
         && get(/databases/$(database)/documents/users/$(userId))
             .data.tier in ["PRO", "ENTERPRISE"];
     }
-    // Legacy path (journal_entries) — keep for backward compat
     match /users/{userId}/journal_entries/{document=**} {
       allow read, write: if isOwner(userId)
         && get(/databases/$(database)/documents/users/$(userId))
@@ -210,7 +243,7 @@ service cloud.firestore {
     }
 
     // =========================================================================
-    // 10. SCORE LOG — Owner read/create, admin modify
+    // 11. SCORE LOG
     // =========================================================================
     match /users/{userId}/score_log/{document=**} {
       allow read: if isOwner(userId);
@@ -222,9 +255,7 @@ service cloud.firestore {
     }
 
     // =========================================================================
-    // 11. ASSET VAULT (array field on user doc, not subcollection)
-    // Vault assets are stored in users/{userId}.vault[] array.
-    // The subcollection path below is legacy/unused — kept for migration safety.
+    // 12. VAULT
     // =========================================================================
     match /users/{userId}/vault/{assetId} {
       allow read: if (resource.data.isPublic == true)
@@ -233,106 +264,61 @@ service cloud.firestore {
     }
 
     // =========================================================================
-    // NETWORK MODULE FIRESTORE RULES
-    // =========================================================================
-
-    // =========================================================================
-    // N1. POSTS — Authenticated write, public read within auth scope
+    // NETWORK MODULE
     // =========================================================================
     match /posts/{postId} {
-      // Any authenticated user can read posts (feed is visible to all operators)
       allow read: if isAuthenticated();
-
-      // Create: only the owner, must carry their own uid as authorId
       allow create: if isAuthenticated()
         && request.resource.data.authorId == request.auth.uid
         && request.resource.data.textContent is string
         && request.resource.data.textContent.size() >= 1
         && request.resource.data.textContent.size() <= 2000
         && request.resource.data.likedBy is list
-        && request.resource.data.likedBy.size() == 0;  // No pre-seeding likes
-
-      // Update: ONLY allow changes to likedBy, likesCount, and replyCount.
-      // Author cannot edit post content after publishing (integrity).
+        && request.resource.data.likedBy.size() == 0;
       allow update: if isAuthenticated()
         && request.resource.data.diff(resource.data).affectedKeys()
             .hasOnly(['likedBy', 'likesCount', 'replyCount']);
-
-      // Delete: only the author or admin
-      allow delete: if isAdmin() 
+      allow delete: if isAdmin()
         || (isAuthenticated() && resource.data.authorId == request.auth.uid);
     }
-
-    // =========================================================================
-    // N2. CONNECTIONS — Strict requester-ownership, both parties can read
-    // =========================================================================
     match /connections/{connectionId} {
-      // Both parties involved can read the connection document
       allow read: if isAuthenticated()
         && (resource.data.requesterId == request.auth.uid
           || resource.data.receiverId == request.auth.uid);
-
-      // Create: only the requester, status MUST be PENDING (no self-alliances)
       allow create: if isAuthenticated()
         && request.resource.data.requesterId == request.auth.uid
         && request.resource.data.receiverId != request.auth.uid
         && request.resource.data.status == "PENDING"
         && request.resource.data.requesterName is string
         && request.resource.data.receiverName is string;
-
-      // Update: ONLY the receiver can accept (PENDING → ALLIANCE) or
-      //         either party can set to DECLINED (receiver) or delete (requester cancel)
       allow update: if isAuthenticated()
         && (
-          // Receiver accepts: PENDING → ALLIANCE
           (resource.data.receiverId == request.auth.uid
             && resource.data.status == "PENDING"
             && request.resource.data.status == "ALLIANCE"
             && request.resource.data.diff(resource.data)
                 .affectedKeys().hasOnly(['status', 'acceptedAt']))
-          // Receiver declines: PENDING → DECLINED
           || (resource.data.receiverId == request.auth.uid
             && resource.data.status == "PENDING"
             && request.resource.data.status == "DECLINED"
             && request.resource.data.diff(resource.data)
                 .affectedKeys().hasOnly(['status', 'declinedAt']))
         );
-
-      // Delete: requester can cancel PENDING requests, either party can remove ALLIANCE
       allow delete: if isAuthenticated()
         && (resource.data.requesterId == request.auth.uid
           || resource.data.receiverId == request.auth.uid);
     }
-
-    // =========================================================================
-    // N3. COMPETITORS — Tracker owns the document (one-way tracking)
-    // =========================================================================
     match /competitors/{competitorId} {
-      // Only the tracker can read their competitor list
-      allow read: if isAuthenticated()
-        && resource.data.trackerId == request.auth.uid;
-
-      // Create: tracker must be the authenticated user, no self-tracking
+      allow read: if isAuthenticated() && resource.data.trackerId == request.auth.uid;
       allow create: if isAuthenticated()
         && request.resource.data.trackerId == request.auth.uid
         && request.resource.data.targetId != request.auth.uid
         && request.resource.data.targetId is string;
-
-      // Delete: only the tracker (untrack)
-      allow delete: if isAuthenticated()
-        && resource.data.trackerId == request.auth.uid;
-
-      // No updates — immutable. Delete and recreate if needed.
+      allow delete: if isAuthenticated() && resource.data.trackerId == request.auth.uid;
       allow update: if false;
     }
-
-    // ─── POST COMMENTS (subcollection) ───────────────────────────────────────────
-    // Path: /posts/{postId}/comments/{commentId}
     match /posts/{postId}/comments/{commentId} {
-      // Any authenticated user can read comments
       allow read: if isAuthenticated();
-    
-      // Create: must carry own uid, max 500 chars
       allow create: if isAuthenticated()
         && request.resource.data.authorId == request.auth.uid
         && request.resource.data.textContent is string
@@ -340,30 +326,18 @@ service cloud.firestore {
         && request.resource.data.textContent.size() <= 500
         && request.resource.data.likedBy is list
         && request.resource.data.likedBy.size() == 0;
-    
-      // Update: only allow likedBy / likesCount mutations
       allow update: if isAuthenticated()
         && request.resource.data.diff(resource.data)
             .affectedKeys().hasOnly(['likedBy', 'likesCount']);
-    
-      // Delete: only the comment author (or admin)
       allow delete: if isAuthenticated()
         && (resource.data.authorId == request.auth.uid || isAdmin());
     }
-    
-    // ─── CONVERSATIONS ────────────────────────────────────────────────────────────
-    // Path: /conversations/{conversationId}
     match /conversations/{conversationId} {
-      // Both participants can read
       allow read: if isAuthenticated()
         && resource.data.participantIds.hasAny([request.auth.uid]);
-    
-      // Create: auth user must be a participant, exactly 2 participants
       allow create: if isAuthenticated()
         && request.resource.data.participantIds.hasAny([request.auth.uid])
         && request.resource.data.participantIds.size() == 2;
-    
-      // Update: only participants can update metadata (lastMessage, unreadCounts)
       allow update: if isAuthenticated()
         && resource.data.participantIds.hasAny([request.auth.uid])
         && request.resource.data.diff(resource.data)
@@ -371,20 +345,13 @@ service cloud.firestore {
               'lastMessage', 'lastMessageAt', 'lastSenderId',
               'unreadCounts', 'updatedAt'
             ]);
-    
-     // Delete: participants can delete their view of conversation
-      allow delete: if isAdmin() || (isAuthenticated() && resource.data.participantIds.hasAny([request.auth.uid]));
+      allow delete: if isAdmin()
+        || (isAuthenticated() && resource.data.participantIds.hasAny([request.auth.uid]));
     }
-    
-    // ─── MESSAGES (subcollection) ──────────────────────────────────────────────────
-    // Path: /conversations/{conversationId}/messages/{messageId}
     match /conversations/{conversationId}/messages/{messageId} {
-      // Both conversation participants can read
       allow read: if isAuthenticated()
         && get(/databases/$(database)/documents/conversations/$(conversationId))
             .data.participantIds.hasAny([request.auth.uid]);
-    
-      // Create: sender must be a participant, must carry own uid
       allow create: if isAuthenticated()
         && request.resource.data.senderId == request.auth.uid
         && get(/databases/$(database)/documents/conversations/$(conversationId))
@@ -392,17 +359,12 @@ service cloud.firestore {
         && request.resource.data.textContent is string
         && request.resource.data.textContent.size() >= 1
         && request.resource.data.textContent.size() <= 2000;
-    
-      // Delete: sender can retract their own messages within 5 min (admin always)
       allow delete: if isAdmin()
-        || (isAuthenticated()
-            && resource.data.senderId == request.auth.uid);
-    
-      // Update: allow editing own messages
+        || (isAuthenticated() && resource.data.senderId == request.auth.uid);
       allow update: if isAuthenticated()
         && resource.data.senderId == request.auth.uid
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['textContent', 'isEdited', 'editedAt', 'updatedAt']);
+        && request.resource.data.diff(resource.data).affectedKeys()
+            .hasOnly(['textContent', 'isEdited', 'editedAt', 'updatedAt']);
     }
   }
 }
-
