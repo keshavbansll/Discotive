@@ -177,15 +177,19 @@ const ABOUT_CSS = `
 // ─── CUSTOM CURSOR ────────────────────────────────────────────────────────────
 function Cursor() {
   const dotRef = useRef(null);
-  const [hovering, setHovering] = useState(false);
+  const ringRef = useRef(null);
+
   const mouseX = useMotionValue(-200);
   const mouseY = useMotionValue(-200);
+
   const springConf = { damping: 22, stiffness: 280, mass: 0.5 };
   const ringX = useSpring(mouseX, springConf);
   const ringY = useSpring(mouseY, springConf);
 
   useEffect(() => {
     if (typeof window === "undefined" || window.innerWidth < 900) return;
+
+    // Direct DOM manipulation. Bypasses React reconciliation on high-frequency events.
     const onMove = (e) => {
       mouseX.set(e.clientX);
       mouseY.set(e.clientY);
@@ -194,31 +198,42 @@ function Cursor() {
         dotRef.current.style.top = e.clientY + "px";
       }
     };
+
     const onOver = (e) => {
-      if (e.target.closest("a, button, [role='button']")) setHovering(true);
+      if (e.target.closest("a, button, [role='button']")) {
+        dotRef.current?.classList.add("hovering");
+        ringRef.current?.classList.add("hovering");
+      }
     };
+
     const onOut = (e) => {
-      if (e.target.closest("a, button, [role='button']")) setHovering(false);
+      if (e.target.closest("a, button, [role='button']")) {
+        dotRef.current?.classList.remove("hovering");
+        ringRef.current?.classList.remove("hovering");
+      }
     };
 
     window.addEventListener("mousemove", onMove, { passive: true });
-    window.addEventListener("mouseover", onOver);
-    window.addEventListener("mouseout", onOut);
+    window.addEventListener("mouseover", onOver, { passive: true });
+    window.addEventListener("mouseout", onOut, { passive: true });
+
     return () => {
       window.removeEventListener("mousemove", onMove);
       window.removeEventListener("mouseover", onOver);
       window.removeEventListener("mouseout", onOut);
     };
-  }, []);
+  }, [mouseX, mouseY]);
 
   return (
     <>
       <div
         ref={dotRef}
-        className={`ab-cursor-dot${hovering ? " hovering" : ""}`}
+        className="ab-cursor-dot"
+        style={{ position: "fixed" }}
       />
       <motion.div
-        className={`ab-cursor-ring${hovering ? " hovering" : ""}`}
+        ref={ringRef}
+        className="ab-cursor-ring"
         style={{ left: ringX, top: ringY, position: "fixed" }}
       />
     </>

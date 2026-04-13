@@ -14,9 +14,10 @@ const initAdmin = () => {
   });
 };
 
-// export const config = { runtime: "edge" };
-
-//firebase-admin cannot run in Vercel's Edge Runtime. The Firebase Admin SDK relies heavily on Node.js core modules (like fs, net, crypto, and gRPC) which are entirely unsupported in the lightweight Edge environment. Because you declared export const config = { runtime: "edge" }; in api/profile-meta.js, Vercel's Edge bundler tried to compile it, failed, and threw a combined error that also flagged your @vercel/og file.
+// Explicitly define as standard Node.js serverless function to prevent Vercel auto-Edge inference
+export const config = {
+  runtime: "nodejs",
+};
 
 export default async function handler(req) {
   const url = new URL(req.url);

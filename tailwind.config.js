@@ -5,37 +5,36 @@ export default {
   theme: {
     extend: {
       colors: {
-        // True minimalist palette
-        primary: {
-          DEFAULT: "#ffffff", // Primary CTA is now stark white
-          50: "#fafa",
-          100: "#f4f4f5",
-          600: "#ffffff",
-          900: "#27272a",
+        // THE GOLD & VOID PROTOCOL
+        gold: {
+          base: "#BFA264",
+          bright: "#D4AF78",
+          deep: "#8B7240",
+          light: "#E8D5A3",
+          dim: "rgba(191, 162, 100, 0.08)",
+          border: "rgba(191, 162, 100, 0.25)",
         },
-        dark: {
-          DEFAULT: "#0a0a0a", // Deep aesthetic black
-          lighter: "#121212", // Slightly elevated black for cards
+        void: {
+          DEFAULT: "#030303", // Absolute Background
+          depth: "#0A0A0A", // Underlays
+          surface: "#0F0F0F", // Cards
+          elevated: "#141414", // Modals
         },
-        slate: {
-          // Overriding default slate to be neutral zinc/greys
-          50: "#fafafa",
-          100: "#f4f4f5",
-          200: "#e4e4e7",
-          300: "#d4d4d8",
-          400: "#a1a1aa",
-          500: "#71717a",
-          600: "#52525b",
-          700: "#27272a",
-          800: "#18181b",
-          900: "#0a0a0a",
-          950: "#000000",
+        text: {
+          primary: "#F5F0E8",
+          secondary: "rgba(245, 240, 232, 0.60)",
+          dim: "rgba(245, 240, 232, 0.28)",
+        },
+        status: {
+          success: "#4ADE80",
+          error: "#F87171",
+          warning: "#F59E0B",
+          border: "rgba(255, 255, 255, 0.07)",
         },
       },
       fontFamily: {
-        // Inter is great, but we will use tight tracking in the code to make it look premium
-        sans: ["Inter", "sans-serif"],
-        serif: ["Georgia", "serif"], // For aesthetic accents
+        display: ["Montserrat", "sans-serif"],
+        body: ["Poppins", "sans-serif"],
       },
     },
   },

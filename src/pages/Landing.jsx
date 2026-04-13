@@ -854,8 +854,7 @@ const FAQS = [
 // ─── CUSTOM CURSOR ────────────────────────────────────────────────────────────
 function Cursor() {
   const dotRef = useRef(null);
-  const [hovering, setHovering] = useState(false);
-  const [clicking, setClicking] = useState(false);
+  const ringRef = useRef(null);
 
   const mouseX = useMotionValue(-200);
   const mouseY = useMotionValue(-200);
@@ -867,6 +866,7 @@ function Cursor() {
   useEffect(() => {
     if (typeof window === "undefined" || window.innerWidth < 900) return;
 
+    // Direct DOM manipulation to avoid React reconciliation loop on mouse events
     const onMove = (e) => {
       mouseX.set(e.clientX);
       mouseY.set(e.clientY);
@@ -882,7 +882,8 @@ function Cursor() {
           "a, button, [role='button'], input, .ld-discovery-card, .ld-reason-card, .ld-faq-question",
         )
       ) {
-        setHovering(true);
+        dotRef.current?.classList.add("hovering");
+        ringRef.current?.classList.add("hovering");
       }
     };
 
@@ -892,18 +893,19 @@ function Cursor() {
           "a, button, [role='button'], input, .ld-discovery-card, .ld-reason-card, .ld-faq-question",
         )
       ) {
-        setHovering(false);
+        dotRef.current?.classList.remove("hovering");
+        ringRef.current?.classList.remove("hovering");
       }
     };
 
-    const onDown = () => setClicking(true);
-    const onUp = () => setClicking(false);
+    const onDown = () => ringRef.current?.classList.add("clicking");
+    const onUp = () => ringRef.current?.classList.remove("clicking");
 
     window.addEventListener("mousemove", onMove, { passive: true });
-    window.addEventListener("mouseover", onOver);
-    window.addEventListener("mouseout", onOut);
-    window.addEventListener("mousedown", onDown);
-    window.addEventListener("mouseup", onUp);
+    window.addEventListener("mouseover", onOver, { passive: true });
+    window.addEventListener("mouseout", onOut, { passive: true });
+    window.addEventListener("mousedown", onDown, { passive: true });
+    window.addEventListener("mouseup", onUp, { passive: true });
 
     return () => {
       window.removeEventListener("mousemove", onMove);
@@ -912,17 +914,18 @@ function Cursor() {
       window.removeEventListener("mousedown", onDown);
       window.removeEventListener("mouseup", onUp);
     };
-  }, []);
+  }, [mouseX, mouseY]);
 
   return (
     <>
       <div
         ref={dotRef}
-        className={`ld-cursor-dot${hovering ? " hovering" : ""}`}
+        className="ld-cursor-dot"
         style={{ position: "fixed" }}
       />
       <motion.div
-        className={`ld-cursor-ring${hovering ? " hovering" : ""}${clicking ? " clicking" : ""}`}
+        ref={ringRef}
+        className="ld-cursor-ring"
         style={{ left: ringX, top: ringY, position: "fixed" }}
       />
     </>
@@ -1045,32 +1048,19 @@ function EmailCTA({ navigate, label = "Get Started →" }) {
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = async (e) => {
+  const handleSubmit = (e) => {
     e.preventDefault();
     if (!email) return;
 
     setLoading(true);
-    try {
-      const normalizedEmail = email.trim().toLowerCase();
-      const methods = await fetchSignInMethodsForEmail(auth, normalizedEmail);
+    // Identity Enumeration Protection requires us to handle this in the Auth component
+    // We pass the payload and let the Auth page's Firebase flow handle the resolution natively.
+    const normalizedEmail = email.trim().toLowerCase();
 
-      // Dynamic routing: if methods exist, push to Login. Otherwise, Signup.
-      if (methods && methods.length > 0) {
-        navigate("/auth", { state: { email: normalizedEmail, isLogin: true } });
-      } else {
-        navigate("/auth", {
-          state: { email: normalizedEmail, isLogin: false },
-        });
-      }
-    } catch (err) {
-      console.warn(
-        "[CTA] Identity pre-flight failed, defaulting to Auth router.",
-        err,
-      );
-      navigate("/auth", { state: { email, isLogin: false } });
-    } finally {
-      setLoading(false);
-    }
+    // Simulate slight sub-100ms kinetic delay for perceived work, then route
+    setTimeout(() => {
+      navigate("/auth", { state: { email: normalizedEmail, intent: "auto" } });
+    }, 150);
   };
 
   return (

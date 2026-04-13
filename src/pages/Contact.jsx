@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import { Helmet } from "react-helmet-async";
 import { motion } from "framer-motion";
 import { httpsCallable } from "firebase/functions";
 import { functions } from "../firebase";
@@ -37,6 +38,7 @@ export default function Contact() {
     email: "",
     topic: "",
     message: "",
+    _honey: "", // Bot trap
   });
   const [submitting, setSubmitting] = useState(false);
   const [success, setSuccess] = useState(false);
@@ -44,8 +46,17 @@ export default function Contact() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+
+    // Security: Honeypot trap. If a bot fills this hidden field, silently reject.
+    if (form._honey !== "") {
+      console.warn("[Security] Bot activity detected and neutralized.");
+      setSuccess(true); // Fake success to confuse the bot
+      return;
+    }
+
     if (!form.name || !form.email || !form.message)
       return setError("Please fill all required fields.");
+
     setSubmitting(true);
     setError("");
     try {
@@ -66,9 +77,22 @@ export default function Contact() {
 
   return (
     <div
-      className="min-h-screen bg-[#030303] text-white overflow-x-hidden"
-      style={{ fontFamily: "'Poppins', sans-serif" }}
+      className="min-h-screen bg-void text-text-primary overflow-x-hidden"
+      style={{ fontFamily: "var(--font-body)" }}
     >
+      <Helmet>
+        <title>Contact Command | Discotive</title>
+        <meta
+          name="description"
+          content="Initiate secure communications with the Discotive operations team. Support, security, and enterprise inquiries."
+        />
+        <meta property="og:title" content="Contact Command | Discotive" />
+        <meta
+          property="og:description"
+          content="Initiate secure communications with the Discotive operations team."
+        />
+      </Helmet>
+
       {/* Grain */}
       <div
         className="fixed inset-0 pointer-events-none z-[1] opacity-[0.02]"
@@ -267,6 +291,18 @@ export default function Contact() {
                 </div>
               ) : (
                 <form onSubmit={handleSubmit} className="p-6 md:p-8 space-y-5">
+                  {/* Invisible Honeypot Field */}
+                  <input
+                    type="text"
+                    name="_honey"
+                    style={{ display: "none" }}
+                    tabIndex="-1"
+                    autoComplete="off"
+                    value={form._honey}
+                    onChange={(e) =>
+                      setForm((p) => ({ ...p, _honey: e.target.value }))
+                    }
+                  />
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div>
                       <label className="block text-[9px] font-black text-white/30 uppercase tracking-widest mb-1.5">

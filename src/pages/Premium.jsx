@@ -15,6 +15,7 @@ import { app } from "../firebase";
 import { auth } from "../firebase";
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import { Helmet } from "react-helmet-async";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Crown,
@@ -122,13 +123,26 @@ const Premium = () => {
   const isPro = userData?.tier === "PRO";
 
   return (
-    <div className="bg-[#030303] min-h-screen text-white selection:bg-amber-500 selection:text-black pb-32 font-sans relative overflow-hidden">
+    <div className="bg-void min-h-screen text-text-primary selection:bg-gold-base selection:text-void pb-32 font-body relative overflow-hidden">
+      <Helmet>
+        <title>Premium Access | Discotive</title>
+        <meta
+          name="description"
+          content="Unlock God-Mode. Unrestricted execution bandwidth, competitive intelligence, and an unlimited Asset Vault. Upgrade to Discotive Pro."
+        />
+        <meta property="og:title" content="Premium Access | Discotive" />
+        <meta
+          property="og:description"
+          content="Upgrade to Discotive Pro to unlock unrestricted algorithmic intelligence."
+        />
+      </Helmet>
+
       {/* OS Background Noise */}
       <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-[0.03] pointer-events-none z-0" />
 
-      {/* Ambient Glows */}
-      <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-indigo-500/10 blur-[120px] rounded-full mix-blend-screen pointer-events-none" />
-      <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-amber-500/10 blur-[120px] rounded-full mix-blend-screen pointer-events-none" />
+      {/* Ambient Glows - Unified to Gold/Void Palette */}
+      <div className="absolute top-[-10%] left-[-10%] w-[40%] h-[40%] bg-gold-base/5 blur-[120px] rounded-full mix-blend-screen pointer-events-none" />
+      <div className="absolute bottom-[-10%] right-[-10%] w-[40%] h-[40%] bg-gold-bright/5 blur-[120px] rounded-full mix-blend-screen pointer-events-none" />
 
       {/* HEADER SECTION */}
       <div className="max-w-[1200px] mx-auto px-6 md:px-12 pt-24 md:pt-32 pb-16 text-center relative z-10">
@@ -137,9 +151,9 @@ const Premium = () => {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5 }}
         >
-          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-[#333] bg-[#111] mb-6 shadow-2xl">
-            <Crown className="w-4 h-4 text-amber-500" />
-            <span className="text-[10px] font-extrabold text-[#ccc] uppercase tracking-[0.2em]">
+          <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-gold-border bg-void-elevated mb-6 shadow-[0_0_20px_rgba(191,162,100,0.1)]">
+            <Crown className="w-4 h-4 text-gold-bright" />
+            <span className="text-[10px] font-extrabold text-gold-base uppercase tracking-[0.2em]">
               Clearance Level Upgrade
             </span>
           </div>
