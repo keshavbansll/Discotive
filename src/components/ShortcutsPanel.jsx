@@ -6,7 +6,6 @@
 import React, { useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Keyboard } from "lucide-react";
-import { KEYBOARD_SHORTCUTS } from "../lib/roadmap/constants.js";
 
 export const ShortcutsPanel = ({ isOpen, onClose }) => {
   const closeRef = useRef(null);

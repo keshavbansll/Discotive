@@ -28,12 +28,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { doc, getDoc, updateDoc, setDoc } from "firebase/firestore";
 import { db } from "../firebase";
-import {
-  getMapLimits,
-  CAPPED_NODE_TYPES,
-  UNCAPPED_NODE_TYPES,
-  EXPAND_NODE_TYPE,
-} from "./roadmap/constants.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 

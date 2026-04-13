@@ -6,7 +6,6 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 // 1. IMPORT THE WORKER EXPLICITLY WITH ?worker SUFFIX
-import ExecutionWorker from "../components/roadmap/ExecutionWorker?worker";
 
 export const useAgenticScheduler = (nodes, edges, setNodes, userVault = []) => {
   const workerRef = useRef(null);

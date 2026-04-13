@@ -7,8 +7,6 @@
 import { useState, useCallback } from "react";
 import { getFunctions, httpsCallable } from "firebase/functions";
 import { app } from "../firebase"; // Adjust path to your firebase init file
-import { useRoadmap } from "../contexts/RoadmapContext";
-import { NODE_STATES } from "../lib/roadmap/constants";
 
 export const useVerificationAPI = () => {
   const [isVerifying, setIsVerifying] = useState(false);
