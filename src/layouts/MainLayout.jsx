@@ -74,11 +74,11 @@ const topNavItems = [
 ];
 
 const upperMiddleNavItems = [
-  {
-    icon: LaptopMinimalCheck,
-    label: "Execution Agent",
-    path: "/app/roadmap",
-  },
+  // {
+  //   icon: LaptopMinimalCheck,
+  //   label: "Execution Agent",
+  //   path: "/app/agent",
+  // },
   { icon: Trophy, label: "Leaderboard", path: "/app/leaderboard" },
   // { icon: Briefcase, label: "Opportunities", path: "/app/opportunities" },
 ];
@@ -113,7 +113,6 @@ const bottomNavItems = [
  * Leaderboard is the ONLY module ghost users can preview (read-only).
  */
 const GHOST_LOCKED_ROUTES = [
-  "/app/roadmap",
   "/app/vault",
   "/app/connective",
   "/app/finance",

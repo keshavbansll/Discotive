@@ -2793,8 +2793,8 @@ function StepExecution({ uid, onComplete }) {
 
   useEffect(() => {
     if (phase === "bonus") {
-      addToast("Initialization bonus: +70 pts", "green");
-      animScore(0, 70, 20);
+      addToast("Initialization bonus: +50 pts", "green");
+      animScore(0, 50, 20);
       const t = setTimeout(() => setPhase("done"), 2600);
       return () => clearTimeout(t);
     }
@@ -3357,6 +3357,7 @@ export default function AuthOrchestrator() {
           skills: { rawSkills: [], alignedSkills: [], languages: [] },
           onboarding_status: "completed",
           onboardingComplete: true,
+          onboardingScoreAwarded: true,
           isGhostUser: false,
           profileCompleteness: 25,
           deferredOnboarding: {
@@ -3369,15 +3370,15 @@ export default function AuthOrchestrator() {
             motivation: false,
           },
           discotiveScore: {
-            current: 0,
+            current: 50,
             last24h: 0,
             lastLoginDate: today,
             streak: 1,
-            lastAmount: 0,
+            lastAmount: 50,
             lastReason: "OS Booted",
             lastUpdatedAt: new Date().toISOString(),
           },
-          score_history: [{ date: today, score: 0 }],
+          score_history: [{ date: today, score: 50 }],
           consistency_log: [today],
           login_history: [today],
           createdAt: new Date().toISOString(),
@@ -3425,16 +3426,16 @@ export default function AuthOrchestrator() {
       await setDoc(
         doc(db, "user_metrics", uid),
         {
-          discotiveScore: { current: 0, streak: 1, lastLoginDate: today },
+          discotiveScore: { current: 50, streak: 1, lastLoginDate: today },
           consistency_log: [today],
           login_history: [today],
-          daily_scores: { [today]: 0 },
-          monthly_scores: { [today.substring(0, 7)]: 0 },
+          daily_scores: { [today]: 50 },
+          monthly_scores: { [today.substring(0, 7)]: 50 },
         },
         { merge: true },
       );
 
-      await awardOnboardingComplete(uid);
+      // (Initialization bonus hardcoded into sync payload to eliminate race conditions)
       store.setField("onboardingComplete", true);
     } catch (err) {
       console.error("[Onboarding] Final write failed:", err);

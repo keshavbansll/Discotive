@@ -437,7 +437,7 @@ const LANDING_CSS = `
   font-size: clamp(72px, 10vw, 100px);
   font-weight: 900;
   line-height: 1;
-  color: transparent;
+  color: #fff;
   -webkit-text-stroke: 2.5px rgba(245,240,232,0.85);
   text-stroke: 2.5px rgba(245,240,232,0.85);
   pointer-events: none;

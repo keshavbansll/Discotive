@@ -25,7 +25,6 @@ import ComingSoon from "./components/ComingSoon";
 // These are chunked into separate files and downloaded ONLY when the route is hit.
 const Auth = lazy(() => import("./pages/Auth"));
 const Dashboard = lazy(() => import("./pages/Dashboard"));
-const Roadmap = lazy(() => import("./pages/Roadmap"));
 const Leaderboard = lazy(() => import("./pages/Leaderboard"));
 const Vault = lazy(() => import("./pages/Vault"));
 const Profile = lazy(() => import("./pages/Profile"));
@@ -269,7 +268,7 @@ function App() {
               >
                 <Route index element={<Dashboard />} />
                 <Route
-                  path="roadmap"
+                  path="agent"
                   element={<ComingSoon title="Execution Agent" />}
                 />
                 <Route

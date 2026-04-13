@@ -127,7 +127,7 @@ export const processDailyConsistency = async (userId) => {
       let newStreak = data.discotiveScore?.streak || 0;
 
       if (!lastLogin) {
-        pointChange = 70;
+        pointChange = 50;
         reason = "OS Initialization";
         newStreak = 1;
       } else {
@@ -310,7 +310,7 @@ export const awardOnboardingComplete = async (userId) => {
 
     // 2. MUTATION: Safe to execute outside the lock because the lock prevents duplicates
     if (isFirstCompletion) {
-      await mutateScore(userId, 70, "Onboarding Complete — OS Initialized");
+      await mutateScore(userId, 50, "Onboarding Complete - OS Initialized");
     }
   } catch (err) {
     console.error("[ScoreEngine] Onboarding award failed:", err);
