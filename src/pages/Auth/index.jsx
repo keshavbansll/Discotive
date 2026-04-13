@@ -42,23 +42,55 @@ import { useOnboardingStore } from "../../stores/useOnboardingStore";
 // DATA STORES
 // ─────────────────────────────────────────────────────────────────────────────
 const DOMAIN_MAIN = [
-  { value: "Engineering & Tech", label: "Engineering", img: "/onboarding/engineering.png" },
-  { value: "Design & Creative", label: "Design", img: "/onboarding/design.png" },
-  { value: "Business / Operations", label: "Business", img: "/onboarding/business.png" },
+  {
+    value: "Engineering & Tech",
+    label: "Engineering",
+    img: "/onboarding/engineering.png",
+  },
+  {
+    value: "Design & Creative",
+    label: "Design",
+    img: "/onboarding/design.png",
+  },
+  {
+    value: "Business / Operations",
+    label: "Business",
+    img: "/onboarding/business.png",
+  },
   { value: "Marketing", label: "Marketing", img: "/onboarding/marketing.png" },
-  { value: "Finance & Accounting", label: "Finance", img: "/onboarding/finance.png" },
-  { value: "Content Creation", label: "Content", img: "/onboarding/content.png" },
-  { value: "Healthcare", label: "Healthcare", img: "/onboarding/healthcare.png" },
+  {
+    value: "Finance & Accounting",
+    label: "Finance",
+    img: "/onboarding/finance.png",
+  },
+  {
+    value: "Content Creation",
+    label: "Content",
+    img: "/onboarding/content.png",
+  },
+  {
+    value: "Healthcare",
+    label: "Healthcare",
+    img: "/onboarding/healthcare.png",
+  },
 ];
 
 const DOMAIN_MORE = [
-  { value: "Product Management", label: "Product", img: "/onboarding/product.png" },
+  {
+    value: "Product Management",
+    label: "Product",
+    img: "/onboarding/product.png",
+  },
   { value: "Data & Analytics", label: "Data", img: "/onboarding/data.png" },
   { value: "Sales", label: "Sales", img: "/onboarding/sales.png" },
   { value: "Legal & Policy", label: "Legal", img: "/onboarding/legal.png" },
   { value: "Human Resources", label: "HR", img: "/onboarding/hr.png" },
   { value: "Education", label: "Education", img: "/onboarding/education.png" },
-  { value: "Real Estate", label: "Real Estate", img: "/onboarding/realestate.png" },
+  {
+    value: "Real Estate",
+    label: "Real Estate",
+    img: "/onboarding/realestate.png",
+  },
   { value: "Other", label: "Other", img: "/onboarding/other.png" },
 ];
 
@@ -84,17 +116,22 @@ const BASELINE_OPTIONS = [
   { value: "None", label: "None", img: "/onboarding/none.png" },
 ];
 
-const WHY_HERE = [
-  "Land a top internship",
-  "Build my startup",
-  "Get placed at MAANG",
-  "Grow my freelance income",
-  "Build a personal brand",
-  "Stay consistent",
-  "Outperform peers",
-  "Track my progress",
-  "Level up my skills",
-  "Find my domain",
+const MOTIVATION_CARDS = [
+  { id: "Internship", label: "Internship", img: "/onboarding/internship.png" },
+  { id: "Startup", label: "Startup", img: "/onboarding/startup.png" },
+  { id: "Placement", label: "Placement", img: "/onboarding/placement.png" },
+  { id: "Freelancing", label: "Freelancing", img: "/onboarding/freelance.png" },
+  {
+    id: "Personal Branding",
+    label: "Personal Branding",
+    img: "/onboarding/branding.png",
+  },
+  {
+    id: "Skill Improvement",
+    label: "Skill Improvement",
+    img: "/onboarding/skills.png",
+  },
+  { id: "Other", label: "Other", img: "/onboarding/other.png" },
 ];
 
 const QUOTES = [
@@ -682,7 +719,6 @@ function LeftPanel({ stepIndex, onBack }) {
     "Identity",
     "Baseline",
     "Intent",
-    "Connectors",
     "Motivation",
     "Premium",
     "Launch",
@@ -2083,11 +2119,11 @@ function StepIntent({ onSubmit, onBack, loading, error }) {
   // Compile visual grid: If the active passion is inside DOMAIN_MORE, explicitly inject it before the "More" trigger
   const selectedMoreOption = DOMAIN_MORE.find((d) => d.value === passion);
   const visibleDomains = [...DOMAIN_MAIN];
-  
+
   if (selectedMoreOption) {
     visibleDomains.push(selectedMoreOption);
   }
-  
+
   visibleDomains.push({
     value: "MORE_TRIGGER",
     label: "More",
@@ -2114,8 +2150,8 @@ function StepIntent({ onSubmit, onBack, loading, error }) {
     >
       <StepHeader
         step={4}
-        total={8}
-        overline="Step 4 of 8"
+        total={7}
+        overline="Step 4 of 7"
         title="Your domain."
         subtitle="Where does your ambition live? This powers your execution map."
       />
@@ -2169,8 +2205,15 @@ function StepIntent({ onSubmit, onBack, loading, error }) {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               style={{
-                position: "fixed", inset: 0, zIndex: 99999, background: "rgba(0,0,0,0.8)", backdropFilter: "blur(16px)",
-                display: "flex", alignItems: "center", justifyContent: "center", padding: 20
+                position: "fixed",
+                inset: 0,
+                zIndex: 99999,
+                background: "rgba(0,0,0,0.8)",
+                backdropFilter: "blur(16px)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                padding: 20,
               }}
               onClick={() => setShowMore(false)}
             >
@@ -2181,29 +2224,70 @@ function StepIntent({ onSubmit, onBack, loading, error }) {
                 transition={{ type: "spring", damping: 25, stiffness: 300 }}
                 onClick={(e) => e.stopPropagation()}
                 style={{
-                  width: "100%", maxWidth: 440, background: "var(--depth)", border: "0.5px solid rgba(255,255,255,0.08)",
-                  borderRadius: 24, padding: "28px 24px", boxShadow: "0 32px 80px rgba(0,0,0,0.8)"
+                  width: "100%",
+                  maxWidth: 440,
+                  background: "var(--depth)",
+                  border: "0.5px solid rgba(255,255,255,0.08)",
+                  borderRadius: 24,
+                  padding: "28px 24px",
+                  boxShadow: "0 32px 80px rgba(0,0,0,0.8)",
                 }}
               >
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24 }}>
-                  <h3 style={{ fontFamily: "var(--font-display)", fontWeight: 800, fontSize: 22, margin: 0, color: "#FFFFFF" }}>
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    marginBottom: 24,
+                  }}
+                >
+                  <h3
+                    style={{
+                      fontFamily: "var(--font-display)",
+                      fontWeight: 800,
+                      fontSize: 22,
+                      margin: 0,
+                      color: "#FFFFFF",
+                    }}
+                  >
                     Extended Domains
                   </h3>
                   <button
                     onClick={() => setShowMore(false)}
                     style={{
-                      background: "rgba(255,255,255,0.06)", border: "none", width: 34, height: 34, borderRadius: "50%",
-                      display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", color: "var(--text-secondary)", transition: "background 0.2s"
+                      background: "rgba(255,255,255,0.06)",
+                      border: "none",
+                      width: 34,
+                      height: 34,
+                      borderRadius: "50%",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      cursor: "pointer",
+                      color: "var(--text-secondary)",
+                      transition: "background 0.2s",
                     }}
-                    onMouseOver={(e) => e.currentTarget.style.background = "rgba(255,255,255,0.12)"}
-                    onMouseOut={(e) => e.currentTarget.style.background = "rgba(255,255,255,0.06)"}
+                    onMouseOver={(e) =>
+                      (e.currentTarget.style.background =
+                        "rgba(255,255,255,0.12)")
+                    }
+                    onMouseOut={(e) =>
+                      (e.currentTarget.style.background =
+                        "rgba(255,255,255,0.06)")
+                    }
                   >
                     <XIcon size={16} />
                   </button>
                 </div>
-                
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-                  {DOMAIN_MORE.map((d) => 
+
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "1fr 1fr",
+                    gap: 12,
+                  }}
+                >
+                  {DOMAIN_MORE.map((d) => (
                     <DomainCard
                       key={d.value}
                       item={d}
@@ -2214,184 +2298,40 @@ function StepIntent({ onSubmit, onBack, loading, error }) {
                         setShowMore(false);
                       }}
                     />
-                  )}
+                  ))}
                 </div>
               </motion.div>
             </motion.div>
           )}
         </AnimatePresence>,
-        document.body
+        document.body,
       )}
     </motion.div>
   );
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// STEP 5 — CONNECTORS (GitHub, X, Instagram, YouTube — no LinkedIn)
-// ─────────────────────────────────────────────────────────────────────────────
-const CONNECTORS = [
-  {
-    key: "github",
-    label: "GitHub",
-    placeholder: "github.com/yourname",
-    icon: (
-      <svg width={11} height={11} viewBox="0 0 24 24" fill="var(--text-dim)">
-        <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z" />
-      </svg>
-    ),
-  },
-  {
-    key: "twitter",
-    label: "X / Twitter",
-    placeholder: "x.com/yourname",
-    icon: (
-      <svg width={10} height={10} viewBox="0 0 24 24" fill="var(--text-dim)">
-        <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
-      </svg>
-    ),
-  },
-  {
-    key: "instagram",
-    label: "Instagram",
-    placeholder: "instagram.com/yourname",
-    icon: (
-      <svg
-        width={11}
-        height={11}
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="var(--text-dim)"
-        strokeWidth="2.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <rect x="2" y="2" width="20" height="20" rx="5" ry="5" />
-        <path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z" />
-        <line x1="17.5" y1="6.5" x2="17.51" y2="6.5" />
-      </svg>
-    ),
-  },
-  {
-    key: "youtube",
-    label: "YouTube",
-    placeholder: "youtube.com/@yourname",
-    icon: (
-      <svg
-        width={12}
-        height={12}
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="var(--text-dim)"
-        strokeWidth="2.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      >
-        <path d="M22.54 6.42a2.78 2.78 0 0 0-1.95-1.96C18.88 4 12 4 12 4s-6.88 0-8.59.46a2.78 2.78 0 0 0-1.95 1.96A29 29 0 0 0 1 12a29 29 0 0 0 .46 5.58A2.78 2.78 0 0 0 3.41 19.6C5.12 20 12 20 12 20s6.88 0 8.59-.46a2.78 2.78 0 0 0 1.95-1.95A29 29 0 0 0 23 12a29 29 0 0 0-.46-5.58z" />
-        <polygon points="9.75 15.02 15.5 12 9.75 8.98 9.75 15.02" />
-      </svg>
-    ),
-  },
-];
-
-function StepConnectors({ onSubmit, onBack, loading, error }) {
-  const { github, twitter, instagram, youtube, setField } =
-    useOnboardingStore();
-  const vals = { github, twitter, instagram, youtube };
-
-  return (
-    <motion.div
-      variants={STEP_VARIANTS}
-      initial="initial"
-      animate="animate"
-      exit="exit"
-      transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
-    >
-      <StepHeader
-        step={5}
-        total={8}
-        overline="Step 5 of 8"
-        title="Your digital footprint."
-        subtitle="Link your presence. Everything here is optional — but operators who link earn more visibility."
-      />
-
-      <ErrorBox msg={error} />
-
-      <div
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          gap: 10,
-          marginBottom: 24,
-        }}
-      >
-        {CONNECTORS.map(({ key, label, placeholder, icon }) => (
-          <div key={key} className="ob-input-group">
-            <div
-              style={{
-                position: "absolute",
-                left: 16,
-                top: "50%",
-                transform: "translateY(-50%)",
-                pointerEvents: "none",
-                zIndex: 10,
-              }}
-            >
-              {icon}
-            </div>
-            <input
-              className="ob-input"
-              type="url"
-              value={vals[key]}
-              onChange={(e) => setField(key, e.target.value)}
-              placeholder=" "
-              style={{ paddingLeft: 44, paddingRight: vals[key] ? 44 : 16 }}
-            />
-            <label className="ob-floating-label" style={{ left: 44 }}>
-              {label} ({placeholder})
-            </label>
-            {vals[key] && (
-              <div
-                style={{
-                  position: "absolute",
-                  right: 16,
-                  top: "50%",
-                  transform: "translateY(-50%)",
-                }}
-              >
-                <CheckIcon size={14} />
-              </div>
-            )}
-          </div>
-        ))}
-      </div>
-
-      <div style={{ display: "flex", gap: 12 }}>
-        <button type="button" className="ob-btn-ghost" onClick={onBack}>
-          Back
-        </button>
-        <button
-          className="ob-btn-primary"
-          style={{ flex: 1 }}
-          onClick={onSubmit}
-          disabled={loading}
-        >
-          {loading ? <Spinner size={14} color="#0a0a0a" /> : "Continue"}{" "}
-          {!loading && <ChevronRight />}
-        </button>
-      </div>
-    </motion.div>
-  );
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// STEP 7 — MOTIVATION (Why are you here?)
+// STEP 5 — MOTIVATION (Cinematic Image Stack)
 // ─────────────────────────────────────────────────────────────────────────────
 function StepMotivation({ onSubmit, onBack, loading, error }) {
-  const { whyHere, toggleWhyHere } = useOnboardingStore();
+  const { whyHere, setField } = useOnboardingStore();
+
+  // Safely extract array in case legacy data is present
+  const selected = Array.isArray(whyHere) ? whyHere : whyHere?.selected || [];
+
+  const toggleCard = (id) => {
+    let next = [...selected];
+    if (next.includes(id)) {
+      next = next.filter((x) => x !== id);
+    } else {
+      next.push(id);
+    }
+    setField("whyHere", next);
+  };
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    if (!whyHere.length) return;
+    if (selected.length === 0) return;
     onSubmit();
   };
 
@@ -2403,13 +2343,43 @@ function StepMotivation({ onSubmit, onBack, loading, error }) {
       exit="exit"
       transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
     >
-      <StepHeader
-        step={6}
-        total={8}
-        overline="Step 6 of 8"
-        title="Your drive."
-        subtitle="What brings you to the arena? Select up to 5."
-      />
+      <div style={{ marginBottom: 32 }}>
+        <ProgressBar current={5} total={7} />
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "flex-end",
+            marginBottom: 8,
+          }}
+        >
+          <h2
+            style={{
+              fontFamily: "var(--font-display)",
+              fontWeight: 800,
+              fontSize: "clamp(26px, 5vw, 33px)",
+              letterSpacing: "-0.03em",
+              lineHeight: 1.1,
+              color: "var(--text-primary)",
+              margin: 0,
+            }}
+          >
+            Your drive.
+          </h2>
+          <span
+            style={{
+              fontSize: 10,
+              fontWeight: 700,
+              color: "var(--gold-2)",
+              letterSpacing: "0.15em",
+              textTransform: "uppercase",
+              fontFamily: "var(--font-body)",
+            }}
+          >
+            Select all that apply
+          </span>
+        </div>
+      </div>
 
       <ErrorBox msg={error} />
 
@@ -2417,25 +2387,113 @@ function StepMotivation({ onSubmit, onBack, loading, error }) {
         onSubmit={handleSubmit}
         style={{ display: "flex", flexDirection: "column", gap: 24 }}
       >
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
-          {WHY_HERE.map((tag, i) => {
-            const active = whyHere.includes(tag);
+        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+          {MOTIVATION_CARDS.map((card, i) => {
+            const active = selected.includes(card.id);
             return (
               <motion.div
-                key={tag}
-                initial={{ opacity: 0, y: 10 }}
+                key={card.id}
+                initial={{ opacity: 0, y: 15 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.3, delay: i * 0.04 }}
-                whileTap={{ scale: 0.94 }}
-                className="ob-tag"
-                data-active={active ? "true" : "false"}
-                onClick={() => toggleWhyHere(tag)}
+                transition={{ duration: 0.4, delay: i * 0.05 }}
+                whileTap={{ scale: 0.96 }}
+                onClick={() => toggleCard(card.id)}
                 style={{
-                  padding: "12px 18px",
-                  fontSize: 13,
+                  height: 76,
+                  position: "relative",
+                  borderRadius: 14,
+                  overflow: "hidden",
+                  cursor: "pointer",
+                  background: "var(--elevated)",
+                  border: active
+                    ? "1.5px solid var(--gold-2)"
+                    : "1px solid rgba(255,255,255,0.06)",
+                  boxShadow: active
+                    ? "0 0 24px rgba(191,162,100,0.12)"
+                    : "none",
+                  userSelect: "none",
+                  WebkitTapHighlightColor: "transparent",
                 }}
               >
-                {tag}
+                <img
+                  src={card.img}
+                  alt={card.label}
+                  loading="lazy"
+                  onError={(e) => (e.currentTarget.style.opacity = 0)}
+                  style={{
+                    position: "absolute",
+                    inset: 0,
+                    width: "100%",
+                    height: "100%",
+                    objectFit: "cover",
+                    opacity: active ? 0.7 : 0.3,
+                    transition: "opacity 0.3s, transform 0.6s",
+                    transform: active ? "scale(1.05)" : "scale(1)",
+                  }}
+                />
+                <div
+                  style={{
+                    position: "absolute",
+                    inset: 0,
+                    background:
+                      "linear-gradient(to right, rgba(3,3,3,0.96) 0%, rgba(3,3,3,0.4) 100%)",
+                  }}
+                />
+
+                <div
+                  style={{
+                    position: "relative",
+                    zIndex: 2,
+                    display: "flex",
+                    justifyContent: "space-between",
+                    alignItems: "center",
+                    padding: "0 24px",
+                    height: "100%",
+                  }}
+                >
+                  <span
+                    style={{
+                      fontSize: 16,
+                      fontWeight: 800,
+                      fontFamily: "var(--font-display)",
+                      color: active ? "var(--gold-2)" : "#FFFFFF",
+                      transition: "color 0.2s",
+                      letterSpacing: "-0.01em",
+                    }}
+                  >
+                    {card.label}
+                  </span>
+                  <div
+                    style={{
+                      width: 22,
+                      height: 22,
+                      borderRadius: "50%",
+                      border: active
+                        ? "none"
+                        : "1.5px solid rgba(255,255,255,0.2)",
+                      background: active ? "var(--gold-2)" : "transparent",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      transition: "all 0.2s",
+                    }}
+                  >
+                    {active && (
+                      <svg
+                        width={14}
+                        height={14}
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="#000"
+                        strokeWidth="3"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <polyline points="20 6 9 17 4 12" />
+                      </svg>
+                    )}
+                  </div>
+                </div>
               </motion.div>
             );
           })}
@@ -2449,7 +2507,7 @@ function StepMotivation({ onSubmit, onBack, loading, error }) {
             type="submit"
             className="ob-btn-primary"
             style={{ flex: 1 }}
-            disabled={!whyHere.length || loading}
+            disabled={selected.length === 0 || loading}
           >
             {loading ? <Spinner size={14} color="#0a0a0a" /> : "Continue"}{" "}
             {!loading && <ChevronRight />}
@@ -2461,7 +2519,7 @@ function StepMotivation({ onSubmit, onBack, loading, error }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// STEP 7 — PREMIUM GATE
+// STEP 6 — PREMIUM GATE
 // ─────────────────────────────────────────────────────────────────────────────
 function StepPremium({ firstName, onUpgrade, onSkip, loading }) {
   const features = [
@@ -2489,7 +2547,7 @@ function StepPremium({ firstName, onUpgrade, onSkip, loading }) {
       exit="exit"
       transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
     >
-      <ProgressBar current={7} total={8} />
+      <ProgressBar current={6} total={7} />
 
       <div style={{ textAlign: "center", marginBottom: 28 }}>
         <div
@@ -2505,16 +2563,16 @@ function StepPremium({ firstName, onUpgrade, onSkip, loading }) {
             boxShadow: "0 0 28px rgba(191,162,100,0.2)",
           }}
         >
-          <svg
-            width={24}
-            height={24}
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="#0a0a0a"
-            strokeWidth="2"
-          >
-            <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
-          </svg>
+          <img
+            src="/logo-premium.png"
+            alt="Discotive Premium"
+            loading="lazy"
+            style={{
+              width: 32,
+              height: 32,
+              objectFit: "contain",
+            }}
+          />
         </div>
         <div
           style={{
@@ -3237,12 +3295,6 @@ export default function AuthOrchestrator() {
   // ── HANDLER: Intent → next ────────────────────────────────────────────────
   const handleIntentSubmit = () => {
     clearErr();
-    store.setStep("connectors");
-  };
-
-  // ── HANDLER: Connectors → next ────────────────────────────────────────────
-  const handleConnectorsSubmit = () => {
-    clearErr();
     store.setStep("motivation");
   };
 
@@ -3300,7 +3352,7 @@ export default function AuthOrchestrator() {
             domain: passion,
             niche: "",
           },
-          vision: { passion, whyHere },
+          vision: { passion }, // whyHere heavily offloaded to dedicated opportunities structure
           baseline: { currentStatus },
           skills: { rawSkills: [], alignedSkills: [], languages: [] },
           onboarding_status: "completed",
@@ -3345,10 +3397,25 @@ export default function AuthOrchestrator() {
             avatarUrl: avatarUrl || "",
           },
           baseline: { currentStatus },
-          vision: { passion, whyHere },
+          vision: { passion },
           links: { github, twitter, instagram, youtube },
-          followedSeeds,
+          followedSeeds: followedSeeds || [],
           tier: "ESSENTIAL",
+          updatedAt: new Date().toISOString(),
+        },
+        { merge: true },
+      );
+
+      // 2.5 MAANG-Grade Opportunity Preferences Store
+      // Writes strictly to: users/{uid}/opportunities/preferences
+      const safeWhyHere = Array.isArray(whyHere)
+        ? whyHere
+        : whyHere?.selected || [];
+
+      await setDoc(
+        doc(db, "users", uid, "opportunities", "preferences"),
+        {
+          motivations: safeWhyHere,
           updatedAt: new Date().toISOString(),
         },
         { merge: true },
@@ -3388,8 +3455,7 @@ export default function AuthOrchestrator() {
         identity: store.isGoogleUser ? "login" : "auth",
         baseline: "identity",
         intent: "baseline",
-        connectors: "intent",
-        motivation: "connectors",
+        motivation: "intent",
         premium: "motivation",
       }[store.step];
       if (prev) store.setStep(prev);
@@ -3406,9 +3472,8 @@ export default function AuthOrchestrator() {
       identity: 2,
       baseline: 3,
       intent: 4,
-      connectors: 5,
-      motivation: 6,
-      premium: 7,
+      motivation: 5,
+      premium: 6,
     }[store.step] ?? 0;
 
   return (
@@ -3523,20 +3588,11 @@ export default function AuthOrchestrator() {
                 error={localError}
               />
             )}
-            {store.step === "connectors" && (
-              <StepConnectors
-                key="connectors"
-                onSubmit={handleConnectorsSubmit}
-                onBack={() => store.setStep("intent")}
-                loading={localLoading}
-                error={localError}
-              />
-            )}
             {store.step === "motivation" && (
               <StepMotivation
                 key="motivation"
                 onSubmit={handleMotivationSubmit}
-                onBack={() => store.setStep("connectors")}
+                onBack={() => store.setStep("intent")}
                 loading={localLoading}
                 error={localError}
               />
