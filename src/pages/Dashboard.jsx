@@ -1,7 +1,7 @@
 /**
- * @fileoverview Discotive OS — Command Center v8 "Cinematic Engine"
- * @architecture 75/25 Stage/HUD split on PC. Swipeable carousel + snap swimlanes on mobile.
- * @author Principal Engineer, Discotive
+ * @fileoverview Discotive OS — Command Center v9 "Addiction Engine"
+ * Desktop: 75/25 Stage/HUD animated split
+ * Mobile: Native-app scroll with snap sections, 44px touch targets
  */
 
 import React, {
@@ -11,7 +11,6 @@ import React, {
   useCallback,
   useRef,
   memo,
-  useId,
 } from "react";
 import { Helmet } from "react-helmet-async";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
@@ -27,17 +26,19 @@ import {
 } from "firebase/firestore";
 import { db } from "../firebase";
 import { useUserData, useOnboardingGate } from "../hooks/useUserData";
-import {
-  useDashboardCore,
-  useScoreHistory,
-  usePercentiles,
-} from "../hooks/useDashboardData";
+import { useScoreHistory, usePercentiles } from "../hooks/useDashboardData";
 import { useTelemetryStream } from "../hooks/useTelemetryStream";
 import TierGate from "../components/TierGate";
 import DailyExecutionLedger from "../components/DailyExecutionLedger";
-import { AreaChart, Area, ResponsiveContainer, YAxis } from "recharts";
+import ProfileCompletenessWidget from "../components/dashboard/ProfileCompletenessWidget";
 import {
-  Activity,
+  AreaChart,
+  Area,
+  ResponsiveContainer,
+  YAxis,
+  Tooltip as ReTooltip,
+} from "recharts";
+import {
   Database,
   Zap,
   Target,
@@ -45,30 +46,42 @@ import {
   TrendingUp,
   TrendingDown,
   Crown,
-  Loader2,
-  Eye,
   Flame,
   ChevronLeft,
   ChevronRight,
-  Users,
-  Sparkles,
   CheckCircle2,
   Shield,
   AlertTriangle,
   Crosshair,
   Award,
   FileText,
-  Lock,
   Upload,
   Briefcase,
   Star,
   BarChart2,
   Radio,
   Network,
+  Play,
+  Clock,
+  ArrowRight,
+  Check,
+  GraduationCap,
+  Trophy,
+  Eye,
+  Users,
+  Map,
+  Compass,
+  Settings,
+  Bookmark,
+  Bell,
+  MessageCircle,
+  Lock,
+  Activity,
+  Plus,
 } from "lucide-react";
 import { cn } from "../lib/cn";
 
-// ─── Design tokens (never deviate) ───────────────────────────────────────────
+/* ─── Design tokens ─────────────────────────────────────────────────────── */
 const G = {
   base: "#BFA264",
   bright: "#D4AF78",
@@ -89,30 +102,148 @@ const T = {
   dim: "rgba(245,240,232,0.28)",
 };
 
-// ─── Motion presets ───────────────────────────────────────────────────────────
 const FADE_UP = (delay = 0) => ({
   initial: { opacity: 0, y: 24 },
   animate: { opacity: 1, y: 0 },
   transition: { duration: 0.5, ease: [0.16, 1, 0.3, 1], delay },
 });
 
-// ═══════════════════════════════════════════════════════════════════════════════
-// SUB-COMPONENTS — all memo'd to prevent cascade re-renders
-// ═══════════════════════════════════════════════════════════════════════════════
+/* ═══════════════════════════════════════════════════════════════════════════
+   DATA HOOKS
+══════════════════════════════════════════════════════════════════════════ */
 
-// ─── Skeleton loader atom ─────────────────────────────────────────────────────
+const useScoreLog = (uid) => {
+  const [logs, setLogs] = useState([]);
+  const fetchedRef = useRef(false);
+  useEffect(() => {
+    if (!uid || fetchedRef.current) return;
+    fetchedRef.current = true;
+    getDocs(
+      query(
+        collection(db, "users", uid, "score_log"),
+        orderBy("timestamp", "desc"),
+        limit(40),
+      ),
+    )
+      .then((snap) =>
+        setLogs(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
+      )
+      .catch(() => {});
+  }, [uid]);
+  return logs;
+};
+
+const useLearnPreview = (domain) => {
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const fetchedRef = useRef(false);
+  useEffect(() => {
+    if (fetchedRef.current) return;
+    fetchedRef.current = true;
+    setLoading(true);
+    const constraints = [limit(6)];
+    if (domain) constraints.unshift(where("domains", "array-contains", domain));
+    getDocs(query(collection(db, "discotive_videos"), ...constraints))
+      .then((snap) =>
+        setItems(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
+      )
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [domain]);
+  return { items, loading };
+};
+
+const useTrackedRivals = (uid) => {
+  const [rivals, setRivals] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const fetchedRef = useRef(false);
+  useEffect(() => {
+    if (!uid || fetchedRef.current) return;
+    fetchedRef.current = true;
+    setLoading(true);
+    getDocs(
+      query(
+        collection(db, "competitors"),
+        where("trackerId", "==", uid),
+        limit(10),
+      ),
+    )
+      .then((snap) =>
+        setRivals(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
+      )
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [uid]);
+  return { rivals, loading };
+};
+
+const useOpportunities = (uid, domain) => {
+  const [opps, setOpps] = useState([]);
+  const fetchedRef = useRef(false);
+  useEffect(() => {
+    if (!uid || fetchedRef.current) return;
+    fetchedRef.current = true;
+    if (!domain) return;
+    getDocs(
+      query(
+        collection(db, "bounties"),
+        where("domain", "==", domain),
+        orderBy("createdAt", "desc"),
+        limit(8),
+      ),
+    )
+      .then((snap) =>
+        setOpps(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
+      )
+      .catch(() => {});
+  }, [uid, domain]);
+  return opps;
+};
+
+const useLbRank = (uid, score, domain) => {
+  const [rank, setRank] = useState("?");
+  const [filter, setFilter] = useState("Global");
+  useEffect(() => {
+    if (!uid || score == null) return;
+    let stale = false;
+    const run = async () => {
+      try {
+        const c = [where("discotiveScore.current", ">", score)];
+        if (domain) {
+          c.push(where("identity.domain", "==", domain));
+          setFilter(domain.length > 16 ? domain.slice(0, 16) + "…" : domain);
+        } else setFilter("Global");
+        const snap = await getCountFromServer(
+          query(collection(db, "users"), ...c),
+        );
+        if (!stale) setRank(snap.data().count + 1);
+      } catch {
+        if (!stale) setRank("—");
+      }
+    };
+    run();
+    return () => {
+      stale = true;
+    };
+  }, [uid, score, domain]);
+  return { rank, filter };
+};
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   SHARED ATOMS
+══════════════════════════════════════════════════════════════════════════ */
+
 const Skeleton = memo(({ className }) => (
   <motion.div
     animate={{ opacity: [0.3, 0.7, 0.3] }}
     transition={{ duration: 1.8, repeat: Infinity, ease: "easeInOut" }}
     className={cn("rounded-lg", className)}
     style={{
-      background: `linear-gradient(90deg, ${V.surface}, ${V.elevated}, ${V.surface})`,
+      background: `linear-gradient(90deg,${V.surface},${V.elevated},${V.surface})`,
     }}
   />
 ));
 
-// ─── Section micro-label ─────────────────────────────────────────────────────
 const SectionLabel = memo(({ icon: Icon, color = G.base, children }) => (
   <div className="flex items-center gap-2 mb-3">
     {Icon && <Icon style={{ color, width: 13, height: 13 }} />}
@@ -125,64 +256,58 @@ const SectionLabel = memo(({ icon: Icon, color = G.base, children }) => (
   </div>
 ));
 
-// ─── Orbital Ring Chart (SVG, Apple Watch-style) ─────────────────────────────
-const OrbitalRings = memo(({ score, lastScore = 0, globalPct, domainPct }) => {
+/* ─── Orbital Ring (Apple Watch style) ──────────────────────────────────── */
+const OrbitalRings = memo(({ score, lastScore = 0, size = 180 }) => {
   const shouldReduce = useReducedMotion();
-  const outerR = 70;
-  const innerR = 52;
-  const stroke = 7;
-  const size = 180;
-  const cx = size / 2;
-  const cy = size / 2;
+  const outerR = size * 0.39,
+    innerR = size * 0.29,
+    stroke = size * 0.039;
+  const cx = size / 2,
+    cy = size / 2;
 
-  // Psychological Hack: Start count-up from their last known score, not zero.
-  // If lastScore > score (penalty), start at lastScore and tick down.
-  const [displayScore, setDisplayScore] = useState(lastScore);
+  const [displayScore, setDisplayScore] = useState(lastScore || score);
   useEffect(() => {
-    let startTime;
-    const duration = 800; // 800ms for a satisfying climb
-    const diff = score - lastScore;
-
-    // If no change, or first load with no last score, just show current
-    if (diff === 0 || lastScore === 0) {
+    const diff = score - (lastScore || 0);
+    if (diff === 0 || !lastScore) {
       setDisplayScore(score);
       return;
     }
-
-    const animate = (time) => {
-      if (!startTime) startTime = time;
-      const progress = Math.min((time - startTime) / duration, 1);
-      // easeOutExpo
-      const easeProgress = progress === 1 ? 1 : 1 - Math.pow(2, -10 * progress);
-      setDisplayScore(Math.floor(lastScore + diff * easeProgress));
-      if (progress < 1) requestAnimationFrame(animate);
+    let start;
+    const dur = 900;
+    const animate = (t) => {
+      if (!start) start = t;
+      const p = Math.min((t - start) / dur, 1);
+      const e = 1 - Math.pow(2, -10 * p);
+      setDisplayScore(Math.floor((lastScore || 0) + diff * e));
+      if (p < 1) requestAnimationFrame(animate);
     };
     requestAnimationFrame(animate);
   }, [score, lastScore]);
 
-  const buildArc = (r, pct) => {
-    const circ = 2 * Math.PI * r;
-    const filled = Math.max(0, Math.min(1, (100 - pct) / 100));
-    return { circ, offset: circ - filled * circ };
-  };
+  // Inner circle logic: 0-1000 points
+  const innerPct = Math.min(100, (displayScore / 1000) * 100);
+  // Outer circle logic: fills after 1000 up to 2300 (1300 points span)
+  const outerPct = Math.max(
+    0,
+    Math.min(100, ((displayScore - 1000) / 1300) * 100),
+  );
 
-  const outer = buildArc(outerR, globalPct);
-  const inner = buildArc(innerR, domainPct);
+  const arc = (r, pct) => {
+    const circ = 2 * Math.PI * r;
+    return {
+      circ,
+      offset: circ - Math.max(0, Math.min(1, (100 - pct) / 100)) * circ,
+    };
+  };
+  const outer = arc(outerR, outerPct);
+  const inner = arc(innerR, innerPct);
 
   return (
     <div
       className="relative flex items-center justify-center"
       style={{ width: size, height: size }}
     >
-      <motion.svg
-        width={size}
-        height={size}
-        className="-rotate-90"
-        aria-hidden="true"
-        animate={{ rotate: [-90, 270] }}
-        transition={{ duration: 60, repeat: Infinity, ease: "linear" }}
-      >
-        {/* Track rings */}
+      <svg width={size} height={size} className="-rotate-90" aria-hidden="true">
         <circle
           cx={cx}
           cy={cy}
@@ -199,56 +324,42 @@ const OrbitalRings = memo(({ score, lastScore = 0, globalPct, domainPct }) => {
           stroke="rgba(255,255,255,0.04)"
           strokeWidth={stroke}
         />
-
-        {/* Global ring (outer) */}
-        <circle
-          cx={cx}
-          cy={cy}
-          r={outerR}
-          fill="none"
-          stroke={G.bright}
-          strokeWidth={stroke}
-          strokeDasharray={outer.circ}
-          strokeDashoffset={shouldReduce ? outer.offset : outer.circ}
-          strokeLinecap="round"
-          style={
-            !shouldReduce
-              ? {
-                  transition:
-                    "stroke-dashoffset 1.4s cubic-bezier(0.16,1,0.3,1) 0.4s",
-                  strokeDashoffset: outer.offset,
-                }
-              : {}
-          }
-        />
-        {/* Domain ring (inner) */}
         <circle
           cx={cx}
           cy={cy}
           r={innerR}
           fill="none"
-          stroke="rgba(245,240,232,0.45)"
+          stroke={G.bright}
           strokeWidth={stroke}
           strokeDasharray={inner.circ}
-          strokeDashoffset={shouldReduce ? inner.offset : inner.circ}
           strokeLinecap="round"
-          style={
-            !shouldReduce
-              ? {
-                  transition:
-                    "stroke-dashoffset 1.4s cubic-bezier(0.16,1,0.3,1) 0.6s",
-                  strokeDashoffset: inner.offset,
-                }
-              : {}
-          }
+          style={{
+            transition:
+              "stroke-dashoffset 1.4s cubic-bezier(0.16,1,0.3,1) 0.4s",
+            strokeDashoffset: shouldReduce ? inner.offset : inner.offset,
+          }}
         />
-      </motion.svg>
-
-      {/* Center score */}
+        <circle
+          cx={cx}
+          cy={cy}
+          r={outerR}
+          fill="none"
+          stroke="rgba(245,240,232,0.45)"
+          strokeWidth={stroke}
+          strokeDasharray={outer.circ}
+          strokeLinecap="round"
+          style={{
+            transition:
+              "stroke-dashoffset 1.4s cubic-bezier(0.16,1,0.3,1) 0.6s",
+            strokeDashoffset: shouldReduce ? outer.offset : outer.offset,
+          }}
+        />
+      </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center gap-0.5">
         <span
-          className="font-display font-black leading-none text-[28px]"
+          className="font-display font-black leading-none"
           style={{
+            fontSize: size * 0.155,
             color: T.primary,
             letterSpacing: "-0.03em",
             textShadow: "0 0 20px rgba(191,162,100,0.4)",
@@ -269,10 +380,9 @@ const OrbitalRings = memo(({ score, lastScore = 0, globalPct, domainPct }) => {
   );
 });
 
-// ─── Consistency LED matrix ───────────────────────────────────────────────────
-const ConsistencyMatrix = memo(({ userData }) => {
+/* ─── Consistency Matrix ─────────────────────────────────────────────────── */
+const ConsistencyMatrix = memo(({ userData, horizontal = false }) => {
   const [hoveredPill, setHoveredPill] = useState(null);
-
   const pills = useMemo(() => {
     const active = new Set();
     (userData?.consistency_log || []).forEach((s) => {
@@ -283,17 +393,97 @@ const ConsistencyMatrix = memo(({ userData }) => {
     });
     const last = userData?.discotiveScore?.lastLoginDate;
     if (last) active.add(last.split("T")[0]);
-
     const now = new Date();
     return Array.from({ length: 28 }, (_, i) => {
       const d = new Date(now);
       d.setDate(now.getDate() - (27 - i));
       const str = d.toISOString().split("T")[0];
-      // Generate a deterministic random duration for breathing effect
-      const breatheDuration = 2 + (Math.sin(i) * 0.5 + 0.5) * 2;
-      return { str, on: active.has(str), breatheDuration, id: i };
+      return {
+        str,
+        on: active.has(str),
+        breath: 2 + (Math.sin(i) * 0.5 + 0.5) * 2,
+        id: i,
+      };
     });
   }, [userData]);
+
+  if (horizontal) {
+    return (
+      <div>
+        <SectionLabel icon={BarChart2} color={G.base}>
+          28-Day Consistency
+        </SectionLabel>
+        <div
+          className="overflow-x-auto hide-scrollbar pb-1"
+          style={{ WebkitOverflowScrolling: "touch" }}
+        >
+          <div
+            className="flex items-end gap-1.5 px-1"
+            style={{ minWidth: "max-content" }}
+          >
+            {pills.map((p) => (
+              <div
+                key={p.id}
+                className="relative flex justify-center"
+                style={{
+                  minWidth: 44,
+                  height: 44,
+                  alignItems: "flex-end",
+                  display: "flex",
+                }}
+                onTouchStart={() => setHoveredPill(p.id)}
+                onTouchEnd={() => setHoveredPill(null)}
+                onMouseEnter={() => setHoveredPill(p.id)}
+                onMouseLeave={() => setHoveredPill(null)}
+              >
+                <AnimatePresence>
+                  {hoveredPill === p.id && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 4 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0 }}
+                      className="absolute bottom-full mb-1 bg-[#050505] border border-[#BFA264]/40 text-[#BFA264] text-[9px] font-mono font-bold px-2 py-0.5 rounded-lg shadow-2xl pointer-events-none whitespace-nowrap z-50"
+                    >
+                      {new Date(p.str).toLocaleDateString(undefined, {
+                        month: "short",
+                        day: "numeric",
+                      })}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+                <motion.div
+                  className="rounded-full"
+                  animate={
+                    p.on
+                      ? {
+                          opacity: [0.6, 1, 0.6],
+                          boxShadow: [
+                            `0 0 4px ${G.base}`,
+                            `0 0 12px ${G.bright}`,
+                            `0 0 4px ${G.base}`,
+                          ],
+                        }
+                      : {}
+                  }
+                  transition={{
+                    duration: p.breath,
+                    repeat: Infinity,
+                    ease: "easeInOut",
+                  }}
+                  style={{
+                    width: 4,
+                    height: p.on ? 24 : 12,
+                    background: p.on ? G.bright : "rgba(255,255,255,0.06)",
+                    opacity: p.on ? 1 : 0.3,
+                  }}
+                />
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div>
@@ -304,20 +494,18 @@ const ConsistencyMatrix = memo(({ userData }) => {
         {pills.map((p) => (
           <div
             key={p.id}
-            className="relative flex justify-center cursor-crosshair"
-            style={{ padding: "0 4px" }} // Wider padding for easier target acquisition
+            className="relative flex justify-center"
+            style={{ padding: "0 4px" }}
             onMouseEnter={() => setHoveredPill(p.id)}
             onMouseLeave={() => setHoveredPill(null)}
           >
-            {/* Cinematic Hover Tooltip (Framer Motion driven) */}
             <AnimatePresence>
               {hoveredPill === p.id && (
                 <motion.div
                   initial={{ opacity: 0, y: 5 }}
                   animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: 5 }}
-                  transition={{ duration: 0.15 }}
-                  className="absolute bottom-full mb-2 bg-[#050505] border border-[#BFA264]/40 text-[#BFA264] text-[10px] font-mono font-bold px-2.5 py-1 rounded shadow-[0_10px_30px_rgba(0,0,0,0.9)] pointer-events-none whitespace-nowrap z-50"
+                  exit={{ opacity: 0 }}
+                  className="absolute bottom-full mb-2 bg-[#050505] border border-[#BFA264]/40 text-[#BFA264] text-[10px] font-mono font-bold px-2.5 py-1 rounded shadow-2xl pointer-events-none whitespace-nowrap z-50"
                 >
                   {new Date(p.str).toLocaleDateString(undefined, {
                     month: "short",
@@ -341,17 +529,16 @@ const ConsistencyMatrix = memo(({ userData }) => {
                   : {}
               }
               transition={{
-                duration: p.breatheDuration,
+                duration: p.breath,
                 repeat: Infinity,
                 ease: "easeInOut",
               }}
               style={{
-                width: "4px",
-                height: p.on ? "24px" : "12px",
+                width: 4,
+                height: p.on ? 24 : 12,
                 background: p.on ? G.bright : "rgba(255,255,255,0.06)",
                 opacity: p.on ? 1 : 0.3,
               }}
-              aria-label={`${p.str}: ${p.on ? "active" : "inactive"}`}
             />
           </div>
         ))}
@@ -360,19 +547,18 @@ const ConsistencyMatrix = memo(({ userData }) => {
   );
 });
 
-// ─── Global ticker (vertical scroll) ─────────────────────────────────────────
+/* ─── Global Ticker ──────────────────────────────────────────────────────── */
 const GlobalTicker = memo(({ events }) => {
   const items =
     events.length > 0
       ? events
       : [{ id: "init", text: "⚡ Awaiting live arena signal…" }];
-
   return (
     <div>
       <SectionLabel icon={Radio} color={G.base}>
         Live Signal
       </SectionLabel>
-      <div className="overflow-hidden" style={{ height: 120 }}>
+      <div className="overflow-hidden" style={{ height: 100 }}>
         <motion.div
           animate={{ y: ["0%", `-${(items.length - 3) * 33.33}%`] }}
           transition={{
@@ -406,9 +592,12 @@ const GlobalTicker = memo(({ events }) => {
   );
 });
 
-// ─── HUD Metric pill ─────────────────────────────────────────────────────────
+/* ─── HUD Metric Pill ────────────────────────────────────────────────────── */
 const HUDMetric = memo(({ label, value, sub, accent }) => (
-  <div className="w-full flex flex-col items-center justify-center text-center gap-1 bg-[#080808] border border-[#1a1a1a] rounded-xl p-3 shadow-inner">
+  <motion.div
+    whileHover={{ scale: 1.03 }}
+    className="w-full flex flex-col items-center justify-center text-center gap-1 bg-[#080808] border border-[#1a1a1a] rounded-xl p-3 shadow-inner cursor-default"
+  >
     <span
       className="text-[8px] font-black uppercase tracking-[0.2em]"
       style={{ color: "#666" }}
@@ -429,11 +618,53 @@ const HUDMetric = memo(({ label, value, sub, accent }) => (
         {sub}
       </span>
     )}
-  </div>
+  </motion.div>
 ));
 
-// ─── Sparkline Chart Component ────────────────────────────────────────────────
-const SparklineChart = memo(({ tf, setTf, chartData, chartMin }) => (
+/* ─── Score Chart Tooltip ────────────────────────────────────────────────── */
+const ScoreTooltip = memo(({ active, payload, label, scoreLogs }) => {
+  if (!active || !payload?.length) return null;
+  const dayLogs = (scoreLogs || []).filter((l) => {
+    const d = l.date
+      ? l.date.split("T")[0]
+      : (l.timestamp?.toDate?.()?.toISOString() || "").split("T")[0];
+    return d === label;
+  });
+  const totalChange = dayLogs.reduce((s, l) => s + (l.change || 0), 0);
+  const reasons = [
+    ...new Set(dayLogs.map((l) => l.reason).filter(Boolean)),
+  ].slice(0, 3);
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 4 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="bg-[#080808] border border-[#BFA264]/30 rounded-xl px-4 py-3 shadow-2xl text-xs font-mono max-w-[180px]"
+    >
+      <p className="text-[#888] mb-1 text-[9px]">{label}</p>
+      <p className="font-black text-sm" style={{ color: G.bright }}>
+        {payload[0].value?.toLocaleString()} pts
+      </p>
+      {totalChange !== 0 && (
+        <p
+          className={cn(
+            "text-[10px] font-bold mt-1",
+            totalChange > 0 ? "text-emerald-400" : "text-red-400",
+          )}
+        >
+          {totalChange > 0 ? `+${totalChange}` : totalChange} today
+        </p>
+      )}
+      {reasons.map((r, i) => (
+        <p key={i} className="text-[9px] text-white/40 mt-0.5 truncate">
+          • {r}
+        </p>
+      ))}
+    </motion.div>
+  );
+});
+
+/* ─── Sparkline Chart (FIXED — full visibility + tooltip) ──────────────── */
+const SparklineChart = memo(({ tf, setTf, chartData, chartMin, scoreLogs }) => (
   <div className="flex flex-col gap-2 p-4 bg-[#080808] border border-[#1a1a1a] rounded-2xl relative overflow-hidden shadow-inner">
     <div className="flex items-center justify-between relative z-10">
       <span className="text-[9px] font-black uppercase tracking-widest text-[#666]">
@@ -456,30 +687,41 @@ const SparklineChart = memo(({ tf, setTf, chartData, chartMin }) => (
         ))}
       </div>
     </div>
-    {/* Expanded height + internal chart margin to prevent stroke clipping */}
-    <div
-      className="w-full mt-4"
-      style={{ height: "128px", minHeight: "128px" }}
-    >
+    <div className="w-full" style={{ height: 110, minHeight: 110 }}>
       <ResponsiveContainer width="100%" height="100%">
         <AreaChart
           data={chartData}
-          margin={{ top: 8, bottom: 8, left: 0, right: 0 }}
+          margin={{ top: 10, bottom: 10, left: 0, right: 0 }}
         >
           <defs>
-            <linearGradient id="sparkGradient" x1="0" y1="0" x2="0" y2="1">
+            <linearGradient id="sparkG" x1="0" y1="0" x2="0" y2="1">
               <stop offset="0%" stopColor="#BFA264" stopOpacity={0.4} />
               <stop offset="100%" stopColor="#BFA264" stopOpacity={0} />
             </linearGradient>
           </defs>
           <YAxis domain={[chartMin, "auto"]} hide />
+          <ReTooltip
+            content={<ScoreTooltip scoreLogs={scoreLogs} />}
+            cursor={{
+              stroke: "rgba(191,162,100,0.3)",
+              strokeWidth: 1,
+              strokeDasharray: "4 4",
+            }}
+          />
           <Area
             type="monotone"
             dataKey="score"
             stroke="#BFA264"
             strokeWidth={2}
-            fill="url(#sparkGradient)"
+            fill="url(#sparkG)"
             isAnimationActive={true}
+            dot={false}
+            activeDot={{
+              r: 4,
+              fill: "#BFA264",
+              stroke: "#030303",
+              strokeWidth: 2,
+            }}
           />
         </AreaChart>
       </ResponsiveContainer>
@@ -487,16 +729,17 @@ const SparklineChart = memo(({ tf, setTf, chartData, chartMin }) => (
   </div>
 ));
 
-// ─── Mini Radial Ring (for Position Matrix) ───────────────────────────────────
+/* ─── Mini Radial Ring ───────────────────────────────────────────────────── */
 const MiniRadialRing = memo(
-  ({ pct = 100, size = 48, stroke = 4, color = "#BFA264", label }) => {
+  ({ pct = 100, size = 48, stroke = 4, color = G.base, label }) => {
     const r = (size - stroke * 2) / 2;
     const circ = 2 * Math.PI * r;
-    const fillFraction = Math.max(0, Math.min(1, (100 - pct) / 100));
-    const offset = circ - fillFraction * circ;
-
+    const offset = circ - Math.max(0, Math.min(1, (100 - pct) / 100)) * circ;
     return (
-      <div className="flex flex-col items-center gap-1.5">
+      <motion.div
+        className="flex flex-col items-center gap-1.5"
+        whileHover={{ scale: 1.06 }}
+      >
         <div className="relative" style={{ width: size, height: size }}>
           <svg width={size} height={size} className="-rotate-90">
             <circle
@@ -529,24 +772,22 @@ const MiniRadialRing = memo(
         <p className="text-[7px] font-bold text-white/30 uppercase tracking-widest text-center leading-tight max-w-[50px]">
           {label}
         </p>
-      </div>
+      </motion.div>
     );
   },
 );
 
-// ─── HUD Panel (fixed right 25%) ──────────────────────────────────────────────
+/* ─── HUD Panel (Desktop right rail — animated) ──────────────────────────── */
 const HUDPanel = memo(
   ({
     score,
-    lastScore, // Injected to feed OrbitalRings
+    lastScore,
     globalPct,
     domainPct,
     streak,
     level,
     levelPct,
-    ptsToNext,
     isPro,
-    delta,
     lbRank,
     lbFilter,
     telemetryEvents,
@@ -555,31 +796,32 @@ const HUDPanel = memo(
     setChartTf,
     chartData,
     chartMin,
+    scoreLogs,
   }) => {
-    // Derive Percentiles for Position Matrix
     const percentiles = {
       global: globalPct,
       domain: domainPct,
-      niche: userData?.precomputed?.nichePercentile || 100, // Fallback if missing
+      niche: userData?.precomputed?.nichePercentile || 100,
       parallel: userData?.precomputed?.parallelPercentile || 100,
     };
-
     return (
       <div
-        className="h-full flex flex-col gap-6 overflow-y-auto custom-scrollbar"
-        style={{ padding: "32px 24px 120px" }}
-        aria-label="Metrics HUD"
+        className="h-full flex flex-col gap-5 overflow-y-auto custom-scrollbar"
+        style={{ padding: "28px 20px 120px" }}
       >
-        {/* Orbital rings */}
-        <div className="flex flex-col items-center gap-3">
+        <motion.div
+          initial={{ opacity: 0, scale: 0.9 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={{ duration: 0.6, delay: 0.1 }}
+          className="flex flex-col items-center gap-3"
+        >
           <OrbitalRings
             score={score}
             lastScore={lastScore}
             globalPct={globalPct}
             domainPct={domainPct}
           />
-
-          <div className="flex items-center gap-6">
+          <div className="flex items-center gap-5">
             <div className="flex items-center gap-1.5">
               <div
                 className="rounded-full"
@@ -603,67 +845,71 @@ const HUDPanel = memo(
               </span>
             </div>
           </div>
-        </div>
+        </motion.div>
 
-        {/* Divider */}
         <div style={{ height: 1, background: "rgba(255,255,255,0.05)" }} />
 
-        {/* Sparkline Score Chart (Replaces 24H Delta) */}
-        <SparklineChart
-          tf={chartTf}
-          setTf={setChartTf}
-          chartData={chartData}
-          chartMin={chartMin}
-        />
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, delay: 0.2 }}
+        >
+          <SparklineChart
+            tf={chartTf}
+            setTf={setChartTf}
+            chartData={chartData}
+            chartMin={chartMin}
+            scoreLogs={scoreLogs}
+          />
+        </motion.div>
 
-        {/* Position Matrix (Mini Radials) */}
-        <div>
-          <SectionLabel icon={Target} color="#38bdf8">
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, delay: 0.3 }}
+        >
+          <SectionLabel icon={Compass} color={G.base}>
             Position Matrix
           </SectionLabel>
           <div className="flex items-center justify-between px-2">
-            <MiniRadialRing
-              pct={percentiles.global}
-              label="Global"
-              color="#BFA264"
-            />
-            <MiniRadialRing
-              pct={percentiles.domain}
-              label="Domain"
-              color="#10b981"
-            />
-            <MiniRadialRing
-              pct={percentiles.niche}
-              label="Niche"
-              color="#38bdf8"
-            />
-            <MiniRadialRing
-              pct={percentiles.parallel}
-              label="Path"
-              color="#8b5cf6"
-            />
+            {[
+              { pct: percentiles.global, label: "Global", color: G.base },
+              { pct: percentiles.domain, label: "Domain", color: "#10b981" },
+              { pct: percentiles.niche, label: "Niche", color: "#38bdf8" },
+              { pct: percentiles.parallel, label: "Path", color: "#8b5cf6" },
+            ].map((m) => (
+              <MiniRadialRing key={m.label} {...m} />
+            ))}
           </div>
-        </div>
+        </motion.div>
 
-        {/* Key metrics grid */}
-        <div className="grid grid-cols-3 gap-x-2 gap-y-4 mt-2">
-          <HUDMetric
-            label="Rank"
-            value={lbRank === "?" ? "—" : `#${lbRank}`}
-            sub={lbFilter}
-            accent={G.bright}
-          />
-          <HUDMetric
-            label="Streak"
-            value={streak}
-            sub="days"
-            accent={streak >= 7 ? G.bright : T.secondary}
-          />
-          <HUDMetric label="Level" value={level} sub="Current" />
-        </div>
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, delay: 0.35 }}
+        >
+          <div className="grid grid-cols-3 gap-2">
+            <HUDMetric
+              label="Rank"
+              value={lbRank === "?" ? "—" : `#${lbRank}`}
+              sub={lbFilter}
+              accent={G.bright}
+            />
+            <HUDMetric
+              label="Streak"
+              value={streak}
+              sub="days"
+              accent={streak >= 7 ? G.bright : T.secondary}
+            />
+            <HUDMetric label="Level" value={level} sub="Current" />
+          </div>
+        </motion.div>
 
-        {/* Level bar */}
-        <div>
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, delay: 0.4 }}
+        >
           <div className="flex items-center justify-between mb-1.5">
             <span
               className="text-[9px] font-bold uppercase tracking-widest"
@@ -688,307 +934,409 @@ const HUDPanel = memo(
               transition={{ duration: 1.4, ease: [0.16, 1, 0.3, 1] }}
               className="h-full rounded-full"
               style={{
-                background: `linear-gradient(90deg, ${G.deep}, ${G.bright})`,
+                background: `linear-gradient(90deg,${G.deep},${G.bright})`,
                 boxShadow: `0 0 8px rgba(191,162,100,0.5)`,
               }}
             />
           </div>
-        </div>
+        </motion.div>
 
-        {/* Divider */}
         <div style={{ height: 1, background: "rgba(255,255,255,0.05)" }} />
 
-        {/* Consistency matrix */}
-        <ConsistencyMatrix userData={userData} />
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, delay: 0.45 }}
+        >
+          <ConsistencyMatrix userData={userData} />
+        </motion.div>
 
-        {/* Streak Milestones (Added below Consistency) */}
-        <div className="grid grid-cols-3 gap-2 mt-[-8px]">
-          {[
-            { target: 7, icon: "⚡", label: "7D Lock", color: "amber" },
-            { target: 14, icon: "🔥", label: "14D Blaze", color: "orange" },
-            { target: 30, icon: "💎", label: "30D Elite", color: "sky" },
-          ].map(({ target, icon, label, color }) => {
-            const hit = streak >= target;
-            return (
-              <div
-                key={target}
-                className={cn(
-                  "flex flex-col items-center justify-center p-2.5 rounded-xl border text-center transition-all",
-                  hit
-                    ? color === "amber"
-                      ? "bg-[#BFA264]/10 border-[#BFA264]/25"
-                      : color === "orange"
-                        ? "bg-orange-500/10 border-orange-500/25"
-                        : "bg-sky-500/10 border-sky-500/25"
-                    : "bg-white/[0.02] border-white/[0.04]",
-                )}
-              >
-                <span className="text-lg leading-none mb-1 opacity-80">
-                  {hit ? icon : "🔒"}
-                </span>
-                <span
-                  className={cn(
-                    "text-[8px] font-black uppercase tracking-widest",
-                    hit
-                      ? color === "amber"
-                        ? "text-[#BFA264]"
-                        : color === "orange"
-                          ? "text-orange-400"
-                          : "text-sky-400"
-                      : "text-white/20",
-                  )}
-                >
-                  {label}
-                </span>
-              </div>
-            );
-          })}
-        </div>
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, delay: 0.5 }}
+        >
+          <div className="grid grid-cols-3 gap-2 mt-[-8px]">
+            {[
+              { target: 7, label: "7D", color: G.bright },
+              { target: 14, label: "2W", color: "#f97316" },
+              { target: 30, label: "1M", color: "#38bdf8" },
+            ].map((m) => {
+              const hit = streak >= m.target;
+              const pct = Math.min(100, (streak / m.target) * 100);
+              return (
+                <div key={m.target} className="relative group cursor-default">
+                  <motion.div
+                    whileHover={{ scale: 1.04 }}
+                    className={cn(
+                      "flex flex-col items-center justify-center p-2.5 rounded-xl border text-center transition-all overflow-hidden relative",
+                      hit
+                        ? "bg-white/[0.05] border-white/10"
+                        : "bg-white/[0.02] border-white/[0.04]",
+                    )}
+                  >
+                    <span
+                      className="text-base font-black font-display leading-none mb-1.5 z-10"
+                      style={{ color: hit ? m.color : T.dim }}
+                    >
+                      {m.label}
+                    </span>
+                    <div className="w-full h-1 bg-white/5 rounded-full overflow-hidden z-10">
+                      <div
+                        className="h-full rounded-full transition-all duration-1000"
+                        style={{ width: `${pct}%`, background: m.color }}
+                      />
+                    </div>
+                    {/* Hover Overlay */}
+                    <div className="absolute inset-0 bg-[#050505]/95 backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center z-20">
+                      <span
+                        className="text-[8px] font-black uppercase tracking-wider"
+                        style={{ color: hit ? m.color : T.dim }}
+                      >
+                        {hit ? "Unlocked" : `${m.target - streak} Days Left`}
+                      </span>
+                    </div>
+                  </motion.div>
+                </div>
+              );
+            })}
+          </div>
+        </motion.div>
 
-        {/* Divider */}
         <div style={{ height: 1, background: "rgba(255,255,255,0.05)" }} />
 
-        {/* Global ticker anchored to bottom of HUD */}
-        <GlobalTicker events={telemetryEvents} />
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, delay: 0.55 }}
+        >
+          <GlobalTicker events={telemetryEvents} />
+        </motion.div>
       </div>
     );
   },
 );
 
-// ─── Hero Directive Banner (Kinetic Carousel) ──────────────────────────────────
-const HeroDirective = memo(({ userData, vaultCount, isPro, navigate }) => {
-  const [activeIdx, setActiveIdx] = useState(0);
-  const score = userData?.discotiveScore?.current ?? 0;
-  const last24h = userData?.discotiveScore?.last24h ?? score;
-  const rankDropped = score < last24h && last24h - score > 5;
-  const hasVault = vaultCount > 0;
+/* ─── Streak Risk Banner (FIXED — account age check) ───────────────────── */
+const StreakRiskBanner = memo(({ streak, lastLoginDate, createdAt }) => {
+  const todayStr = new Date().toISOString().split("T")[0];
+  const hasLoggedToday = lastLoginDate === todayStr;
 
-  const slides = useMemo(() => {
-    const s = [];
-    // Slide 1: Primary Directive
-    if (rankDropped) {
-      s.push({
-        id: "threat",
-        label: "THREAT DETECTED",
-        headline: "DEFEND YOUR RANK",
-        sub: `Your score dropped ${last24h - score} pts in the last 24h. Rivals are closing in.`,
-        cta: "Reclaim Position",
-        ctaFn: () => navigate("/app/arena"),
-        accent: "#F87171",
-        glow: "rgba(248,113,113,0.15)",
-        icon: AlertTriangle,
-      });
-    } else if (!hasVault) {
-      s.push({
-        id: "vault",
-        label: "VAULT EMPTY",
-        headline: "ESTABLISH PROOF",
-        sub: "Your proof-of-work archive is empty. Upload credentials to build an unbreakable foundation.",
-        cta: "Upload Proof",
-        ctaFn: () => navigate("/app/vault"),
-        accent: G.bright,
-        glow: "rgba(191,162,100,0.12)",
-        icon: Shield,
-      });
-    } else {
-      s.push({
-        id: "exec",
-        label: "EXECUTING",
-        headline: "MAINTAIN VELOCITY",
-        sub: `Current score: ${score.toLocaleString()} pts. Consistent execution is the only path.`,
-        cta: "View Arena",
-        ctaFn: () => navigate("/app/arena"),
-        accent: G.bright,
-        glow: "rgba(191,162,100,0.12)",
-        icon: Zap,
-      });
-    }
+  const accountAgeDays = useMemo(() => {
+    if (!createdAt) return 999;
+    const ts = createdAt?.toDate ? createdAt.toDate() : new Date(createdAt);
+    return (Date.now() - ts.getTime()) / (1000 * 60 * 60 * 24);
+  }, [createdAt]);
 
-    // Slide 2: Network Intelligence
-    s.push({
-      id: "network",
-      label: "NETWORK INTEL",
-      headline: "EXPAND SYNDICATE",
-      sub: "New elite operators have entered your domain. Form alliances to strengthen your network graph.",
-      cta: "Scan Radar",
-      ctaFn: () => navigate("/app/connective"),
-      accent: "#38bdf8",
-      glow: "rgba(56,189,248,0.12)",
-      icon: Network,
-    });
-
-    return s;
-  }, [rankDropped, hasVault, score, last24h, navigate]);
-
-  const activeSlide = slides[activeIdx];
-  const Icon = activeSlide.icon;
-
-  useEffect(() => {
-    const t = setInterval(() => {
-      setActiveIdx((prev) => (prev + 1) % slides.length);
-    }, 8000);
-    return () => clearInterval(t);
-  }, [slides.length]);
+  if (hasLoggedToday || streak === 0 || accountAgeDays < 3) return null;
 
   return (
     <motion.div
-      className="relative flex flex-col justify-end w-full overflow-hidden"
-      style={{ minHeight: "55vh", padding: "0 0 50px 0" }}
-      role="banner"
+      initial={{ opacity: 0, y: -12 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="flex items-center justify-between gap-4 px-5 py-3.5"
+      style={{
+        background: "rgba(248,113,113,0.07)",
+        borderBottom: "1px solid rgba(248,113,113,0.2)",
+      }}
+      role="alert"
+      aria-live="assertive"
     >
-      <AnimatePresence mode="wait">
-        <motion.div
-          key={activeSlide.id}
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 1.2 }}
-          className="absolute inset-0 pointer-events-none z-0"
-        >
-          {/* Volumetric background mesh */}
-          <div
-            className="absolute -top-1/4 -left-1/4 w-[150%] h-[150%] opacity-50 mix-blend-screen blur-[100px]"
-            style={{
-              background: `radial-gradient(circle at 30% 40%, ${activeSlide.glow}, transparent 50%)`,
-            }}
-          />
-          <div
-            className="absolute inset-0"
-            style={{
-              background: `linear-gradient(to bottom, transparent 0%, ${V.bg} 90%)`,
-            }}
-          />
-          <Icon
-            className="absolute -right-10 top-10 opacity-[0.03] transform rotate-12"
-            size={500}
-            style={{ color: activeSlide.accent }}
-          />
-        </motion.div>
-      </AnimatePresence>
-
-      <div className="relative z-10 w-full pl-8 md:pl-12 flex items-end justify-between pr-8 md:pr-12">
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={activeSlide.id}
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            transition={{ duration: 0.5 }}
-            className="max-w-2xl"
-          >
-            <div className="flex items-center gap-2 mb-4">
-              <Icon size={12} style={{ color: activeSlide.accent }} />
-              <span
-                className="text-[10px] font-black uppercase tracking-[0.3em]"
-                style={{ color: activeSlide.accent }}
-              >
-                {activeSlide.label}
-              </span>
-            </div>
-
-            <h1
-              className="font-display font-black leading-none mb-4"
-              style={{
-                fontSize: "clamp(2rem, 5vw, 4rem)",
-                letterSpacing: "-0.03em",
-                color: T.primary,
-                textShadow: "0 10px 30px rgba(0,0,0,0.8)",
-              }}
-            >
-              {activeSlide.headline}
-            </h1>
-
-            <p
-              className="text-sm md:text-base leading-relaxed mb-8 max-w-lg font-light"
-              style={{ color: T.secondary }}
-            >
-              {activeSlide.sub}
-            </p>
-
-            <button
-              onClick={activeSlide.ctaFn}
-              className="inline-flex items-center justify-center gap-3 font-black text-xs px-8 py-3.5 rounded-full transition-all hover:scale-105 active:scale-95"
-              style={{
-                background: T.primary,
-                color: V.bg,
-                boxShadow: `0 0 30px rgba(255,255,255,0.1)`,
-                textTransform: "uppercase",
-                letterSpacing: "0.05em",
-              }}
-            >
-              {activeSlide.cta}
-              <ArrowUpRight size={14} strokeWidth={3} />
-            </button>
-          </motion.div>
-        </AnimatePresence>
-
-        {/* Carousel Controls */}
-        <div className="hidden md:flex gap-2">
-          <button
-            onClick={() =>
-              setActiveIdx((p) => (p === 0 ? slides.length - 1 : p - 1))
-            }
-            className="w-10 h-10 rounded-full border border-white/10 flex items-center justify-center text-white/30 hover:bg-white/5 hover:text-white transition-all"
-          >
-            <ChevronLeft size={16} />
-          </button>
-          <button
-            onClick={() => setActiveIdx((p) => (p + 1) % slides.length)}
-            className="w-10 h-10 rounded-full border border-white/10 flex items-center justify-center text-white/30 hover:bg-white/5 hover:text-white transition-all"
-          >
-            <ChevronRight size={16} />
-          </button>
-        </div>
+      <div className="flex items-center gap-3">
+        <Flame
+          size={16}
+          style={{ color: "#F87171" }}
+          className="shrink-0 animate-pulse"
+        />
+        <span className="text-[11px] font-bold" style={{ color: T.secondary }}>
+          Your{" "}
+          <span className="font-black" style={{ color: "#F87171" }}>
+            {streak}-day streak
+          </span>{" "}
+          expires at midnight. Stay consistent or lose{" "}
+          <span style={{ color: "#F87171" }}>−15 pts</span>.
+        </span>
       </div>
+      <span
+        className="text-[9px] font-black uppercase tracking-widest shrink-0 px-2.5 py-1 rounded-full"
+        style={{
+          background: "rgba(248,113,113,0.12)",
+          border: "1px solid rgba(248,113,113,0.25)",
+          color: "#F87171",
+        }}
+      >
+        At Risk
+      </span>
     </motion.div>
   );
 });
 
-// ─── Vault Arsenal card (Netflix poster style) ────────────────────────────────
+/* ─── Hero Directive (5 slides, gradient mesh backgrounds) ─────────────── */
+const HERO_BG = [
+  "radial-gradient(ellipse at 20% 50%, rgba(191,162,100,0.25) 0%, transparent 60%)",
+  "radial-gradient(ellipse at 80% 30%, rgba(56,189,248,0.2) 0%, transparent 60%)",
+  "radial-gradient(ellipse at 50% 70%, rgba(239,68,68,0.18) 0%, transparent 60%)",
+  "radial-gradient(ellipse at 30% 40%, rgba(139,92,246,0.2) 0%, transparent 60%)",
+  "radial-gradient(ellipse at 70% 60%, rgba(16,185,129,0.2) 0%, transparent 60%)",
+];
+
+const HeroDirective = memo(
+  ({ userData, vaultCount, isPro, navigate, score, last24h }) => {
+    const [activeIdx, setActiveIdx] = useState(0);
+    const delta = score - (last24h || score);
+    const rankDropped = delta < -5;
+
+    const slides = useMemo(() => {
+      const s = [];
+      if (rankDropped) {
+        s.push({
+          id: "threat",
+          label: "Threat Detected",
+          headline: "Defend Your Rank.",
+          sub: `Score dropped ${Math.abs(delta)} pts in 24h. Rivals are closing in.`,
+          cta: "Reclaim Ground",
+          ctaFn: () => navigate("/app/leaderboard"),
+          accent: "#F87171",
+          icon: AlertTriangle,
+        });
+      } else {
+        s.push({
+          id: "exec",
+          label: "Executing",
+          headline: "Maintain Velocity.",
+          sub: `Current score: ${score.toLocaleString()} pts. Consistent execution is the only path to elite status.`,
+          cta: "Enter Arena",
+          ctaFn: () => navigate("/app/leaderboard"),
+          accent: G.bright,
+          icon: Zap,
+        });
+      }
+      if (!vaultCount) {
+        s.push({
+          id: "vault",
+          label: "Vault Empty",
+          headline: "Establish Proof.",
+          sub: "Your proof-of-work archive is empty. Upload credentials to build an unbreakable foundation.",
+          cta: "Upload Proof",
+          ctaFn: () => navigate("/app/vault"),
+          accent: "#4ADE80",
+          icon: Shield,
+        });
+      }
+      s.push({
+        id: "network",
+        label: "Network Intel",
+        headline: "Expand Syndicate.",
+        sub: "New operators have entered your domain. Form alliances to grow your execution network graph.",
+        cta: "Scan Network",
+        ctaFn: () => navigate("/app/connective"),
+        accent: "#38bdf8",
+        icon: Network,
+      });
+      s.push({
+        id: "learn",
+        label: "Knowledge Engine",
+        headline: "Calibrate Edge.",
+        sub: "New verified courses, certificates, and learning resources available in your domain. Each completion yields Discotive Score.",
+        cta: "Open Learning",
+        ctaFn: () => navigate("/app/learn"),
+        accent: "#8b5cf6",
+        icon: GraduationCap,
+      });
+      if (isPro) {
+        s.push({
+          id: "pro",
+          label: "Pro Clearance",
+          headline: "Unlock Full Power.",
+          sub: "You have Pro clearance. Use the Daily Execution Ledger, X-Ray analytics, and unlimited roadmap nodes.",
+          cta: "View Dashboard",
+          ctaFn: () => {},
+          accent: G.bright,
+          icon: Crown,
+        });
+      } else {
+        s.push({
+          id: "upgrade",
+          label: "Operator Upgrade",
+          headline: "Go Pro Today.",
+          sub: "Unlock Daily Execution Journal, competitor X-Ray, 100MB vault, and unlimited execution map nodes.",
+          cta: "Upgrade to Pro",
+          ctaFn: () => navigate("/premium"),
+          accent: G.bright,
+          icon: Crown,
+        });
+      }
+      return s;
+    }, [rankDropped, vaultCount, isPro, score, delta, navigate]);
+
+    const activeSlide = slides[activeIdx];
+    const Icon = activeSlide.icon;
+
+    useEffect(() => {
+      const t = setInterval(
+        () => setActiveIdx((p) => (p + 1) % slides.length),
+        9000,
+      );
+      return () => clearInterval(t);
+    }, [slides.length]);
+
+    return (
+      <motion.div
+        className="relative flex flex-col justify-end w-full overflow-hidden"
+        style={{ minHeight: "50vh", padding: "0 0 48px 0" }}
+        role="banner"
+      >
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={activeSlide.id}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 1.2 }}
+            className="absolute inset-0 pointer-events-none z-0"
+          >
+            <div
+              className="absolute inset-0"
+              style={{ background: HERO_BG[activeIdx % HERO_BG.length] }}
+            />
+            <div
+              className="absolute inset-0"
+              style={{
+                background: `linear-gradient(to bottom, transparent 0%, ${V.bg} 88%)`,
+              }}
+            />
+            <Icon
+              className="absolute -right-10 top-10 opacity-[0.04] transform rotate-12"
+              size={480}
+              style={{ color: activeSlide.accent }}
+            />
+          </motion.div>
+        </AnimatePresence>
+
+        <div className="relative z-10 w-full pl-8 md:pl-12 flex items-end justify-between pr-8 md:pr-12">
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={activeSlide.id}
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -12 }}
+              transition={{ duration: 0.5 }}
+              className="max-w-2xl"
+            >
+              <div className="flex items-center gap-2 mb-4">
+                <Icon size={12} style={{ color: activeSlide.accent }} />
+                <span
+                  className="text-[10px] font-black tracking-[0.2em]"
+                  style={{ color: activeSlide.accent }}
+                >
+                  {activeSlide.label}
+                </span>
+              </div>
+              <h1
+                className="font-display font-black leading-none mb-4"
+                style={{
+                  fontSize: "clamp(2rem,5vw,3.8rem)",
+                  letterSpacing: "-0.03em",
+                  color: T.primary,
+                  textShadow: "0 10px 30px rgba(0,0,0,0.8)",
+                }}
+              >
+                {activeSlide.headline}
+              </h1>
+              <p
+                className="text-sm md:text-base leading-relaxed mb-8 max-w-lg font-light"
+                style={{ color: T.secondary }}
+              >
+                {activeSlide.sub}
+              </p>
+              <div className="flex items-center gap-4">
+                <motion.button
+                  onClick={activeSlide.ctaFn}
+                  whileHover={{ scale: 1.04 }}
+                  whileTap={{ scale: 0.97 }}
+                  className="inline-flex items-center justify-center gap-3 font-black text-xs px-8 py-3.5 rounded-full transition-all"
+                  style={{
+                    background: `linear-gradient(135deg, ${G.light} 0%, ${G.bright} 100%)`,
+                    color: "#000",
+                    boxShadow: "0 0 30px rgba(191,162,100,0.2)",
+                    letterSpacing: "0.05em",
+                  }}
+                >
+                  {activeSlide.cta} <ArrowUpRight size={14} strokeWidth={3} />
+                </motion.button>
+                <div className="flex items-center gap-1.5">
+                  {slides.map((_, i) => (
+                    <button
+                      key={i}
+                      onClick={() => setActiveIdx(i)}
+                      className={cn(
+                        "rounded-full transition-all duration-300",
+                        i === activeIdx
+                          ? "w-6 h-2 bg-white"
+                          : "w-2 h-2 bg-white/20 hover:bg-white/40",
+                      )}
+                    />
+                  ))}
+                </div>
+              </div>
+            </motion.div>
+          </AnimatePresence>
+          <div className="hidden md:flex gap-2">
+            <button
+              onClick={() =>
+                setActiveIdx((p) => (p === 0 ? slides.length - 1 : p - 1))
+              }
+              className="w-10 h-10 rounded-full border border-white/10 flex items-center justify-center text-white/30 hover:bg-white/5 hover:text-white transition-all"
+            >
+              <ChevronLeft size={16} />
+            </button>
+            <button
+              onClick={() => setActiveIdx((p) => (p + 1) % slides.length)}
+              className="w-10 h-10 rounded-full border border-white/10 flex items-center justify-center text-white/30 hover:bg-white/5 hover:text-white transition-all"
+            >
+              <ChevronRight size={16} />
+            </button>
+          </div>
+        </div>
+      </motion.div>
+    );
+  },
+);
+
+/* ─── Vault Card ─────────────────────────────────────────────────────────── */
 const VaultCard = memo(({ asset, idx }) => {
   const categoryIcons = {
     resume: FileText,
     certificate: Award,
     project: Briefcase,
-    github: Target,
-    linkedin: Network,
     default: Database,
   };
   const Icon =
     categoryIcons[asset.category?.toLowerCase()] || categoryIcons.default;
-  const isVerified = asset.verificationStatus === "verified";
-
+  const isVerified = asset.status === "VERIFIED";
   return (
     <motion.div
       {...FADE_UP(idx * 0.06)}
-      className="shrink-0 relative cursor-pointer group"
-      style={{
-        width: 180,
-        height: 280, // Taller, cinematic aspect ratio
-        scrollSnapAlign: "start",
-      }}
+      className="shrink-0 relative cursor-pointer group rounded-xl overflow-hidden"
+      style={{ width: 160, height: 240, scrollSnapAlign: "start" }}
       whileHover={{ scale: 1.02 }}
       whileTap={{ scale: 0.98 }}
-      aria-label={`Vault asset: ${asset.title || asset.category}`}
     >
-      {/* Edge-to-edge Gradient Background (No Border, No Radius) */}
       <div
-        className="absolute inset-0 transition-opacity duration-500"
+        className="absolute inset-0"
         style={{
-          background: `linear-gradient(to bottom, transparent 0%, ${V.depth} 40%, ${V.elevated} 100%)`,
-          opacity: 0.6,
+          background: `linear-gradient(to bottom,transparent 0%,${V.depth} 40%,${V.elevated} 100%)`,
+          opacity: 0.7,
         }}
       />
       <div
-        className="absolute inset-0 transition-opacity duration-500 opacity-0 group-hover:opacity-100"
+        className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500"
         style={{
           background: isVerified
-            ? "linear-gradient(to top, rgba(74,222,128,0.15) 0%, transparent 100%)"
-            : `linear-gradient(to top, ${G.dimBg} 0%, transparent 100%)`,
+            ? "linear-gradient(to top,rgba(74,222,128,0.12) 0%,transparent 100%)"
+            : `linear-gradient(to top,${G.dimBg} 0%,transparent 100%)`,
         }}
       />
-
-      {/* Verified badge */}
       {isVerified && (
         <div
           className="absolute top-3 right-3 flex items-center gap-1 px-2 py-0.5 rounded-full"
@@ -1006,18 +1354,14 @@ const VaultCard = memo(({ asset, idx }) => {
           </span>
         </div>
       )}
-
-      {/* Massive Watermark Icon */}
       <div className="absolute -right-4 -bottom-4 opacity-[0.07] group-hover:opacity-[0.15] transition-opacity duration-500 pointer-events-none">
-        <Icon size={160} style={{ color: G.base }} />
+        <Icon size={140} style={{ color: G.base }} />
       </div>
-
-      {/* Bottom metadata */}
       <div
-        className="absolute bottom-0 left-0 right-0 p-5"
+        className="absolute bottom-0 left-0 right-0 p-4"
         style={{
           background:
-            "linear-gradient(0deg, rgba(3,3,3,1) 0%, rgba(3,3,3,0.8) 40%, transparent 100%)",
+            "linear-gradient(0deg,rgba(3,3,3,1) 0%,rgba(3,3,3,0.8) 40%,transparent 100%)",
         }}
       >
         <p
@@ -1027,7 +1371,7 @@ const VaultCard = memo(({ asset, idx }) => {
           {asset.title || asset.category || "Asset"}
         </p>
         <p
-          className="text-[9px] mt-2 font-bold uppercase tracking-[0.2em]"
+          className="text-[9px] mt-1.5 font-bold uppercase tracking-[0.2em]"
           style={{ color: G.base }}
         >
           {asset.category || "Credential"}
@@ -1037,53 +1381,60 @@ const VaultCard = memo(({ asset, idx }) => {
   );
 });
 
-// ─── Rival card ───────────────────────────────────────────────────────────────
+/* ─── Rival Card ─────────────────────────────────────────────────────────── */
 const RivalCard = memo(({ rival, userScore, idx }) => {
-  const isAbove = rival.score > userScore;
-  const diff = Math.abs(rival.score - userScore);
+  const score = rival.targetScore || rival.discotiveScore?.current || 0;
+  const isAbove = score > userScore;
+  const diff = Math.abs(score - userScore);
+  const name =
+    rival.targetName ||
+    `${rival.identity?.firstName || ""} ${rival.identity?.lastName || ""}`.trim() ||
+    "Operator";
+  const username = rival.targetUsername || rival.identity?.username || "—";
+  const avatarUrl =
+    rival.targetAvatar ||
+    rival.identity?.avatarUrl ||
+    `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=0A0A0A&color=BFA264`;
 
   return (
     <motion.div
       {...FADE_UP(idx * 0.07)}
-      className="shrink-0 relative cursor-pointer group"
+      className="shrink-0 relative cursor-pointer group rounded-xl overflow-hidden"
       style={{
-        width: 220,
-        height: 320, // Monumental scale
-        background: V.depth, // Raw background
+        width: 180,
+        height: 270,
+        background: V.depth,
         scrollSnapAlign: "start",
       }}
       whileHover={{ scale: 1.02 }}
       whileTap={{ scale: 0.98 }}
-      aria-label={`Rival: ${rival.username || "Operator"}`}
     >
-      {/* Hover illumination bleed */}
-      <div
-        className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none"
-        style={{
-          background: `linear-gradient(to top, ${isAbove ? "rgba(248,113,113,0.1)" : "rgba(74,222,128,0.1)"} 0%, transparent 100%)`,
-        }}
-      />
-      {/* Giant rank watermark */}
-      <span
-        className="absolute -bottom-4 -right-2 font-display font-black select-none pointer-events-none leading-none"
-        style={{
-          fontSize: 96,
-          color: "rgba(255,255,255,0.03)",
-          letterSpacing: "-0.05em",
-        }}
-      >
-        {rival.rank}
-      </span>
-
-      <div className="relative z-10 p-4 flex flex-col h-full">
-        {/* Status indicator */}
+      {/* Subtle Background Avatar */}
+      <div className="absolute inset-0 z-0">
+        <img
+          src={avatarUrl}
+          alt=""
+          className="w-full h-full object-cover opacity-[0.25] group-hover:opacity-10 transition-opacity duration-500"
+        />
+        <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent opacity-80 group-hover:opacity-100 transition-opacity duration-500" />
         <div
-          className="self-start flex items-center gap-1.5 px-2 py-0.5 rounded-full mb-3"
+          className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none"
+          style={{
+            background: `linear-gradient(to top,${isAbove ? "rgba(248,113,113,0.15)" : "rgba(74,222,128,0.15)"} 0%,transparent 100%)`,
+          }}
+        />
+      </div>
+
+      {/* Above/Below Tag (Always Visible) */}
+      <div className="absolute top-4 left-4 z-20">
+        <div
+          className="flex items-center gap-1.5 px-2 py-0.5 rounded-full"
           style={{
             background: isAbove
-              ? "rgba(248,113,113,0.1)"
-              : "rgba(74,222,128,0.1)",
-            border: `1px solid ${isAbove ? "rgba(248,113,113,0.25)" : "rgba(74,222,128,0.25)"}`,
+              ? "rgba(248,113,113,0.15)"
+              : "rgba(74,222,128,0.15)",
+            border: `1px solid ${isAbove ? "rgba(248,113,113,0.3)" : "rgba(74,222,128,0.3)"}`,
+            backdropFilter: "blur(4px)",
           }}
         >
           {isAbove ? (
@@ -1095,45 +1446,104 @@ const RivalCard = memo(({ rival, userScore, idx }) => {
             className="text-[7px] font-black uppercase tracking-wider"
             style={{ color: isAbove ? "#F87171" : "#4ADE80" }}
           >
-            {isAbove ? "Above" : "Below"} you
+            {isAbove ? "Above" : "Below"}
           </span>
         </div>
+      </div>
 
-        {/* Rank */}
+      {/* Hover Details */}
+      <div className="relative z-10 p-4 flex flex-col h-full justify-end opacity-0 group-hover:opacity-100 transition-all duration-500 translate-y-4 group-hover:translate-y-0">
         <span
           className="font-display font-black text-3xl leading-none mb-1"
           style={{ color: G.bright, letterSpacing: "-0.04em" }}
         >
-          #{rival.rank}
+          {score.toLocaleString()}
         </span>
-
-        {/* Username */}
         <span
-          className="text-sm font-bold truncate leading-tight mb-1"
+          className="text-sm font-bold truncate leading-tight mb-0.5"
           style={{ color: T.primary }}
         >
-          {rival.username || "Operator"}
+          {name}
         </span>
-
-        <span className="text-[9px]" style={{ color: T.dim }}>
-          {rival.domain || "General"}
+        <span
+          className="text-[9px] font-mono truncate mb-2"
+          style={{ color: T.dim }}
+        >
+          @{username}
         </span>
-
-        <div className="mt-auto">
-          <span
-            className="text-[10px] font-black font-mono"
-            style={{ color: isAbove ? "#F87171" : "#4ADE80" }}
-          >
-            {isAbove ? "-" : "+"}
-            {diff.toLocaleString()} pts
-          </span>
-        </div>
+        <span
+          className="text-[10px] font-black font-mono mt-1"
+          style={{ color: isAbove ? "#F87171" : "#4ADE80" }}
+        >
+          {isAbove ? "-" : "+"}
+          {diff.toLocaleString()} pts
+        </span>
       </div>
     </motion.div>
   );
 });
 
-// ─── Horizontal swimlane wrapper ──────────────────────────────────────────────
+/* ─── Learn Video Card ───────────────────────────────────────────────────── */
+const LearnCard = memo(({ video, idx }) => {
+  const thumb =
+    video.thumbnailUrl ||
+    (video.youtubeId
+      ? `https://img.youtube.com/vi/${video.youtubeId}/maxresdefault.jpg`
+      : null);
+  const dur = video.durationMinutes
+    ? `${Math.floor(video.durationMinutes / 60) > 0 ? `${Math.floor(video.durationMinutes / 60)}h ` : ""}${video.durationMinutes % 60}m`
+    : null;
+  return (
+    <motion.div
+      {...FADE_UP(idx * 0.06)}
+      className="shrink-0 relative rounded-xl overflow-hidden cursor-pointer group"
+      style={{ width: 240, height: 145, scrollSnapAlign: "start" }}
+      whileHover={{ scale: 1.02 }}
+      whileTap={{ scale: 0.98 }}
+    >
+      {thumb ? (
+        <img
+          src={thumb}
+          alt={video.title}
+          className="w-full h-full object-cover opacity-65 group-hover:opacity-90 transition-opacity duration-500"
+        />
+      ) : (
+        <div className="w-full h-full bg-[#111] flex items-center justify-center">
+          <Play size={32} style={{ color: G.base + "40" }} />
+        </div>
+      )}
+      <div className="absolute inset-0 bg-gradient-to-t from-[#030303] via-[#030303]/40 to-transparent" />
+      <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+        <div className="w-11 h-11 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center border border-white/30">
+          <div className="w-0 h-0 border-t-[6px] border-t-transparent border-l-[10px] border-l-white border-b-[6px] border-b-transparent ml-1" />
+        </div>
+      </div>
+      {video.scoreReward > 0 && (
+        <div className="absolute top-2 right-2 flex items-center gap-1 px-2 py-0.5 bg-black/70 backdrop-blur-sm rounded-lg border border-[#BFA264]/30">
+          <Zap size={8} style={{ color: G.base }} />
+          <span className="text-[8px] font-black" style={{ color: G.base }}>
+            +{video.scoreReward}
+          </span>
+        </div>
+      )}
+      <div className="absolute bottom-3 left-3 right-3">
+        <p className="text-xs font-black text-white leading-tight line-clamp-2 mb-1">
+          {video.title}
+        </p>
+        {dur && (
+          <p
+            className="text-[9px] font-bold uppercase tracking-widest"
+            style={{ color: "#a855f7" }}
+          >
+            {dur}
+          </p>
+        )}
+      </div>
+    </motion.div>
+  );
+});
+
+/* ─── Swimlane Wrapper ───────────────────────────────────────────────────── */
 const Swimlane = memo(
   ({
     label,
@@ -1149,28 +1559,13 @@ const Swimlane = memo(
     emptyCtaLink,
   }) => {
     const scrollRef = useRef(null);
-
-    const scroll = useCallback((dir) => {
-      if (!scrollRef.current) return;
-      scrollRef.current.scrollBy({ left: dir * 300, behavior: "smooth" });
-    }, []);
-
-    const handleKeyDown = useCallback(
-      (e) => {
-        if (e.key === "ArrowRight") scroll(1);
-        if (e.key === "ArrowLeft") scroll(-1);
-      },
-      [scroll],
+    const scroll = useCallback(
+      (dir) =>
+        scrollRef.current?.scrollBy({ left: dir * 280, behavior: "smooth" }),
+      [],
     );
-
     return (
-      <section
-        className="relative"
-        onKeyDown={handleKeyDown}
-        tabIndex={-1}
-        aria-label={label}
-      >
-        {/* Lane header */}
+      <section className="relative" aria-label={label}>
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
             {Icon && <Icon size={13} style={{ color: iconColor || G.base }} />}
@@ -1188,7 +1583,6 @@ const Swimlane = memo(
                   onClick={() => scroll(-1)}
                   className="p-1.5 rounded-full transition-all"
                   style={{ background: "rgba(255,255,255,0.04)", color: T.dim }}
-                  aria-label="Scroll left"
                 >
                   <ChevronLeft size={13} />
                 </button>
@@ -1196,7 +1590,6 @@ const Swimlane = memo(
                   onClick={() => scroll(1)}
                   className="p-1.5 rounded-full transition-all"
                   style={{ background: "rgba(255,255,255,0.04)", color: T.dim }}
-                  aria-label="Scroll right"
                 >
                   <ChevronRight size={13} />
                 </button>
@@ -1205,51 +1598,47 @@ const Swimlane = memo(
             {cta && ctaLink && (
               <Link
                 to={ctaLink}
-                className="flex items-center gap-1 text-[9px] font-black uppercase tracking-widest transition-all"
+                className="flex items-center gap-1 text-[9px] font-black uppercase tracking-widest"
                 style={{ color: G.base }}
-                aria-label={`${cta} — ${label}`}
               >
                 {cta} <ArrowUpRight size={10} />
               </Link>
             )}
           </div>
         </div>
-
         {isEmpty ? (
-          // Ghosted Wireframe Empty State
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             className="relative w-full overflow-hidden py-4"
           >
-            <div className="flex gap-4 opacity-30 pointer-events-none select-none mask-image-fade-right">
+            <div className="flex gap-4 opacity-50 pointer-events-none select-none">
               {[1, 2, 3].map((i) => (
                 <div
                   key={i}
                   className="shrink-0 border border-dashed rounded-[1rem] flex items-center justify-center"
                   style={{
                     width: 180,
-                    height: 280,
-                    borderColor: "rgba(255,255,255,0.15)",
-                    background: "rgba(255,255,255,0.02)",
+                    height: 250,
+                    borderColor: "rgba(255,255,255,0.25)",
+                    background: "rgba(255,255,255,0.05)",
                   }}
                 >
-                  <div className="w-12 h-12 rounded-full border border-dashed border-white/20 flex items-center justify-center">
-                    <span className="text-white/20 font-black">+</span>
+                  <div className="w-12 h-12 rounded-full border border-dashed border-white/30 flex items-center justify-center">
+                    <span className="text-white/30 font-black">+</span>
                   </div>
                 </div>
               ))}
             </div>
-
-            <div className="absolute inset-0 flex flex-col items-start justify-center pl-8 z-10 bg-gradient-to-r from-[#030303] via-[#030303]/80 to-transparent">
+            <div className="absolute inset-0 flex flex-col items-start justify-center pl-8 z-10 bg-gradient-to-r from-[#030303] via-[#030303]/85 to-transparent">
               <span
-                className="font-display font-black text-3xl leading-tight mb-2"
+                className="font-display font-black text-2xl leading-tight mb-2"
                 style={{ color: T.primary, letterSpacing: "-0.02em" }}
               >
                 {emptyTitle}
               </span>
               <p
-                className="text-xs leading-relaxed max-w-sm mb-6"
+                className="text-xs leading-relaxed max-w-sm mb-5"
                 style={{ color: T.secondary }}
               >
                 {emptySub}
@@ -1257,13 +1646,12 @@ const Swimlane = memo(
               {emptyCtaLink && emptyCtaLabel && (
                 <Link
                   to={emptyCtaLink}
-                  className="inline-flex items-center gap-2 text-[10px] font-black uppercase tracking-widest transition-all px-5 py-2.5 rounded-full"
+                  className="inline-flex items-center gap-2 text-[10px] font-black uppercase tracking-widest px-5 py-2.5 rounded-full"
                   style={{
                     background: G.dimBg,
                     color: G.bright,
                     border: `1px solid ${G.border}`,
                   }}
-                  aria-label={emptyCtaLabel}
                 >
                   {emptyCtaLabel} <ArrowUpRight size={12} />
                 </Link>
@@ -1279,7 +1667,6 @@ const Swimlane = memo(
               WebkitOverflowScrolling: "touch",
             }}
             role="list"
-            aria-label={`${label} items`}
           >
             {children}
           </div>
@@ -1289,45 +1676,39 @@ const Swimlane = memo(
   },
 );
 
-// ─── Opportunity row ──────────────────────────────────────────────────────────
+/* ─── Opportunity Row ────────────────────────────────────────────────────── */
 const OpportunityRow = memo(({ opp, idx }) => (
   <motion.div
     {...FADE_UP(idx * 0.04)}
     className="flex items-center justify-between py-4 cursor-pointer group"
-    style={{
-      borderBottom: "1px solid rgba(255,255,255,0.04)",
-    }}
+    style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}
     whileHover={{ x: 4 }}
     role="listitem"
-    aria-label={`Opportunity: ${opp.title}`}
   >
     <div className="flex items-center gap-4 flex-1 min-w-0">
-      {/* Match score pill */}
       <div
         className="shrink-0 rounded-full flex items-center justify-center font-display font-black text-[11px]"
         style={{
           width: 40,
           height: 40,
-          background: `conic-gradient(${G.bright} ${opp.match}%, rgba(255,255,255,0.05) 0%)`,
+          background: `conic-gradient(${G.bright} ${opp.match || 80}%, rgba(255,255,255,0.05) 0%)`,
           color: T.primary,
         }}
       >
-        {opp.match}
+        {opp.match || 80}
       </div>
-
       <div className="min-w-0">
         <p
           className="font-bold text-sm truncate leading-tight"
           style={{ color: T.primary }}
         >
-          {opp.title}
+          {opp.title || "Opportunity"}
         </p>
         <p className="text-[10px] mt-0.5" style={{ color: T.dim }}>
-          {opp.company || opp.domain} · {opp.type || "Opportunity"}
+          {opp.company || opp.domain || "General"} · {opp.type || "Bounty"}
         </p>
       </div>
     </div>
-
     <div className="flex items-center gap-3 shrink-0 ml-4">
       {opp.pointValue && (
         <span
@@ -1346,19 +1727,805 @@ const OpportunityRow = memo(({ opp, idx }) => (
   </motion.div>
 ));
 
-// ─── Mobile HUD carousel slide ────────────────────────────────────────────────
-const MobileHUDSlide = memo(({ children, label }) => (
-  <div
-    className="shrink-0 w-full"
-    style={{ scrollSnapAlign: "start" }}
-    role="tabpanel"
-    aria-label={label}
-  >
-    {children}
-  </div>
-));
+/* ─── Command Actions Strip ──────────────────────────────────────────────── */
+const CommandActions = memo(({ navigate }) => {
+  const actions = [
+    { label: "Roadmap", icon: Map, href: "/app/agent", color: G.base },
+    { label: "Vault", icon: Database, href: "/app/vault", color: "#10b981" },
+    {
+      label: "Arena",
+      icon: Trophy,
+      href: "/app/leaderboard",
+      color: "#f59e0b",
+    },
+    {
+      label: "Network",
+      icon: Network,
+      href: "/app/connective",
+      color: "#38bdf8",
+    },
+    {
+      label: "Learn",
+      icon: GraduationCap,
+      href: "/app/learn",
+      color: "#8b5cf6",
+    },
+    { label: "Settings", icon: Settings, href: "/app/settings", color: T.dim },
+  ];
+  return (
+    <div
+      className="flex gap-2 overflow-x-auto hide-scrollbar pb-1"
+      style={{ WebkitOverflowScrolling: "touch" }}
+    >
+      {actions.map((a, i) => {
+        const Icon = a.icon;
+        return (
+          <motion.button
+            key={a.href}
+            onClick={() => navigate(a.href)}
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: i * 0.04 }}
+            whileHover={{ scale: 1.04 }}
+            whileTap={{ scale: 0.95 }}
+            className="shrink-0 flex flex-col items-center justify-center gap-1.5 rounded-2xl border transition-all"
+            style={{
+              minWidth: 68,
+              height: 68,
+              background: "rgba(255,255,255,0.03)",
+              borderColor: `${a.color}25`,
+            }}
+          >
+            <Icon size={18} style={{ color: a.color }} />
+            <span
+              className="text-[9px] font-black uppercase tracking-widest"
+              style={{ color: T.dim }}
+            >
+              {a.label}
+            </span>
+          </motion.button>
+        );
+      })}
+    </div>
+  );
+});
 
-// ─── Skeleton screens ─────────────────────────────────────────────────────────
+/* ─── Profile Stats Bar ──────────────────────────────────────────────────── */
+const ProfileStatsBar = memo(({ userData, score }) => {
+  const views = userData?.profileViews || 0;
+  const alliesCount = (userData?.allies || []).length;
+  const vaultCount = (userData?.vault || []).length;
+  const streak = userData?.discotiveScore?.streak || 0;
+
+  // Synthesize metrics scaling 0-100%
+  const velocityPct = Math.min(100, Math.round(streak * 5 + views / 10) || 15);
+  const networkPct = Math.min(100, Math.round(alliesCount * 15) || 10);
+  const vaultPct = Math.min(100, Math.round(vaultCount * 25) || 5);
+
+  const getStrengthData = (pct) => {
+    if (pct >= 70)
+      return {
+        label: "Strong",
+        color: "#4ADE80",
+        grad: "rgba(74,222,128",
+        trend: "up",
+      };
+    if (pct >= 40)
+      return {
+        label: "Medium",
+        color: "#FBBF24",
+        grad: "rgba(251,191,36",
+        trend: "up",
+      };
+    return {
+      label: "Weak",
+      color: "#F87171",
+      grad: "rgba(248,113,113",
+      trend: "down",
+    };
+  };
+
+  const blocks = [
+    {
+      title: "Velocity",
+      sub: "Profile",
+      pct: velocityPct,
+      ...getStrengthData(velocityPct),
+    },
+    {
+      title: "Coverage",
+      sub: "Network",
+      pct: networkPct,
+      ...getStrengthData(networkPct),
+    },
+    {
+      title: "Strength",
+      sub: "Vault",
+      pct: vaultPct,
+      ...getStrengthData(vaultPct),
+    },
+  ];
+
+  return (
+    <div className="grid grid-cols-3 gap-3">
+      {blocks.map((b, i) => (
+        <motion.div
+          key={b.title}
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: i * 0.06 }}
+          className="relative group overflow-hidden p-4 rounded-xl border flex flex-col justify-between transition-all duration-300 cursor-default"
+          style={{
+            height: 90,
+            background: `linear-gradient(135deg, ${V.surface} 0%, ${b.grad},0.05) 100%)`,
+            borderColor: `${b.grad},0.15)`,
+          }}
+        >
+          {/* Subtle Granular SVG Noise Background */}
+          <div
+            className="absolute inset-0 opacity-[0.06] mix-blend-overlay pointer-events-none"
+            style={{
+              backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E")`,
+            }}
+          />
+
+          {/* Default State */}
+          <div className="relative z-10 flex items-start justify-between group-hover:opacity-0 transition-opacity duration-300">
+            <div>
+              <span
+                className="block text-[8px] font-black uppercase tracking-widest"
+                style={{ color: T.dim }}
+              >
+                {b.sub}
+              </span>
+              <span
+                className="block font-display font-black text-lg leading-none mt-0.5"
+                style={{ color: T.primary }}
+              >
+                {b.title}
+              </span>
+            </div>
+            <div className="shrink-0">
+              {b.trend === "up" ? (
+                <TrendingUp size={14} style={{ color: b.color }} />
+              ) : (
+                <TrendingDown size={14} style={{ color: b.color }} />
+              )}
+            </div>
+          </div>
+
+          {/* Hover State Data */}
+          <div
+            className="absolute inset-0 z-20 flex items-center justify-between px-5 opacity-0 group-hover:opacity-100 transition-all duration-300"
+            style={{
+              background: `linear-gradient(135deg, ${b.grad},0.08) 0%, ${b.grad},0.15) 100%)`,
+              backdropFilter: "blur(2px)",
+            }}
+          >
+            <div className="flex flex-col">
+              <span
+                className="text-[10px] font-black uppercase tracking-widest"
+                style={{ color: b.color }}
+              >
+                {b.label}
+              </span>
+            </div>
+            <span
+              className="font-display font-black text-3xl"
+              style={{ color: b.color }}
+            >
+              {b.pct}%
+            </span>
+          </div>
+        </motion.div>
+      ))}
+    </div>
+  );
+});
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   MOBILE NATIVE DASHBOARD
+   Completely independent layout — not stacked desktop
+══════════════════════════════════════════════════════════════════════════ */
+const MobileDashboard = ({
+  userData,
+  score,
+  lastScore,
+  streak,
+  level,
+  levelPct,
+  globalPct,
+  domainPct,
+  vaultAssets,
+  rivals,
+  learnItems,
+  opps,
+  telemetryEvents,
+  lbRank,
+  lbFilter,
+  chartTf,
+  setChartTf,
+  chartData,
+  chartMin,
+  scoreLogs,
+  isPro,
+  navigate,
+}) => {
+  const [activeSection, setActiveSection] = useState(0);
+  const vaultCount = vaultAssets.length;
+  const alliesCount = (userData?.allies || []).length;
+  const profileViews = userData?.profileViews || 0;
+  const operatorName = userData?.identity?.firstName || "Operator";
+
+  return (
+    <div
+      className="min-h-screen pb-32 select-none"
+      style={{ background: V.bg }}
+    >
+      {/* ── MOBILE HERO CARD ── */}
+      <div
+        className="relative overflow-hidden"
+        style={{
+          background: `linear-gradient(180deg, rgba(191,162,100,0.12) 0%, ${V.bg} 100%)`,
+        }}
+      >
+        {/* Ambient glow */}
+        <div className="absolute inset-0 pointer-events-none">
+          <div
+            className="absolute top-0 left-1/2 -translate-x-1/2 w-64 h-64 rounded-full blur-[80px]"
+            style={{ background: "rgba(191,162,100,0.12)" }}
+          />
+        </div>
+
+        <div className="relative z-10 px-5 pt-5 pb-6">
+          {/* Top row: name + badges */}
+          <div className="flex items-start justify-between mb-4">
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                {isPro && (
+                  <div
+                    className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-widest"
+                    style={{
+                      background: G.dimBg,
+                      border: `1px solid ${G.border}`,
+                      color: G.bright,
+                    }}
+                  >
+                    <Crown size={8} /> PRO
+                  </div>
+                )}
+                <span
+                  className="text-[9px] font-bold uppercase tracking-widest"
+                  style={{ color: T.dim }}
+                >
+                  Level {level} Operator
+                </span>
+              </div>
+              <h1
+                className="font-display font-black text-2xl leading-tight"
+                style={{ color: T.primary, letterSpacing: "-0.02em" }}
+              >
+                {operatorName}
+              </h1>
+              <p
+                className="text-[10px] mt-0.5 font-mono"
+                style={{ color: T.dim }}
+              >
+                {userData?.identity?.domain || "General"}
+              </p>
+            </div>
+            <OrbitalRings
+              score={score}
+              lastScore={lastScore}
+              globalPct={globalPct}
+              domainPct={domainPct}
+              size={90}
+            />
+          </div>
+
+          {/* Level progress bar */}
+          <div className="mb-4">
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-[9px] font-bold" style={{ color: T.dim }}>
+                Level {level} → {level + 1}
+              </span>
+              <span
+                className="text-[9px] font-black font-mono"
+                style={{ color: G.base }}
+              >
+                {Math.round(levelPct)}%
+              </span>
+            </div>
+            <div
+              className="w-full rounded-full overflow-hidden"
+              style={{ height: 2.5, background: "rgba(255,255,255,0.06)" }}
+            >
+              <motion.div
+                initial={{ width: 0 }}
+                animate={{ width: `${levelPct}%` }}
+                transition={{ duration: 1.4, ease: [0.16, 1, 0.3, 1] }}
+                className="h-full rounded-full"
+                style={{
+                  background: `linear-gradient(90deg,${G.deep},${G.bright})`,
+                  boxShadow: `0 0 6px rgba(191,162,100,0.5)`,
+                }}
+              />
+            </div>
+          </div>
+
+          {/* Quick stats row (horizontal scroll) */}
+          <div
+            className="overflow-x-auto hide-scrollbar -mx-1"
+            style={{ WebkitOverflowScrolling: "touch" }}
+          >
+            <div
+              className="flex gap-2 px-1 pb-1"
+              style={{ scrollSnapType: "x mandatory" }}
+            >
+              {[
+                {
+                  label: "Rank",
+                  value: lbRank === "?" ? "—" : `#${lbRank}`,
+                  color: G.bright,
+                  sub: lbFilter,
+                },
+                {
+                  label: "Streak",
+                  value: `${streak}d`,
+                  color: streak >= 7 ? "#f97316" : T.secondary,
+                },
+                {
+                  label: "Top",
+                  value: globalPct === 100 ? "—" : `${globalPct}%`,
+                  color: "#10b981",
+                  sub: "Global",
+                },
+                { label: "Vault", value: vaultCount, color: "#38bdf8" },
+                { label: "Allies", value: alliesCount, color: "#8b5cf6" },
+                { label: "Views", value: profileViews, color: G.base },
+              ].map((s, i) => (
+                <div
+                  key={i}
+                  className="shrink-0 flex flex-col items-center justify-center gap-0.5 rounded-xl border px-4 py-3 text-center"
+                  style={{
+                    minWidth: 70,
+                    minHeight: 64,
+                    scrollSnapAlign: "start",
+                    background: "rgba(255,255,255,0.03)",
+                    borderColor: `${s.color}25`,
+                  }}
+                >
+                  <span
+                    className="font-display font-black text-lg leading-none"
+                    style={{ color: s.color }}
+                  >
+                    {s.value}
+                  </span>
+                  <span
+                    className="text-[7px] font-bold uppercase tracking-widest mt-0.5"
+                    style={{ color: T.dim }}
+                  >
+                    {s.sub || s.label}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ── CHART (compact, full width) ── */}
+      <div className="px-4 mt-2 mb-4">
+        <div className="flex items-center justify-between mb-2 px-1">
+          <span
+            className="text-[9px] font-black uppercase tracking-widest"
+            style={{ color: T.dim }}
+          >
+            Score Velocity
+          </span>
+          <div className="flex gap-1 bg-[#111] p-0.5 rounded-lg border border-[#222]">
+            {["1W", "1M", "ALL"].map((t) => (
+              <button
+                key={t}
+                onClick={() => setChartTf(t)}
+                className={cn(
+                  "text-[8px] font-black uppercase px-2 py-1 rounded-md transition-all",
+                  chartTf === t
+                    ? "bg-[#BFA264]/15 text-[#BFA264]"
+                    : "text-[#555]",
+                )}
+              >
+                {t}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div style={{ height: 72 }}>
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart
+              data={chartData}
+              margin={{ top: 4, bottom: 4, left: 0, right: 0 }}
+            >
+              <defs>
+                <linearGradient id="mobileSparkG" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#BFA264" stopOpacity={0.4} />
+                  <stop offset="100%" stopColor="#BFA264" stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <YAxis domain={[chartMin, "auto"]} hide />
+              <ReTooltip
+                content={<ScoreTooltip scoreLogs={scoreLogs} />}
+                cursor={{ stroke: "rgba(191,162,100,0.3)", strokeWidth: 1 }}
+              />
+              <Area
+                type="monotone"
+                dataKey="score"
+                stroke="#BFA264"
+                strokeWidth={1.5}
+                fill="url(#mobileSparkG)"
+                dot={false}
+                activeDot={{
+                  r: 3,
+                  fill: "#BFA264",
+                  stroke: "#030303",
+                  strokeWidth: 2,
+                }}
+              />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      {/* ── COMMAND ACTIONS ── */}
+      <div className="px-4 mb-5">
+        <p
+          className="text-[9px] font-black uppercase tracking-widest mb-3"
+          style={{ color: T.dim }}
+        >
+          Quick Actions
+        </p>
+        <CommandActions navigate={navigate} />
+      </div>
+
+      {/* ── HERO DIRECTIVE (mobile compact) ── */}
+      <div className="px-4 mb-5">
+        <HeroDirective
+          userData={userData}
+          vaultCount={vaultCount}
+          isPro={isPro}
+          navigate={navigate}
+          score={score}
+          last24h={lastScore}
+        />
+      </div>
+
+      {/* ── PROFILE COMPLETION WIDGET ── */}
+      {!userData?.deferredOnboardingComplete && (
+        <div className="px-4 mb-5">
+          <ProfileCompletenessWidget userData={userData} />
+        </div>
+      )}
+
+      {/* ── OPPORTUNITIES ── */}
+      <div className="px-4 mb-6">
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <Star size={12} style={{ color: G.base }} />
+            <span
+              className="text-[9px] font-black uppercase tracking-widest"
+              style={{ color: T.dim }}
+            >
+              Latest Opportunities
+            </span>
+          </div>
+          <Link
+            to="/app/connective"
+            className="text-[9px] font-black uppercase tracking-widest flex items-center gap-1"
+            style={{ color: G.base }}
+          >
+            All <ArrowUpRight size={9} />
+          </Link>
+        </div>
+        {opps.length === 0 ? (
+          <div
+            className="py-6 pl-4 border-l-2"
+            style={{ borderColor: "rgba(255,255,255,0.06)" }}
+          >
+            <p
+              className="text-xs font-black"
+              style={{ color: "rgba(255,255,255,0.15)" }}
+            >
+              No opportunities yet.
+            </p>
+            <p className="text-[10px] mt-1" style={{ color: T.dim }}>
+              Domain-matched bounties will appear here.
+            </p>
+          </div>
+        ) : (
+          <div>
+            {opps.map((o, i) => (
+              <OpportunityRow key={o.id || i} opp={o} idx={i} />
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* ── POSITION MATRIX ── */}
+      <div className="px-4 mb-6">
+        <SectionLabel icon={Compass} color={G.base}>
+          Position Matrix
+        </SectionLabel>
+        <div className="grid grid-cols-4 gap-2">
+          {[
+            { pct: globalPct, label: "Global", color: G.base },
+            { pct: domainPct, label: "Domain", color: "#10b981" },
+            {
+              pct: userData?.precomputed?.nichePercentile || 100,
+              label: "Niche",
+              color: "#38bdf8",
+            },
+            {
+              pct: userData?.precomputed?.parallelPercentile || 100,
+              label: "Path",
+              color: "#8b5cf6",
+            },
+          ].map((m) => (
+            <MiniRadialRing key={m.label} {...m} size={64} />
+          ))}
+        </div>
+      </div>
+
+      {/* ── RIVALS (horizontal scroll) ── */}
+      <div className="mb-6">
+        <div className="flex items-center justify-between mb-3 px-4">
+          <div className="flex items-center gap-2">
+            <Crosshair size={12} style={{ color: "#F87171" }} />
+            <span
+              className="text-[9px] font-black uppercase tracking-widest"
+              style={{ color: T.dim }}
+            >
+              Rivals
+            </span>
+          </div>
+          <Link
+            to="/app/connective"
+            className="text-[9px] font-black uppercase tracking-widest flex items-center gap-1"
+            style={{ color: G.base }}
+          >
+            Network <ArrowUpRight size={9} />
+          </Link>
+        </div>
+        {rivals.length === 0 ? (
+          <div
+            className="px-4 py-5 mx-4 rounded-xl border border-dashed text-center"
+            style={{
+              borderColor: "rgba(239,68,68,0.2)",
+              background: "rgba(239,68,68,0.04)",
+            }}
+          >
+            <Crosshair
+              size={24}
+              style={{ color: "rgba(239,68,68,0.3)", margin: "0 auto 8px" }}
+            />
+            <p
+              className="text-xs font-black"
+              style={{ color: "rgba(239,68,68,0.5)" }}
+            >
+              No rivals tracked yet.
+            </p>
+            <button
+              onClick={() => navigate("/app/connective")}
+              className="mt-3 text-[9px] font-black uppercase tracking-widest px-4 py-2 rounded-lg"
+              style={{
+                background: "rgba(239,68,68,0.1)",
+                color: "#F87171",
+                border: "1px solid rgba(239,68,68,0.2)",
+              }}
+            >
+              Add Rivals →
+            </button>
+          </div>
+        ) : (
+          <div
+            className="overflow-x-auto hide-scrollbar px-4"
+            style={{ WebkitOverflowScrolling: "touch" }}
+          >
+            <div
+              className="flex gap-3"
+              style={{ scrollSnapType: "x mandatory" }}
+            >
+              {rivals.map((r, i) => (
+                <RivalCard key={r.id} rival={r} userScore={score} idx={i} />
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ── CONSISTENCY (horizontal scroll, 44px touch) ── */}
+      <div className="px-4 mb-6">
+        <ConsistencyMatrix userData={userData} horizontal={true} />
+      </div>
+
+      {/* ── STREAK MILESTONES ── */}
+      <div className="px-4 mb-6">
+        <SectionLabel icon={Flame} color="#f97316">
+          Streak Milestones
+        </SectionLabel>
+        <div className="grid grid-cols-3 gap-2">
+          {[
+            { target: 7, label: "7D", color: G.bright },
+            { target: 14, label: "2W", color: "#f97316" },
+            { target: 30, label: "1M", color: "#38bdf8" },
+          ].map((m) => {
+            const hit = streak >= m.target;
+            const pct = Math.min(100, (streak / m.target) * 100);
+            return (
+              <div key={m.target} className="relative group cursor-default">
+                <motion.div
+                  whileHover={{ scale: 1.04 }}
+                  className={cn(
+                    "flex flex-col items-center justify-center p-3 rounded-xl border text-center transition-all overflow-hidden relative",
+                    hit
+                      ? "bg-white/[0.05] border-white/10"
+                      : "bg-white/[0.02] border-white/[0.04]",
+                  )}
+                  style={{ minHeight: 72 }}
+                >
+                  <span
+                    className="text-lg font-black font-display leading-none mb-1.5 z-10"
+                    style={{ color: hit ? m.color : T.dim }}
+                  >
+                    {m.label}
+                  </span>
+                  <div className="w-full h-1.5 bg-white/5 rounded-full overflow-hidden z-10">
+                    <div
+                      className="h-full rounded-full transition-all duration-1000"
+                      style={{ width: `${pct}%`, background: m.color }}
+                    />
+                  </div>
+                  {/* Hover Overlay */}
+                  <div className="absolute inset-0 bg-[#050505]/95 backdrop-blur-sm opacity-0 hover:opacity-100 transition-opacity flex items-center justify-center z-20">
+                    <span
+                      className="text-[9px] font-black uppercase tracking-wider"
+                      style={{ color: hit ? m.color : T.dim }}
+                    >
+                      {hit ? "Unlocked" : `${m.target - streak} Days Left`}
+                    </span>
+                  </div>
+                </motion.div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* ── VAULT (horizontal scroll) ── */}
+      {vaultAssets.length > 0 && (
+        <div className="mb-6">
+          <div className="flex items-center justify-between mb-3 px-4">
+            <div className="flex items-center gap-2">
+              <Database size={12} style={{ color: G.base }} />
+              <span
+                className="text-[9px] font-black uppercase tracking-widest"
+                style={{ color: T.dim }}
+              >
+                Vault Arsenal
+              </span>
+            </div>
+            <Link
+              to="/app/vault"
+              className="text-[9px] font-black uppercase tracking-widest flex items-center gap-1"
+              style={{ color: G.base }}
+            >
+              Full Vault <ArrowUpRight size={9} />
+            </Link>
+          </div>
+          <div
+            className="overflow-x-auto hide-scrollbar px-4"
+            style={{ WebkitOverflowScrolling: "touch" }}
+          >
+            <div
+              className="flex gap-3"
+              style={{ scrollSnapType: "x mandatory" }}
+            >
+              {vaultAssets.map((a, i) => (
+                <VaultCard key={a.id || i} asset={a} idx={i} />
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── LEARN (horizontal scroll) ── */}
+      <div className="mb-6">
+        <div className="flex items-center justify-between mb-3 px-4">
+          <div className="flex items-center gap-2">
+            <GraduationCap size={12} style={{ color: "#8b5cf6" }} />
+            <span
+              className="text-[9px] font-black uppercase tracking-widest"
+              style={{ color: T.dim }}
+            >
+              Discotive Learn
+            </span>
+          </div>
+          <Link
+            to="/app/learn"
+            className="text-[9px] font-black uppercase tracking-widest flex items-center gap-1"
+            style={{ color: G.base }}
+          >
+            All <ArrowUpRight size={9} />
+          </Link>
+        </div>
+        {learnItems.length === 0 ? (
+          <div
+            className="px-4 py-5 mx-4 rounded-xl text-center"
+            style={{
+              background: "rgba(139,92,246,0.05)",
+              border: "1px solid rgba(139,92,246,0.15)",
+            }}
+          >
+            <GraduationCap
+              size={24}
+              style={{ color: "rgba(139,92,246,0.4)", margin: "0 auto 8px" }}
+            />
+            <p
+              className="text-xs font-black"
+              style={{ color: "rgba(139,92,246,0.5)" }}
+            >
+              No learning resources in your domain yet.
+            </p>
+            <button
+              onClick={() => navigate("/app/learn")}
+              className="mt-3 text-[9px] font-black uppercase tracking-widest px-4 py-2 rounded-lg"
+              style={{
+                background: "rgba(139,92,246,0.1)",
+                color: "#8b5cf6",
+                border: "1px solid rgba(139,92,246,0.2)",
+              }}
+            >
+              Browse All →
+            </button>
+          </div>
+        ) : (
+          <div
+            className="overflow-x-auto hide-scrollbar px-4"
+            style={{ WebkitOverflowScrolling: "touch" }}
+          >
+            <div
+              className="flex gap-3"
+              style={{ scrollSnapType: "x mandatory" }}
+            >
+              {learnItems.map((v, i) => (
+                <LearnCard key={v.id} video={v} idx={i} />
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ── LIVE SIGNAL ── */}
+      <div className="px-4 mb-6">
+        <GlobalTicker events={telemetryEvents} />
+      </div>
+
+      {/* ── JOURNAL (mobile) ── */}
+      <div className="px-4 mb-6">
+        <TierGate
+          featureKey="canUseJournal"
+          fallbackType="blur"
+          upsellMessage="Daily Execution Ledger requires Pro clearance."
+        >
+          <DailyExecutionLedger userData={userData} isPro={isPro} compact />
+        </TierGate>
+      </div>
+    </div>
+  );
+};
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   SKELETON
+══════════════════════════════════════════════════════════════════════════ */
 const DashboardSkeleton = memo(() => (
   <div className="min-h-screen" style={{ background: V.bg }}>
     <div className="flex h-screen">
@@ -1393,198 +2560,17 @@ const DashboardSkeleton = memo(() => (
   </div>
 ));
 
-// ─── Addiction hook banner ────────────────────────────────────────────────────
-const StreakRiskBanner = memo(({ streak, lastLoginDate }) => {
-  const todayStr = new Date().toISOString().split("T")[0];
-  const hasLoggedToday = lastLoginDate === todayStr;
-  if (hasLoggedToday || streak === 0) return null;
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: -12 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="flex items-center justify-between gap-4 px-5 py-3.5"
-      style={{
-        background: "rgba(248,113,113,0.07)",
-        borderBottom: "1px solid rgba(248,113,113,0.2)",
-      }}
-      role="alert"
-      aria-live="assertive"
-    >
-      <div className="flex items-center gap-3">
-        <Flame
-          size={16}
-          style={{ color: "#F87171" }}
-          className="shrink-0 animate-pulse"
-        />
-        <span className="text-[11px] font-bold" style={{ color: T.secondary }}>
-          Your{" "}
-          <span className="font-black" style={{ color: "#F87171" }}>
-            {streak}-day streak
-          </span>{" "}
-          expires at midnight. Log in to prevent a{" "}
-          <span style={{ color: "#F87171" }}>−15 pt</span> penalty.
-        </span>
-      </div>
-      <span
-        className="text-[9px] font-black uppercase tracking-widest shrink-0 px-2.5 py-1 rounded-full"
-        style={{
-          background: "rgba(248,113,113,0.12)",
-          border: "1px solid rgba(248,113,113,0.25)",
-          color: "#F87171",
-        }}
-      >
-        At Risk
-      </span>
-    </motion.div>
-  );
-});
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// DATA LAYER — Rivals fetch (one-shot, not onSnapshot)
-// ═══════════════════════════════════════════════════════════════════════════════
-const useRivals = (userData, score) => {
-  const [rivals, setRivals] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const fetchedRef = useRef(false);
-
-  useEffect(() => {
-    if (!userData?.uid || score == null || fetchedRef.current) return;
-    fetchedRef.current = true;
-
-    const domain = userData?.identity?.domain || null;
-    if (!domain) return;
-
-    setLoading(true);
-    const run = async () => {
-      try {
-        const ref = collection(db, "users");
-        const constraints = [
-          where("identity.domain", "==", domain),
-          where("onboardingComplete", "==", true),
-          orderBy("discotiveScore.current", "desc"),
-          limit(20),
-        ];
-        const snap = await getDocs(query(ref, ...constraints));
-        const all = snap.docs.map((d, i) => ({
-          uid: d.id,
-          rank: i + 1,
-          score: d.data().discotiveScore?.current ?? 0,
-          username: d.data().identity?.username || "Operator",
-          domain: d.data().identity?.domain || domain,
-        }));
-        // Find user's rough position, grab 2 above and 2 below
-        const userIdx = all.findIndex((r) => r.uid === userData.uid);
-        const start = Math.max(0, userIdx - 2);
-        const end = Math.min(all.length, userIdx + 3);
-        const slice = all
-          .slice(start, end)
-          .filter((r) => r.uid !== userData.uid);
-        setRivals(slice);
-      } catch (e) {
-        console.error("[useRivals]", e);
-      } finally {
-        setLoading(false);
-      }
-    };
-    run();
-  }, [userData?.uid, score, userData?.identity?.domain]);
-
-  return { rivals, loading };
-};
-
-// ─── Opportunities fetch (cached, one-shot) ───────────────────────────────────
-const useOpportunities = (userData) => {
-  const [opps, setOpps] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const fetchedRef = useRef(false);
-
-  useEffect(() => {
-    if (!userData?.uid || fetchedRef.current) return;
-    fetchedRef.current = true;
-
-    const domain = userData?.identity?.domain || null;
-    if (!domain) return;
-
-    setLoading(true);
-    const run = async () => {
-      try {
-        const q = query(
-          collection(db, "bounties"),
-          where("domain", "==", domain),
-          orderBy("createdAt", "desc"),
-          limit(8),
-        );
-        const snap = await getDocs(q);
-        setOpps(
-          snap.docs.map((d) => ({
-            id: d.id,
-            ...d.data(),
-            match: Math.floor(Math.random() * 25 + 75), // TODO: ML-driven match score
-          })),
-        );
-      } catch {
-        // Opportunities are non-critical
-        setOpps([]);
-      } finally {
-        setLoading(false);
-      }
-    };
-    run();
-  }, [userData?.uid, userData?.identity?.domain]);
-
-  return { opps, loading };
-};
-
-// ─── Leaderboard rank ─────────────────────────────────────────────────────────
-const useLbRank = (userData, score) => {
-  const [rank, setRank] = useState("?");
-  const [filter, setFilter] = useState("Global");
-
-  useEffect(() => {
-    if (!userData?.uid || score == null) return;
-    let stale = false;
-    const run = async () => {
-      try {
-        const domain = userData?.identity?.domain;
-        const constraints = [where("discotiveScore.current", ">", score)];
-        if (domain) {
-          constraints.push(where("identity.domain", "==", domain));
-          setFilter(domain.length > 16 ? domain.slice(0, 16) + "…" : domain);
-        } else {
-          setFilter("Global");
-        }
-        const snap = await getCountFromServer(
-          query(collection(db, "users"), ...constraints),
-        );
-        if (!stale) setRank(snap.data().count + 1);
-      } catch {
-        if (!stale) setRank("—");
-      }
-    };
-    run();
-    return () => {
-      stale = true;
-    };
-  }, [userData?.uid, score, userData?.identity?.domain]);
-
-  return { rank, filter };
-};
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// MAIN COMPONENT
-// ═══════════════════════════════════════════════════════════════════════════════
+/* ═══════════════════════════════════════════════════════════════════════════
+   MAIN DASHBOARD COMPONENT
+══════════════════════════════════════════════════════════════════════════ */
 const Dashboard = () => {
   const { userData, loading: userLoading } = useUserData();
-  const { requireOnboarding } = useOnboardingGate();
   const navigate = useNavigate();
-
   const telemetryEvents = useTelemetryStream(userData);
 
-  // ── Core derived metrics ─────────────────────────────────────────────────
+  /* ── Core metrics ── */
   const score = userData?.discotiveScore?.current ?? 0;
-  const last24h = userData?.discotiveScore?.last24h ?? score;
-  const delta = score - last24h;
+  const lastScore = userData?.discotiveScore?.last24h ?? score;
   const streak = (() => {
     const s = userData?.discotiveScore?.streak || 0;
     const last = userData?.discotiveScore?.lastLoginDate;
@@ -1594,30 +2580,35 @@ const Dashboard = () => {
   const vaultAssets = userData?.vault || [];
   const vaultCount = vaultAssets.length;
   const level = Math.min(Math.floor(score / 1000) + 1, 10);
-  const levelProgress = score % 1000;
-  const levelPct = (levelProgress / 1000) * 100;
-  const ptsToNext = 1000 - levelProgress;
+  const levelPct = ((score % 1000) / 1000) * 100;
   const isPro = userData?.tier === "PRO" || userData?.tier === "ENTERPRISE";
   const operatorName =
     userData?.identity?.firstName ||
     userData?.identity?.fullName?.split(" ")[0] ||
     "Operator";
+  const domain = userData?.identity?.domain || null;
 
-  // ── Remote data ──────────────────────────────────────────────────────────
+  /* ── Remote data ── */
   const { data: percentilesData } = usePercentiles(score, userData);
   const globalPct = percentilesData?.global ?? 100;
   const domainPct = percentilesData?.domain ?? 100;
+  const { rivals, loading: rivalsLoading } = useTrackedRivals(userData?.uid);
+  const { items: learnItems } = useLearnPreview(domain);
+  const opps = useOpportunities(userData?.uid, domain);
+  const scoreLogs = useScoreLog(userData?.uid);
+  const { rank: lbRank, filter: lbFilter } = useLbRank(
+    userData?.uid,
+    score,
+    domain,
+  );
 
-  const { rivals, loading: rivalsLoading } = useRivals(userData, score);
-  const { opps, loading: oppsLoading } = useOpportunities(userData);
-  const { rank: lbRank, filter: lbFilter } = useLbRank(userData, score);
-
-  // ── Chart State ───────────────────────────────────────────────────────────
+  /* ── Chart ── */
   const [chartTf, setChartTf] = useState("1W");
   const { data: rawHistory = [] } = useScoreHistory(chartTf);
-  const chartData = useMemo(() => {
-    return rawHistory.map((e) => ({ day: e.date, score: e.score }));
-  }, [rawHistory]);
+  const chartData = useMemo(
+    () => rawHistory.map((e) => ({ day: e.date, score: e.score })),
+    [rawHistory],
+  );
   const chartMin = useMemo(() => {
     if (!chartData.length) return 0;
     const vals = chartData.map((d) => d.score);
@@ -1625,19 +2616,37 @@ const Dashboard = () => {
     return Math.max(0, min - Math.ceil((Math.max(...vals) - min) * 0.2 + 5));
   }, [chartData]);
 
-  // ── HUD Toggle State ──────────────────────────────────────────────────────
+  /* ── HUD toggle ── */
   const [isHudOpen, setIsHudOpen] = useState(true);
 
-  // ── Mobile HUD carousel index ─────────────────────────────────────────────
-  const mobileHudRef = useRef(null);
-  const [hudPage, setHudPage] = useState(0);
-
-  // ── Loading state ─────────────────────────────────────────────────────────
   if (userLoading) return <DashboardSkeleton />;
 
-  // ═══════════════════════════════════════════════════════════════════════════
-  // RENDER
-  // ═══════════════════════════════════════════════════════════════════════════
+  /* ── Shared props for both layouts ── */
+  const sharedProps = {
+    userData,
+    score,
+    lastScore,
+    streak,
+    level,
+    levelPct,
+    globalPct,
+    domainPct,
+    vaultAssets,
+    rivals,
+    learnItems,
+    opps,
+    telemetryEvents,
+    lbRank,
+    lbFilter,
+    chartTf,
+    setChartTf,
+    chartData,
+    chartMin,
+    scoreLogs,
+    isPro,
+    navigate,
+  };
+
   return (
     <>
       <Helmet>
@@ -1650,257 +2659,27 @@ const Dashboard = () => {
           name="description"
           content={`${operatorName}'s Discotive Command Center — Score ${score.toLocaleString()}, Level ${level}.`}
         />
-        <meta
-          property="og:title"
-          content={`${operatorName} | Level ${level} Operator — Discotive`}
-        />
-        <meta
-          property="og:description"
-          content={`Discotive Score: ${score.toLocaleString()}. Global Top ${globalPct}%.`}
-        />
       </Helmet>
 
       <div
-        className="min-h-screen text-[#F5F0E8] font-body selection:bg-[rgba(191,162,100,0.3)] overflow-x-hidden"
+        className="text-[#F5F0E8] font-body selection:bg-[rgba(191,162,100,0.3)]"
         style={{ background: V.bg }}
       >
-        {/* Streak risk banner */}
+        {/* Streak banner */}
         <StreakRiskBanner
           streak={streak}
           lastLoginDate={userData?.discotiveScore?.lastLoginDate}
+          createdAt={userData?.createdAt}
         />
 
-        {/* ── MOBILE LAYOUT (< lg) ────────────────────────────────────────── */}
-        <div className="lg:hidden flex flex-col">
-          {/* Mobile HUD carousel */}
-          <div
-            className="px-4 pt-6 pb-2"
-            style={{
-              background: V.depth,
-              borderBottom: `1px solid rgba(255,255,255,0.04)`,
-            }}
-          >
-            {/* Orbital rings — always visible */}
-            <div className="flex items-center justify-between mb-4 px-1">
-              <div>
-                <span
-                  className="text-[9px] font-black uppercase tracking-widest"
-                  style={{ color: T.dim }}
-                >
-                  {isPro && (
-                    <Crown
-                      size={9}
-                      style={{
-                        display: "inline",
-                        color: G.base,
-                        marginRight: 4,
-                      }}
-                    />
-                  )}
-                  Level {level} Operator
-                </span>
-                <h2
-                  className="font-display font-black text-2xl leading-tight mt-0.5"
-                  style={{ color: T.primary, letterSpacing: "-0.03em" }}
-                >
-                  {operatorName}
-                </h2>
-              </div>
-              <OrbitalRings
-                score={score}
-                lastScore={last24h}
-                globalPct={globalPct}
-                domainPct={domainPct}
-              />
-            </div>
-
-            {/* Swipeable metrics row */}
-            <div
-              ref={mobileHudRef}
-              className="flex overflow-x-auto hide-scrollbar gap-5 pb-4"
-              style={{ scrollSnapType: "x mandatory" }}
-              role="region"
-              aria-label="Key metrics"
-            >
-              {[
-                {
-                  label: "Rank",
-                  value: lbRank === "?" ? "—" : `#${lbRank}`,
-                  sub: lbFilter,
-                  accent: G.bright,
-                },
-                {
-                  label: "Streak",
-                  value: `${streak}d`,
-                  accent: streak >= 7 ? G.bright : T.secondary,
-                },
-                { label: "Vault", value: vaultCount, sub: "assets" },
-                {
-                  label: "Global",
-                  value: globalPct === 100 ? "—" : `Top ${globalPct}%`,
-                  accent: G.bright,
-                },
-              ].map((m, i) => (
-                <div
-                  key={i}
-                  className="shrink-0 flex flex-col gap-0.5"
-                  style={{ scrollSnapAlign: "start", minWidth: 80 }}
-                >
-                  <span
-                    className="text-[8px] font-bold uppercase tracking-widest"
-                    style={{ color: T.dim }}
-                  >
-                    {m.label}
-                  </span>
-                  <span
-                    className="font-display font-black text-2xl leading-none"
-                    style={{ color: m.accent || T.primary }}
-                  >
-                    {m.value}
-                  </span>
-                  {m.sub && (
-                    <span className="text-[9px]" style={{ color: T.dim }}>
-                      {m.sub}
-                    </span>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* Mobile stage */}
-          <div className="flex flex-col gap-10 px-4 pt-8 pb-32">
-            <HeroDirective
-              userData={userData}
-              vaultCount={vaultCount}
-              isPro={isPro}
-              navigate={navigate}
-            />
-
-            <div>
-              <SectionLabel icon={Star} color={G.base}>
-                Latest Opportunities
-              </SectionLabel>
-              {opps.length === 0 ? (
-                <div
-                  className="py-8 pl-5"
-                  style={{ borderLeft: "2px solid rgba(255,255,255,0.05)" }}
-                >
-                  <p
-                    className="font-display font-black text-xl leading-tight"
-                    style={{ color: "rgba(255,255,255,0.12)" }}
-                  >
-                    No opportunities cached.
-                  </p>
-                  <p className="text-[11px] mt-2" style={{ color: T.dim }}>
-                    Bounties matching your domain will surface here.
-                  </p>
-                </div>
-              ) : (
-                <div role="list" aria-label="Opportunities">
-                  {opps.map((o, i) => (
-                    <OpportunityRow key={o.id || i} opp={o} idx={i} />
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <Swimlane
-              label="Domain Rivals"
-              icon={Crosshair}
-              iconColor="#F87171"
-              cta="Arena"
-              ctaLink="/app/arena"
-              isEmpty={rivals.length === 0}
-              emptyTitle="No rival signal detected."
-              emptySub="Elevate your score to surface operators in your domain ranked directly above and below you."
-              emptyCtaLabel="View Leaderboard"
-              emptyCtaLink="/app/arena"
-            >
-              {rivals.map((r, i) => (
-                <RivalCard key={r.uid} rival={r} userScore={score} idx={i} />
-              ))}
-            </Swimlane>
-
-            <Swimlane
-              label="Calibration"
-              icon={Radio}
-              iconColor="#a855f7"
-              cta="Course Database"
-              ctaLink="/app/learn"
-              isEmpty={false}
-            >
-              {[
-                {
-                  title: "System Design for Operators",
-                  img: "https://images.unsplash.com/photo-1555949963-ff9fe0c870eb?auto=format&fit=crop&w=500&q=80",
-                  time: "45m left",
-                },
-                {
-                  title: "Advanced Framer Motion",
-                  img: "https://images.unsplash.com/photo-1618761714954-0b8cd0026356?auto=format&fit=crop&w=500&q=80",
-                  time: "1h 20m left",
-                },
-                {
-                  title: "PostgreSQL Indexing",
-                  img: "https://images.unsplash.com/photo-1558494949-ef010cbdcc31?auto=format&fit=crop&w=500&q=80",
-                  time: "Start",
-                },
-              ].map((course, i) => (
-                <div
-                  key={i}
-                  className="shrink-0 relative rounded-2xl overflow-hidden cursor-pointer group"
-                  style={{ width: 260, height: 150, scrollSnapAlign: "start" }}
-                >
-                  <img
-                    src={course.img}
-                    alt={course.title}
-                    className="w-full h-full object-cover opacity-60 group-hover:opacity-90 transition-opacity duration-500"
-                  />
-                  <div className="absolute inset-0 bg-gradient-to-t from-[#030303] via-transparent to-transparent" />
-                  <div className="absolute bottom-4 left-4 right-4">
-                    <p className="text-xs font-black text-white leading-tight mb-1">
-                      {course.title}
-                    </p>
-                    <p className="text-[9px] font-bold uppercase tracking-widest text-[#a855f7]">
-                      {course.time}
-                    </p>
-                  </div>
-                </div>
-              ))}
-            </Swimlane>
-
-            <Swimlane
-              label="Vault Arsenal"
-              icon={Database}
-              iconColor={G.base}
-              cta="Full Vault"
-              ctaLink="/app/vault"
-              isEmpty={vaultCount === 0}
-              emptyTitle="Vault Empty."
-              emptySub="Upload an asset to establish proof of work."
-              emptyCtaLabel="Upload Now"
-              emptyCtaLink="/app/vault"
-            >
-              {vaultAssets.map((a, i) => (
-                <VaultCard key={a.id || i} asset={a} idx={i} />
-              ))}
-            </Swimlane>
-
-            {/* Daily Ledger (mobile) */}
-            <TierGate
-              featureKey="canUseJournal"
-              fallbackType="blur"
-              upsellMessage="Daily Execution Ledger requires Pro clearance."
-            >
-              <DailyExecutionLedger userData={userData} isPro={isPro} compact />
-            </TierGate>
-          </div>
+        {/* ── MOBILE LAYOUT (< lg) ── */}
+        <div className="lg:hidden">
+          <MobileDashboard {...sharedProps} />
         </div>
 
-        {/* ── DESKTOP LAYOUT (lg+) — 75/25 split ───────────────────────── */}
+        {/* ── DESKTOP LAYOUT (lg+) ── */}
         <div className="hidden lg:flex h-screen overflow-hidden relative">
-          {/* HUD Toggle Button (Floats when HUD is closed) */}
+          {/* HUD toggle when closed */}
           <AnimatePresence>
             {!isHudOpen && (
               <motion.button
@@ -1911,7 +2690,7 @@ const Dashboard = () => {
                 className="fixed top-32 right-6 z-[9999] flex items-center justify-center text-white/40 hover:text-[#BFA264] transition-all group p-2 bg-[#050505]/80 backdrop-blur-xl rounded-full border border-white/10 shadow-[0_0_30px_rgba(0,0,0,0.8)]"
                 title="Deploy Telemetry HUD"
               >
-                <div className="flex items-center -space-x-2 group-hover:space-x-[-4px] transition-all duration-300">
+                <div className="flex items-center -space-x-2">
                   <ChevronLeft size={20} className="opacity-100" />
                   <ChevronLeft size={20} className="opacity-70" />
                   <ChevronLeft size={20} className="opacity-40" />
@@ -1920,38 +2699,54 @@ const Dashboard = () => {
             )}
           </AnimatePresence>
 
-          {/* ── STAGE (75%) — infinite vertical scroll ─────────────────── */}
+          {/* ── STAGE (75%) ── */}
           <main
             className="flex-1 overflow-y-auto hide-scrollbar relative z-0 transition-all duration-500"
             style={{
               scrollBehavior: "smooth",
               marginRight: isHudOpen ? "25vw" : "0",
             }}
-            aria-label="Main execution stage"
           >
-            {/* Subtle noise texture overlay */}
-            <div
-              className="fixed inset-0 pointer-events-none"
-              style={{
-                background: `url("data:image/svg+xml,%3Csvg viewBox='0 0 512 512' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.025'/%3E%3C/svg%3E")`,
-                zIndex: 0,
-              }}
-            />
-
-            {/* BORDERLESS, EDGE-TO-EDGE CONTAINER */}
             <div className="relative z-10 w-full pb-32">
-              {/* Hero Directive (Spans full width of stage) */}
               <HeroDirective
                 userData={userData}
                 vaultCount={vaultCount}
                 isPro={isPro}
                 navigate={navigate}
+                score={score}
+                last24h={lastScore}
               />
 
-              {/* Swimlane 1: Latest Opportunities */}
+              {/* Profile Completeness */}
+              {!userData?.deferredOnboardingComplete && (
+                <motion.section
+                  {...FADE_UP(0.07)}
+                  className="px-8 md:px-12 pb-6"
+                >
+                  <ProfileCompletenessWidget userData={userData} />
+                </motion.section>
+              )}
+
+              {/* Profile Stats */}
+              <motion.section {...FADE_UP(0.08)} className="px-8 md:px-12 pb-8">
+                <SectionLabel icon={Activity} color={G.base}>
+                  Operator Stats
+                </SectionLabel>
+                <ProfileStatsBar userData={userData} score={score} />
+              </motion.section>
+
+              <div
+                style={{
+                  height: 1,
+                  background: "rgba(255,255,255,0.03)",
+                  marginBottom: 40,
+                }}
+              />
+
+              {/* Opportunities */}
               <motion.section
                 {...FADE_UP(0.1)}
-                className="pt-8 pb-16 pr-12 pl-8 md:pl-12"
+                className="pt-4 pb-14 pr-12 pl-8 md:pl-12"
               >
                 <div className="flex items-center justify-between mb-6">
                   <div className="flex items-center gap-2">
@@ -1964,14 +2759,13 @@ const Dashboard = () => {
                     </span>
                   </div>
                   <Link
-                    to="/app/bounties"
+                    to="/app/connective"
                     className="flex items-center gap-1 text-[9px] font-black uppercase tracking-widest"
                     style={{ color: G.base }}
                   >
                     All Bounties <ArrowUpRight size={10} />
                   </Link>
                 </div>
-
                 {opps.length === 0 ? (
                   <div
                     className="py-10 pl-5"
@@ -1990,12 +2784,12 @@ const Dashboard = () => {
                       className="text-[11px] mt-3 max-w-xs"
                       style={{ color: T.dim }}
                     >
-                      Domain-matched bounties, gigs, and collaborations will
-                      appear here as they are posted.
+                      Domain-matched bounties will appear here as they are
+                      posted.
                     </p>
                   </div>
                 ) : (
-                  <div role="list" aria-label="Opportunity list">
+                  <div role="list">
                     {opps.map((o, i) => (
                       <OpportunityRow key={o.id || i} opp={o} idx={i} />
                     ))}
@@ -2003,7 +2797,6 @@ const Dashboard = () => {
                 )}
               </motion.section>
 
-              {/* Divider */}
               <div
                 style={{
                   height: 1,
@@ -2012,35 +2805,29 @@ const Dashboard = () => {
                 }}
               />
 
-              {/* Swimlane 2: Domain Rivals */}
+              {/* Rivals */}
               <motion.section
                 {...FADE_UP(0.16)}
-                className="pb-16 pl-8 md:pl-12"
+                className="pb-14 pl-8 md:pl-12"
               >
                 <Swimlane
-                  label="Domain Rivals"
+                  label="Rivals"
                   icon={Crosshair}
                   iconColor="#F87171"
-                  cta="Enter Arena"
-                  ctaLink="/app/arena"
+                  cta="Network"
+                  ctaLink="/app/connective"
                   isEmpty={rivals.length === 0}
-                  emptyTitle="No rival signal detected."
-                  emptySub="Elevate your score to surface operators in your domain ranked directly above and below you."
-                  emptyCtaLabel="View Leaderboard"
-                  emptyCtaLink="/app/arena"
+                  emptyTitle="No rivals tracked yet."
+                  emptySub="Go to Connective → Network to mark operators as rivals and track their momentum here in real-time."
+                  emptyCtaLabel="Connective"
+                  emptyCtaLink="/app/connective"
                 >
                   {rivals.map((r, i) => (
-                    <RivalCard
-                      key={r.uid}
-                      rival={r}
-                      userScore={score}
-                      idx={i}
-                    />
+                    <RivalCard key={r.id} rival={r} userScore={score} idx={i} />
                   ))}
                 </Swimlane>
               </motion.section>
 
-              {/* Divider */}
               <div
                 style={{
                   height: 1,
@@ -2049,68 +2836,26 @@ const Dashboard = () => {
                 }}
               />
 
-              {/* Swimlane 3: Calibration (Learn DB) */}
-              <motion.section {...FADE_UP(0.2)} className="pb-16 pl-8 md:pl-12">
+              {/* Learn */}
+              <motion.section {...FADE_UP(0.2)} className="pb-14 pl-8 md:pl-12">
                 <Swimlane
-                  label="Calibration"
-                  icon={Radio}
-                  iconColor="#a855f7"
-                  cta="Course Database"
+                  label="Discotive Learn"
+                  icon={GraduationCap}
+                  iconColor="#8b5cf6"
+                  cta="Learn Database"
                   ctaLink="/app/learn"
-                  isEmpty={false}
+                  isEmpty={learnItems.length === 0}
+                  emptyTitle="No learning resources in your domain yet."
+                  emptySub="The Discotive team is adding verified courses, certificates, and videos to your domain. Check back soon or browse all."
+                  emptyCtaLabel="Browse All"
+                  emptyCtaLink="/app/learn"
                 >
-                  {/* Cinematic Video Cards */}
-                  {[
-                    {
-                      title: "System Design for Operators",
-                      img: "https://images.unsplash.com/photo-1555949963-ff9fe0c870eb?auto=format&fit=crop&w=500&q=80",
-                      time: "45m left",
-                    },
-                    {
-                      title: "Advanced Framer Motion",
-                      img: "https://images.unsplash.com/photo-1618761714954-0b8cd0026356?auto=format&fit=crop&w=500&q=80",
-                      time: "1h 20m left",
-                    },
-                    {
-                      title: "PostgreSQL Indexing",
-                      img: "https://images.unsplash.com/photo-1558494949-ef010cbdcc31?auto=format&fit=crop&w=500&q=80",
-                      time: "Start",
-                    },
-                  ].map((course, i) => (
-                    <div
-                      key={i}
-                      className="shrink-0 relative rounded-2xl overflow-hidden cursor-pointer group"
-                      style={{
-                        width: 260,
-                        height: 150,
-                        scrollSnapAlign: "start",
-                      }}
-                    >
-                      <img
-                        src={course.img}
-                        alt={course.title}
-                        className="w-full h-full object-cover opacity-60 group-hover:opacity-90 transition-opacity duration-500"
-                      />
-                      <div className="absolute inset-0 bg-gradient-to-t from-[#030303] via-transparent to-transparent" />
-                      <div className="absolute bottom-4 left-4 right-4">
-                        <p className="text-xs font-black text-white leading-tight mb-1">
-                          {course.title}
-                        </p>
-                        <p className="text-[9px] font-bold uppercase tracking-widest text-[#a855f7]">
-                          {course.time}
-                        </p>
-                      </div>
-                      <div className="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                        <div className="w-12 h-12 rounded-full bg-white/20 backdrop-blur-md flex items-center justify-center border border-white/30">
-                          <div className="w-0 h-0 border-t-[6px] border-t-transparent border-l-[10px] border-l-white border-b-[6px] border-b-transparent ml-1" />
-                        </div>
-                      </div>
-                    </div>
+                  {learnItems.map((v, i) => (
+                    <LearnCard key={v.id} video={v} idx={i} />
                   ))}
                 </Swimlane>
               </motion.section>
 
-              {/* Divider */}
               <div
                 style={{
                   height: 1,
@@ -2119,10 +2864,10 @@ const Dashboard = () => {
                 }}
               />
 
-              {/* Swimlane 4: Vault Arsenal */}
+              {/* Vault */}
               <motion.section
                 {...FADE_UP(0.22)}
-                className="pb-16 pl-8 md:pl-12"
+                className="pb-14 pl-8 md:pl-12"
               >
                 <Swimlane
                   label="Vault Arsenal"
@@ -2131,8 +2876,8 @@ const Dashboard = () => {
                   cta="Full Vault"
                   ctaLink="/app/vault"
                   isEmpty={vaultCount === 0}
-                  emptyTitle="Vault Empty. Upload an asset to establish proof of work."
-                  emptySub="Your credentials, certificates, and projects live here — verified on-chain for the arena."
+                  emptyTitle="Vault Empty. Establish proof of work."
+                  emptySub="Upload your credentials, certificates, and projects. Each verified asset earns Discotive Score."
                   emptyCtaLabel="Upload First Asset"
                   emptyCtaLink="/app/vault"
                 >
@@ -2142,7 +2887,6 @@ const Dashboard = () => {
                 </Swimlane>
               </motion.section>
 
-              {/* Divider */}
               <div
                 style={{
                   height: 1,
@@ -2159,7 +2903,7 @@ const Dashboard = () => {
                 <TierGate
                   featureKey="canUseJournal"
                   fallbackType="blur"
-                  upsellMessage="Daily Execution Ledger requires Pro clearance. Log reality, track momentum, share proof of execution."
+                  upsellMessage="Daily Execution Ledger requires Pro clearance."
                 >
                   <DailyExecutionLedger
                     userData={userData}
@@ -2171,49 +2915,43 @@ const Dashboard = () => {
             </div>
           </main>
 
-          {/* ── HUD (25%) — fixed right pane ────────────────────────────── */}
+          {/* ── HUD (25%) ── */}
           <AnimatePresence>
             {isHudOpen && (
               <motion.aside
-                initial={{ x: "100%" }}
-                animate={{ x: 0 }}
-                exit={{ x: "100%" }}
+                initial={{ x: "100%", opacity: 0 }}
+                animate={{ x: 0, opacity: 1 }}
+                exit={{ x: "100%", opacity: 0 }}
                 transition={{ type: "spring", damping: 25, stiffness: 200 }}
                 className="fixed right-0 top-0 bottom-0 hidden lg:flex flex-col z-[100]"
                 style={{
                   width: "25vw",
                   minWidth: 320,
-                  // Seamless gradient fade instead of a hard border
-                  background: `linear-gradient(90deg, transparent 0%, rgba(3, 3, 3, 0.75) 15%, rgba(3, 3, 3, 0.85) 100%)`,
+                  background:
+                    "linear-gradient(90deg,transparent 0%,rgba(3,3,3,0.78) 15%,rgba(3,3,3,0.88) 100%)",
                   backdropFilter: "blur(40px) saturate(150%)",
                   WebkitBackdropFilter: "blur(40px) saturate(150%)",
-                  borderLeft: "none",
                 }}
-                aria-label="Metrics HUD"
               >
-                {/* HUD Close Button (Tactical >>>) */}
                 <button
                   onClick={() => setIsHudOpen(false)}
                   className="fixed top-32 right-6 z-[9999] flex items-center justify-center text-white/30 hover:text-white transition-all group bg-[#050505]/80 backdrop-blur-xl p-2 rounded-full border border-white/5 shadow-[0_0_30px_rgba(0,0,0,0.8)]"
                   title="Hide HUD"
                 >
-                  <div className="flex items-center -space-x-2 group-hover:space-x-[-4px] transition-all duration-300">
+                  <div className="flex items-center -space-x-2">
                     <ChevronRight size={16} className="opacity-40" />
                     <ChevronRight size={16} className="opacity-70" />
                     <ChevronRight size={16} className="opacity-100" />
                   </div>
                 </button>
 
-                {/* Faint gold glow top-right */}
                 <div
-                  className="absolute top-0 right-0 w-56 h-56 pointer-events-none"
+                  className="absolute top-0 right-0 w-56 h-56 pointer-events-none z-0"
                   style={{
-                    background: `radial-gradient(circle, ${G.dimBg} 0%, transparent 70%)`,
-                    zIndex: 0,
+                    background: `radial-gradient(circle,${G.dimBg} 0%,transparent 70%)`,
                   }}
                 />
 
-                {/* Pro / Level badge */}
                 <div
                   className="relative z-10 flex items-center justify-between px-6 pt-5 pb-4"
                   style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}
@@ -2253,17 +2991,15 @@ const Dashboard = () => {
                   </div>
                 </div>
 
-                {/* Scrollable HUD body */}
                 <div className="relative z-10 flex-1 overflow-y-auto custom-scrollbar">
                   <HUDPanel
                     score={score}
-                    lastScore={last24h}
+                    lastScore={lastScore}
                     globalPct={globalPct}
                     domainPct={domainPct}
                     streak={streak}
                     level={level}
                     levelPct={levelPct}
-                    ptsToNext={ptsToNext}
                     isPro={isPro}
                     lbRank={lbRank}
                     lbFilter={lbFilter}
@@ -2273,6 +3009,7 @@ const Dashboard = () => {
                     setChartTf={setChartTf}
                     chartData={chartData}
                     chartMin={chartMin}
+                    scoreLogs={scoreLogs}
                   />
                 </div>
               </motion.aside>
