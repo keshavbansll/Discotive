@@ -222,7 +222,7 @@ const IntelligenceHub = ({
     if (liveEvents?.length > 0) {
       liveEvents.forEach((evt, idx) => {
         newLogs.push({
-          text: `[GLOBAL] @${evt.username || 'operator'} connected.`,
+          text: `[GLOBAL] @${evt.username || "operator"} connected.`,
           type: "green",
           timeOffset: -10 - idx,
         });
@@ -231,41 +231,41 @@ const IntelligenceHub = ({
 
     if (competitors && competitors.length > 0) {
       competitors.forEach((c, idx) => {
-      const name =
-        c.targetUsername || c.targetName?.split(" ")[0] || "Operator";
-      const score = c.targetScore || 0;
-      const streak = c.targetStreak || 0;
-      const vault = c.targetVault || 0;
+        const name =
+          c.targetUsername || c.targetName?.split(" ")[0] || "Operator";
+        const score = c.targetScore || 0;
+        const streak = c.targetStreak || 0;
+        const vault = c.targetVault || 0;
 
-      newLogs.push({
-        text: `@${name} currently at ${score.toLocaleString()} pts.`,
-        type: "dim",
-        timeOffset: idx * 5,
+        newLogs.push({
+          text: `@${name} currently at ${score.toLocaleString()} pts.`,
+          type: "dim",
+          timeOffset: idx * 5,
+        });
+
+        if (streak > 0) {
+          newLogs.push({
+            text: `@${name} maintains a ${streak}d execution streak.`,
+            type: "red",
+            timeOffset: idx * 5 + 2,
+          });
+        } else {
+          newLogs.push({
+            text: `@${name} broke consistency. Streak reset to 0.`,
+            type: "green",
+            timeOffset: idx * 5 + 2,
+          });
+        }
+
+        if (vault > 0) {
+          newLogs.push({
+            text: `@${name} secured ${vault} asset(s) in Vault.`,
+            type: "red",
+            timeOffset: idx * 5 + 4,
+          });
+        }
       });
-
-      if (streak > 0) {
-        newLogs.push({
-          text: `@${name} maintains a ${streak}d execution streak.`,
-          type: "red",
-          timeOffset: idx * 5 + 2,
-        });
-      } else {
-        newLogs.push({
-          text: `@${name} broke consistency. Streak reset to 0.`,
-          type: "green",
-          timeOffset: idx * 5 + 2,
-        });
-      }
-
-      if (vault > 0) {
-        newLogs.push({
-          text: `@${name} secured ${vault} asset(s) in Vault.`,
-          type: "red",
-          timeOffset: idx * 5 + 4,
-        });
-      }
-    });
-
+    }
     newLogs.sort((a, b) => a.timeOffset - b.timeOffset);
 
     const finalLogs = newLogs.map((l, i) => {
@@ -283,7 +283,7 @@ const IntelligenceHub = ({
     });
 
     return finalLogs.slice(-15);
-  }, [competitors]);
+  }, [liveEvents, competitors]);
 
   const handleRefresh = async () => {
     setIsScanning(true);
@@ -341,8 +341,14 @@ const IntelligenceHub = ({
                 >
                   <div className="flex items-center justify-between shrink-0 mb-4">
                     <p className="text-[8px] font-black text-[rgba(245,240,232,0.25)] uppercase tracking-widest flex items-center gap-2">
-                      <span>Target Feed · {Math.min(competitors.length, 10)}/10 Slots</span>
-                      <span className="text-[#BFA264] flex items-center gap-1"><div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"/> {onlineCount} ONLINE</span>
+                      <span>
+                        Target Feed · {Math.min(competitors.length, 10)}/10
+                        Slots
+                      </span>
+                      <span className="text-[#BFA264] flex items-center gap-1">
+                        <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />{" "}
+                        {onlineCount} ONLINE
+                      </span>
                     </p>
                     <RefreshButton onRefresh={handleRefresh} />
                   </div>
@@ -806,7 +812,7 @@ const Connective = () => {
   const { currentUser } = useAuth();
   const { userData } = useUserData();
   const { requireOnboarding } = useOnboardingGate();
-  
+
   // ── SYSTEM TELEMETRY INIT ──
   useRTDBPresence(userData);
   const { toasts, addToast, dismissToast } = useToasts();

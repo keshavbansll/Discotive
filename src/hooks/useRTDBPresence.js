@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useMemo } from "react";
 import {
   ref,
   onValue,
@@ -58,6 +58,8 @@ export const useRTDBPresence = (userData) => {
       set(presenceRef, { online: false, ts: serverTimestamp() });
     };
   }, [
+    setLiveEvents,
+    setOnlineCount,
     currentUser?.uid,
     userData?.identity?.username,
     userData?.identity?.domain,
