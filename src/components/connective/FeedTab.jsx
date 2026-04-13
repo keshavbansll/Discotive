@@ -7,9 +7,16 @@
  * Optimistic UI throughout. No auto-fetch on render.
  */
 
-import React, { useState, useEffect, useRef, useCallback } from "react";
+import React, {
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+  useMemo,
+} from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useInView } from "react-intersection-observer";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import {
   Heart,
   MessageSquare,
@@ -830,6 +837,12 @@ const PostCard = ({
     } catch (_) {}
   };
 
+  // CTO MANDATE: Memoize the AST compilation. Do NOT run heavy regex on every render cycle.
+  const parsedContent = useMemo(
+    () => parseRichText(post.textContent),
+    [post.textContent],
+  );
+
   return (
     <motion.article
       layout
@@ -986,9 +999,7 @@ const PostCard = ({
         </div>
 
         {/* Content */}
-        <div className="space-y-1.5 mb-4">
-          {parseRichText(post.textContent)}
-        </div>
+        <div className="space-y-1.5 mb-4">{parsedContent}</div>
 
         {/* Asset injection card */}
         {post.linkedAsset && (
@@ -1179,6 +1190,109 @@ const FeedError = ({ onRetry }) => (
   </div>
 );
 
+// ─── Virtualized Feed Engine ──────────────────────────────────────────────────
+const VirtualizedFeedContainer = ({
+  posts,
+  isAdmin,
+  uid,
+  userData,
+  hasMorePosts,
+  feedLoading,
+  onLoadMore,
+  onLike,
+  onDelete,
+  onFetchComments,
+  onAddComment,
+  onDeleteComment,
+  onPeekOperator,
+}) => {
+  const parentRef = useRef(null);
+
+  const virtualizer = useVirtualizer({
+    count: hasMorePosts ? posts.length + 1 : posts.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => 280, // Baseline height of a standard post
+    overscan: 4, // Keep 4 items cached outside the viewport to prevent flickering
+  });
+
+  useEffect(() => {
+    const virtualItems = virtualizer.getVirtualItems();
+    if (!virtualItems.length) return;
+
+    const lastItem = virtualItems[virtualItems.length - 1];
+    if (lastItem.index >= posts.length - 1 && hasMorePosts && !feedLoading) {
+      onLoadMore();
+    }
+  }, [
+    virtualizer.getVirtualItems(),
+    hasMorePosts,
+    feedLoading,
+    onLoadMore,
+    posts.length,
+  ]);
+
+  return (
+    <div
+      ref={parentRef}
+      className="overflow-y-auto custom-scrollbar pr-1 pb-12"
+      style={{ maxHeight: "calc(100vh - 200px)" }}
+    >
+      <div
+        style={{
+          height: `${virtualizer.getTotalSize()}px`,
+          width: "100%",
+          position: "relative",
+        }}
+      >
+        <AnimatePresence mode="popLayout">
+          {virtualizer.getVirtualItems().map((vItem) => {
+            const isLoaderRow = vItem.index >= posts.length;
+
+            return (
+              <motion.div
+                key={isLoaderRow ? "loader" : posts[vItem.index].id}
+                data-index={vItem.index}
+                ref={virtualizer.measureElement}
+                layout
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95 }}
+                style={{
+                  position: "absolute",
+                  top: 0,
+                  left: 0,
+                  width: "100%",
+                  transform: `translateY(${vItem.start}px)`,
+                  paddingBottom: "16px", // Replaces space-y-4
+                }}
+              >
+                {isLoaderRow ? (
+                  <div className="flex justify-center py-6">
+                    <Loader2 className="w-6 h-6 animate-spin text-[rgba(191,162,100,0.4)]" />
+                  </div>
+                ) : (
+                  <PostCard
+                    isAdmin={isAdmin}
+                    post={posts[vItem.index]}
+                    uid={uid}
+                    userData={userData}
+                    onLike={onLike}
+                    onDelete={onDelete}
+                    onFetchComments={onFetchComments}
+                    onAddComment={onAddComment}
+                    onDeleteComment={onDeleteComment}
+                    onPeekOperator={onPeekOperator}
+                  />
+                )}
+              </motion.div>
+            );
+          })}
+        </AnimatePresence>
+      </div>
+    </div>
+  );
+};
+
 // ═══════════════════════════════════════════════════════════════════════════════
 // FEED TAB V3
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -1221,32 +1335,21 @@ const FeedTab = ({
       ) : posts.length === 0 ? (
         <EmptyFeed />
       ) : (
-        <>
-          <div className="space-y-4">
-            <AnimatePresence mode="popLayout">
-              {posts.map((post) => (
-                <PostCard
-                  key={post.id}
-                  isAdmin={isAdmin}
-                  post={post}
-                  uid={uid}
-                  userData={userData}
-                  onLike={onLike}
-                  onDelete={onDelete}
-                  onFetchComments={onFetchComments}
-                  onAddComment={onAddComment}
-                  onDeleteComment={onDeleteComment}
-                  onPeekOperator={onPeekOperator}
-                />
-              ))}
-            </AnimatePresence>
-          </div>
-          {hasMorePosts && (
-            <div ref={loadMoreRef} className="flex justify-center pt-8 pb-12">
-              <Loader2 className="w-6 h-6 animate-spin text-[rgba(191,162,100,0.4)]" />
-            </div>
-          )}
-        </>
+        <VirtualizedFeedContainer
+          posts={posts}
+          isAdmin={isAdmin}
+          uid={uid}
+          userData={userData}
+          hasMorePosts={hasMorePosts}
+          feedLoading={feedLoading}
+          onLoadMore={onLoadMore}
+          onLike={onLike}
+          onDelete={onDelete}
+          onFetchComments={onFetchComments}
+          onAddComment={onAddComment}
+          onDeleteComment={onDeleteComment}
+          onPeekOperator={onPeekOperator}
+        />
       )}
     </div>
   );

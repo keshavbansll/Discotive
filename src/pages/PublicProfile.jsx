@@ -7,8 +7,15 @@
  * Alliance request routes through Cloud Functions, not client writes.
  */
 
-import React, { useState, useEffect, useRef, useMemo } from "react";
-import { useParams, Link, useNavigate } from "react-router-dom";
+import React, {
+  useState,
+  useEffect,
+  useRef,
+  useMemo,
+  useCallback,
+} from "react";
+import { useParams, useNavigate, Link } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
 import { increment, doc, updateDoc } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
@@ -246,10 +253,6 @@ const PublicProfile = () => {
   const { requireOnboarding } = useOnboardingGate();
   const navigate = useNavigate();
 
-  const [profileData, setProfileData] = useState(null);
-  const [targetId, setTargetId] = useState(null);
-  const [rank, setRank] = useState(null);
-  const [loading, setLoading] = useState(true);
   const [allyStatus, setAllyStatus] = useState("none"); // none | sending | sent | allied
   const [isExporting, setIsExporting] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -263,53 +266,39 @@ const PublicProfile = () => {
     toastRef.current = setTimeout(() => setToast(null), 3000);
   };
 
-  useEffect(
-    () => () => {
-      if (toastRef.current) clearTimeout(toastRef.current);
-    },
-    [],
-  );
-
-  // ── Fetch profile via Cloud Function ───────────────────────────────────────
   useEffect(() => {
-    const fetch = async () => {
-      setLoading(true);
-      if (!username) {
-        setLoading(false);
-        return;
-      }
-      try {
-        const getProfile = httpsCallable(functions, "getPublicProfileData");
-        const res = await getProfile({ handle: username });
-        const data = res.data;
-        setProfileData(data);
-        setTargetId(data.id);
-        setRank(data.rank);
-
-        // View tracking
-        const key = `dv_viewed_${data.id}`;
-        const isOwner = auth.currentUser?.uid === data.id;
-        if (!localStorage.getItem(key) && !isOwner && data.id) {
-          try {
-            await updateDoc(doc(db, "users", data.id), {
-              profileViews: increment(1),
-            });
-            localStorage.setItem(key, "true");
-            setProfileData((p) => ({
-              ...p,
-              profileViews: (p?.profileViews || 0) + 1,
-            }));
-          } catch {}
-        }
-      } catch (err) {
-        console.error("[PublicProfile]", err);
-        setProfileData(null);
-      } finally {
-        setLoading(false);
-      }
+    return () => {
+      if (toastRef.current) clearTimeout(toastRef.current);
     };
-    fetch();
-  }, [username]);
+  }, []);
+
+  // ── TanStack Query: Profile Fetch & View Tracking ─────────────────────────
+  const { data: profileQuery, isLoading: loading } = useQuery({
+    queryKey: ["public-profile", username],
+    queryFn: async () => {
+      if (!username) return null;
+      const getProfile = httpsCallable(functions, "getPublicProfileData");
+      const res = await getProfile({ handle: username });
+      const data = res.data;
+
+      // View tracking (Non-blocking execution)
+      const key = `dv_viewed_${data.id}`;
+      const isOwner = auth.currentUser?.uid === data.id;
+      if (!localStorage.getItem(key) && !isOwner && data.id) {
+        updateDoc(doc(db, "users", data.id), { profileViews: increment(1) })
+          .then(() => localStorage.setItem(key, "true"))
+          .catch(() => {});
+        data.profileViews = (data.profileViews || 0) + 1;
+      }
+      return data;
+    },
+    enabled: !!username,
+    staleTime: 1000 * 60 * 5, // 5 min cache for explosive performance
+  });
+
+  const profileData = profileQuery || null;
+  const targetId = profileData?.id || null;
+  const rank = profileData?.rank || null;
 
   // ── Alliance status ────────────────────────────────────────────────────────
   useEffect(() => {
@@ -368,16 +357,51 @@ const PublicProfile = () => {
     ? Math.round((verifiedVault.length / profileData.vault.length) * 100)
     : 0;
 
-  // ── Dynamic Title Management ───────────────────────────────────────────────
+  // ── Dynamic Title & Meta Management (SEO Engine) ─────────────────────────
   useEffect(() => {
-    if (!loading && profileData && fullName !== "Operator") {
-      document.title = `${fullName} | Discotive`;
-    } else if (!loading && !profileData) {
-      document.title = `Not Found | Discotive`;
-    } else if (loading) {
-      document.title = `Loading Profile... | Discotive`;
+    if (loading) {
+      document.title = "Loading Profile... | Discotive";
+      return;
     }
-  }, [fullName, loading, profileData]);
+    if (!profileData) {
+      document.title = "Not Found | Discotive";
+      return;
+    }
+
+    document.title = `${fullName} | Level ${level} ${domain} — Discotive`;
+
+    const setMeta = (prop, val, isOg = false) => {
+      const sel = isOg ? `meta[property="${prop}"]` : `meta[name="${prop}"]`;
+      let el = document.querySelector(sel);
+      if (!el) {
+        el = document.createElement("meta");
+        isOg
+          ? el.setAttribute("property", prop)
+          : el.setAttribute("name", prop);
+        document.head.appendChild(el);
+      }
+      el.setAttribute("content", val);
+    };
+
+    const siteUrl = import.meta.env.VITE_SITE_URL || "https://discotive.in";
+    const h = username || "";
+    const ogImg = `${siteUrl}/api/og/profile?n=${encodeURIComponent(fullName)}&s=${score}&d=${encodeURIComponent(domain)}&t=${profileData.tier || "ESSENTIAL"}&l=${level}`;
+    const metaDesc = `${bio?.slice(0, 120) || `Level ${level} ${domain} operator`} · Score: ${score.toLocaleString()}`;
+
+    setMeta("description", metaDesc);
+    setMeta("og:title", document.title, true);
+    setMeta("og:description", metaDesc, true);
+    setMeta("og:image", ogImg, true);
+    setMeta("og:url", `${siteUrl}/@${h}`, true);
+    setMeta("og:type", "profile", true);
+    setMeta("twitter:card", "summary_large_image");
+    setMeta("twitter:title", document.title);
+    setMeta("twitter:image", ogImg);
+
+    return () => {
+      document.title = "Discotive | Unified Career Engine";
+    };
+  }, [profileData, loading, fullName, level, domain, score, bio, username]);
 
   // ── Chart data from daily_scores ──────────────────────────────────────────
   const chartData = useMemo(() => {
@@ -604,13 +628,14 @@ const PublicProfile = () => {
           </div>
         </div>
 
-        {/* ── HERO ─────────────────────────────────────────────────────────── */}
+        {/* ── HERO: Face / Score / Tier ──────────────────────────── */}
         <motion.div
           initial={{ opacity: 0, y: 16 }}
           animate={{ opacity: 1, y: 0 }}
           className="bg-[#0a0a0a] border border-[#1a1a1a] rounded-[2rem] p-5 md:p-8 relative overflow-hidden"
         >
           <div className="absolute inset-0 bg-gradient-to-br from-[#BFA264]/[0.03] to-transparent pointer-events-none" />
+          <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-[#BFA264]/30 to-transparent" />
 
           <div className="flex flex-col md:flex-row items-start gap-6 relative z-10">
             {/* Avatar */}

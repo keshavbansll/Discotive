@@ -8,6 +8,7 @@
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   MessageCircle,
@@ -320,6 +321,74 @@ const MessageBubble = ({ message, isOwn, onDelete, onEdit }) => {
         )}
       </AnimatePresence>
     </motion.div>
+  );
+};
+
+// ─── Virtualized Message Thread ────────────────────────────────────────────────
+const VirtualMessageThread = ({
+  messages,
+  uid,
+  onDeleteMessage,
+  onEditMessage,
+  activeConversation,
+}) => {
+  const parentRef = useRef(null);
+
+  const virtualizer = useVirtualizer({
+    count: messages.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => 64, // Baseline height; dynamically adjusts
+    overscan: 10,
+  });
+
+  // Auto-scroll to bottom on new messages
+  useEffect(() => {
+    if (messages.length > 0) {
+      virtualizer.scrollToIndex(messages.length - 1, { align: "end" });
+    }
+  }, [messages.length, virtualizer]);
+
+  return (
+    <div
+      ref={parentRef}
+      className="flex-1 overflow-y-auto custom-scrollbar px-4 h-full relative"
+    >
+      <div
+        style={{
+          height: `${virtualizer.getTotalSize()}px`,
+          width: "100%",
+          position: "relative",
+        }}
+      >
+        {virtualizer.getVirtualItems().map((vItem) => {
+          const msg = messages[vItem.index];
+          return (
+            <div
+              key={msg.id || vItem.key}
+              data-index={vItem.index}
+              ref={virtualizer.measureElement}
+              style={{
+                position: "absolute",
+                top: 0,
+                left: 0,
+                width: "100%",
+                transform: `translateY(${vItem.start}px)`,
+                paddingBottom: "12px", // Replaces the container space-y-3
+              }}
+            >
+              <MessageBubble
+                message={msg}
+                isOwn={msg.senderId === uid}
+                onDelete={(msgId) => onDeleteMessage(activeConversation, msgId)}
+                onEdit={(msgId, newText) =>
+                  onEditMessage(activeConversation, msgId, newText)
+                }
+              />
+            </div>
+          );
+        })}
+      </div>
+    </div>
   );
 };
 
@@ -713,37 +782,32 @@ const DMPanel = ({
                   </div>
 
                   {/* Messages */}
-                  <div className="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-3">
-                    {loadingConvo || messagesLoading ? (
-                      <div className="flex items-center justify-center h-full">
-                        <Loader2 className="w-5 h-5 animate-spin text-[rgba(191,162,100,0.4)]" />
-                      </div>
-                    ) : messages.length === 0 ? (
+                  {loadingConvo || messagesLoading ? (
+                    <div className="flex-1 overflow-y-auto custom-scrollbar p-4 flex items-center justify-center">
+                      <Loader2 className="w-5 h-5 animate-spin text-[rgba(191,162,100,0.4)]" />
+                    </div>
+                  ) : messages.length === 0 ? (
+                    <div className="flex-1 overflow-y-auto custom-scrollbar p-4 flex flex-col">
                       <EmptyConversation partner={activePartner} />
-                    ) : (
-                      <>
-                        {messages.map((msg) => (
-                          <MessageBubble
-                            key={msg.id}
-                            message={msg}
-                            isOwn={msg.senderId === uid}
-                            onDelete={(msgId) =>
-                              onDeleteMessage(activeConversation, msgId)
-                            }
-                            onEdit={(msgId, newText) =>
-                              onEditMessage(activeConversation, msgId, newText)
-                            }
-                          />
-                        ))}
-                        <AnimatePresence>
-                          {isPartnerTyping && (
+                    </div>
+                  ) : (
+                    <div className="flex-1 flex flex-col min-h-0 relative py-3">
+                      <VirtualMessageThread
+                        messages={messages}
+                        uid={uid}
+                        onDeleteMessage={onDeleteMessage}
+                        onEditMessage={onEditMessage}
+                        activeConversation={activeConversation}
+                      />
+                      <AnimatePresence>
+                        {isPartnerTyping && (
+                          <div className="absolute bottom-2 left-6 z-10">
                             <TypingIndicator key="typing-indicator" />
-                          )}
-                        </AnimatePresence>
-                        <div ref={messagesEndRef} />
-                      </>
-                    )}
-                  </div>
+                          </div>
+                        )}
+                      </AnimatePresence>
+                    </div>
+                  )}
 
                   <MessageInput
                     onSend={handleSend}

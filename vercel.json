@@ -4,21 +4,25 @@
       "source": "/manifest.webmanifest",
       "destination": "/manifest.webmanifest"
     },
-    {
-      "source": "/sw.js",
-      "destination": "/sw.js"
-    },
-    {
-      "source": "/workbox-(.*)",
-      "destination": "/workbox-$1"
-    },
+    { "source": "/sw.js", "destination": "/sw.js" },
+    { "source": "/workbox-(.*)", "destination": "/workbox-$1" },
+    { "source": "/api/(.*)", "destination": "/api/$1" },
     {
       "source": "/@:handle",
-      "destination": "https://us-central1-discotivehub.cloudfunctions.net/renderPublicProfile?handle=:handle"
+      "destination": "/api/profile-meta?handle=:handle"
     },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ],
+  "headers": [
     {
-      "source": "/(.*)",
-      "destination": "/index.html"
+      "source": "/api/og/(.*)",
+      "headers": [
+        {
+          "key": "Cache-Control",
+          "value": "public, max-age=3600, s-maxage=3600"
+        },
+        { "key": "Access-Control-Allow-Origin", "value": "*" }
+      ]
     }
   ]
 }

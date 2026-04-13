@@ -36,6 +36,8 @@ import { cn } from "../lib/cn";
 import { useAuth } from "../contexts/AuthContext";
 import { useUserData, useOnboardingGate } from "../hooks/useUserData";
 import { useNetwork } from "../hooks/useNetwork";
+import { useConnectiveStore } from "../stores/useConnectiveStore";
+import { useRTDBPresence } from "../hooks/useRTDBPresence";
 import FeedTab from "../components/connective/FeedTab";
 import NetworkTab from "../components/connective/NetworkTab";
 import Battlefield from "../components/connective/Battlefield";
@@ -202,8 +204,9 @@ const IntelligenceHub = ({
   isCollapsed = false,
 }) => {
   const [view, setView] = useState("telemetry");
-  const [prevPeekUser, setPrevPeekUser] = useState(peekUser); // Track previous peekUser
+  const [prevPeekUser, setPrevPeekUser] = useState(peekUser);
   const [isScanning, setIsScanning] = useState(false);
+  const { liveEvents, onlineCount } = useConnectiveStore();
 
   // 1. Automatically switch to Profile Peek (Render Phase Update)
   if (peekUser !== prevPeekUser) {
@@ -211,16 +214,23 @@ const IntelligenceHub = ({
     if (peekUser) setView("peek");
   }
 
-  // 2. Terminal Ambient Log Generator using useMemo instead of useEffect/useState
+  // 2. Terminal Ambient Log Generator integrating Global RTDB Telemetry
   const logs = useMemo(() => {
-    if (!competitors || competitors.length === 0) {
-      return [{ text: "Radar empty. No signals detected.", type: "dim" }];
-    }
-
     const newLogs = [];
     const now = new Date();
 
-    competitors.forEach((c, idx) => {
+    if (liveEvents?.length > 0) {
+      liveEvents.forEach((evt, idx) => {
+        newLogs.push({
+          text: `[GLOBAL] @${evt.username || 'operator'} connected.`,
+          type: "green",
+          timeOffset: -10 - idx,
+        });
+      });
+    }
+
+    if (competitors && competitors.length > 0) {
+      competitors.forEach((c, idx) => {
       const name =
         c.targetUsername || c.targetName?.split(" ")[0] || "Operator";
       const score = c.targetScore || 0;
@@ -330,8 +340,9 @@ const IntelligenceHub = ({
                   className="p-4 flex flex-col h-full min-h-[400px]"
                 >
                   <div className="flex items-center justify-between shrink-0 mb-4">
-                    <p className="text-[8px] font-black text-[rgba(245,240,232,0.25)] uppercase tracking-widest">
-                      Target Feed · {Math.min(competitors.length, 10)}/10 Slots
+                    <p className="text-[8px] font-black text-[rgba(245,240,232,0.25)] uppercase tracking-widest flex items-center gap-2">
+                      <span>Target Feed · {Math.min(competitors.length, 10)}/10 Slots</span>
+                      <span className="text-[#BFA264] flex items-center gap-1"><div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"/> {onlineCount} ONLINE</span>
                     </p>
                     <RefreshButton onRefresh={handleRefresh} />
                   </div>
@@ -795,6 +806,9 @@ const Connective = () => {
   const { currentUser } = useAuth();
   const { userData } = useUserData();
   const { requireOnboarding } = useOnboardingGate();
+  
+  // ── SYSTEM TELEMETRY INIT ──
+  useRTDBPresence(userData);
   const { toasts, addToast, dismissToast } = useToasts();
   const [searchParams, setSearchParams] = useSearchParams();
   const location = useLocation();

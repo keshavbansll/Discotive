@@ -514,6 +514,7 @@ const AdminDashboard = () => {
   const [reportedVault, setReportedVault] = useState([]);
   const [tickets, setTickets] = useState([]);
   const [reports, setReports] = useState([]);
+  const [activeBounties, setActiveBounties] = useState([]);
   const [recentUsers, setRecentUsers] = useState([]);
   const [learnVideos, setLearnVideos] = useState([]);
   const [learnCerts, setLearnCerts] = useState([]);
@@ -609,6 +610,21 @@ const AdminDashboard = () => {
         setReports(rpSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
       } catch (_) {
         setReports([]);
+      }
+
+      try {
+        const bountySnap = await getDocs(
+          query(
+            collection(db, "bounty_escrow"),
+            where("status", "==", "LOCKED"),
+            limit(20),
+          ),
+        );
+        setActiveBounties(
+          bountySnap.docs.map((d) => ({ id: d.id, ...d.data() })),
+        );
+      } catch (_) {
+        setActiveBounties([]);
       }
 
       try {

@@ -162,7 +162,8 @@ service cloud.firestore {
               'identity', 'vision', 'skills', 'baseline', 'footprint',
               'links', 'bio', 'domain', 'niche', 'country', 'userState',
               'institution', 'course', 'guardianProfession', 'updatedAt',
-              'profileCompleteness', 'tier', 'avatarUrl'
+              'profileCompleteness', 'tier', 'avatarUrl',
+              'followedSeeds', 'publicBadges', 'featuredAssets'
             ]);
 
       allow delete: if isOwner(userId) || isAdmin();
@@ -365,6 +366,10 @@ service cloud.firestore {
         && resource.data.senderId == request.auth.uid
         && request.resource.data.diff(resource.data).affectedKeys()
             .hasOnly(['textContent', 'isEdited', 'editedAt', 'updatedAt']);
+    }
+    match /bounty_escrow/{postId} {
+      allow read: if isAuthenticated();
+      allow write: if false; // Strict: Cloud Functions Admin SDK only
     }
   }
 }

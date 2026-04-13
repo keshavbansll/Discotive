@@ -1822,13 +1822,13 @@ const Dashboard = () => {
           >
             <div className="absolute inset-0 bg-gradient-to-br from-indigo-500/[0.03] to-transparent pointer-events-none" />
             <div className="relative z-10">
+              32
               <div className="flex items-center justify-between mb-4">
                 <WLabel icon={Target} iconColor="text-indigo-400">
                   Execution Map
                 </WLabel>
                 <ArrowUpRight className="w-4 h-4 text-white/20 group-hover:text-indigo-400 transition-colors" />
               </div>
-
               {nodesCount === 0 ? (
                 <div className="flex flex-col items-center justify-center py-6 text-center">
                   <div className="w-12 h-12 bg-indigo-500/10 border border-indigo-500/20 rounded-2xl flex items-center justify-center mb-3">

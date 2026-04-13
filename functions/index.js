@@ -1676,3 +1676,114 @@ exports.updateUserSettings = onCall(async (request) => {
 
   return { success: true };
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 16. BOUNTY ESCROW ENGINE (Gen 2)
+// ─────────────────────────────────────────────────────────────────────────────
+
+exports.createBounty = onCall(async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Login required.");
+
+  const { postId, bountyAmount, question } = request.data;
+  if (!postId || !bountyAmount || !question)
+    throw new HttpsError("invalid-argument", "Missing fields.");
+
+  if (bountyAmount < 10 || bountyAmount > 500)
+    throw new HttpsError("invalid-argument", "Bounty must be 10–500 pts.");
+
+  const uid = request.auth.uid;
+  const userRef = db.collection("users").doc(uid);
+  const postRef = db.collection("posts").doc(postId);
+
+  await db.runTransaction(async (tx) => {
+    const userSnap = await tx.get(userRef);
+    if (!userSnap.exists) throw new HttpsError("not-found", "User not found.");
+
+    const current = userSnap.data()?.discotiveScore?.current ?? 0;
+    if (current < bountyAmount)
+      throw new HttpsError(
+        "failed-precondition",
+        "Insufficient score balance.",
+      );
+
+    tx.update(userRef, {
+      "discotiveScore.current": FieldValue.increment(-bountyAmount),
+      "discotiveScore.lastAmount": -bountyAmount,
+      "discotiveScore.lastReason": `Bounty Escrow: ${postId}`,
+      "discotiveScore.lastUpdatedAt": FieldValue.serverTimestamp(),
+    });
+
+    tx.update(postRef, {
+      bounty: {
+        active: true,
+        amount: bountyAmount,
+        creatorUid: uid,
+        createdAt: FieldValue.serverTimestamp(),
+        escrowStatus: "LOCKED",
+        acceptedAnswerId: null,
+      },
+    });
+
+    tx.set(db.collection("bounty_escrow").doc(postId), {
+      creatorUid: uid,
+      postId,
+      amount: bountyAmount,
+      status: "LOCKED",
+      question: question.slice(0, 500),
+      createdAt: FieldValue.serverTimestamp(),
+    });
+  });
+
+  return { success: true, deducted: bountyAmount };
+});
+
+exports.acceptBountyAnswer = onCall(async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Login required.");
+
+  const { postId, answerId, answerAuthorUid } = request.data;
+  if (!postId || !answerId || !answerAuthorUid)
+    throw new HttpsError("invalid-argument", "Missing fields.");
+
+  const escrowRef = db.collection("bounty_escrow").doc(postId);
+  const postRef = db.collection("posts").doc(postId);
+  const winnerRef = db.collection("users").doc(answerAuthorUid);
+
+  await db.runTransaction(async (tx) => {
+    const escrowSnap = await tx.get(escrowRef);
+    if (!escrowSnap.exists || escrowSnap.data()?.status !== "LOCKED")
+      throw new HttpsError(
+        "failed-precondition",
+        "Bounty not active or already claimed.",
+      );
+
+    if (escrowSnap.data().creatorUid !== request.auth.uid)
+      throw new HttpsError(
+        "permission-denied",
+        "Only bounty creator can accept.",
+      );
+
+    const amount = escrowSnap.data().amount;
+
+    tx.update(winnerRef, {
+      "discotiveScore.current": FieldValue.increment(amount),
+      "discotiveScore.lastAmount": amount,
+      "discotiveScore.lastReason": `Bounty Won: ${postId}`,
+      "discotiveScore.lastUpdatedAt": FieldValue.serverTimestamp(),
+    });
+
+    tx.update(escrowRef, {
+      status: "RELEASED",
+      releasedAt: FieldValue.serverTimestamp(),
+      winnerUid: answerAuthorUid,
+    });
+
+    tx.update(postRef, {
+      "bounty.active": false,
+      "bounty.escrowStatus": "RELEASED",
+      "bounty.acceptedAnswerId": answerId,
+      "bounty.winnerUid": answerAuthorUid,
+    });
+  });
+
+  return { success: true };
+});
