@@ -1,1749 +1,2961 @@
 /**
- * @fileoverview Discotive OS - Asset Vault (Zero-Trust Proof-of-Work Storage)
- * @module Execution/Vault
+ * @fileoverview Discotive OS — Asset Vault v4.0 "Drive-Grade"
  * @description
- * LIVE FIREBASE INTEGRATION. No mock data.
- * Uploads chunked files directly to Firebase Storage and atomically updates Firestore.
+ * Complete architectural overhaul. Netflix-cinematic layout meets Google Drive precision.
+ *
+ * Architecture:
+ * - Tri-state view toggle: Unverified | All | Verified
+ * - Vault Strength Analytics Engine (Weak/Medium/Strong pie chart)
+ * - Storage enforcement: Essential = 20MB, Pro = 100MB
+ * - Connector integrations: GitHub, Figma, Medium, YouTube, Spotify, Devpost, Google Scholar, Stripe, Pitch, Spline
+ * - Preview drawer with full Drive-grade mechanics
+ * - Granular sharing (email-level access control)
+ * - Admin-driven verification protocol
+ * - Zero onSnapshot — all getDocs one-shot reads
  */
 
-import React, { useState, useCallback, useRef, useEffect } from "react";
+import React, {
+  useState,
+  useEffect,
+  useCallback,
+  useMemo,
+  useRef,
+  memo,
+} from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  ShieldCheck,
-  ShieldAlert,
-  UploadCloud,
-  Database,
-  FileText,
-  Link as LinkIcon,
-  Search,
-  Filter,
-  List,
-  Grid,
-  Lock,
-  TerminalSquare,
-  Activity,
-  X,
-  Plus,
-  CheckCircle2,
-  Clock,
-  Cpu,
-  Zap,
-  HardDrive,
-  Hash,
-  ExternalLink,
-  Trash2,
-  RefreshCw,
-  AlertTriangle,
-} from "lucide-react";
-import { cn } from "../lib/cn";
-import { useUserData, useOnboardingGate } from "../hooks/useUserData";
-
-// --- LIVE FIREBASE IMPORTS ---
-import { db, storage, auth } from "../firebase";
-import { doc, updateDoc, arrayUnion, arrayRemove } from "firebase/firestore";
+  collection,
+  doc,
+  getDoc,
+  updateDoc,
+  deleteDoc,
+  arrayRemove,
+  arrayUnion,
+  serverTimestamp,
+} from "firebase/firestore";
 import {
   ref,
   uploadBytesResumable,
   getDownloadURL,
   deleteObject,
 } from "firebase/storage";
+import { db, storage, auth } from "../firebase";
+import { useAuth } from "../contexts/AuthContext";
+import { useUserData } from "../hooks/useUserData";
+import { cn } from "../lib/cn";
+import { createPortal } from "react-dom";
+import {
+  Database,
+  Upload,
+  ShieldCheck,
+  Clock,
+  AlertTriangle,
+  Eye,
+  EyeOff,
+  Download,
+  Trash2,
+  Pencil,
+  Link,
+  Copy,
+  Pin,
+  PinOff,
+  ExternalLink,
+  Share2,
+  X,
+  Plus,
+  ChevronRight,
+  ChevronDown,
+  Award,
+  FileText,
+  Code2,
+  BookOpen,
+  Briefcase,
+  Link2,
+  Film,
+  Music,
+  BarChart2,
+  Globe,
+  Github,
+  Figma,
+  Youtube,
+  Zap,
+  Crown,
+  Lock,
+  Check,
+  Search,
+  SlidersHorizontal,
+  Filter,
+  TrendingUp,
+  Shield,
+  Star,
+  MoreHorizontal,
+  RefreshCw,
+  Hash,
+  Loader2,
+  HardDrive,
+  Layers,
+  ImageIcon,
+  Play,
+  FileCode,
+  Box,
+} from "lucide-react";
+import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
 
-// ============================================================================
-// SECURITY & VALIDATION CONSTANTS
-// ============================================================================
-const VAULT_CONSTANTS = Object.freeze({
-  MAX_FILE_SIZE_MB: 25,
+// ─── Design Tokens ────────────────────────────────────────────────────────────
+const G = {
+  base: "#BFA264",
+  bright: "#D4AF78",
+  deep: "#8B7240",
+  light: "#E8D5A3",
+  dimBg: "rgba(191,162,100,0.08)",
+  border: "rgba(191,162,100,0.25)",
+};
+const V = {
+  bg: "#030303",
+  depth: "#0A0A0A",
+  surface: "#0F0F0F",
+  elevated: "#141414",
+};
+const T = {
+  primary: "#F5F0E8",
+  secondary: "rgba(245,240,232,0.60)",
+  dim: "rgba(245,240,232,0.28)",
+};
 
-  /**
-   * @description
-   * Expanded MIME type allowlist.
-   * Includes images (PNG/JPG) for certificate screenshots,
-   * plus common code/doc formats.
-   */
-  ALLOWED_MIME_TYPES: [
-    "application/pdf",
-    "application/msword",
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    "text/plain",
-    "application/json",
-    "image/png",
-    "image/jpeg",
-    "image/jpg",
-    "image/webp",
-    "text/javascript",
-    "text/typescript",
-    "application/zip",
-    "application/x-zip-compressed",
-    "text/html",
-    "text/css",
-    "application/vnd.ms-excel",
-    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+// ─── Tier Storage Limits ──────────────────────────────────────────────────────
+const TIER_STORAGE = {
+  ESSENTIAL: 20 * 1024 * 1024, // 20 MB
+  PRO: 100 * 1024 * 1024, // 100 MB
+  ENTERPRISE: 1024 * 1024 * 1024, // 1 GB
+};
+const TIER_ASSET_LIMITS = {
+  ESSENTIAL: 5,
+  PRO: 50,
+  ENTERPRISE: Infinity,
+};
+
+// ─── Asset Categories ─────────────────────────────────────────────────────────
+const ASSET_CATEGORIES = [
+  { key: "Certificate", label: "Certificate", icon: Award, color: "#f59e0b" },
+  { key: "Resume", label: "Resume", icon: FileText, color: "#38bdf8" },
+  { key: "Project", label: "Project", icon: Code2, color: "#8b5cf6" },
+  {
+    key: "Publication",
+    label: "Publication",
+    icon: BookOpen,
+    color: "#06b6d4",
+  },
+  { key: "Employment", label: "Employment", icon: Briefcase, color: "#10b981" },
+  { key: "Link", label: "Link / URL", icon: Link2, color: "#ec4899" },
+  { key: "Design", label: "Design Asset", icon: Figma, color: "#a78bfa" },
+  { key: "Video", label: "Video", icon: Film, color: "#f97316" },
+  { key: "Music", label: "Music / Podcast", icon: Music, color: "#22d3ee" },
+  {
+    key: "Dataset",
+    label: "Dataset / Research",
+    icon: BarChart2,
+    color: "#84cc16",
+  },
+];
+
+// ─── Dynamic Asset Schemas ────────────────────────────────────────────────────
+const ASSET_SCHEMAS = {
+  Certificate: [
+    {
+      name: "provider",
+      label: "Provider *",
+      type: "text",
+      required: true,
+      placeholder: "e.g., AWS, Coursera",
+    },
+    {
+      name: "domain",
+      label: "Domain *",
+      type: "text",
+      required: true,
+      placeholder: "e.g., Cloud Computing",
+    },
+    {
+      name: "niche",
+      label: "Niche",
+      type: "text",
+      required: false,
+      placeholder: "e.g., Serverless Architecture",
+    },
+    {
+      name: "credentialUrl",
+      label: "Credential URL *",
+      type: "url",
+      required: true,
+      placeholder: "https://...",
+    },
+    {
+      name: "certificateLink",
+      label: "Certificate Link",
+      type: "url",
+      required: false,
+      placeholder: "https://...",
+    },
+    {
+      name: "completionDate",
+      label: "Completed In *",
+      type: "month",
+      required: true,
+    },
+    {
+      name: "expiryDate",
+      label: "Expiry (if any)",
+      type: "month",
+      required: false,
+    },
+    {
+      name: "skills",
+      label: "Skills (max 10, comma-separated)",
+      type: "text",
+      required: false,
+      placeholder: "React, Node.js",
+    },
+    {
+      name: "tags",
+      label: "Tags (max 5, comma-separated)",
+      type: "text",
+      required: false,
+      placeholder: "certification, tech",
+    },
   ],
+  Employment: [
+    {
+      name: "company",
+      label: "Company *",
+      type: "text",
+      required: true,
+      placeholder: "e.g., Google",
+    },
+    {
+      name: "role",
+      label: "Role *",
+      type: "text",
+      required: true,
+      placeholder: "e.g., SDE II",
+    },
+    { name: "startDate", label: "Start Date *", type: "month", required: true },
+    { name: "endDate", label: "End Date", type: "month", required: false },
+    {
+      name: "location",
+      label: "Location",
+      type: "text",
+      required: false,
+      placeholder: "Remote / On-site",
+    },
+  ],
+  Resume: [
+    {
+      name: "version",
+      label: "Target Role / Version *",
+      type: "text",
+      required: true,
+      placeholder: "e.g., Frontend Engineer 2024",
+    },
+  ],
+  Publication: [
+    {
+      name: "publisher",
+      label: "Publisher / Journal *",
+      type: "text",
+      required: true,
+      placeholder: "e.g., IEEE",
+    },
+    {
+      name: "publishDate",
+      label: "Publish Date *",
+      type: "month",
+      required: true,
+    },
+    {
+      name: "doi",
+      label: "DOI / Link",
+      type: "url",
+      required: false,
+      placeholder: "https://doi.org/...",
+    },
+  ],
+  Link: [
+    {
+      name: "url",
+      label: "URL *",
+      type: "url",
+      required: true,
+      placeholder: "https://...",
+    },
+    {
+      name: "description",
+      label: "Short Description",
+      type: "text",
+      required: false,
+      placeholder: "What does this link to?",
+    },
+  ],
+  Default: [],
+};
 
-  STATUS: Object.freeze({
-    VERIFIED: {
-      label: "VERIFIED",
-      color: "text-green-500",
-      bg: "bg-green-500/10",
-      border: "border-green-500/30",
-    },
-    PENDING: {
-      label: "PENDING AUDIT",
-      color: "text-amber-500",
-      bg: "bg-amber-500/10",
-      border: "border-amber-500/30",
-    },
-    REJECTED: {
-      label: "QUARANTINED",
-      color: "text-red-500",
-      bg: "bg-red-500/10",
-      border: "border-red-500/30",
-    },
-  }),
+// ─── Connector Integrations ───────────────────────────────────────────────────
+const CONNECTORS = [
+  {
+    key: "github",
+    label: "GitHub",
+    icon: Github,
+    color: "#e2e8f0",
+    description: "Repos, PRs, Gists",
+  },
+  {
+    key: "figma",
+    label: "Figma",
+    icon: Figma,
+    color: "#a78bfa",
+    description: "Live prototypes",
+  },
+  {
+    key: "youtube",
+    label: "YouTube",
+    icon: Youtube,
+    color: "#ef4444",
+    description: "Videos & analytics",
+  },
+  {
+    key: "medium",
+    label: "Medium",
+    icon: FileText,
+    color: "#e2e8f0",
+    description: "Articles & drafts",
+  },
+  {
+    key: "spotify",
+    label: "Spotify",
+    icon: Music,
+    color: "#22c55e",
+    description: "Tracks & episodes",
+  },
+  {
+    key: "devpost",
+    label: "Devpost",
+    icon: Code2,
+    color: "#38bdf8",
+    description: "Hackathon wins",
+  },
+  {
+    key: "scholar",
+    label: "Scholar",
+    icon: BookOpen,
+    color: "#fbbf24",
+    description: "Papers & citations",
+  },
+  {
+    key: "stripe",
+    label: "Stripe",
+    icon: BarChart2,
+    color: "#7c3aed",
+    description: "MRR & volume",
+  },
+  {
+    key: "pitch",
+    label: "Pitch",
+    icon: Layers,
+    color: "#f97316",
+    description: "Decks & proposals",
+  },
+  {
+    key: "spline",
+    label: "Spline",
+    icon: Box,
+    color: "#06b6d4",
+    description: "3D / WebGL models",
+  },
+];
 
-  /**
-   * @description
-   * Verification strength ratings assigned by the Discotive review team.
-   * Affects Discotive Score yield and public profile display weight.
-   */
-  STRENGTH: Object.freeze({
-    Strong: {
-      label: "STRONG",
-      color: "text-emerald-400",
-      bg: "bg-emerald-500/10",
-      border: "border-emerald-500/30",
-      pts: 30,
-    },
-    Medium: {
-      label: "MEDIUM",
-      color: "text-amber-400",
-      bg: "bg-amber-500/10",
-      border: "border-amber-500/20",
-      pts: 20,
-    },
-    Weak: {
-      label: "WEAK",
-      color: "text-orange-400",
-      bg: "bg-orange-500/10",
-      border: "border-orange-500/20",
-      pts: 10,
-    },
-  }),
+// ─── Strength Config ─────────────────────────────────────────────────────────
+const STRENGTH_CONFIG = {
+  Strong: {
+    color: "#10b981",
+    bg: "rgba(16,185,129,0.10)",
+    border: "rgba(16,185,129,0.25)",
+    pts: 30,
+  },
+  Medium: {
+    color: "#f59e0b",
+    bg: "rgba(245,158,11,0.10)",
+    border: "rgba(245,158,11,0.25)",
+    pts: 20,
+  },
+  Weak: {
+    color: "#f97316",
+    bg: "rgba(249,115,22,0.10)",
+    border: "rgba(249,115,22,0.25)",
+    pts: 10,
+  },
+};
 
-  /**
-   * @description
-   * Asset category taxonomy with per-category credential field definitions.
-   * credentialFields: array of field objects the user must fill in during upload.
-   *   { key, label, placeholder, required, type }
-   * acceptedFormats: human-readable hint for the file picker.
-   * icon: lucide icon name (used in getAssetIcon).
-   */
-  ASSET_CATEGORIES: Object.freeze({
-    Certificate: {
-      label: "Certificate / Award",
-      description: "Course completions, hackathon wins, competition medals",
-      color: "text-amber-400",
-      bg: "bg-amber-500/8",
-      border: "border-amber-500/20",
-      acceptedFormats: "PDF, PNG, JPG (Max 25MB)",
-      credentialFields: [
-        {
-          key: "issuer",
-          label: "Issuing Organisation",
-          placeholder: "e.g. Coursera, Google, HackerEarth",
-          required: true,
-          type: "text",
-        },
-        {
-          key: "credentialId",
-          label: "Credential ID",
-          placeholder: "e.g. UC-xxxxxxxx",
-          required: false,
-          type: "text",
-        },
-        {
-          key: "verificationUrl",
-          label: "Verification URL",
-          placeholder: "https://...",
-          required: false,
-          type: "url",
-        },
-        {
-          key: "issuedDate",
-          label: "Issue Date",
-          placeholder: "",
-          required: false,
-          type: "date",
-        },
-        {
-          key: "expiryDate",
-          label: "Expiry Date (if any)",
-          placeholder: "",
-          required: false,
-          type: "date",
-        },
-      ],
-    },
-    Resume: {
-      label: "Resume / CV",
-      description: "Your latest resume or curriculum vitae",
-      color: "text-blue-400",
-      bg: "bg-blue-500/8",
-      border: "border-blue-500/20",
-      acceptedFormats: "PDF, DOCX (Max 25MB)",
-      credentialFields: [
-        {
-          key: "version",
-          label: "Version / Variant",
-          placeholder: "e.g. SWE — 2025, General",
-          required: true,
-          type: "text",
-        },
-        {
-          key: "targetRole",
-          label: "Target Role",
-          placeholder: "e.g. Frontend Engineer at FAANG",
-          required: false,
-          type: "text",
-        },
-      ],
-    },
-    Project: {
-      label: "Project / Build",
-      description: "GitHub repo, live demo link, or deployed application",
-      color: "text-violet-400",
-      bg: "bg-violet-500/8",
-      border: "border-violet-500/20",
-      acceptedFormats: "Link, PDF, ZIP (Max 25MB)",
-      credentialFields: [
-        {
-          key: "techStack",
-          label: "Tech Stack",
-          placeholder: "e.g. React, Node.js, PostgreSQL",
-          required: true,
-          type: "text",
-        },
-        {
-          key: "repoUrl",
-          label: "Repository URL",
-          placeholder: "https://github.com/...",
-          required: false,
-          type: "url",
-        },
-        {
-          key: "liveUrl",
-          label: "Live Demo URL",
-          placeholder: "https://...",
-          required: false,
-          type: "url",
-        },
-        {
-          key: "role",
-          label: "Your Role",
-          placeholder: "e.g. Solo Developer, Frontend Lead",
-          required: false,
-          type: "text",
-        },
-      ],
-    },
-    Publication: {
-      label: "Publication / Research",
-      description: "Research papers, articles, patents, whitepapers",
-      color: "text-cyan-400",
-      bg: "bg-cyan-500/8",
-      border: "border-cyan-500/20",
-      acceptedFormats: "PDF, Link (Max 25MB)",
-      credentialFields: [
-        {
-          key: "journal",
-          label: "Journal / Platform",
-          placeholder: "e.g. IEEE, Medium, arXiv",
-          required: true,
-          type: "text",
-        },
-        {
-          key: "doi",
-          label: "DOI / Publication ID",
-          placeholder: "e.g. 10.1000/xyz123",
-          required: false,
-          type: "text",
-        },
-        {
-          key: "publicationUrl",
-          label: "Publication URL",
-          placeholder: "https://...",
-          required: false,
-          type: "url",
-        },
-        {
-          key: "publishedDate",
-          label: "Published Date",
-          placeholder: "",
-          required: false,
-          type: "date",
-        },
-      ],
-    },
-    Employment: {
-      label: "Employment Proof",
-      description: "Offer letters, experience letters, internship certificates",
-      color: "text-emerald-400",
-      bg: "bg-emerald-500/8",
-      border: "border-emerald-500/20",
-      acceptedFormats: "PDF, PNG, JPG (Max 25MB)",
-      credentialFields: [
-        {
-          key: "company",
-          label: "Company / Organisation",
-          placeholder: "e.g. Google, Y Combinator Startup",
-          required: true,
-          type: "text",
-        },
-        {
-          key: "role",
-          label: "Role / Designation",
-          placeholder: "e.g. SWE Intern, Product Manager",
-          required: true,
-          type: "text",
-        },
-        {
-          key: "startDate",
-          label: "Start Date",
-          placeholder: "",
-          required: false,
-          type: "date",
-        },
-        {
-          key: "endDate",
-          label: "End Date",
-          placeholder: "",
-          required: false,
-          type: "date",
-        },
-      ],
-    },
-    Link: {
-      label: "External Link",
-      description: "Portfolio, website, social proof, public profile",
-      color: "text-sky-400",
-      bg: "bg-sky-500/8",
-      border: "border-sky-500/20",
-      acceptedFormats: "URL only",
-      credentialFields: [
-        {
-          key: "platform",
-          label: "Platform / Context",
-          placeholder: "e.g. GitHub, Behance, ProductHunt",
-          required: true,
-          type: "text",
-        },
-        {
-          key: "description",
-          label: "What does this link prove?",
-          placeholder: "e.g. My open source contributions",
-          required: false,
-          type: "text",
-        },
-      ],
-    },
-  }),
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+const formatBytes = (bytes = 0) => {
+  if (bytes === 0) return "0 B";
+  const k = 1024;
+  const sizes = ["B", "KB", "MB", "GB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
+};
+
+const timeAgo = (iso) => {
+  if (!iso) return "—";
+  const diff = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  if (days < 30) return `${days}d ago`;
+  return new Date(iso).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+};
+
+const getCategoryConfig = (cat) =>
+  ASSET_CATEGORIES.find((c) => c.key === cat) || ASSET_CATEGORIES[0];
+
+// ─── Toast System ─────────────────────────────────────────────────────────────
+const useToasts = () => {
+  const [toasts, setToasts] = useState([]);
+  const add = useCallback((msg, type = "grey") => {
+    const id = Date.now() + Math.random();
+    setToasts((p) => [...p.slice(-3), { id, msg, type }]);
+    setTimeout(() => setToasts((p) => p.filter((t) => t.id !== id)), 3800);
+  }, []);
+  return { toasts, add };
+};
+
+// ─── Strength Analytics Pie Chart ────────────────────────────────────────────
+const StrengthAnalytics = memo(({ assets }) => {
+  const verified = assets.filter((a) => a.status === "VERIFIED");
+  const data = useMemo(() => {
+    const strong = verified.filter((a) => a.strength === "Strong").length;
+    const medium = verified.filter((a) => a.strength === "Medium").length;
+    const weak = verified.filter((a) => a.strength === "Weak").length;
+    return [
+      { name: "Strong", value: strong, color: "#10b981" },
+      { name: "Medium", value: medium, color: "#f59e0b" },
+      { name: "Weak", value: weak, color: "#f97316" },
+    ].filter((d) => d.value > 0);
+  }, [verified]);
+
+  const totalScore = verified.reduce((s, a) => {
+    const cfg = STRENGTH_CONFIG[a.strength];
+    return s + (cfg?.pts || 0);
+  }, 0);
+
+  const vaultPower =
+    verified.length === 0
+      ? 0
+      : Math.min(100, Math.round((totalScore / (verified.length * 30)) * 100));
+
+  if (verified.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full text-center py-6">
+        <Shield
+          className="w-8 h-8 mb-3"
+          style={{ color: "rgba(255,255,255,0.08)" }}
+        />
+        <p
+          className="text-[10px] font-bold uppercase tracking-widest"
+          style={{ color: T.dim }}
+        >
+          No verified assets yet
+        </p>
+        <p
+          className="text-[9px] mt-1"
+          style={{ color: "rgba(255,255,255,0.12)" }}
+        >
+          Upload & get reviewed to build Vault Power
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-3 h-full">
+      <div className="relative" style={{ height: 120 }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <PieChart>
+            <Pie
+              data={data}
+              cx="50%"
+              cy="50%"
+              innerRadius={38}
+              outerRadius={54}
+              dataKey="value"
+              strokeWidth={0}
+              paddingAngle={3}
+            >
+              {data.map((entry, i) => (
+                <Cell key={i} fill={entry.color} />
+              ))}
+            </Pie>
+            <Tooltip
+              content={({ active, payload }) => {
+                if (!active || !payload?.length) return null;
+                const d = payload[0];
+                return (
+                  <div
+                    className="px-3 py-2 rounded-xl border shadow-xl text-xs"
+                    style={{
+                      background: V.elevated,
+                      borderColor: "rgba(255,255,255,0.08)",
+                      color: T.primary,
+                    }}
+                  >
+                    <p
+                      style={{ color: d.payload.color }}
+                      className="font-black"
+                    >
+                      {d.name}
+                    </p>
+                    <p style={{ color: T.secondary }}>
+                      {d.value} asset{d.value !== 1 ? "s" : ""}
+                    </p>
+                  </div>
+                );
+              }}
+            />
+          </PieChart>
+        </ResponsiveContainer>
+        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+          <span
+            className="font-black text-xl leading-none"
+            style={{ color: T.primary, fontFamily: "'Montserrat', sans-serif" }}
+          >
+            {vaultPower}%
+          </span>
+          <span
+            className="text-[8px] font-bold uppercase tracking-widest mt-0.5"
+            style={{ color: T.dim }}
+          >
+            Power
+          </span>
+        </div>
+      </div>
+      <div className="space-y-1.5">
+        {[
+          {
+            label: "Strong",
+            color: "#10b981",
+            count: data.find((d) => d.name === "Strong")?.value || 0,
+          },
+          {
+            label: "Medium",
+            color: "#f59e0b",
+            count: data.find((d) => d.name === "Medium")?.value || 0,
+          },
+          {
+            label: "Weak",
+            color: "#f97316",
+            count: data.find((d) => d.name === "Weak")?.value || 0,
+          },
+        ].map((s) => (
+          <div key={s.label} className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div
+                className="w-2 h-2 rounded-full"
+                style={{ background: s.color }}
+              />
+              <span
+                className="text-[9px] font-bold uppercase tracking-widest"
+                style={{ color: T.dim }}
+              >
+                {s.label}
+              </span>
+            </div>
+            <span
+              className="text-[10px] font-black font-mono"
+              style={{ color: s.count > 0 ? s.color : T.dim }}
+            >
+              {s.count}
+            </span>
+          </div>
+        ))}
+      </div>
+      <div
+        className="pt-2 mt-auto border-t"
+        style={{ borderColor: "rgba(255,255,255,0.05)" }}
+      >
+        <div className="flex items-center justify-between">
+          <span
+            className="text-[9px] font-bold uppercase tracking-widest"
+            style={{ color: T.dim }}
+          >
+            Score Earned
+          </span>
+          <span
+            className="text-[11px] font-black"
+            style={{ color: G.bright, fontFamily: "'Montserrat', sans-serif" }}
+          >
+            +{totalScore} pts
+          </span>
+        </div>
+      </div>
+    </div>
+  );
 });
 
-// ============================================================================
-// CRYPTOGRAPHIC UTILITIES
-// ============================================================================
-const formatBytes = (bytes, decimals = 2) => {
-  if (!+bytes) return "0 Bytes";
-  const k = 1024;
-  const dm = decimals < 0 ? 0 : decimals;
-  const sizes = ["Bytes", "KB", "MB", "GB", "TB"];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
-};
+// ─── Storage Bar ──────────────────────────────────────────────────────────────
+const StorageBar = memo(({ used, limit, tier }) => {
+  const pct = Math.min(100, (used / limit) * 100);
+  const isWarning = pct > 75;
+  const isDanger = pct > 90;
+  const color = isDanger ? "#ef4444" : isWarning ? "#f59e0b" : G.bright;
 
-const generateVisualHash = (str) => {
-  let hash = 0;
-  for (let i = 0; i < str.length; i++) {
-    hash = (hash << 5) - hash + str.charCodeAt(i);
-    hash = hash & hash;
-  }
-  const hex = Math.abs(hash).toString(16).padStart(16, "0");
-  const randomSuffix = Math.random().toString(16).substr(2, 48);
-  return `0x${hex}${randomSuffix}`.substring(0, 64);
-};
-
-import {
-  Award,
-  Briefcase,
-  Code2,
-  BookOpen as PubIcon,
-  Globe as GlobeIcon,
-} from "lucide-react";
-
-/**
- * @function getAssetIcon
- * @param {string} category — VAULT_CONSTANTS.ASSET_CATEGORIES key
- * @param {string} [mimeType] — fallback for file MIME
- * @returns {JSX.Element}
- */
-const getAssetIcon = (category, mimeType) => {
-  switch (category) {
-    case "Certificate":
-      return <Award className="w-5 h-5" />;
-    case "Resume":
-      return <FileText className="w-5 h-5" />;
-    case "Project":
-      return <Code2 className="w-5 h-5" />;
-    case "Publication":
-      return <PubIcon className="w-5 h-5" />;
-    case "Employment":
-      return <Briefcase className="w-5 h-5" />;
-    case "Link":
-      return <LinkIcon className="w-5 h-5" />;
-    default:
-      if (mimeType === "link") return <GlobeIcon className="w-5 h-5" />;
-      return <FileText className="w-5 h-5" />;
-  }
-};
-
-// ============================================================================
-// CORE VAULT COMPONENT (LIVE BACKEND)
-// ============================================================================
-const Vault = () => {
-  const { userData } = useUserData();
-  const { requireOnboarding } = useOnboardingGate();
-
-  const [localAssets, setLocalAssets] = useState([]);
-
-  useEffect(() => {
-    if (userData?.vault) {
-      setLocalAssets(userData.vault);
-    }
-  }, [userData?.vault]);
-
-  // Real Assets drawn directly from Firestore profile
-  const assets = localAssets;
-
-  // --- STATE MACHINE ---
-  const [uploadQueue, setUploadQueue] = useState([]);
-  const [isDragging, setIsDragging] = useState(false);
-  const [isProcessing, setIsProcessing] = useState(false); // Global lock during operations
-
-  // UI States
-  const [viewMode, setViewMode] = useState("grid");
-  const [searchQuery, setSearchQuery] = useState("");
-  const [filterType, setFilterType] = useState("ALL"); // ALL | DOCUMENT | LINK
-  const [selectedAsset, setSelectedAsset] = useState(null);
-  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false);
-
-  // Input States for URL uploads
-  const [urlInput, setUrlInput] = useState("");
-  const [urlTitle, setUrlTitle] = useState("");
-
-  /**
-   * @description
-   * Two-step upload flow state machine:
-   *   Step 1 ("category"): User selects asset category
-   *   Step 2 ("credentials"): User fills category-specific fields + attaches file/URL
-   *
-   * selectedCategory: key from VAULT_CONSTANTS.ASSET_CATEGORIES
-   * credentialData: { [fieldKey]: value } map built from credentialFields
-   * uploadMode: "file" | "url" — toggles the attachment method in step 2
-   * uploadError: string | null — validation error shown inline
-   */
-  const [uploadStep, setUploadStep] = useState("category");
-  const [selectedCategory, setSelectedCategory] = useState(null);
-  const [credentialData, setCredentialData] = useState({});
-  const [uploadMode, setUploadMode] = useState("file");
-  const [uploadError, setUploadError] = useState(null);
-  const fileInputRef = useRef(null);
-
-  // Reset upload modal state on close
-  const resetUploadModal = () => {
-    setIsUploadModalOpen(false);
-    setUploadQueue([]);
-    setUploadStep("category");
-    setSelectedCategory(null);
-    setCredentialData({});
-    setUploadMode("file");
-    setUploadError(null);
-    setUrlInput("");
-    setUrlTitle("");
-  };
-
-  // --- DRAG AND DROP ENGINE ---
-  const handleDragOver = useCallback(
-    (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      if (!isDragging) setIsDragging(true);
-    },
-    [isDragging],
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <HardDrive className="w-3.5 h-3.5" style={{ color: G.base }} />
+          <span
+            className="text-[9px] font-bold uppercase tracking-widest"
+            style={{ color: T.dim }}
+          >
+            Storage
+          </span>
+        </div>
+        <span
+          className="text-[9px] font-black font-mono"
+          style={{ color: isWarning ? color : T.dim }}
+        >
+          {formatBytes(used)} / {formatBytes(limit)}
+        </span>
+      </div>
+      <div
+        className="w-full h-1.5 rounded-full overflow-hidden"
+        style={{ background: "rgba(255,255,255,0.06)" }}
+      >
+        <motion.div
+          initial={{ width: 0 }}
+          animate={{ width: `${pct}%` }}
+          transition={{ duration: 1, ease: "easeOut" }}
+          className="h-full rounded-full"
+          style={{ background: `linear-gradient(90deg, ${G.deep}, ${color})` }}
+        />
+      </div>
+      {isWarning && (
+        <p className="text-[9px] font-bold" style={{ color }}>
+          {isDanger
+            ? "⚠ Storage critical. Upgrade to Pro for 100MB."
+            : `${Math.round(pct)}% used — ${tier === "ESSENTIAL" ? "Upgrade for 100MB" : "approaching limit"}`}
+        </p>
+      )}
+    </div>
   );
+});
 
-  const handleDragLeave = useCallback((e) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setIsDragging(false);
-  }, []);
+// ─── Tri-State Toggle ─────────────────────────────────────────────────────────
+const TriStateToggle = memo(({ value, onChange }) => {
+  const options = [
+    { key: "unverified", label: "Unverified", icon: Clock, color: "#f59e0b" },
+    { key: "all", label: "All Assets", icon: Layers, color: T.secondary },
+    { key: "verified", label: "Verified", icon: ShieldCheck, color: "#10b981" },
+  ];
 
-  const validateAndQueueFiles = (files) => {
-    if (!userData?.uid) return;
-    if (!selectedCategory) {
-      setUploadError("Select an asset category before attaching a file.");
-      return;
-    }
-
-    const newQueue = [];
-    const errors = [];
-
-    Array.from(files).forEach((file) => {
-      if (file.size > VAULT_CONSTANTS.MAX_FILE_SIZE_MB * 1024 * 1024) {
-        errors.push(
-          `"${file.name}" exceeds the ${VAULT_CONSTANTS.MAX_FILE_SIZE_MB}MB limit.`,
-        );
-        return;
-      }
-      // Allow empty type for some browsers (they report "" for certain files)
-      if (
-        file.type &&
-        !VAULT_CONSTANTS.ALLOWED_MIME_TYPES.includes(file.type)
-      ) {
-        errors.push(`"${file.name}" is not a supported file format.`);
-        return;
-      }
-
-      const tempId = `ast_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`;
-      newQueue.push({
-        id: tempId,
-        file,
-        progress: 0,
-        hash: generateVisualHash(file.name),
-        category: selectedCategory,
-        credentialData,
-        customTitle: urlTitle.trim() ? urlTitle : file.name,
-      });
-    });
-
-    if (errors.length > 0) {
-      setUploadError(errors.join(" "));
-      return;
-    }
-
-    if (newQueue.length > 0) {
-      setUploadError(null);
-      setUploadQueue((prev) => [...prev, ...newQueue]);
-      executeFirebaseUpload(newQueue);
-    }
-  };
-
-  const handleDrop = useCallback(
-    (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      setIsDragging(false);
-      if (!requireOnboarding("vault_upload")) return;
-      if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
-        validateAndQueueFiles(e.dataTransfer.files);
-      }
-    },
-    [userData, requireOnboarding],
-  );
-
-  // --- 🔴 THE REAL FIREBASE STORAGE & FIRESTORE UPLOAD PIPELINE ---
-  const executeFirebaseUpload = (queueItems) => {
-    queueItems.forEach((item) => {
-      // 1. Create a secure path in Firebase Storage: vault/{user_id}/{asset_id}_{filename}
-      const storageRef = ref(
-        storage,
-        `vault/${userData.uid}/${item.id}_${item.file.name}`,
-      );
-
-      // 2. Initiate Resumable Upload
-      const uploadTask = uploadBytesResumable(storageRef, item.file);
-
-      uploadTask.on(
-        "state_changed",
-        (snapshot) => {
-          // Track live upload progress bytes
-          const progress =
-            (snapshot.bytesTransferred / snapshot.totalBytes) * 100;
-          setUploadQueue((prev) =>
-            prev.map((q) => (q.id === item.id ? { ...q, progress } : q)),
-          );
-        },
-        (error) => {
-          console.error("Firebase Storage Upload Fault:", error);
-          // NEW: Surface the error to the user interface
-          setUploadError(`Upload blocked: ${error.message} (Check Console)`);
-          setUploadQueue((prev) => prev.filter((q) => q.id !== item.id));
-        },
-        async () => {
-          // 3. Upload Complete → Get Download URL
-          const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
-
-          // 4. Construct enriched Asset Payload
-          const newAsset = {
-            id: item.id,
-            title: item.customTitle || item.file.name,
-            type: item.file.type || "application/octet-stream",
-            size: item.file.size,
-            hash: item.hash,
-            /**
-             * @description
-             * category: key from VAULT_CONSTANTS.ASSET_CATEGORIES.
-             * Used to render the correct icon, filter, and
-             * display credential fields in the detail panel.
-             */
-            category: item.category || "Resume",
-            credentials: item.credentialData || {},
-            status: "PENDING",
-            strength: null, // Set by admin during verification
-            uploadedAt: new Date().toISOString(),
-            scoreYield: null,
-            url: downloadURL,
-            storagePath: storageRef.fullPath,
-            // Public profile flag — only VERIFIED assets appear publicly
-            isPublic: false,
-          };
-
-          // 5. Atomic write to Firestore
-          try {
-            await updateDoc(doc(db, "users", userData.uid), {
-              vault: arrayUnion(newAsset),
-            });
-            // Instantly inject the new asset into the UI
-            setLocalAssets((prev) => [...prev, newAsset]);
-            // Award upload score event (non-blocking)
-
-            setUploadQueue((prev) => prev.filter((q) => q.id !== item.id));
-            // Auto-close modal when all uploads complete
-            setUploadQueue((prev) => {
-              const remaining = prev.filter((q) => q.id !== item.id);
-              if (remaining.length === 0) {
-                setTimeout(resetUploadModal, 800);
-              }
-              return remaining;
-            });
-          } catch (dbError) {
-            console.error("[Vault] Firestore ledger update failed:", dbError);
-          }
-        },
-      );
-    });
-  };
-
-  // --- 🔴 REAL FIRESTORE LINK UPLOAD PIPELINE ---
-  const handleUrlSubmit = async (e) => {
-    e.preventDefault();
-    if (!urlInput || !urlTitle || !userData?.uid) return;
-    if (!selectedCategory) {
-      setUploadError("Select an asset category first.");
-      return;
-    }
-    setIsProcessing(true);
-    setUploadError(null);
-
-    const newAsset = {
-      id: `ast_${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
-      title: urlTitle,
-      type: "link",
-      category: selectedCategory,
-      credentials: { ...credentialData, url: urlInput },
-      size: 0,
-      hash: generateVisualHash(urlInput),
-      status: "PENDING",
-      strength: null,
-      uploadedAt: new Date().toISOString(),
-      scoreYield: null,
-      url: urlInput,
-      storagePath: null,
-      isPublic: false,
-    };
-
-    try {
-      await updateDoc(doc(db, "users", userData.uid), {
-        vault: arrayUnion(newAsset),
-      });
-      // NEW: Instantly inject the new link asset into the UI
-      setLocalAssets((prev) => [...prev, newAsset]);
-      resetUploadModal();
-    } catch (err) {
-      console.error("[Vault] Link upload failed:", err);
-      setUploadError("Upload failed. Check your connection and try again.");
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  // --- 🔴 REAL FIREBASE DELETION ENGINE (REFACTORED) ---
-  const handleDeleteAsset = async (assetToDelete) => {
-    if (!requireOnboarding("vault_delete")) return;
-    if (!userData?.uid) return;
-    setIsProcessing(true);
-
-    // Step 1: Attempt Storage deletion FIRST (reversible if it fails)
-    if (assetToDelete.type !== "link" && assetToDelete.storagePath) {
-      try {
-        const fileRef = ref(storage, assetToDelete.storagePath);
-        await deleteObject(fileRef);
-      } catch (storageError) {
-        // File may already be deleted or not found — log but continue
-        // We still remove the Firestore record to keep UI consistent
-        if (storageError.code !== "storage/object-not-found") {
-          console.error("[Vault] Storage deletion failed:", storageError);
-          // Non-fatal: Inform user but still remove from their vault UI
-        }
-      }
-    }
-
-    // Step 2: Remove from Firestore only after Storage attempt
-    try {
-      await updateDoc(doc(db, "users", userData.uid), {
-        vault: arrayRemove(assetToDelete),
-      });
-
-      setLocalAssets((prev) =>
-        prev.filter((asset) => asset.id !== assetToDelete.id),
-      );
-      setSelectedAsset(null);
-    } catch (firestoreError) {
-      console.error("[Vault] Firestore deletion failed:", firestoreError);
-      alert("Failed to remove asset. Please try again.");
-    } finally {
-      setIsProcessing(false);
-    }
-  };
-
-  /**
-   * @description
-   * Multi-dimension filter: search (title | hash | issuer credential) +
-   * category filter. Gracefully handles assets created before the category
-   * system existed (they have no `category` field — shown under ALL).
-   */
-  const filteredAssets = assets.filter((asset) => {
-    const searchLower = searchQuery.toLowerCase();
-    const matchesSearch =
-      (asset.title || "").toLowerCase().includes(searchLower) ||
-      (asset.hash || "").toLowerCase().includes(searchLower) ||
-      (asset.credentials?.issuer || "").toLowerCase().includes(searchLower) ||
-      (asset.credentials?.company || "").toLowerCase().includes(searchLower) ||
-      (asset.category || "").toLowerCase().includes(searchLower);
-
-    const matchesType =
-      filterType === "ALL" ||
-      asset.category === filterType ||
-      // Legacy fallback
-      (filterType === "DOCUMENT" && asset.type !== "link") ||
-      (filterType === "LINK" && asset.type === "link");
-
-    return matchesSearch && matchesType;
-  });
-
-  const totalBytes = assets.reduce((acc, curr) => acc + (curr.size || 0), 0);
-  const tierLimitBytes = 50 * 1024 * 1024; // 50MB Tier Limit
-
-  // ============================================================================
-  // RENDER PIPELINE
-  // ============================================================================
   return (
     <div
-      className="min-h-screen bg-[#030303] text-white font-sans selection:bg-amber-500 selection:text-black flex flex-col relative overflow-hidden"
-      onDragOver={handleDragOver}
-      onDragLeave={handleDragLeave}
-      onDrop={handleDrop}
+      className="flex p-1 rounded-xl"
+      style={{
+        background: V.depth,
+        border: "1px solid rgba(255,255,255,0.05)",
+      }}
     >
-      {/* GLOBAL BACKGROUND NOISE */}
-      <div className="fixed inset-0 bg-[('/noise.svg')] opacity-[0.03] pointer-events-none z-0" />
-
-      {/* --- GLOBAL PROCESSING LOCK --- */}
-      <AnimatePresence>
-        {isProcessing && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[9999] bg-[#030303]/80 backdrop-blur-sm flex items-center justify-center cursor-wait"
-          >
-            <RefreshCw className="w-8 h-8 text-amber-500 animate-spin" />
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* --- DRAG & DROP OVERLAY --- */}
-      <AnimatePresence>
-        {isDragging && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[999] bg-[#0a0a0a]/90 backdrop-blur-sm border-[4px] border-dashed border-amber-500/50 flex flex-col items-center justify-center m-4 rounded-3xl"
-          >
-            <div className="w-24 h-24 bg-amber-500/10 border border-amber-500/30 rounded-full flex items-center justify-center mb-6 animate-pulse">
-              <UploadCloud className="w-10 h-10 text-amber-500" />
-            </div>
-            <h2 className="text-3xl font-black tracking-tighter text-white mb-2">
-              Drop payload to encrypt
-            </h2>
-            <p className="text-[#888] font-mono text-sm uppercase tracking-widest">
-              Assets will be securely transmitted to your cloud bucket
-            </p>
-          </motion.div>
-        )}
-      </AnimatePresence>
-
-      {/* --- HEADER & TELEMETRY --- */}
-      <header className="px-6 py-8 border-b border-[#111] bg-[#050505] flex flex-col md:flex-row md:items-end justify-between gap-6 z-10 relative">
-        <div>
-          <div className="flex items-center gap-2 mb-3">
-            <div className="px-2 py-1 rounded bg-[#111] border border-[#333] text-[9px] font-bold text-[#888] uppercase tracking-widest flex items-center gap-1.5">
-              <ShieldCheck className="w-3 h-3 text-amber-500" /> End-to-End
-              Encrypted
-            </div>
-          </div>
-          <h1 className="text-4xl md:text-5xl font-black tracking-tighter">
-            Asset Vault.
-          </h1>
-          <p className="text-[#666] mt-2 font-medium max-w-xl text-sm leading-relaxed">
-            Immutable proof-of-work storage. Uploaded assets are audited by the
-            AI network and permanently bound to your Discotive Score.
-          </p>
-        </div>
-
-        {/* Storage Capacity Monitor */}
-        <div className="w-full md:w-72 bg-[#0a0a0a] border border-[#222] p-4 rounded-2xl shadow-inner">
-          <div className="flex justify-between items-end mb-2">
-            <span className="text-[10px] font-bold text-[#888] uppercase tracking-widest flex items-center gap-1.5">
-              <HardDrive className="w-3 h-3" /> Storage Matrix
-            </span>
-            <span className="text-xs font-mono font-bold text-white">
-              {formatBytes(totalBytes)}{" "}
-              <span className="text-[#555]">
-                / {formatBytes(tierLimitBytes)}
-              </span>
-            </span>
-          </div>
-          <div className="w-full h-1.5 bg-[#111] rounded-full overflow-hidden border border-[#222]">
-            <motion.div
-              initial={{ scaleX: 0 }}
-              animate={{
-                scaleX: Math.min(totalBytes / tierLimitBytes, 1),
-              }}
-              transition={{ duration: 1, ease: "easeOut" }}
-              className={cn(
-                "h-full w-full rounded-full origin-left", // <-- CRITICAL FIXES
-                totalBytes / tierLimitBytes > 0.9
-                  ? "bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.5)]"
-                  : "bg-amber-500 shadow-[0_0_10px_rgba(245,158,11,0.5)]",
-              )}
-            />
-          </div>
-        </div>
-      </header>
-
-      {/* --- TACTICAL TOOLBAR --- */}
-      <div className="px-6 py-4 border-b border-[#111] bg-[#0a0a0a] flex flex-col lg:flex-row items-center justify-between gap-4 z-10 relative">
-        <div className="flex items-center gap-3 w-full lg:w-auto">
-          {/* Search */}
-          <div className="relative group w-full lg:w-80">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#555] group-focus-within:text-amber-500 transition-colors" />
-            <input
-              type="text"
-              placeholder="Query by title or SHA hash..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-[#111] border border-[#222] text-white pl-10 pr-4 py-2.5 rounded-xl focus:outline-none focus:border-amber-500/50 transition-all font-mono text-xs placeholder:text-[#444]"
-            />
-          </div>
-
-          {/* Filter */}
-          <div className="relative hidden md:block">
-            <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#555]" />
-            <select
-              value={filterType}
-              onChange={(e) => setFilterType(e.target.value)}
-              className="bg-[#111] border border-[#222] text-white pl-10 pr-8 py-2.5 rounded-xl focus:outline-none focus:border-amber-500/50 transition-all font-mono text-xs appearance-none cursor-pointer"
-            >
-              <option value="ALL">ALL ASSETS</option>
-              {Object.keys(VAULT_CONSTANTS.ASSET_CATEGORIES).map((cat) => (
-                <option key={cat} value={cat}>
-                  {cat.toUpperCase()}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-3 w-full lg:w-auto justify-between lg:justify-end">
-          {/* View Toggles */}
-          <div className="flex bg-[#111] border border-[#222] p-1 rounded-lg">
-            <button
-              onClick={() => setViewMode("grid")}
-              className={cn(
-                "p-1.5 rounded-md transition-all",
-                viewMode === "grid"
-                  ? "bg-[#222] text-white shadow-sm"
-                  : "text-[#666] hover:text-white",
-              )}
-            >
-              <Grid className="w-4 h-4" />
-            </button>
-            <button
-              onClick={() => setViewMode("list")}
-              className={cn(
-                "p-1.5 rounded-md transition-all",
-                viewMode === "list"
-                  ? "bg-[#222] text-white shadow-sm"
-                  : "text-[#666] hover:text-white",
-              )}
-            >
-              <List className="w-4 h-4" />
-            </button>
-          </div>
-
-          {/* Upload Button */}
+      {options.map((opt) => {
+        const Icon = opt.icon;
+        const active = value === opt.key;
+        return (
           <button
-            onClick={() => {
-              if (!requireOnboarding("vault_upload")) return;
-              setIsUploadModalOpen(true);
+            key={opt.key}
+            onClick={() => onChange(opt.key)}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all"
+            style={{
+              background: active ? "rgba(255,255,255,0.06)" : "transparent",
+              color: active ? opt.color : T.dim,
+              border: active
+                ? "1px solid rgba(255,255,255,0.08)"
+                : "1px solid transparent",
             }}
-            className="px-5 py-2.5 bg-white text-black font-extrabold text-[10px] uppercase tracking-widest rounded-xl hover:bg-[#ccc] transition-colors flex items-center gap-2 shadow-[0_0_20px_rgba(255,255,255,0.1)]"
           >
-            <Plus className="w-4 h-4" /> Sync Asset
+            <Icon className="w-3 h-3" />
+            <span className="hidden sm:inline">{opt.label}</span>
           </button>
-        </div>
-      </div>
+        );
+      })}
+    </div>
+  );
+});
 
-      {/* --- MAIN WORKSPACE (Split Matrix) --- */}
-      <div className="flex-1 flex overflow-hidden relative z-10 bg-[#030303]">
-        {/* Left Side: Asset Grid/List */}
+// ─── Connector Card ───────────────────────────────────────────────────────────
+const ConnectorCard = memo(({ connector, connected, onClick }) => {
+  const Icon = connector.icon;
+  return (
+    <motion.button
+      whileHover={{ scale: 1.02 }}
+      whileTap={{ scale: 0.97 }}
+      onClick={onClick}
+      className="relative flex flex-col items-center gap-2 p-3 rounded-2xl border transition-all text-center group overflow-hidden"
+      style={{
+        background: connected ? `${connector.color}0A` : V.surface,
+        borderColor: connected
+          ? `${connector.color}35`
+          : "rgba(255,255,255,0.05)",
+        minWidth: 72,
+      }}
+    >
+      {connected && (
         <div
-          className={cn(
-            "flex-1 overflow-y-auto p-6 custom-scrollbar transition-all duration-500",
-            selectedAsset
-              ? "hidden lg:block lg:w-2/3 xl:w-3/4 pr-6 border-r border-[#111]"
-              : "w-full",
-          )}
+          className="absolute top-1.5 right-1.5 w-3 h-3 rounded-full flex items-center justify-center"
+          style={{ background: "#10b981" }}
         >
-          {filteredAssets.length === 0 ? (
-            <div className="w-full h-full min-h-[400px] flex flex-col items-center justify-center text-center border border-dashed border-[#222] rounded-3xl bg-[#050505]">
-              <Database className="w-12 h-12 text-[#333] mb-4" />
-              <h3 className="text-xl font-bold text-white mb-2">
-                Matrix Empty
-              </h3>
-              <p className="text-[#666] text-sm max-w-sm">
-                No cryptographic assets found matching the current query
-                parameters.
-              </p>
-            </div>
-          ) : viewMode === "grid" ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 auto-rows-max">
-              <AnimatePresence>
-                {filteredAssets.map((asset) => {
-                  const statusConfig =
-                    VAULT_CONSTANTS.STATUS[asset.status] ||
-                    VAULT_CONSTANTS.STATUS.PENDING;
-                  return (
-                    <motion.div
-                      layout
-                      initial={{ opacity: 0, scale: 0.95 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      exit={{ opacity: 0, scale: 0.95 }}
-                      key={asset.id}
-                      onClick={() => setSelectedAsset(asset)}
-                      className={cn(
-                        "bg-[#0a0a0a] border rounded-2xl p-5 cursor-pointer transition-all duration-300 group hover:-translate-y-1 shadow-lg flex flex-col",
-                        selectedAsset?.id === asset.id
-                          ? "border-amber-500 shadow-[0_0_20px_rgba(245,158,11,0.15)]"
-                          : "border-[#222] hover:border-[#444]",
-                      )}
-                    >
-                      <div className="flex items-start justify-between mb-4">
-                        <div
-                          className={cn(
-                            "w-10 h-10 rounded-xl flex items-center justify-center border",
-                            statusConfig.bg,
-                            statusConfig.border,
-                            statusConfig.color,
-                          )}
-                        >
-                          {getAssetIcon(asset.type)}
-                        </div>
-                        <div
-                          className={cn(
-                            "px-2 py-1 rounded text-[8px] font-bold uppercase tracking-widest border",
-                            statusConfig.bg,
-                            statusConfig.color,
-                            statusConfig.border,
-                          )}
-                        >
-                          {statusConfig.label}
-                        </div>
-                      </div>
-                      <h3
-                        className="text-sm font-bold text-white truncate mb-1"
-                        title={asset.title}
-                      >
-                        {asset.title}
-                      </h3>
-                      {/* Category + Issuer / Company */}
-                      <div className="flex items-center gap-1.5 mb-1">
-                        {asset.category && (
-                          <span
-                            className={cn(
-                              "text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded border",
-                              VAULT_CONSTANTS.ASSET_CATEGORIES[asset.category]
-                                ?.bg || "bg-white/5",
-                              VAULT_CONSTANTS.ASSET_CATEGORIES[asset.category]
-                                ?.color || "text-white/40",
-                              VAULT_CONSTANTS.ASSET_CATEGORIES[asset.category]
-                                ?.border || "border-white/10",
-                            )}
-                          >
-                            {asset.category}
-                          </span>
-                        )}
-                        {/* Strength pill — only after admin verification */}
-                        {asset.strength &&
-                          VAULT_CONSTANTS.STRENGTH[asset.strength] && (
-                            <span
-                              className={cn(
-                                "text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded border",
-                                VAULT_CONSTANTS.STRENGTH[asset.strength].bg,
-                                VAULT_CONSTANTS.STRENGTH[asset.strength].color,
-                                VAULT_CONSTANTS.STRENGTH[asset.strength].border,
-                              )}
-                            >
-                              {VAULT_CONSTANTS.STRENGTH[asset.strength].label}
-                            </span>
-                          )}
-                      </div>
-                      {/* Issuer / company credential summary */}
-                      {(asset.credentials?.issuer ||
-                        asset.credentials?.company) && (
-                        <p className="text-[10px] font-medium text-[#666] truncate mb-1">
-                          {asset.credentials.issuer ||
-                            asset.credentials.company}
-                        </p>
-                      )}
-                      <div className="flex items-center gap-1.5 mb-4 opacity-50 group-hover:opacity-100 transition-opacity">
-                        <Hash className="w-3 h-3 text-[#666]" />
-                        <span className="text-[10px] font-mono text-[#888] truncate">
-                          {asset.hash}
-                        </span>
-                      </div>
-                      <div className="mt-auto pt-4 border-t border-[#111] flex justify-between items-center text-[10px] font-bold text-[#555] uppercase tracking-widest">
-                        <span>
-                          {asset.type === "link"
-                            ? "LINK"
-                            : formatBytes(asset.size)}
-                        </span>
-                        <span>
-                          {new Date(asset.uploadedAt).toLocaleDateString()}
-                        </span>
-                      </div>
-                    </motion.div>
-                  );
-                })}
-              </AnimatePresence>
-            </div>
-          ) : (
-            <div className="flex flex-col gap-2">
-              <AnimatePresence>
-                {filteredAssets.map((asset) => {
-                  const statusConfig =
-                    VAULT_CONSTANTS.STATUS[asset.status] ||
-                    VAULT_CONSTANTS.STATUS.PENDING;
-                  return (
-                    <motion.div
-                      layout
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -10 }}
-                      key={asset.id}
-                      onClick={() => setSelectedAsset(asset)}
-                      className={cn(
-                        "flex items-center gap-4 bg-[#0a0a0a] border rounded-xl p-3 cursor-pointer transition-colors group",
-                        selectedAsset?.id === asset.id
-                          ? "border-amber-500"
-                          : "border-[#222] hover:border-[#444]",
-                      )}
-                    >
-                      <div
-                        className={cn(
-                          "w-8 h-8 rounded-lg flex items-center justify-center border shrink-0",
-                          statusConfig.bg,
-                          statusConfig.border,
-                          statusConfig.color,
-                        )}
-                      >
-                        {getAssetIcon(asset.type)}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <h3 className="text-sm font-bold text-white truncate leading-tight">
-                          {asset.title}
-                        </h3>
-                        <span className="text-[10px] font-mono text-[#666] truncate hidden md:block">
-                          {asset.hash}
-                        </span>
-                      </div>
-                      <div className="hidden md:block w-24 text-right text-[10px] font-bold text-[#555] uppercase tracking-widest">
-                        {asset.type === "link"
-                          ? "LINK"
-                          : formatBytes(asset.size)}
-                      </div>
-                      <div
-                        className={cn(
-                          "hidden sm:block px-2 py-1 rounded text-[8px] font-bold uppercase tracking-widest border text-center min-w-[100px]",
-                          statusConfig.bg,
-                          statusConfig.color,
-                          statusConfig.border,
-                        )}
-                      >
-                        {statusConfig.label}
-                      </div>
-                    </motion.div>
-                  );
-                })}
-              </AnimatePresence>
-            </div>
-          )}
+          <Check className="w-2 h-2 text-white" />
         </div>
+      )}
+      <Icon
+        className="w-5 h-5"
+        style={{ color: connected ? connector.color : T.dim }}
+      />
+      <span
+        className="text-[8px] font-bold uppercase tracking-widest leading-tight"
+        style={{ color: connected ? connector.color : T.dim }}
+      >
+        {connector.label}
+      </span>
+    </motion.button>
+  );
+});
 
-        {/* Right Side: Deep Inspection Panel */}
-        <AnimatePresence>
-          {selectedAsset && (
-            <motion.div
-              initial={{ x: "100%", opacity: 0 }}
-              animate={{ x: 0, opacity: 1 }}
-              exit={{ x: "100%", opacity: 0 }}
-              transition={{ type: "spring", damping: 25, stiffness: 200 }}
-              className="w-full lg:w-1/3 xl:w-1/4 bg-[#050505] flex flex-col border-l border-[#111] absolute lg:relative inset-y-0 right-0 z-20 shadow-[-20px_0_50px_rgba(0,0,0,0.5)]"
-            >
-              <div className="p-4 border-b border-[#111] bg-[#0a0a0a] flex justify-between items-center shrink-0">
-                <span className="text-[10px] font-extrabold text-[#888] uppercase tracking-widest flex items-center gap-2">
-                  <TerminalSquare className="w-4 h-4" /> Telemetry Inspector
-                </span>
-                <button
-                  onClick={() => setSelectedAsset(null)}
-                  className="p-1.5 bg-[#111] hover:bg-[#222] border border-[#333] rounded-md transition-colors text-[#888]"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
+// ─── Asset Card ───────────────────────────────────────────────────────────────
+const AssetCard = memo(
+  ({ asset, onSelect, onPin, onToggleVisibility, isSelected, viewMode }) => {
+    const [menuOpen, setMenuOpen] = useState(false);
+    const menuRef = useRef(null);
+    const catConfig = getCategoryConfig(asset.category);
+    const Icon = catConfig.icon;
+    const strengthCfg = STRENGTH_CONFIG[asset.strength];
+    const isPending = asset.status === "PENDING" || !asset.status;
+    const isVerified = asset.status === "VERIFIED";
+    const isReported = asset.status === "REPORTED";
 
-              <div className="flex-1 overflow-y-auto p-6 custom-scrollbar space-y-6">
-                {/* Visual Overview */}
-                <div className="flex flex-col items-center text-center">
-                  <div
-                    className={cn(
-                      "w-20 h-20 rounded-2xl flex items-center justify-center border-2 mb-4 shadow-2xl relative",
-                      (
-                        VAULT_CONSTANTS.STATUS[selectedAsset.status] ||
-                        VAULT_CONSTANTS.STATUS.PENDING
-                      ).bg,
-                      (
-                        VAULT_CONSTANTS.STATUS[selectedAsset.status] ||
-                        VAULT_CONSTANTS.STATUS.PENDING
-                      ).border,
-                      (
-                        VAULT_CONSTANTS.STATUS[selectedAsset.status] ||
-                        VAULT_CONSTANTS.STATUS.PENDING
-                      ).color,
-                    )}
-                  >
-                    {getAssetIcon(selectedAsset.type)}
-                    {selectedAsset.status === "VERIFIED" && (
-                      <CheckCircle2 className="absolute -bottom-2 -right-2 w-6 h-6 text-green-500 bg-[#050505] rounded-full" />
-                    )}
-                  </div>
-                  <h2 className="text-lg font-black text-white leading-tight break-all">
-                    {selectedAsset.title}
-                  </h2>
-                  <div
-                    className={cn(
-                      "mt-3 px-3 py-1 rounded-full text-[9px] font-bold uppercase tracking-widest border inline-flex items-center gap-1.5",
-                      (
-                        VAULT_CONSTANTS.STATUS[selectedAsset.status] ||
-                        VAULT_CONSTANTS.STATUS.PENDING
-                      ).bg,
-                      (
-                        VAULT_CONSTANTS.STATUS[selectedAsset.status] ||
-                        VAULT_CONSTANTS.STATUS.PENDING
-                      ).color,
-                      (
-                        VAULT_CONSTANTS.STATUS[selectedAsset.status] ||
-                        VAULT_CONSTANTS.STATUS.PENDING
-                      ).border,
-                    )}
-                  >
-                    {selectedAsset.status === "VERIFIED" ? (
-                      <Lock className="w-3 h-3" />
-                    ) : selectedAsset.status === "REJECTED" ? (
-                      <AlertTriangle className="w-3 h-3" />
-                    ) : (
-                      <Activity className="w-3 h-3 animate-pulse" />
-                    )}
-                    {
-                      (
-                        VAULT_CONSTANTS.STATUS[selectedAsset.status] ||
-                        VAULT_CONSTANTS.STATUS.PENDING
-                      ).label
-                    }
-                  </div>
-                </div>
+    useEffect(() => {
+      const handler = (e) => {
+        if (menuRef.current && !menuRef.current.contains(e.target))
+          setMenuOpen(false);
+      };
+      document.addEventListener("mousedown", handler);
+      return () => document.removeEventListener("mousedown", handler);
+    }, []);
 
-                {/* Audit Notes (If Rejected/Pending) */}
-                {selectedAsset.auditNotes && (
-                  <div className="p-4 bg-red-500/5 border border-red-500/20 rounded-xl">
-                    <p className="text-[10px] font-bold text-red-500 uppercase tracking-widest mb-1 flex items-center gap-1.5">
-                      <ShieldAlert className="w-3 h-3" /> AI Audit Log
-                    </p>
-                    <p className="text-xs text-red-400 font-mono leading-relaxed">
-                      {selectedAsset.auditNotes}
-                    </p>
-                  </div>
-                )}
+    const statusBadge = isVerified
+      ? { label: "Verified", color: "#10b981", bg: "rgba(16,185,129,0.10)" }
+      : isReported
+        ? { label: "Reported", color: "#ef4444", bg: "rgba(239,68,68,0.10)" }
+        : { label: "Pending", color: "#f59e0b", bg: "rgba(245,158,11,0.10)" };
 
-                {/* Credential Fields — rendered dynamically per category */}
-                {selectedAsset.category &&
-                  VAULT_CONSTANTS.ASSET_CATEGORIES[selectedAsset.category] &&
-                  Object.keys(selectedAsset.credentials || {}).length > 0 && (
-                    <div className="p-4 bg-[#0a0a0a] border border-[#1a1a1a] rounded-xl space-y-3">
-                      <span className="text-[9px] font-black text-[#555] uppercase tracking-widest block">
-                        Credential Metadata
-                      </span>
-                      {VAULT_CONSTANTS.ASSET_CATEGORIES[
-                        selectedAsset.category
-                      ].credentialFields.map((field) => {
-                        const val = selectedAsset.credentials?.[field.key];
-                        if (!val) return null;
-                        return (
-                          <div key={field.key}>
-                            <span className="text-[9px] font-bold text-[#666] uppercase tracking-widest block mb-0.5">
-                              {field.label}
-                            </span>
-                            {field.type === "url" ? (
-                              <a
-                                href={val}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-xs font-mono text-sky-400 hover:text-sky-300 truncate block"
-                              >
-                                {val}
-                              </a>
-                            ) : (
-                              <span className="text-xs font-mono text-[#ccc]">
-                                {val}
-                              </span>
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-
-                {/* Verification strength */}
-                {selectedAsset.strength &&
-                  VAULT_CONSTANTS.STRENGTH[selectedAsset.strength] && (
-                    <div
-                      className={cn(
-                        "p-4 border rounded-xl flex items-center justify-between",
-                        VAULT_CONSTANTS.STRENGTH[selectedAsset.strength].bg,
-                        VAULT_CONSTANTS.STRENGTH[selectedAsset.strength].border,
-                      )}
-                    >
-                      <div>
-                        <span className="text-[9px] font-black uppercase tracking-widest block mb-1 text-[#666]">
-                          Verification Strength
-                        </span>
-                        <span
-                          className={cn(
-                            "text-sm font-black",
-                            VAULT_CONSTANTS.STRENGTH[selectedAsset.strength]
-                              .color,
-                          )}
-                        >
-                          {
-                            VAULT_CONSTANTS.STRENGTH[selectedAsset.strength]
-                              .label
-                          }
-                        </span>
-                      </div>
-                      <ShieldCheck
-                        className={cn(
-                          "w-6 h-6",
-                          VAULT_CONSTANTS.STRENGTH[selectedAsset.strength]
-                            .color,
-                        )}
-                      />
-                    </div>
-                  )}
-
-                {/* Public Profile Visibility */}
-                <div
-                  className={cn(
-                    "p-3 border rounded-xl flex items-center gap-2.5",
-                    selectedAsset.status === "VERIFIED"
-                      ? "bg-green-500/5 border-green-500/20"
-                      : "bg-[#0a0a0a] border-[#1a1a1a]",
-                  )}
-                >
-                  <div
-                    className={cn(
-                      "w-2 h-2 rounded-full shrink-0",
-                      selectedAsset.status === "VERIFIED"
-                        ? "bg-green-500"
-                        : "bg-[#333]",
-                    )}
-                  />
-                  <div>
-                    <span className="text-[9px] font-black uppercase tracking-widest block text-[#555]">
-                      Public Profile
-                    </span>
-                    <span
-                      className={cn(
-                        "text-[10px] font-bold",
-                        selectedAsset.status === "VERIFIED"
-                          ? "text-green-400"
-                          : "text-[#444]",
-                      )}
-                    >
-                      {selectedAsset.status === "VERIFIED"
-                        ? "Visible — Verified assets appear on your public profile"
-                        : "Hidden — Only verified assets are shown publicly"}
-                    </span>
-                  </div>
-                </div>
-
-                {/* Cryptographic Metadata */}
-                <div className="space-y-4">
-                  <div className="p-4 bg-[#0a0a0a] border border-[#222] rounded-xl space-y-3">
-                    <div>
-                      <span className="text-[9px] font-bold text-[#666] uppercase tracking-widest block mb-1">
-                        SHA-256 Signature
-                      </span>
-                      <div className="bg-[#111] border border-[#333] px-2 py-1.5 rounded text-[10px] font-mono text-amber-500 break-all">
-                        {selectedAsset.hash}
-                      </div>
-                    </div>
-                    <div className="grid grid-cols-2 gap-4 border-t border-[#222] pt-3">
-                      <div>
-                        <span className="text-[9px] font-bold text-[#666] uppercase tracking-widest block mb-1">
-                          Weight
-                        </span>
-                        <span className="text-xs font-mono text-[#ccc]">
-                          {selectedAsset.type === "link"
-                            ? "0 Bytes"
-                            : formatBytes(selectedAsset.size)}
-                        </span>
-                      </div>
-                      <div>
-                        <span className="text-[9px] font-bold text-[#666] uppercase tracking-widest block mb-1">
-                          Type
-                        </span>
-                        <span className="text-xs font-mono text-[#ccc]">
-                          {selectedAsset.type === "link"
-                            ? "LINK"
-                            : selectedAsset.type.split("/")[1]?.toUpperCase() ||
-                              "DOC"}
-                        </span>
-                      </div>
-                    </div>
-                    <div className="border-t border-[#222] pt-3">
-                      <span className="text-[9px] font-bold text-[#666] uppercase tracking-widest block mb-1">
-                        Timestamp
-                      </span>
-                      <span className="text-xs font-mono text-[#ccc] flex items-center gap-1.5">
-                        <Clock className="w-3 h-3" />{" "}
-                        {new Date(selectedAsset.uploadedAt).toLocaleString()}
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Operational Score Impact */}
-                  {selectedAsset.status === "VERIFIED" && (
-                    <div className="p-4 bg-amber-500/5 border border-amber-500/20 rounded-xl flex items-center justify-between">
-                      <div>
-                        <span className="text-[9px] font-bold text-amber-500 uppercase tracking-widest block mb-1">
-                          Score Yield
-                        </span>
-                        <span className="text-sm font-black text-amber-400">
-                          +{selectedAsset.scoreYield || 0} PTS
-                        </span>
-                      </div>
-                      <Zap className="w-6 h-6 text-amber-500/50" />
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Action Footer */}
-              <div className="p-4 border-t border-[#111] bg-[#0a0a0a] flex gap-3 shrink-0">
-                <a
-                  href={selectedAsset.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex-1 py-3 bg-[#111] border border-[#333] hover:bg-[#222] text-white rounded-xl text-xs font-extrabold uppercase tracking-widest flex items-center justify-center gap-2 transition-colors"
-                >
-                  <ExternalLink className="w-4 h-4" /> Inspect Raw
-                </a>
-                <button
-                  onClick={() => handleDeleteAsset(selectedAsset)}
-                  disabled={isProcessing}
-                  className="w-12 h-12 bg-[#450a0a] hover:bg-red-500 border border-red-500/30 text-red-500 hover:text-white rounded-xl flex items-center justify-center transition-colors shadow-lg disabled:opacity-50"
-                >
-                  <Trash2 className="w-5 h-5" />
-                </button>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
-
-      {/* ============================================================================
-          ZERO-TRUST UPLOAD & SCANNING MODAL
-      ============================================================================ */}
-      <AnimatePresence>
-        {isUploadModalOpen && (
-          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-[#030303]/90 backdrop-blur-md">
-            <motion.div
-              initial={{ scale: 0.95, opacity: 0, y: 20 }}
-              animate={{ scale: 1, opacity: 1, y: 0 }}
-              exit={{ scale: 0.95, opacity: 0, y: 20 }}
-              className="bg-[#0a0a0a] border border-[#222] rounded-[2rem] max-w-lg w-full shadow-[0_30px_60px_rgba(0,0,0,0.9)] overflow-hidden flex flex-col relative max-h-[90vh]"
-            >
-              {/* Ambient scanning glow */}
-              <div className="absolute top-0 left-1/4 w-1/2 h-px bg-amber-500 shadow-[0_0_20px_rgba(245,158,11,1)]" />
-
-              {/* Modal Header */}
-              <div className="flex justify-between items-center p-5 border-b border-[#111] shrink-0">
-                <div className="flex items-center gap-3">
-                  <Cpu className="w-5 h-5 text-amber-500" />
-                  <div>
-                    <h3 className="text-base font-black text-white">
-                      {uploadStep === "category"
-                        ? "Select Asset Category"
-                        : uploadStep === "credentials"
-                          ? `New ${selectedCategory} — Fill Credentials`
-                          : "Transmitting to Cloud"}
-                    </h3>
-                    <p className="text-[9px] font-bold text-[#555] uppercase tracking-widest">
-                      {uploadStep === "category"
-                        ? "Step 1 of 2"
-                        : uploadStep === "credentials"
-                          ? "Step 2 of 2"
-                          : "Uploading..."}
-                    </p>
-                  </div>
-                </div>
-                <button
-                  onClick={resetUploadModal}
-                  className="p-2 bg-[#111] hover:bg-[#222] border border-[#333] rounded-xl transition-colors text-[#888]"
-                >
-                  <X className="w-4 h-4" />
-                </button>
-              </div>
-
-              {/* Step progress bar */}
-              <div className="h-px bg-[#111] shrink-0">
-                <div
-                  className="h-full w-full bg-amber-500 transition-transform duration-500 origin-left"
-                  style={{
-                    transform: `scaleX(${
-                      uploadStep === "category"
-                        ? 0.33
-                        : uploadStep === "credentials"
-                          ? 0.66
-                          : 1
-                    })`,
-                  }}
+    // Grid view card
+    if (viewMode === "grid") {
+      return (
+        <motion.div
+          layout
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, scale: 0.96 }}
+          onClick={() => onSelect(asset)}
+          className="relative flex flex-col rounded-[1.25rem] border cursor-pointer group overflow-hidden transition-all duration-300"
+          style={{
+            background: isSelected ? "rgba(191,162,100,0.05)" : V.surface,
+            borderColor: isSelected ? G.border : "rgba(255,255,255,0.06)",
+            boxShadow: isSelected ? `0 0 0 1px ${G.border}` : "none",
+          }}
+          whileHover={{ y: -2 }}
+          whileTap={{ scale: 0.98 }}
+        >
+          {/* Thumbnail area */}
+          <div
+            className="relative aspect-[16/9] overflow-hidden rounded-t-[1.25rem]"
+            style={{ background: `${catConfig.color}10` }}
+          >
+            {asset.thumbnailUrl ? (
+              <img
+                src={asset.thumbnailUrl}
+                alt={asset.title}
+                className="w-full h-full object-cover opacity-70 group-hover:opacity-90 transition-opacity duration-500"
+              />
+            ) : (
+              <div className="w-full h-full flex items-center justify-center">
+                <Icon
+                  className="w-10 h-10"
+                  style={{ color: `${catConfig.color}30` }}
                 />
               </div>
+            )}
+            <div className="absolute inset-0 bg-gradient-to-t from-[#0F0F0F] via-transparent to-transparent opacity-80" />
 
-              {/* Error display */}
+            {/* Pin badge */}
+            {asset.pinned && (
+              <div
+                className="absolute top-2 left-2 w-5 h-5 rounded-full flex items-center justify-center"
+                style={{ background: G.dimBg, border: `1px solid ${G.border}` }}
+              >
+                <Pin className="w-2.5 h-2.5" style={{ color: G.bright }} />
+              </div>
+            )}
+
+            {/* Private badge */}
+            {!asset.isPublic && (
+              <div
+                className="absolute top-2 right-8 flex items-center gap-1 px-1.5 py-0.5 rounded-md"
+                style={{
+                  background: "rgba(0,0,0,0.65)",
+                  border: "1px solid rgba(255,255,255,0.08)",
+                }}
+              >
+                <EyeOff className="w-2.5 h-2.5" style={{ color: T.dim }} />
+              </div>
+            )}
+
+            {/* 3-dot menu */}
+            <div
+              className="absolute top-2 right-2"
+              ref={menuRef}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <button
+                onClick={() => setMenuOpen((v) => !v)}
+                className="w-6 h-6 rounded-md flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                style={{
+                  background: "rgba(0,0,0,0.65)",
+                  border: "1px solid rgba(255,255,255,0.1)",
+                }}
+              >
+                <MoreHorizontal
+                  className="w-3.5 h-3.5"
+                  style={{ color: T.secondary }}
+                />
+              </button>
               <AnimatePresence>
-                {uploadError && (
+                {menuOpen && (
                   <motion.div
-                    initial={{ opacity: 0, height: 0 }}
-                    animate={{ opacity: 1, height: "auto" }}
-                    exit={{ opacity: 0, height: 0 }}
-                    className="mx-5 mt-4 p-3 bg-red-500/8 border border-red-500/20 rounded-xl flex items-center gap-2.5 text-red-400 text-xs font-bold shrink-0"
+                    initial={{ opacity: 0, scale: 0.95, y: -4 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.95, y: -4 }}
+                    className="absolute right-0 top-full mt-1 w-44 rounded-xl shadow-2xl z-50 overflow-hidden"
+                    style={{
+                      background: V.elevated,
+                      border: "1px solid rgba(255,255,255,0.08)",
+                    }}
                   >
-                    <AlertTriangle className="w-4 h-4 shrink-0" />
-                    {uploadError}
+                    {[
+                      {
+                        label: asset.pinned ? "Unpin" : "Pin to Top",
+                        icon: asset.pinned ? PinOff : Pin,
+                        action: () => {
+                          onPin(asset);
+                          setMenuOpen(false);
+                        },
+                      },
+                      {
+                        label: asset.isPublic ? "Make Private" : "Make Public",
+                        icon: asset.isPublic ? EyeOff : Eye,
+                        action: () => {
+                          onToggleVisibility(asset);
+                          setMenuOpen(false);
+                        },
+                      },
+                    ].map((item) => {
+                      const ItemIcon = item.icon;
+                      return (
+                        <button
+                          key={item.label}
+                          onClick={item.action}
+                          className="w-full flex items-center gap-2.5 px-3 py-2.5 text-[11px] font-bold transition-colors text-left hover:bg-white/[0.04]"
+                          style={{ color: T.secondary }}
+                        >
+                          <ItemIcon className="w-3.5 h-3.5" />
+                          {item.label}
+                        </button>
+                      );
+                    })}
                   </motion.div>
                 )}
               </AnimatePresence>
+            </div>
+          </div>
 
-              <div className="flex-1 overflow-y-auto custom-scrollbar p-5">
-                {/* ─── STEP 1: CATEGORY SELECTION ─── */}
-                {uploadStep === "category" && (
-                  <div className="grid grid-cols-2 gap-3">
-                    {Object.entries(VAULT_CONSTANTS.ASSET_CATEGORIES).map(
-                      ([key, cat]) => (
-                        <button
-                          key={key}
-                          onClick={() => {
-                            setSelectedCategory(key);
-                            setCredentialData({});
-                            setUploadError(null);
-                            setUploadStep("credentials");
-                            // For Link category, default to url mode
-                            if (key === "Link") setUploadMode("url");
-                            else setUploadMode("file");
-                          }}
-                          className={cn(
-                            "flex flex-col items-start gap-2 p-4 rounded-2xl border text-left transition-all hover:scale-[1.02] active:scale-[0.98]",
-                            cat.bg,
-                            cat.border,
-                          )}
-                        >
-                          <div
-                            className={cn(
-                              "w-8 h-8 rounded-xl flex items-center justify-center",
-                              cat.bg,
-                              cat.border,
-                              "border",
-                            )}
-                          >
-                            <span className={cat.color}>
-                              {getAssetIcon(key)}
-                            </span>
-                          </div>
-                          <div>
-                            <p className={cn("text-xs font-black", cat.color)}>
-                              {cat.label}
-                            </p>
-                            <p className="text-[9px] text-[#555] leading-relaxed mt-0.5">
-                              {cat.description}
-                            </p>
-                          </div>
-                        </button>
-                      ),
+          {/* Content */}
+          <div className="p-3.5 flex flex-col gap-2">
+            <div className="flex items-start justify-between gap-2">
+              <h3
+                className="text-xs font-black leading-tight line-clamp-2 flex-1"
+                style={{
+                  color: T.primary,
+                  fontFamily: "'Montserrat', sans-serif",
+                }}
+              >
+                {asset.title || "Untitled Asset"}
+              </h3>
+            </div>
+
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span
+                className="flex items-center gap-1 text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-md"
+                style={{
+                  background: `${catConfig.color}15`,
+                  color: catConfig.color,
+                }}
+              >
+                <Icon className="w-2.5 h-2.5" />
+                {catConfig.label}
+              </span>
+              <span
+                className="text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-md"
+                style={{ background: statusBadge.bg, color: statusBadge.color }}
+              >
+                {statusBadge.label}
+              </span>
+              {asset.strength && (
+                <span
+                  className="text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-md"
+                  style={{
+                    background: strengthCfg?.bg,
+                    color: strengthCfg?.color,
+                  }}
+                >
+                  {asset.strength}
+                </span>
+              )}
+            </div>
+
+            <div
+              className="flex items-center justify-between pt-1"
+              style={{ borderTop: "1px solid rgba(255,255,255,0.04)" }}
+            >
+              <span className="text-[8px] font-mono" style={{ color: T.dim }}>
+                {asset.type === "link" ? "URL" : formatBytes(asset.size || 0)}
+              </span>
+              <span className="text-[8px]" style={{ color: T.dim }}>
+                {timeAgo(asset.uploadedAt)}
+              </span>
+            </div>
+          </div>
+        </motion.div>
+      );
+    }
+
+    // List view row
+    return (
+      <motion.div
+        layout
+        initial={{ opacity: 0, x: -8 }}
+        animate={{ opacity: 1, x: 0 }}
+        exit={{ opacity: 0 }}
+        onClick={() => onSelect(asset)}
+        className="flex items-center gap-3 px-4 py-3 rounded-xl cursor-pointer group transition-all"
+        style={{
+          background: isSelected ? "rgba(191,162,100,0.05)" : "transparent",
+          border: `1px solid ${isSelected ? G.border : "rgba(255,255,255,0.04)"}`,
+        }}
+        whileHover={{ backgroundColor: "rgba(255,255,255,0.02)" }}
+      >
+        <div
+          className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
+          style={{
+            background: `${catConfig.color}15`,
+            border: `1px solid ${catConfig.color}25`,
+          }}
+        >
+          <Icon className="w-4 h-4" style={{ color: catConfig.color }} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p
+            className="text-sm font-bold truncate"
+            style={{ color: T.primary }}
+          >
+            {asset.title || "Untitled"}
+          </p>
+          <p
+            className="text-[10px] font-mono truncate"
+            style={{ color: T.dim }}
+          >
+            {asset.credentials?.issuer || catConfig.label} ·{" "}
+            {formatBytes(asset.size || 0)}
+          </p>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          <span
+            className="text-[8px] font-black uppercase tracking-widest px-2 py-1 rounded-lg"
+            style={{ background: statusBadge.bg, color: statusBadge.color }}
+          >
+            {statusBadge.label}
+          </span>
+          {asset.pinned && (
+            <Pin className="w-3 h-3" style={{ color: G.base }} />
+          )}
+          {!asset.isPublic && (
+            <EyeOff className="w-3 h-3" style={{ color: T.dim }} />
+          )}
+          <span className="text-[9px]" style={{ color: T.dim }}>
+            {timeAgo(asset.uploadedAt)}
+          </span>
+          <ChevronRight
+            className="w-3.5 h-3.5 opacity-0 group-hover:opacity-100 transition-opacity"
+            style={{ color: T.dim }}
+          />
+        </div>
+      </motion.div>
+    );
+  },
+);
+
+// ─── Upload Modal ─────────────────────────────────────────────────────────────
+const UploadModal = ({ onClose, onUpload, usedBytes, tier }) => {
+  const limit = TIER_STORAGE[tier?.toUpperCase()] || TIER_STORAGE.ESSENTIAL;
+  const remaining = limit - usedBytes;
+
+  const [dragActive, setDragActive] = useState(false);
+  const [file, setFile] = useState(null);
+  const [previewUrl, setPreviewUrl] = useState(null);
+  const [form, setForm] = useState({
+    title: "",
+    category: "Certificate",
+    credentials: {},
+  });
+  const [uploading, setUploading] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [error, setError] = useState("");
+  const fileRef = useRef(null);
+
+  const MAX_FILE_SIZE = 25 * 1024 * 1024;
+
+  // Filter out automated connectors (Design, Code/Project, Video, Music) for manual sync
+  const SYNC_CATEGORIES = ASSET_CATEGORIES.filter((c) =>
+    ["Certificate", "Resume", "Employment", "Publication", "Link"].includes(
+      c.key,
+    ),
+  );
+
+  const handleFile = (f) => {
+    if (!f) return;
+    if (f.size > MAX_FILE_SIZE) {
+      setError("File exceeds 25MB per-file limit.");
+      return;
+    }
+    if (f.size > remaining) {
+      setError(
+        `Insufficient storage. You have ${formatBytes(remaining)} remaining.`,
+      );
+      return;
+    }
+    setError("");
+    setFile(f);
+    if (!form.title)
+      setForm((p) => ({ ...p, title: f.name.replace(/\.[^.]+$/, "") }));
+
+    if (f.type.startsWith("image/")) {
+      const url = URL.createObjectURL(f);
+      setPreviewUrl(url);
+    } else {
+      setPreviewUrl(null);
+    }
+  };
+
+  const handleDrop = (e) => {
+    e.preventDefault();
+    setDragActive(false);
+    handleFile(e.dataTransfer.files[0]);
+  };
+
+  const handleDynamicChange = (field, value) => {
+    setForm((p) => ({
+      ...p,
+      credentials: { ...p.credentials, [field]: value },
+    }));
+  };
+
+  const currentSchema = ASSET_SCHEMAS[form.category] || ASSET_SCHEMAS.Default;
+
+  const handleSubmit = async () => {
+    if (!file && form.category !== "Link") {
+      setError("Please attach a file.");
+      return;
+    }
+    if (!form.title.trim()) {
+      setError("Title is required.");
+      return;
+    }
+    for (const field of currentSchema) {
+      if (field.required && !form.credentials[field.name]) {
+        setError(`${field.label.replace(" *", "")} is required.`);
+        return;
+      }
+    }
+    setUploading(true);
+    setError("");
+    // Architecture mandate: Asset must be private on initial upload
+    await onUpload(file, { ...form, isPublic: false }, setProgress);
+    setUploading(false);
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
+    onClose();
+  };
+
+  const selectedCat =
+    SYNC_CATEGORIES.find((c) => c.key === form.category) || SYNC_CATEGORIES[0];
+  const CatIcon = selectedCat.icon;
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[500] flex items-end sm:items-center justify-center sm:p-6"
+      style={{ background: "rgba(0,0,0,0.85)", backdropFilter: "blur(16px)" }}
+      onClick={onClose}
+    >
+      <motion.div
+        initial={{ opacity: 0, y: 40, scale: 0.95 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, y: 40, scale: 0.95 }}
+        className="w-full sm:w-[900px] h-[85vh] sm:h-[600px] flex flex-col sm:flex-row rounded-t-[2rem] sm:rounded-[2rem] overflow-hidden"
+        style={{
+          background: "rgba(10, 10, 10, 0.75)",
+          backdropFilter: "blur(24px)",
+          border: "1px solid rgba(191, 162, 100, 0.2)",
+          boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.8)",
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Left Bar (PC) / Top (Mobile) - File Upload & Preview */}
+        <div className="w-full sm:w-[320px] p-6 flex flex-col border-b sm:border-b-0 sm:border-r border-white/5 bg-[#050505]/60 shrink-0">
+          <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center gap-2">
+              <Database className="w-4 h-4" style={{ color: G.base }} />
+              <h3
+                className="text-sm font-black"
+                style={{
+                  color: T.primary,
+                  fontFamily: "'Montserrat', sans-serif",
+                }}
+              >
+                Sync Asset
+              </h3>
+            </div>
+            <button
+              onClick={onClose}
+              className="sm:hidden w-7 h-7 rounded-full flex items-center justify-center bg-white/5"
+            >
+              <X className="w-3.5 h-3.5" style={{ color: T.secondary }} />
+            </button>
+          </div>
+
+          <div
+            onDragOver={(e) => {
+              e.preventDefault();
+              setDragActive(true);
+            }}
+            onDragLeave={() => setDragActive(false)}
+            onDrop={handleDrop}
+            onClick={() => !file && fileRef.current?.click()}
+            className="flex-1 relative flex flex-col items-center justify-center gap-3 p-4 rounded-2xl cursor-pointer transition-all overflow-hidden"
+            style={{
+              background: dragActive
+                ? G.dimBg
+                : previewUrl
+                  ? "#000"
+                  : "rgba(255,255,255,0.02)",
+              border: `2px dashed ${dragActive ? G.border : file ? "transparent" : "rgba(255,255,255,0.08)"}`,
+            }}
+          >
+            <input
+              ref={fileRef}
+              type="file"
+              className="hidden"
+              accept=".pdf,.png,.jpg,.jpeg,.docx,.zip,.mp4,.mp3"
+              onChange={(e) => handleFile(e.target.files[0])}
+            />
+            {previewUrl && (
+              <img
+                src={previewUrl}
+                alt="Preview"
+                className="absolute inset-0 w-full h-full object-cover opacity-50"
+              />
+            )}
+
+            <div className="z-10 flex flex-col items-center text-center">
+              {file ? (
+                <>
+                  <div
+                    className="w-12 h-12 rounded-2xl flex items-center justify-center mb-3 shadow-xl backdrop-blur-md"
+                    style={{
+                      background: G.dimBg,
+                      border: `1px solid ${G.border}`,
+                    }}
+                  >
+                    <CatIcon className="w-6 h-6" style={{ color: G.bright }} />
+                  </div>
+                  <p
+                    className="text-sm font-bold truncate max-w-[200px]"
+                    style={{ color: T.primary }}
+                  >
+                    {file.name}
+                  </p>
+                  <p
+                    className="text-[10px] mt-1 font-mono"
+                    style={{ color: T.dim }}
+                  >
+                    {formatBytes(file.size)}
+                  </p>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setFile(null);
+                      setPreviewUrl(null);
+                    }}
+                    className="mt-4 text-[10px] font-black uppercase tracking-widest px-4 py-2 rounded-xl transition-all"
+                    style={{
+                      color: "#ef4444",
+                      background: "rgba(239,68,68,0.1)",
+                      border: "1px solid rgba(239,68,68,0.2)",
+                    }}
+                  >
+                    Remove File
+                  </button>
+                </>
+              ) : (
+                <>
+                  <Upload className="w-8 h-8 mb-3" style={{ color: T.dim }} />
+                  <p className="text-sm font-bold" style={{ color: T.primary }}>
+                    Select or Drop File
+                  </p>
+                  <p
+                    className="text-[10px] mt-1.5 leading-relaxed"
+                    style={{ color: T.dim }}
+                  >
+                    PDF, PNG, JPG, DOCX, ZIP
+                    <br />
+                    Max 25MB · {formatBytes(remaining)} left
+                  </p>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Right Area - Forms & Categories */}
+        <div className="flex-1 flex flex-col overflow-hidden bg-transparent">
+          {/* Horizontal Scrollable Categories */}
+          <div className="p-5 pb-0 shrink-0">
+            <div className="flex sm:flex-row flex-col items-stretch sm:items-center gap-2.5 overflow-x-auto hide-scrollbar pb-3">
+              {SYNC_CATEGORIES.map((cat) => {
+                const CIcon = cat.icon;
+                const active = form.category === cat.key;
+                return (
+                  <button
+                    key={cat.key}
+                    onClick={() =>
+                      setForm((p) => ({
+                        ...p,
+                        category: cat.key,
+                        credentials: {},
+                      }))
+                    }
+                    className="flex items-center gap-2 px-4 py-3 rounded-xl transition-all shrink-0 justify-start sm:justify-center"
+                    style={{
+                      background: active ? `${cat.color}15` : V.surface,
+                      border: `1px solid ${active ? `${cat.color}40` : "rgba(255,255,255,0.05)"}`,
+                    }}
+                  >
+                    <CIcon
+                      className="w-4 h-4"
+                      style={{ color: active ? cat.color : T.dim }}
+                    />
+                    <span
+                      className="text-[10px] font-black uppercase tracking-widest"
+                      style={{ color: active ? cat.color : T.dim }}
+                    >
+                      {cat.label}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Dynamic Scrollable Form */}
+          <div className="flex-1 overflow-y-auto p-5 custom-scrollbar space-y-5">
+            {error && (
+              <div
+                className="flex items-center gap-2.5 p-3 rounded-xl"
+                style={{
+                  background: "rgba(239,68,68,0.08)",
+                  border: "1px solid rgba(239,68,68,0.2)",
+                }}
+              >
+                <AlertTriangle className="w-4 h-4 shrink-0 text-red-500" />
+                <p className="text-xs font-bold text-red-400">{error}</p>
+              </div>
+            )}
+
+            <div>
+              <label
+                className="block text-[9px] font-black uppercase tracking-widest mb-2"
+                style={{ color: T.dim }}
+              >
+                Asset Title *
+              </label>
+              <input
+                value={form.title}
+                onChange={(e) =>
+                  setForm((p) => ({ ...p, title: e.target.value }))
+                }
+                placeholder={`e.g. Google Data Analytics Certificate`}
+                className="w-full px-4 py-3 rounded-xl text-sm focus:outline-none transition-all"
+                style={{
+                  background: V.surface,
+                  border: "1px solid rgba(255,255,255,0.08)",
+                  color: T.primary,
+                }}
+              />
+            </div>
+
+            {currentSchema.length > 0 && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {currentSchema.map((field) => (
+                  <div
+                    key={field.name}
+                    className={field.type === "url" ? "sm:col-span-2" : ""}
+                  >
+                    <label
+                      className="block text-[9px] font-black uppercase tracking-widest mb-2"
+                      style={{ color: T.dim }}
+                    >
+                      {field.label}
+                    </label>
+                    <input
+                      type={field.type}
+                      value={form.credentials[field.name] || ""}
+                      onChange={(e) =>
+                        handleDynamicChange(field.name, e.target.value)
+                      }
+                      placeholder={field.placeholder || ""}
+                      className="w-full px-4 py-3 rounded-xl text-sm focus:outline-none transition-all"
+                      style={{
+                        background: V.surface,
+                        border: "1px solid rgba(255,255,255,0.08)",
+                        color: T.primary,
+                      }}
+                    />
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {uploading && (
+              <div className="space-y-2 pt-2">
+                <div className="flex items-center justify-between">
+                  <span
+                    className="text-[10px] font-bold"
+                    style={{ color: T.dim }}
+                  >
+                    Encrypting & Uploading...
+                  </span>
+                  <span
+                    className="text-[10px] font-black font-mono"
+                    style={{ color: G.bright }}
+                  >
+                    {progress}%
+                  </span>
+                </div>
+                <div
+                  className="w-full h-1.5 rounded-full overflow-hidden"
+                  style={{ background: "rgba(255,255,255,0.06)" }}
+                >
+                  <motion.div
+                    className="h-full rounded-full"
+                    animate={{ width: `${progress}%` }}
+                    style={{
+                      background: `linear-gradient(90deg, ${G.deep}, ${G.bright})`,
+                    }}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Form Footer */}
+          <div className="p-5 shrink-0 flex items-center justify-between bg-[#0A0A0A]/90 backdrop-blur-xl border-t border-white/5">
+            <div className="hidden sm:flex items-center gap-2">
+              <Lock className="w-3.5 h-3.5" style={{ color: T.dim }} />
+              <p
+                className="text-[9px] font-bold tracking-wide"
+                style={{ color: T.dim }}
+              >
+                Asset is private by default.
+              </p>
+            </div>
+            <div className="flex gap-3 w-full sm:w-auto">
+              <button
+                onClick={onClose}
+                className="hidden sm:block px-6 py-3.5 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all"
+                style={{
+                  background: V.surface,
+                  border: "1px solid rgba(255,255,255,0.05)",
+                  color: T.secondary,
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSubmit}
+                disabled={
+                  uploading ||
+                  (!file && form.category !== "Link") ||
+                  !form.title.trim()
+                }
+                className="flex-1 sm:flex-none px-8 py-3.5 rounded-xl font-black text-[11px] uppercase tracking-widest transition-all flex items-center justify-center gap-2 disabled:opacity-40"
+                style={{
+                  background: `linear-gradient(135deg, ${G.deep}, ${G.bright})`,
+                  color: "#0a0a0a",
+                }}
+              >
+                {uploading ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Upload className="w-4 h-4" />
+                )}
+                {uploading ? "Syncing..." : "Sync Asset"}
+              </button>
+            </div>
+          </div>
+        </div>
+      </motion.div>
+    </div>,
+    document.body,
+  );
+};
+
+// ─── Share Modal ──────────────────────────────────────────────────────────────
+const ShareModal = ({ asset, onClose }) => {
+  const [emails, setEmails] = useState((asset.sharedWith || []).join(", "));
+  const [copied, setCopied] = useState(false);
+  const shareUrl = `${window.location.origin}/app/vault/asset/${asset.id}`;
+
+  const copyLink = () => {
+    navigator.clipboard.writeText(shareUrl);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[600] flex items-center justify-center p-4"
+      style={{ background: "rgba(0,0,0,0.85)", backdropFilter: "blur(12px)" }}
+      onClick={onClose}
+    >
+      <motion.div
+        initial={{ opacity: 0, scale: 0.96 }}
+        animate={{ opacity: 1, scale: 1 }}
+        exit={{ opacity: 0, scale: 0.96 }}
+        className="w-full max-w-md rounded-[1.5rem] overflow-hidden"
+        style={{
+          background: V.depth,
+          border: "1px solid rgba(255,255,255,0.07)",
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div
+          className="flex items-center justify-between px-5 py-4"
+          style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}
+        >
+          <h3
+            className="text-sm font-black flex items-center gap-2"
+            style={{ color: T.primary }}
+          >
+            <Share2 className="w-4 h-4" style={{ color: G.base }} /> Share Asset
+          </h3>
+          <button
+            onClick={onClose}
+            className="w-6 h-6 rounded-full flex items-center justify-center"
+            style={{ background: "rgba(255,255,255,0.05)" }}
+          >
+            <X className="w-3 h-3" style={{ color: T.secondary }} />
+          </button>
+        </div>
+        <div className="p-5 space-y-4">
+          <div
+            className="flex items-center gap-2 p-3 rounded-xl"
+            style={{
+              background: V.surface,
+              border: "1px solid rgba(255,255,255,0.05)",
+            }}
+          >
+            <Link className="w-4 h-4 shrink-0" style={{ color: T.dim }} />
+            <span
+              className="text-xs font-mono truncate flex-1"
+              style={{ color: T.secondary }}
+            >
+              {shareUrl}
+            </span>
+            <button
+              onClick={copyLink}
+              className="flex items-center gap-1.5 px-3 py-1 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all"
+              style={{
+                background: copied ? "rgba(16,185,129,0.15)" : G.dimBg,
+                color: copied ? "#10b981" : G.bright,
+              }}
+            >
+              {copied ? (
+                <Check className="w-3 h-3" />
+              ) : (
+                <Copy className="w-3 h-3" />
+              )}
+              {copied ? "Copied" : "Copy"}
+            </button>
+          </div>
+          <div>
+            <label
+              className="block text-[9px] font-black uppercase tracking-widest mb-2"
+              style={{ color: T.dim }}
+            >
+              Grant Access (email addresses, comma-separated)
+            </label>
+            <textarea
+              value={emails}
+              onChange={(e) => setEmails(e.target.value)}
+              rows={3}
+              placeholder="user@example.com, colleague@company.com"
+              className="w-full px-4 py-3 rounded-xl text-sm resize-none focus:outline-none"
+              style={{
+                background: V.surface,
+                border: "1px solid rgba(255,255,255,0.08)",
+                color: T.primary,
+              }}
+            />
+            <p className="text-[9px] mt-1.5" style={{ color: T.dim }}>
+              These users will be able to view this private asset via the direct
+              link.
+            </p>
+          </div>
+          <button
+            className="w-full py-3 rounded-xl font-black text-[11px] uppercase tracking-widest"
+            style={{
+              background: G.dimBg,
+              border: `1px solid ${G.border}`,
+              color: G.bright,
+            }}
+          >
+            Save Access Settings
+          </button>
+        </div>
+      </motion.div>
+    </div>,
+    document.body,
+  );
+};
+
+// ─── Asset Preview Drawer ─────────────────────────────────────────────────────
+const AssetDrawer = ({
+  asset,
+  onClose,
+  onDelete,
+  onRename,
+  onToggleVisibility,
+  onPin,
+  onDownload,
+  onShare,
+}) => {
+  const [renaming, setRenaming] = useState(false);
+  const [newTitle, setNewTitle] = useState(asset?.title || "");
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
+  if (!asset) return null;
+
+  const catConfig = getCategoryConfig(asset.category);
+  const CatIcon = catConfig.icon;
+  const strengthCfg = STRENGTH_CONFIG[asset.strength];
+
+  const isVerified = asset.status === "VERIFIED";
+  const isPending = asset.status === "PENDING" || !asset.status;
+
+  const credentials = asset.credentials || {};
+  const credEntries = Object.entries(credentials).filter(([, v]) => v);
+
+  return (
+    <motion.aside
+      initial={{ x: "100%", opacity: 0 }}
+      animate={{ x: 0, opacity: 1 }}
+      exit={{ x: "100%", opacity: 0 }}
+      transition={{ type: "spring", damping: 28, stiffness: 280 }}
+      className="fixed right-0 top-0 bottom-0 w-full sm:w-[400px] flex flex-col z-[200] overflow-hidden"
+      style={{
+        background: V.depth,
+        borderLeft: "1px solid rgba(255,255,255,0.06)",
+        boxShadow: "-20px 0 60px rgba(0,0,0,0.7)",
+      }}
+    >
+      {/* Header */}
+      <div
+        className="flex items-center justify-between px-5 py-4 shrink-0"
+        style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}
+      >
+        <div className="flex items-center gap-2.5">
+          <div
+            className="w-8 h-8 rounded-xl flex items-center justify-center"
+            style={{ background: `${catConfig.color}15` }}
+          >
+            <CatIcon className="w-4 h-4" style={{ color: catConfig.color }} />
+          </div>
+          <div>
+            <p
+              className="text-[9px] font-black uppercase tracking-widest"
+              style={{ color: catConfig.color }}
+            >
+              {catConfig.label}
+            </p>
+            <p className="text-[9px] font-mono" style={{ color: T.dim }}>
+              {formatBytes(asset.size)}
+            </p>
+          </div>
+        </div>
+        <button
+          onClick={onClose}
+          className="w-7 h-7 rounded-full flex items-center justify-center"
+          style={{ background: "rgba(255,255,255,0.05)" }}
+        >
+          <X className="w-3.5 h-3.5" style={{ color: T.secondary }} />
+        </button>
+      </div>
+
+      {/* Preview area */}
+      <div
+        className="relative shrink-0"
+        style={{
+          height: 180,
+          background: `${catConfig.color}08`,
+          borderBottom: "1px solid rgba(255,255,255,0.04)",
+        }}
+      >
+        {asset.thumbnailUrl ? (
+          <img
+            src={asset.thumbnailUrl}
+            alt={asset.title}
+            className="w-full h-full object-cover opacity-60"
+          />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center">
+            <CatIcon
+              className="w-16 h-16"
+              style={{ color: `${catConfig.color}20` }}
+            />
+          </div>
+        )}
+        <div className="absolute inset-0 bg-gradient-to-t from-[#0A0A0A] via-[#0A0A0A]/40 to-transparent" />
+
+        {/* Status overlay */}
+        <div className="absolute bottom-4 left-4 right-4 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            {isVerified && (
+              <div
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl"
+                style={{
+                  background: "rgba(16,185,129,0.15)",
+                  border: "1px solid rgba(16,185,129,0.3)",
+                }}
+              >
+                <ShieldCheck className="w-3 h-3" style={{ color: "#10b981" }} />
+                <span
+                  className="text-[9px] font-black uppercase tracking-widest"
+                  style={{ color: "#10b981" }}
+                >
+                  Verified
+                </span>
+                {asset.strength && (
+                  <span
+                    className="text-[9px] font-black"
+                    style={{ color: strengthCfg?.color }}
+                  >
+                    · {asset.strength}
+                  </span>
+                )}
+              </div>
+            )}
+            {isPending && (
+              <div
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-xl"
+                style={{
+                  background: "rgba(245,158,11,0.15)",
+                  border: "1px solid rgba(245,158,11,0.3)",
+                }}
+              >
+                <Clock className="w-3 h-3" style={{ color: "#f59e0b" }} />
+                <span
+                  className="text-[9px] font-black uppercase tracking-widest"
+                  style={{ color: "#f59e0b" }}
+                >
+                  Pending Review
+                </span>
+              </div>
+            )}
+          </div>
+          {asset.scoreYield && (
+            <div
+              className="flex items-center gap-1 px-2 py-1 rounded-lg"
+              style={{ background: G.dimBg, border: `1px solid ${G.border}` }}
+            >
+              <Zap className="w-2.5 h-2.5" style={{ color: G.bright }} />
+              <span
+                className="text-[9px] font-black"
+                style={{ color: G.bright }}
+              >
+                +{asset.scoreYield} pts
+              </span>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Scrollable content */}
+      <div className="flex-1 overflow-y-auto custom-scrollbar">
+        <div className="p-5 space-y-5">
+          {/* Title / rename */}
+          <div>
+            {renaming ? (
+              <div className="flex items-center gap-2">
+                <input
+                  value={newTitle}
+                  onChange={(e) => setNewTitle(e.target.value)}
+                  className="flex-1 px-3 py-2 rounded-xl text-sm focus:outline-none"
+                  style={{
+                    background: V.surface,
+                    border: `1px solid ${G.border}`,
+                    color: T.primary,
+                  }}
+                  autoFocus
+                />
+                <button
+                  onClick={() => {
+                    onRename(asset, newTitle);
+                    setRenaming(false);
+                  }}
+                  className="w-8 h-8 rounded-xl flex items-center justify-center"
+                  style={{
+                    background: "rgba(16,185,129,0.15)",
+                    border: "1px solid rgba(16,185,129,0.3)",
+                  }}
+                >
+                  <Check className="w-3.5 h-3.5" style={{ color: "#10b981" }} />
+                </button>
+                <button
+                  onClick={() => setRenaming(false)}
+                  className="w-8 h-8 rounded-xl flex items-center justify-center"
+                  style={{
+                    background: V.surface,
+                    border: "1px solid rgba(255,255,255,0.05)",
+                  }}
+                >
+                  <X className="w-3.5 h-3.5" style={{ color: T.dim }} />
+                </button>
+              </div>
+            ) : (
+              <div className="flex items-start justify-between gap-2">
+                <h2
+                  className="text-lg font-black leading-tight flex-1"
+                  style={{
+                    color: T.primary,
+                    fontFamily: "'Montserrat', sans-serif",
+                  }}
+                >
+                  {asset.title || "Untitled Asset"}
+                </h2>
+                <button
+                  onClick={() => setRenaming(true)}
+                  className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0 transition-all"
+                  style={{ background: "rgba(255,255,255,0.04)" }}
+                >
+                  <Pencil className="w-3 h-3" style={{ color: T.dim }} />
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Credential fields */}
+          {credEntries.length > 0 && (
+            <div className="space-y-2">
+              <p
+                className="text-[9px] font-black uppercase tracking-widest"
+                style={{ color: T.dim }}
+              >
+                Details
+              </p>
+              {credEntries.map(([key, value]) => {
+                const isUrl =
+                  typeof value === "string" && value.startsWith("http");
+                return (
+                  <div
+                    key={key}
+                    className="flex items-start gap-3 p-3 rounded-xl"
+                    style={{
+                      background: V.surface,
+                      border: "1px solid rgba(255,255,255,0.04)",
+                    }}
+                  >
+                    <span
+                      className="text-[8px] font-black uppercase tracking-widest mt-0.5 w-20 shrink-0 capitalize"
+                      style={{ color: T.dim }}
+                    >
+                      {key.replace(/([A-Z])/g, " $1").trim()}
+                    </span>
+                    {isUrl ? (
+                      <a
+                        href={value}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-[10px] font-mono truncate flex-1 flex items-center gap-1 hover:underline"
+                        style={{ color: "#38bdf8" }}
+                      >
+                        {value.length > 40 ? value.slice(0, 40) + "..." : value}
+                        <ExternalLink className="w-2.5 h-2.5 shrink-0" />
+                      </a>
+                    ) : (
+                      <span
+                        className="text-[10px] font-mono truncate flex-1"
+                        style={{ color: T.secondary }}
+                      >
+                        {String(value)}
+                      </span>
                     )}
                   </div>
-                )}
+                );
+              })}
+            </div>
+          )}
 
-                {/* ─── STEP 2: CREDENTIAL FIELDS + ATTACHMENT ─── */}
-                {uploadStep === "credentials" &&
-                  selectedCategory &&
-                  uploadQueue.length === 0 && (
-                    <div className="space-y-5">
-                      {/* Back button */}
-                      <button
-                        onClick={() => {
-                          setUploadStep("category");
-                          setUploadError(null);
-                        }}
-                        className="flex items-center gap-1.5 text-[10px] font-black text-[#555] uppercase tracking-widest hover:text-white transition-colors"
-                      >
-                        ← Back to categories
-                      </button>
+          {/* Discotive Learn ID */}
+          {asset.discotiveLearnId && (
+            <div
+              className="flex items-center gap-2 p-2.5 rounded-xl"
+              style={{ background: G.dimBg, border: `1px solid ${G.border}` }}
+            >
+              <Database
+                className="w-3.5 h-3.5 shrink-0"
+                style={{ color: G.base }}
+              />
+              <div>
+                <p
+                  className="text-[8px] font-black uppercase tracking-widest"
+                  style={{ color: G.deep }}
+                >
+                  Learn Database Aligned
+                </p>
+                <p className="text-[9px] font-mono" style={{ color: G.bright }}>
+                  {asset.discotiveLearnId}
+                </p>
+              </div>
+            </div>
+          )}
 
-                      {/* Asset title */}
-                      <div>
-                        <label className="block text-[9px] font-black text-[#666] uppercase tracking-widest mb-1.5">
-                          Asset Title *
-                        </label>
-                        <input
-                          type="text"
-                          placeholder={`e.g. ${
-                            selectedCategory === "Certificate"
-                              ? "Google Cloud Associate Certificate"
-                              : selectedCategory === "Resume"
-                                ? "SWE Resume — 2025"
-                                : selectedCategory === "Project"
-                                  ? "Discotive OS — Full Stack"
-                                  : "Asset name"
-                          }`}
-                          value={urlTitle}
-                          onChange={(e) => setUrlTitle(e.target.value)}
-                          className="w-full bg-[#111] border border-[#222] text-white px-4 py-3 rounded-xl focus:outline-none focus:border-amber-500 transition-colors text-sm"
-                        />
-                      </div>
+          {/* Meta grid */}
+          <div className="grid grid-cols-2 gap-2">
+            {[
+              { label: "Uploaded", value: timeAgo(asset.uploadedAt) },
+              {
+                label: "Type",
+                value:
+                  asset.type === "link"
+                    ? "URL"
+                    : asset.size
+                      ? formatBytes(asset.size)
+                      : "File",
+              },
+              {
+                label: "Visibility",
+                value: asset.isPublic ? "Public" : "Private",
+              },
+              {
+                label: "Hash",
+                value: asset.hash ? asset.hash.slice(0, 10) + "..." : "—",
+              },
+            ].map(({ label, value }) => (
+              <div
+                key={label}
+                className="p-2.5 rounded-xl"
+                style={{
+                  background: V.surface,
+                  border: "1px solid rgba(255,255,255,0.04)",
+                }}
+              >
+                <p
+                  className="text-[8px] font-black uppercase tracking-widest mb-0.5"
+                  style={{ color: T.dim }}
+                >
+                  {label}
+                </p>
+                <p
+                  className="text-[10px] font-mono truncate"
+                  style={{ color: T.secondary }}
+                >
+                  {value}
+                </p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
 
-                      {/* Dynamic credential fields */}
-                      {VAULT_CONSTANTS.ASSET_CATEGORIES[
-                        selectedCategory
-                      ].credentialFields.map((field) => (
-                        <div key={field.key}>
-                          <label className="block text-[9px] font-black text-[#666] uppercase tracking-widest mb-1.5">
-                            {field.label}{" "}
-                            {field.required && (
-                              <span className="text-amber-500">*</span>
-                            )}
-                          </label>
-                          <input
-                            type={field.type}
-                            placeholder={field.placeholder}
-                            value={credentialData[field.key] || ""}
-                            onChange={(e) =>
-                              setCredentialData((prev) => ({
-                                ...prev,
-                                [field.key]: e.target.value,
-                              }))
-                            }
-                            className="w-full bg-[#111] border border-[#222] text-white px-4 py-3 rounded-xl focus:outline-none focus:border-amber-500 transition-colors text-sm font-mono"
-                          />
-                        </div>
-                      ))}
+      {/* Action strip */}
+      <div
+        className="p-4 shrink-0"
+        style={{ borderTop: "1px solid rgba(255,255,255,0.05)" }}
+      >
+        <div className="grid grid-cols-4 gap-2 mb-3">
+          {[
+            {
+              icon: Download,
+              label: "Download",
+              action: () => onDownload(asset),
+              color: "#38bdf8",
+            },
+            {
+              icon: Share2,
+              label: "Share",
+              action: () => onShare(asset),
+              color: G.bright,
+            },
+            {
+              icon: asset.pinned ? PinOff : Pin,
+              label: asset.pinned ? "Unpin" : "Pin",
+              action: () => onPin(asset),
+              color: asset.pinned ? G.bright : T.dim,
+            },
+            {
+              icon: asset.isPublic ? EyeOff : Eye,
+              label: asset.isPublic ? "Private" : "Public",
+              action: () => onToggleVisibility(asset),
+              color: asset.isPublic ? "#10b981" : T.dim,
+            },
+          ].map(({ icon: Icon, label, action, color }) => (
+            <button
+              key={label}
+              onClick={action}
+              className="flex flex-col items-center gap-1.5 py-3 rounded-xl transition-all"
+              style={{
+                background: V.surface,
+                border: "1px solid rgba(255,255,255,0.05)",
+              }}
+            >
+              <Icon className="w-4 h-4" style={{ color }} />
+              <span
+                className="text-[8px] font-bold uppercase tracking-wider"
+                style={{ color: T.dim }}
+              >
+                {label}
+              </span>
+            </button>
+          ))}
+        </div>
 
-                      {/* Attachment method toggle */}
-                      {selectedCategory !== "Link" && (
-                        <div className="flex gap-2 p-1 bg-[#111] border border-[#222] rounded-xl">
-                          <button
-                            onClick={() => setUploadMode("file")}
-                            className={cn(
-                              "flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg transition-all",
-                              uploadMode === "file"
-                                ? "bg-[#222] text-white"
-                                : "text-[#555] hover:text-white",
-                            )}
-                          >
-                            Upload File
-                          </button>
-                          <button
-                            onClick={() => setUploadMode("url")}
-                            className={cn(
-                              "flex-1 py-2 text-[10px] font-black uppercase tracking-widest rounded-lg transition-all",
-                              uploadMode === "url"
-                                ? "bg-[#222] text-white"
-                                : "text-[#555] hover:text-white",
-                            )}
-                          >
-                            Link URL
-                          </button>
-                        </div>
-                      )}
+        {asset.url && (
+          <a
+            href={asset.url}
+            target="_blank"
+            rel="noreferrer"
+            className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all mb-2"
+            style={{
+              background: G.dimBg,
+              border: `1px solid ${G.border}`,
+              color: G.bright,
+            }}
+          >
+            <ExternalLink className="w-3.5 h-3.5" /> Open File
+          </a>
+        )}
 
-                      {/* File attachment */}
-                      {uploadMode === "file" && (
-                        <div
-                          className="w-full border-2 border-dashed border-[#333] hover:border-amber-500 bg-[#050505] rounded-2xl p-6 text-center cursor-pointer transition-colors group"
-                          onClick={() => fileInputRef.current?.click()}
-                        >
-                          <input
-                            ref={fileInputRef}
-                            type="file"
-                            multiple
-                            className="hidden"
-                            onChange={(e) => {
-                              validateAndQueueFiles(e.target.files);
-                              e.target.value = null;
-                            }}
-                          />
-                          <UploadCloud className="w-8 h-8 text-[#555] group-hover:text-amber-500 transition-colors mx-auto mb-3" />
-                          <p className="text-sm font-bold text-white mb-1">
-                            Click or drag file here
-                          </p>
-                          <p className="text-[10px] font-mono text-[#666] uppercase tracking-widest">
-                            {VAULT_CONSTANTS.ASSET_CATEGORIES[selectedCategory]
-                              ?.acceptedFormats || "Max 25MB"}
-                          </p>
-                        </div>
-                      )}
+        {!confirmDelete ? (
+          <button
+            onClick={() => setConfirmDelete(true)}
+            className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all"
+            style={{
+              background: "rgba(239,68,68,0.06)",
+              border: "1px solid rgba(239,68,68,0.15)",
+              color: "#ef4444",
+            }}
+          >
+            <Trash2 className="w-3.5 h-3.5" /> Delete Asset
+          </button>
+        ) : (
+          <div className="flex gap-2">
+            <button
+              onClick={() => setConfirmDelete(false)}
+              className="flex-1 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest"
+              style={{
+                background: V.surface,
+                border: "1px solid rgba(255,255,255,0.05)",
+                color: T.secondary,
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => {
+                onDelete(asset);
+                onClose();
+              }}
+              className="flex-1 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest"
+              style={{ background: "#ef4444", color: "#fff" }}
+            >
+              Confirm Delete
+            </button>
+          </div>
+        )}
+      </div>
+    </motion.aside>
+  );
+};
 
-                      {/* URL attachment */}
-                      {uploadMode === "url" && (
-                        <form onSubmit={handleUrlSubmit} className="space-y-3">
-                          <div className="relative">
-                            <LinkIcon className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-[#555]" />
-                            <input
-                              type="url"
-                              placeholder="https://..."
-                              value={urlInput}
-                              onChange={(e) => setUrlInput(e.target.value)}
-                              required
-                              className="w-full bg-[#111] border border-[#222] text-white pl-11 pr-4 py-3 rounded-xl focus:outline-none focus:border-amber-500 transition-colors text-sm font-mono"
-                            />
-                          </div>
-                          <button
-                            type="submit"
-                            disabled={isProcessing || !urlInput || !urlTitle}
-                            className="w-full py-3.5 bg-white text-black font-extrabold text-[10px] uppercase tracking-widest rounded-xl hover:bg-[#ddd] disabled:opacity-40 transition-colors flex justify-center items-center gap-2"
-                          >
-                            {isProcessing ? (
-                              <RefreshCw className="w-4 h-4 animate-spin" />
-                            ) : (
-                              <Zap className="w-4 h-4" />
-                            )}
-                            Sync URL Asset
-                          </button>
-                        </form>
-                      )}
-                    </div>
-                  )}
+// ─── Connector Panel ──────────────────────────────────────────────────────────
+const ConnectorPanel = memo(({ connectedApps = [], onConnect }) => {
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <p
+          className="text-[9px] font-black uppercase tracking-widest"
+          style={{ color: T.dim }}
+        >
+          Connectors
+        </p>
+        <span className="text-[8px] font-bold" style={{ color: T.dim }}>
+          {connectedApps.length}/{CONNECTORS.length}
+        </span>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        {CONNECTORS.map((connector) => (
+          <ConnectorCard
+            key={connector.key}
+            connector={connector}
+            connected={connectedApps.includes(connector.key)}
+            onClick={() => onConnect(connector)}
+          />
+        ))}
+      </div>
+    </div>
+  );
+});
 
-                {/* ─── STEP 3: FIREBASE UPLOAD PROGRESS ─── */}
-                {uploadQueue.length > 0 && (
-                  <div className="space-y-4">
-                    <div className="flex items-center gap-3 p-4 bg-blue-500/10 border border-blue-500/30 rounded-xl text-blue-400">
-                      <RefreshCw className="w-5 h-5 animate-spin shrink-0" />
-                      <div>
-                        <p className="text-xs font-bold uppercase tracking-widest leading-none mb-1">
-                          Transmitting to Cloud Node
-                        </p>
-                        <p className="text-[10px] font-mono opacity-80">
-                          Syncing with Firebase Storage...
-                        </p>
-                      </div>
-                    </div>
+// ─── Connector Modal (coming soon gate) ───────────────────────────────────────
+const ConnectorModal = ({ connector, onClose }) => {
+  if (!connector) return null;
+  const Icon = connector.icon;
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[700] flex items-center justify-center p-4"
+      style={{ background: "rgba(0,0,0,0.85)", backdropFilter: "blur(12px)" }}
+      onClick={onClose}
+    >
+      <motion.div
+        initial={{ opacity: 0, scale: 0.96 }}
+        animate={{ opacity: 1, scale: 1 }}
+        exit={{ opacity: 0 }}
+        className="w-full max-w-sm p-7 rounded-[1.5rem] text-center"
+        style={{
+          background: V.depth,
+          border: "1px solid rgba(255,255,255,0.07)",
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div
+          className="w-14 h-14 rounded-2xl flex items-center justify-center mx-auto mb-4"
+          style={{
+            background: `${connector.color}15`,
+            border: `1px solid ${connector.color}30`,
+          }}
+        >
+          <Icon className="w-7 h-7" style={{ color: connector.color }} />
+        </div>
+        <h3
+          className="text-lg font-black mb-2"
+          style={{ color: T.primary, fontFamily: "'Montserrat', sans-serif" }}
+        >
+          {connector.label} Connector
+        </h3>
+        <p className="text-sm mb-1" style={{ color: T.secondary }}>
+          {connector.description}
+        </p>
+        <p className="text-xs mb-6" style={{ color: T.dim }}>
+          Deep integration coming in the next release. This will sync your{" "}
+          {connector.label} assets directly into your Vault.
+        </p>
+        <div
+          className="px-4 py-2.5 rounded-xl mb-3"
+          style={{ background: G.dimBg, border: `1px solid ${G.border}` }}
+        >
+          <span
+            className="text-[10px] font-black uppercase tracking-widest"
+            style={{ color: G.bright }}
+          >
+            Notify Me When Live
+          </span>
+        </div>
+        <button
+          onClick={onClose}
+          className="text-[11px] font-bold"
+          style={{ color: T.dim }}
+        >
+          Close
+        </button>
+      </motion.div>
+    </div>,
+    document.body,
+  );
+};
 
-                    <AnimatePresence>
-                      {uploadQueue.map((item) => (
-                        <motion.div
-                          key={item.id}
-                          layout
-                          initial={{ opacity: 0, x: -20 }}
-                          animate={{ opacity: 1, x: 0 }}
-                          exit={{ opacity: 0, scale: 0.9 }}
-                          className="p-4 bg-[#111] border border-[#222] rounded-xl relative overflow-hidden"
-                        >
-                          <div
-                            className="absolute top-0 left-0 w-full h-full bg-white/5 origin-left"
-                            style={{
-                              transform: `scaleX(${item.progress / 100})`,
-                              transition: "transform 0.3s ease",
-                            }}
-                          />
-                          <div className="relative z-10 flex justify-between items-start mb-3">
-                            <div className="flex items-center gap-3">
-                              <div className="w-8 h-8 rounded-lg bg-[#222] flex items-center justify-center shrink-0">
-                                {getAssetIcon(item.category, item.file?.type)}
-                              </div>
-                              <div className="min-w-0">
-                                <p className="text-xs font-bold text-white truncate max-w-[200px]">
-                                  {item.file?.name || "Uploading..."}
-                                </p>
-                                <p className="text-[9px] font-mono text-amber-500 mt-0.5">
-                                  {(item.hash || "").substring(0, 24)}...
-                                </p>
-                              </div>
-                            </div>
-                            <span className="text-xs font-black font-mono text-[#888]">
-                              {Math.round(item.progress)}%
-                            </span>
-                          </div>
-                          <div className="relative z-10 w-full h-1 bg-[#222] rounded-full overflow-hidden">
-                            <div
-                              className="w-full h-full bg-amber-500 shadow-[0_0_10px_rgba(245,158,11,0.8)] origin-left"
-                              style={{
-                                transform: `scaleX(${item.progress / 100})`,
-                                transition: "transform 0.3s ease",
-                              }}
-                            />
-                          </div>
-                        </motion.div>
-                      ))}
-                    </AnimatePresence>
+// ─── MAIN VAULT PAGE ──────────────────────────────────────────────────────────
+const Vault = () => {
+  const { currentUser } = useAuth();
+  const { userData, patchLocalData, refreshUserData } = useUserData();
+  const { toasts, add: addToast } = useToasts();
+
+  const uid = currentUser?.uid;
+  const tier = (userData?.tier || "ESSENTIAL").toUpperCase();
+  const storageLimit = TIER_STORAGE[tier] || TIER_STORAGE.ESSENTIAL;
+  const assetLimit = TIER_ASSET_LIMITS[tier] || TIER_ASSET_LIMITS.ESSENTIAL;
+
+  // ── State ──────────────────────────────────────────────────────────────────
+  const [assets, setAssets] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [viewMode, setViewMode] = useState("grid");
+  const [filterState, setFilterState] = useState("all");
+  const [selectedCategory, setSelectedCategory] = useState("All");
+  const [searchQ, setSearchQ] = useState("");
+  const [sortBy, setSortBy] = useState("newest");
+  const [selectedAsset, setSelectedAsset] = useState(null);
+  const [uploadOpen, setUploadOpen] = useState(false);
+  const [shareTarget, setShareTarget] = useState(null);
+  const [connectorTarget, setConnectorTarget] = useState(null);
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+
+  // ── Load vault from Firestore ──────────────────────────────────────────────
+  useEffect(() => {
+    if (!uid) return;
+    setLoading(true);
+    const vault = userData?.vault || [];
+    setAssets(
+      vault.map((a, i) => ({
+        ...a,
+        _localKey: `${a.id}_${i}`,
+      })),
+    );
+    setLoading(false);
+  }, [uid, userData?.vault]);
+
+  // ── Derived stats ──────────────────────────────────────────────────────────
+  const usedBytes = useMemo(
+    () => assets.reduce((s, a) => s + (a.size || 0), 0),
+    [assets],
+  );
+
+  const storagePercent = Math.min(100, (usedBytes / storageLimit) * 100);
+
+  // ── Filter + sort ──────────────────────────────────────────────────────────
+  const filteredAssets = useMemo(() => {
+    let list = [...assets];
+
+    // State filter
+    if (filterState === "verified")
+      list = list.filter((a) => a.status === "VERIFIED");
+    else if (filterState === "unverified")
+      list = list.filter((a) => !a.status || a.status === "PENDING");
+
+    // Category filter
+    if (selectedCategory !== "All")
+      list = list.filter((a) => a.category === selectedCategory);
+
+    // Search
+    if (searchQ.trim()) {
+      const q = searchQ.toLowerCase();
+      list = list.filter(
+        (a) =>
+          (a.title || "").toLowerCase().includes(q) ||
+          (a.category || "").toLowerCase().includes(q) ||
+          (a.credentials?.issuer || "").toLowerCase().includes(q) ||
+          (a.discotiveLearnId || "").toLowerCase().includes(q),
+      );
+    }
+
+    // Sort
+    if (sortBy === "newest")
+      list.sort(
+        (a, b) => new Date(b.uploadedAt || 0) - new Date(a.uploadedAt || 0),
+      );
+    else if (sortBy === "oldest")
+      list.sort(
+        (a, b) => new Date(a.uploadedAt || 0) - new Date(b.uploadedAt || 0),
+      );
+    else if (sortBy === "strength") {
+      const order = { Strong: 3, Medium: 2, Weak: 1 };
+      list.sort((a, b) => (order[b.strength] || 0) - (order[a.strength] || 0));
+    } else if (sortBy === "size")
+      list.sort((a, b) => (b.size || 0) - (a.size || 0));
+
+    // Pinned always first
+    list.sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0));
+
+    return list;
+  }, [assets, filterState, selectedCategory, searchQ, sortBy]);
+
+  // ── Upload handler ─────────────────────────────────────────────────────────
+  const handleUpload = useCallback(
+    async (file, form, setProgress) => {
+      if (!uid) return;
+
+      // Tier gate: asset count
+      if (
+        tier === "ESSENTIAL" &&
+        assets.filter((a) => !a.isConnector).length >= assetLimit
+      ) {
+        addToast(
+          `Essential plan allows ${assetLimit} assets. Upgrade to Pro.`,
+          "red",
+        );
+        return;
+      }
+
+      // Tier gate: storage
+      if (usedBytes + file.size > storageLimit) {
+        addToast(
+          `Insufficient storage. Upgrade to ${tier === "ESSENTIAL" ? "Pro (100MB)" : "Enterprise"}.`,
+          "red",
+        );
+        return;
+      }
+
+      try {
+        const ext = file.name.split(".").pop();
+        const path = `vault/${uid}/${Date.now()}_${file.name}`;
+        const storageRef = ref(storage, path);
+        const task = uploadBytesResumable(storageRef, file);
+
+        await new Promise((resolve, reject) => {
+          task.on(
+            "state_changed",
+            (snap) =>
+              setProgress(
+                Math.round((snap.bytesTransferred / snap.totalBytes) * 100),
+              ),
+            reject,
+            resolve,
+          );
+        });
+
+        const url = await getDownloadURL(storageRef);
+
+        // Generate SHA256-ish hash (lightweight ID)
+        const hashBuf = await crypto.subtle.digest(
+          "SHA-256",
+          await file.arrayBuffer(),
+        );
+        const hash = Array.from(new Uint8Array(hashBuf))
+          .map((b) => b.toString(16).padStart(2, "0"))
+          .join("")
+          .slice(0, 40);
+
+        const newAsset = {
+          id: `vault_${Date.now()}`,
+          title: form.title.trim(),
+          category: form.category,
+          type: ext,
+          url,
+          storagePath: path,
+          size: file.size,
+          hash,
+          isPublic: form.isPublic,
+          pinned: false,
+          status: "PENDING",
+          strength: null,
+          scoreYield: 0,
+          credentials: form.credentials || {},
+          uploadedAt: new Date().toISOString(),
+          uploadedBy: uid,
+        };
+
+        const updatedVault = [...(userData?.vault || []), newAsset];
+        await updateDoc(doc(db, "users", uid), { vault: updatedVault });
+
+        setAssets((prev) => [
+          ...prev,
+          { ...newAsset, _localKey: `${newAsset.id}_${prev.length}` },
+        ]);
+        patchLocalData({ vault: updatedVault });
+        addToast("Asset uploaded. Pending admin verification.", "green");
+      } catch (err) {
+        console.error("[Vault] Upload failed:", err);
+        addToast("Upload failed. Check file type and connection.", "red");
+      }
+    },
+    [
+      uid,
+      userData,
+      tier,
+      assets,
+      usedBytes,
+      storageLimit,
+      assetLimit,
+      addToast,
+      patchLocalData,
+    ],
+  );
+
+  // ── Delete handler ─────────────────────────────────────────────────────────
+  const handleDelete = useCallback(
+    async (asset) => {
+      if (!uid) return;
+      try {
+        if (asset.storagePath) {
+          try {
+            await deleteObject(ref(storage, asset.storagePath));
+          } catch (_) {}
+        }
+        const updatedVault = (userData?.vault || []).filter(
+          (a) => a.id !== asset.id,
+        );
+        await updateDoc(doc(db, "users", uid), { vault: updatedVault });
+        setAssets((prev) => prev.filter((a) => a.id !== asset.id));
+        patchLocalData({ vault: updatedVault });
+        if (selectedAsset?.id === asset.id) setSelectedAsset(null);
+        addToast("Asset permanently deleted.", "grey");
+      } catch (err) {
+        addToast("Delete failed.", "red");
+      }
+    },
+    [uid, userData, selectedAsset, addToast, patchLocalData],
+  );
+
+  // ── Rename ────────────────────────────────────────────────────────────────
+  const handleRename = useCallback(
+    async (asset, newTitle) => {
+      if (!uid || !newTitle.trim()) return;
+      const updatedVault = (userData?.vault || []).map((a) =>
+        a.id === asset.id ? { ...a, title: newTitle.trim() } : a,
+      );
+      await updateDoc(doc(db, "users", uid), { vault: updatedVault });
+      setAssets((prev) =>
+        prev.map((a) =>
+          a.id === asset.id ? { ...a, title: newTitle.trim() } : a,
+        ),
+      );
+      setSelectedAsset((prev) =>
+        prev?.id === asset.id ? { ...prev, title: newTitle.trim() } : prev,
+      );
+      patchLocalData({ vault: updatedVault });
+      addToast("Asset renamed.", "grey");
+    },
+    [uid, userData, addToast, patchLocalData],
+  );
+
+  // ── Toggle visibility ─────────────────────────────────────────────────────
+  const handleToggleVisibility = useCallback(
+    async (asset) => {
+      if (!uid) return;
+      const updatedVault = (userData?.vault || []).map((a) =>
+        a.id === asset.id ? { ...a, isPublic: !a.isPublic } : a,
+      );
+      await updateDoc(doc(db, "users", uid), { vault: updatedVault });
+      setAssets((prev) =>
+        prev.map((a) =>
+          a.id === asset.id ? { ...a, isPublic: !a.isPublic } : a,
+        ),
+      );
+      setSelectedAsset((prev) =>
+        prev?.id === asset.id ? { ...prev, isPublic: !prev.isPublic } : prev,
+      );
+      patchLocalData({ vault: updatedVault });
+      addToast(
+        `Asset set to ${!asset.isPublic ? "public" : "private"}.`,
+        "grey",
+      );
+    },
+    [uid, userData, addToast, patchLocalData],
+  );
+
+  // ── Pin ───────────────────────────────────────────────────────────────────
+  const handlePin = useCallback(
+    async (asset) => {
+      if (!uid) return;
+      const updatedVault = (userData?.vault || []).map((a) =>
+        a.id === asset.id ? { ...a, pinned: !a.pinned } : a,
+      );
+      await updateDoc(doc(db, "users", uid), { vault: updatedVault });
+      setAssets((prev) =>
+        prev.map((a) => (a.id === asset.id ? { ...a, pinned: !a.pinned } : a)),
+      );
+      setSelectedAsset((prev) =>
+        prev?.id === asset.id ? { ...prev, pinned: !prev.pinned } : prev,
+      );
+      patchLocalData({ vault: updatedVault });
+      addToast(asset.pinned ? "Unpinned." : "Pinned to top.", "grey");
+    },
+    [uid, userData, addToast, patchLocalData],
+  );
+
+  // ── Download ──────────────────────────────────────────────────────────────
+  const handleDownload = useCallback(
+    (asset) => {
+      if (!asset.url) {
+        addToast("No downloadable file.", "red");
+        return;
+      }
+      const a = document.createElement("a");
+      a.href = asset.url;
+      a.download = asset.title || "asset";
+      a.target = "_blank";
+      a.click();
+      addToast("Download started.", "grey");
+    },
+    [addToast],
+  );
+
+  // ── Verified count stats ──────────────────────────────────────────────────
+  const verifiedCount = assets.filter((a) => a.status === "VERIFIED").length;
+  const pendingCount = assets.filter(
+    (a) => !a.status || a.status === "PENDING",
+  ).length;
+
+  const isPro = tier === "PRO" || tier === "ENTERPRISE";
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // RENDER
+  // ─────────────────────────────────────────────────────────────────────────
+  return (
+    <div
+      className="min-h-screen pb-24 relative"
+      style={{ background: V.bg, color: T.primary }}
+    >
+      {/* Ambient glow */}
+      <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
+        <div
+          className="absolute top-0 left-1/3 w-[600px] h-[400px] rounded-full blur-[120px]"
+          style={{ background: "rgba(191,162,100,0.03)" }}
+        />
+        <div
+          className="absolute bottom-0 right-1/4 w-[400px] h-[300px] rounded-full blur-[100px]"
+          style={{ background: "rgba(139,92,246,0.02)" }}
+        />
+        <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-[0.015]" />
+      </div>
+
+      <div className="relative z-10 max-w-[1700px] mx-auto">
+        {/* ── HEADER ── */}
+        <div className="px-4 md:px-8 pt-6 pb-4">
+          <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-2 mb-2">
+                <Database className="w-5 h-5" style={{ color: G.base }} />
+                <h1
+                  className="text-3xl font-black tracking-tight"
+                  style={{
+                    fontFamily: "'Montserrat', sans-serif",
+                    letterSpacing: "-0.03em",
+                  }}
+                >
+                  Asset Vault
+                </h1>
+                {isPro && (
+                  <div
+                    className="flex items-center gap-1 px-2 py-0.5 rounded-full"
+                    style={{
+                      background: G.dimBg,
+                      border: `1px solid ${G.border}`,
+                    }}
+                  >
+                    <Crown className="w-3 h-3" style={{ color: G.bright }} />
+                    <span
+                      className="text-[8px] font-black uppercase tracking-widest"
+                      style={{ color: G.bright }}
+                    >
+                      Pro
+                    </span>
                   </div>
                 )}
               </div>
-            </motion.div>
+              <p className="text-sm" style={{ color: T.secondary }}>
+                {assets.length} assets · {verifiedCount} verified ·{" "}
+                {pendingCount} pending review
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2">
+              {/* View mode toggle */}
+              <div
+                className="flex p-1 rounded-xl"
+                style={{
+                  background: V.depth,
+                  border: "1px solid rgba(255,255,255,0.05)",
+                }}
+              >
+                {[
+                  { key: "grid", icon: Layers },
+                  { key: "list", icon: FileText },
+                ].map(({ key, icon: Icon }) => (
+                  <button
+                    key={key}
+                    onClick={() => setViewMode(key)}
+                    className="w-8 h-8 rounded-lg flex items-center justify-center transition-all"
+                    style={{
+                      background:
+                        viewMode === key
+                          ? "rgba(255,255,255,0.08)"
+                          : "transparent",
+                      color: viewMode === key ? T.primary : T.dim,
+                    }}
+                  >
+                    <Icon className="w-3.5 h-3.5" />
+                  </button>
+                ))}
+              </div>
+
+              {/* Sidebar toggle on mobile */}
+              <button
+                onClick={() => setSidebarOpen((v) => !v)}
+                className="md:hidden flex items-center gap-1.5 px-3 py-2 rounded-xl transition-all"
+                style={{
+                  background: V.surface,
+                  border: "1px solid rgba(255,255,255,0.05)",
+                  color: T.dim,
+                }}
+              >
+                <SlidersHorizontal className="w-3.5 h-3.5" />
+              </button>
+
+              {/* Upload CTA */}
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.97 }}
+                onClick={() => {
+                  if (!isPro && assets.length >= assetLimit) {
+                    addToast(
+                      `Upgrade to Pro to upload more than ${assetLimit} assets.`,
+                      "red",
+                    );
+                    return;
+                  }
+                  setUploadOpen(true);
+                }}
+                className="flex items-center gap-2 px-5 py-2.5 rounded-xl font-black text-[11px] uppercase tracking-widest transition-all"
+                style={{
+                  background: `linear-gradient(135deg, ${G.deep} 0%, ${G.bright} 100%)`,
+                  color: "#0a0a0a",
+                  boxShadow: `0 0 20px rgba(191,162,100,0.15)`,
+                }}
+              >
+                <Upload className="w-4 h-4" /> Upload Asset
+              </motion.button>
+            </div>
           </div>
+        </div>
+
+        <div className="flex gap-0 md:gap-6 px-4 md:px-8">
+          {/* ── LEFT SIDEBAR ── */}
+          <AnimatePresence>
+            {sidebarOpen && (
+              <motion.div
+                initial={{ width: 0, opacity: 0 }}
+                animate={{ width: 280, opacity: 1 }}
+                exit={{ width: 0, opacity: 0 }}
+                className="shrink-0 hidden md:block"
+                style={{ minWidth: 260, maxWidth: 280 }}
+              >
+                <div className="sticky top-6 space-y-4">
+                  {/* Storage */}
+                  <div
+                    className="p-4 rounded-[1.25rem]"
+                    style={{
+                      background: V.surface,
+                      border: "1px solid rgba(255,255,255,0.05)",
+                    }}
+                  >
+                    <StorageBar
+                      used={usedBytes}
+                      limit={storageLimit}
+                      tier={tier}
+                    />
+
+                    {!isPro && (
+                      <div
+                        className="mt-4 p-3 rounded-xl"
+                        style={{
+                          background: G.dimBg,
+                          border: `1px solid ${G.border}`,
+                        }}
+                      >
+                        <div className="flex items-center gap-2 mb-1.5">
+                          <Crown
+                            className="w-3.5 h-3.5"
+                            style={{ color: G.bright }}
+                          />
+                          <span
+                            className="text-[9px] font-black uppercase tracking-widest"
+                            style={{ color: G.bright }}
+                          >
+                            Upgrade to Pro
+                          </span>
+                        </div>
+                        <p className="text-[10px]" style={{ color: T.dim }}>
+                          100MB storage, 50 assets, priority verification, and
+                          Competitor X-Ray.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Strength Analytics */}
+                  <div
+                    className="p-4 rounded-[1.25rem]"
+                    style={{
+                      background: V.surface,
+                      border: "1px solid rgba(255,255,255,0.05)",
+                    }}
+                  >
+                    <div className="flex items-center gap-2 mb-3">
+                      <TrendingUp
+                        className="w-3.5 h-3.5"
+                        style={{ color: G.base }}
+                      />
+                      <span
+                        className="text-[9px] font-black uppercase tracking-widest"
+                        style={{ color: T.dim }}
+                      >
+                        Vault Power
+                      </span>
+                    </div>
+                    <StrengthAnalytics assets={assets} />
+                  </div>
+
+                  {/* Connectors */}
+                  <div
+                    className="p-4 rounded-[1.25rem]"
+                    style={{
+                      background: V.surface,
+                      border: "1px solid rgba(255,255,255,0.05)",
+                    }}
+                  >
+                    <ConnectorPanel
+                      connectedApps={userData?.connectedApps || []}
+                      onConnect={(connector) => setConnectorTarget(connector)}
+                    />
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* ── MAIN CONTENT ── */}
+          <div className="flex-1 min-w-0">
+            {/* Toolbar */}
+            <div className="flex flex-col sm:flex-row gap-3 mb-5">
+              {/* Tri-state toggle */}
+              <TriStateToggle value={filterState} onChange={setFilterState} />
+
+              {/* Search */}
+              <div className="relative flex-1">
+                <Search
+                  className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4"
+                  style={{ color: T.dim }}
+                />
+                <input
+                  value={searchQ}
+                  onChange={(e) => setSearchQ(e.target.value)}
+                  placeholder="Search assets, IDs, issuers..."
+                  className="w-full pl-10 pr-4 py-2.5 rounded-xl text-sm focus:outline-none transition-all"
+                  style={{
+                    background: V.depth,
+                    border: "1px solid rgba(255,255,255,0.05)",
+                    color: T.primary,
+                  }}
+                />
+                {searchQ && (
+                  <button
+                    onClick={() => setSearchQ("")}
+                    className="absolute right-3 top-1/2 -translate-y-1/2"
+                  >
+                    <X className="w-3.5 h-3.5" style={{ color: T.dim }} />
+                  </button>
+                )}
+              </div>
+
+              {/* Sort */}
+              <div className="relative">
+                <select
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value)}
+                  className="appearance-none pl-3 pr-8 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest focus:outline-none"
+                  style={{
+                    background: V.depth,
+                    border: "1px solid rgba(255,255,255,0.05)",
+                    color: T.secondary,
+                  }}
+                >
+                  <option value="newest">Newest First</option>
+                  <option value="oldest">Oldest First</option>
+                  <option value="strength">By Strength</option>
+                  <option value="size">By Size</option>
+                </select>
+                <ChevronDown
+                  className="absolute right-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 pointer-events-none"
+                  style={{ color: T.dim }}
+                />
+              </div>
+            </div>
+
+            {/* Category tabs */}
+            <div className="flex items-center gap-2 overflow-x-auto hide-scrollbar pb-3 mb-4">
+              {["All", ...ASSET_CATEGORIES.map((c) => c.key)].map((cat) => {
+                const config = cat === "All" ? null : getCategoryConfig(cat);
+                const CIcon = config?.icon || Layers;
+                const active = selectedCategory === cat;
+                const count =
+                  cat === "All"
+                    ? filteredAssets.length
+                    : filteredAssets.filter((a) => a.category === cat).length;
+                return (
+                  <button
+                    key={cat}
+                    onClick={() => setSelectedCategory(cat)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-widest whitespace-nowrap transition-all shrink-0"
+                    style={{
+                      background: active
+                        ? config
+                          ? `${config.color}15`
+                          : "rgba(255,255,255,0.08)"
+                        : "transparent",
+                      border: `1px solid ${active ? (config ? `${config.color}35` : "rgba(255,255,255,0.12)") : "rgba(255,255,255,0.04)"}`,
+                      color: active ? config?.color || T.primary : T.dim,
+                    }}
+                  >
+                    {cat !== "All" && <CIcon className="w-3 h-3" />}
+                    {cat === "All" ? "All Assets" : config?.label || cat}
+                    <span className="font-mono opacity-60">({count})</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Loading skeleton */}
+            {loading ? (
+              <div
+                className={cn(
+                  viewMode === "grid"
+                    ? "grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4"
+                    : "space-y-2",
+                )}
+              >
+                {Array.from({ length: 8 }).map((_, i) => (
+                  <div
+                    key={i}
+                    className={cn(
+                      "animate-pulse rounded-[1.25rem]",
+                      viewMode === "grid" ? "aspect-[4/5]" : "h-16",
+                    )}
+                    style={{ background: V.surface }}
+                  />
+                ))}
+              </div>
+            ) : filteredAssets.length === 0 ? (
+              /* Empty state */
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className="flex flex-col items-center justify-center py-20 text-center"
+                style={{
+                  border: "1px dashed rgba(255,255,255,0.06)",
+                  borderRadius: "1.5rem",
+                }}
+              >
+                <Database
+                  className="w-16 h-16 mb-4"
+                  style={{ color: "rgba(255,255,255,0.06)" }}
+                />
+                <h3
+                  className="text-xl font-black mb-2"
+                  style={{
+                    color: "rgba(255,255,255,0.15)",
+                    fontFamily: "'Montserrat', sans-serif",
+                  }}
+                >
+                  {searchQ
+                    ? `No results for "${searchQ}"`
+                    : filterState === "verified"
+                      ? "No verified assets yet."
+                      : "Vault is empty."}
+                </h3>
+                <p className="text-sm max-w-sm mb-6" style={{ color: T.dim }}>
+                  {searchQ
+                    ? "Try different keywords or clear the search."
+                    : filterState === "verified"
+                      ? "Upload assets and submit them for admin verification to build your proof-of-work."
+                      : "Your proof-of-work archive is empty. Upload credentials, projects, and certificates to build an unbreakable foundation."}
+                </p>
+                {!searchQ && (
+                  <button
+                    onClick={() => setUploadOpen(true)}
+                    className="flex items-center gap-2 px-6 py-3 rounded-xl font-black text-[11px] uppercase tracking-widest"
+                    style={{
+                      background: G.dimBg,
+                      border: `1px solid ${G.border}`,
+                      color: G.bright,
+                    }}
+                  >
+                    <Upload className="w-4 h-4" /> Upload First Asset
+                  </button>
+                )}
+              </motion.div>
+            ) : (
+              /* Asset grid / list */
+              <AnimatePresence>
+                <div
+                  className={cn(
+                    viewMode === "grid"
+                      ? "grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4"
+                      : "space-y-2",
+                  )}
+                >
+                  {filteredAssets.map((asset) => (
+                    <AssetCard
+                      key={asset._localKey || asset.id}
+                      asset={asset}
+                      onSelect={setSelectedAsset}
+                      onPin={handlePin}
+                      onToggleVisibility={handleToggleVisibility}
+                      isSelected={selectedAsset?.id === asset.id}
+                      viewMode={viewMode}
+                    />
+                  ))}
+                </div>
+              </AnimatePresence>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* ── ASSET DRAWER ── */}
+      <AnimatePresence>
+        {selectedAsset && (
+          <>
+            <motion.div
+              key="drawer-bg"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-[199]"
+              style={{
+                background: "rgba(0,0,0,0.5)",
+                backdropFilter: "blur(4px)",
+              }}
+              onClick={() => setSelectedAsset(null)}
+            />
+            <AssetDrawer
+              key="drawer"
+              asset={selectedAsset}
+              onClose={() => setSelectedAsset(null)}
+              onDelete={handleDelete}
+              onRename={handleRename}
+              onToggleVisibility={handleToggleVisibility}
+              onPin={handlePin}
+              onDownload={handleDownload}
+              onShare={(a) => setShareTarget(a)}
+            />
+          </>
         )}
       </AnimatePresence>
+
+      {/* ── UPLOAD MODAL ── */}
+      <AnimatePresence>
+        {uploadOpen && (
+          <UploadModal
+            onClose={() => setUploadOpen(false)}
+            onUpload={handleUpload}
+            usedBytes={usedBytes}
+            tier={tier}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* ── SHARE MODAL ── */}
+      <AnimatePresence>
+        {shareTarget && (
+          <ShareModal
+            asset={shareTarget}
+            onClose={() => setShareTarget(null)}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* ── CONNECTOR MODAL ── */}
+      <AnimatePresence>
+        {connectorTarget && (
+          <ConnectorModal
+            connector={connectorTarget}
+            onClose={() => setConnectorTarget(null)}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* ── TOAST STACK ── */}
+      {createPortal(
+        <div
+          className="fixed bottom-5 left-4 z-[9999] flex flex-col gap-2 pointer-events-none"
+          style={{ maxWidth: 360 }}
+        >
+          <AnimatePresence>
+            {toasts.map((t) => (
+              <motion.div
+                key={t.id}
+                initial={{ opacity: 0, x: -16, y: 8 }}
+                animate={{ opacity: 1, x: 0, y: 0 }}
+                exit={{ opacity: 0, x: -16 }}
+                className="flex items-center gap-3 px-4 py-3 rounded-xl shadow-2xl border text-xs font-bold pointer-events-auto"
+                style={
+                  t.type === "green"
+                    ? {
+                        background: "#041f10",
+                        borderColor: "rgba(16,185,129,0.25)",
+                        color: "#4ADE80",
+                      }
+                    : t.type === "red"
+                      ? {
+                          background: "#1a0505",
+                          borderColor: "rgba(239,68,68,0.25)",
+                          color: "#f87171",
+                        }
+                      : {
+                          background: V.elevated,
+                          borderColor: "rgba(255,255,255,0.07)",
+                          color: T.secondary,
+                        }
+                }
+              >
+                {t.type === "green" && (
+                  <Check className="w-3.5 h-3.5 shrink-0" />
+                )}
+                {t.type === "red" && (
+                  <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                )}
+                {t.type === "grey" && (
+                  <Database
+                    className="w-3.5 h-3.5 shrink-0"
+                    style={{ color: T.dim }}
+                  />
+                )}
+                <span className="truncate">{t.msg}</span>
+              </motion.div>
+            ))}
+          </AnimatePresence>
+        </div>,
+        document.body,
+      )}
     </div>
   );
 };
