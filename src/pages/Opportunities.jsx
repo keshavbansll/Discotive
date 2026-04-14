@@ -1,10 +1,10 @@
 /**
  * @fileoverview Discotive OS — Opportunities Engine v1.0
- * @description
- * Career monopoly capture page. Zero mock data architecture.
- * Real-time Firestore reads with pagination. Admin CMS inline.
- * Stack-based filtering, probability percentile scoring against vault.
- * Two modes: Curated (admin/company listings) + Projects Mode (user-hosted).
+ * src/pages/Opportunities.jsx
+ *
+ * Career monopoly page. Jobs, internships, freelance, college fests,
+ * mentorships, hackathons, and more. Admin-managed + user projects mode.
+ * Zero mock data. Firebase-backed. MAANG-grade. Mobile-native.
  */
 
 import React, {
@@ -15,1602 +15,1437 @@ import React, {
   useRef,
   memo,
 } from "react";
-import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
-import { useNavigate, useSearchParams, Link } from "react-router-dom";
+import { motion, AnimatePresence } from "framer-motion";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   collection,
   query,
   where,
-  getDocs,
   orderBy,
   limit,
+  getDocs,
   startAfter,
-  doc,
-  getDoc,
 } from "firebase/firestore";
 import { db } from "../firebase";
 import { useUserData } from "../hooks/useUserData";
-import { useAuth } from "../contexts/AuthContext";
 import { cn } from "../lib/cn";
 import {
   Search,
-  Filter,
-  X,
+  SlidersHorizontal,
+  Zap,
   Briefcase,
   GraduationCap,
-  Laptop,
+  Code2,
+  Trophy,
   Users,
-  Star,
-  Zap,
   Globe,
   MapPin,
   Clock,
-  Calendar,
   ChevronRight,
   ChevronDown,
-  ArrowUpRight,
-  BookOpen,
-  Trophy,
-  Code2,
-  Palette,
-  Mic,
-  Video,
-  Music,
-  FlaskConical,
-  Building2,
-  Sparkles,
-  TrendingUp,
-  DollarSign,
-  Target,
+  X,
+  ExternalLink,
+  Star,
+  Flame,
   Layers,
-  ToggleLeft,
-  ToggleRight,
-  RefreshCw,
-  SlidersHorizontal,
-  Tag,
   Monitor,
   Cpu,
-  Heart,
   Award,
-  Loader2,
+  DollarSign,
+  Calendar,
+  ArrowUpRight,
+  Target,
+  RefreshCw,
   AlertTriangle,
-  Eye,
-  ExternalLink,
-  Share2,
-  Copy,
   Check,
-  Shield,
-  Crown,
-  Flame,
-  ArrowRight,
-  ChevronLeft,
-  Grid3x3,
-  List,
+  BookOpen,
+  Rocket,
+  Music,
+  Activity,
   Plus,
+  Eye,
+  Hash,
 } from "lucide-react";
 
-// ─── Constants ─────────────────────────────────────────────────────────────
-const OPP_TYPES = [
-  { id: "all", label: "All", icon: Layers },
-  { id: "job", label: "Jobs", icon: Briefcase },
-  { id: "internship", label: "Internships", icon: GraduationCap },
-  { id: "freelance", label: "Freelance", icon: Laptop },
-  { id: "hackathon", label: "Hackathons", icon: Zap },
-  { id: "competition", label: "Competitions", icon: Trophy },
-  { id: "fest", label: "College Fests", icon: Star },
-  { id: "mentorship", label: "Mentorship", icon: Users },
-  { id: "grant", label: "Grants", icon: DollarSign },
-  { id: "research", label: "Research", icon: FlaskConical },
+// ─── Design tokens ────────────────────────────────────────────────────────────
+const G = {
+  base: "#BFA264",
+  bright: "#D4AF78",
+  deep: "#8B7240",
+  dimBg: "rgba(191,162,100,0.08)",
+  border: "rgba(191,162,100,0.25)",
+};
+const PAGE_SIZE = 18;
+
+// ─── Opportunity Type Config ──────────────────────────────────────────────────
+export const OPP_TYPES = [
+  { key: "all", label: "All", icon: Layers, color: "#BFA264" },
+  { key: "job", label: "Jobs", icon: Briefcase, color: "#10b981" },
+  {
+    key: "internship",
+    label: "Internships",
+    icon: GraduationCap,
+    color: "#38bdf8",
+  },
+  { key: "freelance", label: "Freelance", icon: Code2, color: "#8b5cf6" },
+  { key: "hackathon", label: "Hackathons", icon: Trophy, color: "#f59e0b" },
+  { key: "fellowship", label: "Fellowships", icon: Award, color: "#ec4899" },
+  { key: "mentorship", label: "Mentorships", icon: Users, color: "#06b6d4" },
+  {
+    key: "college_fest",
+    label: "College Fests",
+    icon: Music,
+    color: "#f97316",
+  },
+  { key: "competition", label: "Competitions", icon: Target, color: "#ef4444" },
+  { key: "grant", label: "Grants", icon: DollarSign, color: "#84cc16" },
+  { key: "workshop", label: "Workshops", icon: BookOpen, color: "#a78bfa" },
+  { key: "open_source", label: "Open Source", icon: Globe, color: "#34d399" },
 ];
 
 const WORK_MODES = ["Remote", "In-Person", "Hybrid"];
-const PAY_MODES = ["Paid", "Unpaid", "Equity", "Stipend"];
-const EXPERIENCE_LEVELS = ["Fresher", "Beginner", "Intermediate", "Expert"];
-const DOMAINS = [
-  "Engineering & Tech",
-  "Design & Creative",
-  "Business / Operations",
-  "Marketing",
-  "Finance & Accounting",
-  "Content Creation",
-  "Healthcare",
-  "Product Management",
-  "Data & Analytics",
-  "Sales",
-  "Legal & Policy",
-  "Education",
-  "Other",
+const PAY_TYPES = ["Paid", "Unpaid", "Equity", "Stipend"];
+const EXP_LEVELS = [
+  "No Experience",
+  "Beginner",
+  "Intermediate",
+  "Senior",
+  "Lead",
 ];
 
-const TYPE_CONFIG = {
-  job: {
-    color: "#BFA264",
-    bg: "rgba(191,162,100,0.1)",
-    border: "rgba(191,162,100,0.25)",
-    icon: Briefcase,
-  },
-  internship: {
-    color: "#10b981",
-    bg: "rgba(16,185,129,0.1)",
-    border: "rgba(16,185,129,0.25)",
-    icon: GraduationCap,
-  },
-  freelance: {
-    color: "#38bdf8",
-    bg: "rgba(56,189,248,0.1)",
-    border: "rgba(56,189,248,0.25)",
-    icon: Laptop,
-  },
-  hackathon: {
-    color: "#f59e0b",
-    bg: "rgba(245,158,11,0.1)",
-    border: "rgba(245,158,11,0.25)",
-    icon: Zap,
-  },
-  competition: {
-    color: "#8b5cf6",
-    bg: "rgba(139,92,246,0.1)",
-    border: "rgba(139,92,246,0.25)",
-    icon: Trophy,
-  },
-  fest: {
-    color: "#ec4899",
-    bg: "rgba(236,72,153,0.1)",
-    border: "rgba(236,72,153,0.25)",
-    icon: Star,
-  },
-  mentorship: {
-    color: "#06b6d4",
-    bg: "rgba(6,182,212,0.1)",
-    border: "rgba(6,182,212,0.25)",
-    icon: Users,
-  },
-  grant: {
-    color: "#4ade80",
-    bg: "rgba(74,222,128,0.1)",
-    border: "rgba(74,222,128,0.25)",
-    icon: DollarSign,
-  },
-  research: {
-    color: "#f97316",
-    bg: "rgba(249,115,22,0.1)",
-    border: "rgba(249,115,22,0.25)",
-    icon: FlaskConical,
-  },
-};
-
-const PAGE_SIZE = 18;
-
-// ─── Helpers ────────────────────────────────────────────────────────────────
-const timeLeft = (dateStr) => {
-  if (!dateStr) return null;
-  const diff = new Date(dateStr) - new Date();
-  if (diff < 0) return "Closed";
-  const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-  if (days === 0) return "Today";
-  if (days === 1) return "1d left";
-  if (days < 7) return `${days}d left`;
-  if (days < 30) return `${Math.floor(days / 7)}w left`;
-  return `${Math.floor(days / 30)}mo left`;
-};
-
-const calcProbability = (oppTags = [], vaultAssets = [], userSkills = []) => {
-  if (!oppTags || oppTags.length === 0) return null;
+// ─── Probability Percentile Calculator ────────────────────────────────────────
+const calcProbability = (userVault = [], userSkills = [], oppTags = []) => {
+  if (!oppTags || oppTags.length === 0) return { pct: 100, tier: "strong" };
   const userTagSet = new Set([
-    ...userSkills.map((s) => s.toLowerCase()),
-    ...vaultAssets
+    ...(userSkills || []).map((s) => s.toLowerCase().trim()),
+    ...(userVault || [])
       .filter((a) => a.status === "VERIFIED")
-      .flatMap((a) =>
-        (a.credentials?.techStack || "")
-          .split(",")
-          .map((t) => t.trim().toLowerCase()),
-      ),
+      .flatMap((a) => (a.tags || []).map((t) => t.toLowerCase().trim())),
   ]);
-  const matched = oppTags.filter((t) => userTagSet.has(t.toLowerCase())).length;
-  const pct = Math.round((matched / oppTags.length) * 100);
-  if (pct >= 75)
-    return { pct, tier: "strong", color: "#4ade80", label: "Strong" };
-  if (pct >= 50)
-    return { pct, tier: "medium", color: "#f59e0b", label: "Medium" };
-  return { pct, tier: "weak", color: "#F87171", label: "Weak" };
+  const matchCount = oppTags.filter((t) =>
+    userTagSet.has(t.toLowerCase().trim()),
+  ).length;
+  const pct = Math.round((matchCount / oppTags.length) * 100);
+  const tier = pct >= 75 ? "strong" : pct >= 50 ? "medium" : "weak";
+  return { pct, tier };
 };
 
-// ─── SVG Placeholder ────────────────────────────────────────────────────────
-const OppPlaceholder = memo(({ type, title }) => {
-  const cfg = TYPE_CONFIG[type] || TYPE_CONFIG.job;
-  const Icon = cfg.icon;
+const TIER_STYLE = {
+  strong: {
+    text: "text-emerald-400",
+    bg: "bg-emerald-500/10",
+    border: "border-emerald-500/20",
+  },
+  medium: {
+    text: "text-amber-400",
+    bg: "bg-amber-500/10",
+    border: "border-amber-500/20",
+  },
+  weak: {
+    text: "text-red-400",
+    bg: "bg-red-500/10",
+    border: "border-red-500/20",
+  },
+};
+
+// ─── Probability Badge ────────────────────────────────────────────────────────
+const ProbabilityBadge = memo(({ pct, tier, compact = false }) => {
+  const c = TIER_STYLE[tier] || TIER_STYLE.weak;
+  if (compact) {
+    return (
+      <div
+        className={cn(
+          "flex items-center gap-1 px-1.5 py-0.5 rounded border text-[8px] font-black uppercase tracking-widest",
+          c.text,
+          c.bg,
+          c.border,
+        )}
+      >
+        {pct}%
+      </div>
+    );
+  }
+  return (
+    <div
+      className={cn(
+        "flex items-center gap-1.5 px-2 py-1 rounded-xl border text-[9px] font-black uppercase tracking-widest",
+        c.text,
+        c.bg,
+        c.border,
+      )}
+    >
+      <Activity className="w-2.5 h-2.5" />
+      Probability {pct}%
+    </div>
+  );
+});
+
+// ─── SVG Placeholder ──────────────────────────────────────────────────────────
+const OppPlaceholder = memo(({ type, color = "#BFA264" }) => {
+  const iconMap = {
+    job: Briefcase,
+    internship: GraduationCap,
+    freelance: Code2,
+    hackathon: Trophy,
+    fellowship: Award,
+    mentorship: Users,
+    college_fest: Music,
+    competition: Target,
+    grant: DollarSign,
+    workshop: BookOpen,
+    open_source: Globe,
+  };
+  const Icon = iconMap[type] || Layers;
   return (
     <div
       className="w-full h-full flex items-center justify-center relative overflow-hidden"
       style={{
-        background: `linear-gradient(135deg, #0a0a0a 0%, ${cfg.bg} 100%)`,
+        background:
+          "linear-gradient(135deg, rgba(3,3,3,0.97), rgba(18,18,18,1))",
       }}
     >
       <div
-        className="absolute inset-0 opacity-[0.06]"
+        className="absolute inset-0"
         style={{
-          backgroundImage: `radial-gradient(circle at 30% 30%, ${cfg.color} 0%, transparent 60%), radial-gradient(circle at 70% 80%, ${cfg.color} 0%, transparent 50%)`,
+          background: `radial-gradient(ellipse at 50% 50%, ${color}15 0%, transparent 70%)`,
         }}
       />
-      {[0.15, 0.1, 0.06].map((op, i) => (
+      {[0, 1, 2].map((i) => (
         <div
           key={i}
           className="absolute rounded-full border"
           style={{
-            width: `${140 + i * 60}px`,
-            height: `${140 + i * 60}px`,
-            borderColor: cfg.color,
-            opacity: op,
+            width: 80 + i * 40,
+            height: 80 + i * 40,
+            borderColor: `${color}${["25", "15", "08"][i]}`,
             top: "50%",
             left: "50%",
             transform: "translate(-50%, -50%)",
           }}
         />
       ))}
-      <div className="relative z-10 flex flex-col items-center gap-2">
-        <Icon
-          style={{ color: cfg.color, width: 32, height: 32, opacity: 0.7 }}
-        />
-        <span
-          className="text-[9px] font-black uppercase tracking-[0.2em]"
-          style={{ color: cfg.color, opacity: 0.6 }}
-        >
-          {type}
-        </span>
-      </div>
+      <Icon className="w-8 h-8 relative z-10" style={{ color: `${color}50` }} />
     </div>
   );
 });
 
-// ─── Opportunity Card ────────────────────────────────────────────────────────
-const OppCard = memo(
-  ({ opp, onSelect, userSkills, vaultAssets, isProjectMode }) => {
-    const [hovered, setHovered] = useState(false);
-    const cfg = TYPE_CONFIG[opp.type] || TYPE_CONFIG.job;
-    const Icon = cfg.icon;
-    const prob = calcProbability(
-      opp.requiredTags || [],
-      vaultAssets,
-      userSkills,
-    );
-    const tl = timeLeft(opp.closingDate);
-    const isUrgent = tl && (tl === "Today" || tl === "1d left");
-    const isClosed = tl === "Closed";
+// ─── Opportunity Card ─────────────────────────────────────────────────────────
+const OppCard = memo(({ opp, userData, onSelect, index }) => {
+  const typeConfig = OPP_TYPES.find((t) => t.key === opp.type) || OPP_TYPES[0];
+  const Icon = typeConfig.icon;
+  const color = typeConfig.color;
 
-    return (
-      <motion.div
-        layout
-        initial={{ opacity: 0, y: 16 }}
-        animate={{ opacity: 1, y: 0 }}
-        exit={{ opacity: 0, scale: 0.96 }}
-        whileHover={{ y: -3 }}
-        transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
-        className={cn(
-          "group relative rounded-[1.25rem] overflow-hidden cursor-pointer border transition-all duration-300",
-          isClosed ? "opacity-50 pointer-events-none" : "",
-          hovered
-            ? "border-[rgba(191,162,100,0.4)] shadow-[0_12px_40px_rgba(0,0,0,0.6)]"
-            : "border-[rgba(255,255,255,0.06)] bg-[#0a0a0a]",
-        )}
-        style={{ background: "#0a0a0a" }}
-        onMouseEnter={() => setHovered(true)}
-        onMouseLeave={() => setHovered(false)}
-        onClick={() => onSelect(opp)}
-        role="button"
-        tabIndex={0}
-        aria-label={`${opp.title} - ${opp.type}`}
-        onKeyDown={(e) => e.key === "Enter" && onSelect(opp)}
-      >
-        {/* Thumbnail */}
-        <div className="relative aspect-[16/7] overflow-hidden">
-          {opp.thumbnailUrl ? (
-            <>
-              <img
-                src={opp.thumbnailUrl}
-                alt={opp.title}
-                className="w-full h-full object-cover transition-transform duration-700"
-                style={{ transform: hovered ? "scale(1.08)" : "scale(1)" }}
-                onError={(e) => {
-                  e.target.style.display = "none";
-                  e.target.nextSibling.style.display = "flex";
-                }}
-              />
-              <div className="hidden w-full h-full absolute inset-0">
-                <OppPlaceholder type={opp.type} title={opp.title} />
-              </div>
-            </>
-          ) : (
-            <OppPlaceholder type={opp.type} title={opp.title} />
-          )}
+  const userSkills = userData?.skills?.alignedSkills || [];
+  const userVault = userData?.vault || [];
+  const { pct, tier } = calcProbability(userVault, userSkills, opp.tags || []);
 
-          {/* Gradient overlay */}
-          <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a0a] via-[#0a0a0a]/30 to-transparent" />
-
-          {/* Hover reveal */}
-          <AnimatePresence>
-            {hovered && (
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                className="absolute inset-0 flex items-center justify-center bg-black/50 backdrop-blur-sm"
-              >
-                <div className="flex items-center gap-2 px-4 py-2 bg-white/10 border border-white/20 rounded-full text-white text-[11px] font-black uppercase tracking-widest">
-                  <Eye className="w-3.5 h-3.5" /> View Details
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-
-          {/* Type badge */}
-          <div
-            className="absolute top-2.5 left-2.5 flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border"
-            style={{
-              background: cfg.bg,
-              borderColor: cfg.border,
-              color: cfg.color,
-              backdropFilter: "blur(8px)",
-            }}
-          >
-            <Icon className="w-2.5 h-2.5" /> {opp.type}
-          </div>
-
-          {/* Closing date badge */}
-          {tl && (
-            <div
-              className={cn(
-                "absolute top-2.5 right-2.5 flex items-center gap-1 px-2 py-1 rounded-full text-[9px] font-black border",
-                isUrgent
-                  ? "bg-red-500/20 border-red-500/40 text-red-400"
-                  : "bg-black/60 border-white/10 text-white/60",
-              )}
-              style={{ backdropFilter: "blur(8px)" }}
-            >
-              <Clock className="w-2.5 h-2.5" /> {tl}
-            </div>
-          )}
-
-          {/* User-hosted badge */}
-          {isProjectMode && opp.hostedByUser && (
-            <div className="absolute bottom-2.5 left-2.5 flex items-center gap-1 px-2 py-1 rounded-full text-[9px] font-black bg-violet-500/20 border border-violet-500/30 text-violet-300">
-              <Users className="w-2.5 h-2.5" /> Community
-            </div>
-          )}
-        </div>
-
-        {/* Content */}
-        <div className="p-3.5">
-          {/* Provider row */}
-          <div className="flex items-center gap-2 mb-2">
-            {opp.providerLogoUrl ? (
-              <img
-                src={opp.providerLogoUrl}
-                alt={opp.provider}
-                className="w-5 h-5 rounded object-contain bg-white/5 border border-white/10"
-              />
-            ) : (
-              <div className="w-5 h-5 rounded bg-white/5 border border-white/10 flex items-center justify-center text-[8px] font-black text-white/40">
-                {(opp.provider || "?").charAt(0).toUpperCase()}
-              </div>
-            )}
-            <span className="text-[10px] font-bold text-white/40 truncate">
-              {opp.provider || "Anonymous"}
-            </span>
-            {opp.isVerified && (
-              <Shield className="w-3 h-3 text-[#BFA264] shrink-0" />
-            )}
-          </div>
-
-          <h3 className="text-sm font-black text-white leading-snug line-clamp-2 mb-2 group-hover:text-[#D4AF78] transition-colors">
-            {opp.title}
-          </h3>
-
-          {/* Meta row */}
-          <div className="flex items-center gap-2 flex-wrap mb-3">
-            {opp.workMode && (
-              <span className="flex items-center gap-1 text-[8px] font-bold text-white/30 uppercase tracking-widest">
-                <Globe className="w-2.5 h-2.5" /> {opp.workMode}
-              </span>
-            )}
-            {opp.location && (
-              <span className="flex items-center gap-1 text-[8px] font-bold text-white/30 uppercase tracking-widest">
-                <MapPin className="w-2.5 h-2.5" /> {opp.location}
-              </span>
-            )}
-            {opp.compensation && (
-              <span
-                className="flex items-center gap-1 text-[8px] font-black uppercase tracking-widest"
-                style={{ color: cfg.color }}
-              >
-                <DollarSign className="w-2.5 h-2.5" /> {opp.compensation}
-              </span>
-            )}
-          </div>
-
-          {/* Probability percentile */}
-          {prob !== null && (
-            <div className="flex items-center gap-2 pt-2.5 border-t border-white/[0.05]">
-              <div className="flex-1 h-1 bg-white/[0.04] rounded-full overflow-hidden">
-                <div
-                  className="h-full rounded-full transition-all duration-700"
-                  style={{ width: `${prob.pct}%`, background: prob.color }}
-                />
-              </div>
-              <span
-                className="text-[9px] font-black uppercase tracking-widest shrink-0"
-                style={{ color: prob.color }}
-              >
-                {prob.pct}% {prob.label}
-              </span>
-            </div>
-          )}
-
-          {/* Stack tags */}
-          {opp.requiredTags && opp.requiredTags.length > 0 && (
-            <div className="flex gap-1.5 mt-2.5 flex-wrap">
-              {opp.requiredTags.slice(0, 3).map((tag) => (
-                <span
-                  key={tag}
-                  className="text-[8px] font-bold px-2 py-0.5 rounded bg-white/[0.04] border border-white/[0.06] text-white/30"
-                >
-                  {tag}
-                </span>
-              ))}
-              {opp.requiredTags.length > 3 && (
-                <span className="text-[8px] font-bold text-white/20">
-                  +{opp.requiredTags.length - 3}
-                </span>
-              )}
-            </div>
-          )}
-        </div>
-      </motion.div>
-    );
-  },
-);
-
-// ─── Detail Sidebar ──────────────────────────────────────────────────────────
-const DetailSidebar = memo(
-  ({ opp, onClose, userSkills, vaultAssets, navigate }) => {
-    const [copied, setCopied] = useState(false);
-    if (!opp) return null;
-    const cfg = TYPE_CONFIG[opp.type] || TYPE_CONFIG.job;
-    const Icon = cfg.icon;
-    const prob = calcProbability(
-      opp.requiredTags || [],
-      vaultAssets,
-      userSkills,
-    );
-    const tl = timeLeft(opp.closingDate);
-
-    const handleCopy = () => {
-      navigator.clipboard.writeText(
-        window.location.origin + `/app/opportunities/${opp.type}/${opp.id}`,
-      );
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    };
-
-    return (
-      <AnimatePresence>
-        <div className="fixed inset-0 z-[200] flex justify-end pointer-events-none">
-          {/* Backdrop */}
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="absolute inset-0 bg-black/60 backdrop-blur-sm pointer-events-auto"
-            onClick={onClose}
-          />
-          {/* Panel */}
-          <motion.div
-            initial={{ x: "100%", opacity: 0 }}
-            animate={{ x: 0, opacity: 1 }}
-            exit={{ x: "100%", opacity: 0 }}
-            transition={{ type: "spring", damping: 28, stiffness: 220 }}
-            className="relative w-full max-w-md h-full bg-[#080808] border-l border-white/[0.06] flex flex-col shadow-[-30px_0_80px_rgba(0,0,0,0.8)] pointer-events-auto overflow-hidden"
-          >
-            {/* Header */}
-            <div className="p-5 border-b border-white/[0.05] bg-[#050505] shrink-0">
-              <div className="flex items-start justify-between gap-3 mb-3">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <div
-                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border"
-                    style={{
-                      background: cfg.bg,
-                      borderColor: cfg.border,
-                      color: cfg.color,
-                    }}
-                  >
-                    <Icon className="w-2.5 h-2.5" /> {opp.type}
-                  </div>
-                  {tl && (
-                    <div className="flex items-center gap-1 px-2 py-1 rounded-full text-[9px] font-black bg-white/5 border border-white/10 text-white/50">
-                      <Clock className="w-2.5 h-2.5" /> {tl}
-                    </div>
-                  )}
-                </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  <button
-                    onClick={handleCopy}
-                    className="w-8 h-8 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-white/40 hover:text-white transition-colors"
-                  >
-                    {copied ? (
-                      <Check className="w-3.5 h-3.5 text-emerald-400" />
-                    ) : (
-                      <Copy className="w-3.5 h-3.5" />
-                    )}
-                  </button>
-                  <button
-                    onClick={onClose}
-                    className="w-8 h-8 rounded-full bg-white/5 border border-white/10 flex items-center justify-center text-white/40 hover:text-white transition-colors"
-                  >
-                    <X className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              </div>
-
-              {/* Provider */}
-              <div className="flex items-center gap-2.5 mb-3">
-                {opp.providerLogoUrl ? (
-                  <img
-                    src={opp.providerLogoUrl}
-                    alt={opp.provider}
-                    className="w-8 h-8 rounded-lg object-contain bg-white/5 border border-white/10 p-0.5"
-                  />
-                ) : (
-                  <div className="w-8 h-8 rounded-lg bg-white/5 border border-white/10 flex items-center justify-center text-xs font-black text-white/40">
-                    {(opp.provider || "?").charAt(0)}
-                  </div>
-                )}
-                <div>
-                  <p className="text-xs font-bold text-white/60">
-                    {opp.provider}
-                  </p>
-                  {opp.isVerified && (
-                    <div className="flex items-center gap-1 text-[8px] font-black text-[#BFA264] uppercase tracking-widest">
-                      <Shield className="w-2.5 h-2.5" /> Verified
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              <h2 className="text-xl font-black text-white leading-tight mb-2">
-                {opp.title}
-              </h2>
-            </div>
-
-            {/* Body */}
-            <div className="flex-1 overflow-y-auto custom-scrollbar p-5 space-y-5">
-              {/* Thumbnail */}
-              {opp.thumbnailUrl && (
-                <div className="aspect-video rounded-2xl overflow-hidden border border-white/[0.05]">
-                  <img
-                    src={opp.thumbnailUrl}
-                    alt={opp.title}
-                    className="w-full h-full object-cover"
-                    onError={(e) => {
-                      e.target.style.display = "none";
-                    }}
-                  />
-                </div>
-              )}
-
-              {/* Probability */}
-              {prob !== null && (
-                <div
-                  className="p-4 rounded-2xl border"
-                  style={{
-                    background: `${prob.color}0a`,
-                    borderColor: `${prob.color}30`,
-                  }}
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="text-[9px] font-black uppercase tracking-widest text-white/30">
-                      Probability Percentile
-                    </span>
-                    <span
-                      className="text-lg font-black font-mono"
-                      style={{ color: prob.color }}
-                    >
-                      {prob.pct}%
-                    </span>
-                  </div>
-                  <div className="h-2 bg-white/[0.04] rounded-full overflow-hidden mb-1.5">
-                    <motion.div
-                      initial={{ width: 0 }}
-                      animate={{ width: `${prob.pct}%` }}
-                      transition={{ duration: 1, ease: "easeOut" }}
-                      className="h-full rounded-full"
-                      style={{ background: prob.color }}
-                    />
-                  </div>
-                  <p className="text-[10px] text-white/30">
-                    {prob.tier === "strong"
-                      ? "Your profile strongly matches this opportunity."
-                      : prob.tier === "medium"
-                        ? "Partial match. Strengthen your stack to improve odds."
-                        : "Low match. Verify more aligned assets to boost your percentile."}
-                  </p>
-                </div>
-              )}
-
-              {/* Meta grid */}
-              <div className="grid grid-cols-2 gap-3">
-                {[
-                  { icon: Globe, label: "Mode", val: opp.workMode },
-                  {
-                    icon: MapPin,
-                    label: "Location",
-                    val: opp.location || "Not specified",
-                  },
-                  {
-                    icon: DollarSign,
-                    label: "Compensation",
-                    val: opp.compensation || "Not specified",
-                  },
-                  {
-                    icon: Calendar,
-                    label: "Closing",
-                    val: opp.closingDate
-                      ? new Date(opp.closingDate).toLocaleDateString("en-US", {
-                          month: "short",
-                          day: "numeric",
-                          year: "numeric",
-                        })
-                      : "Open",
-                  },
-                  {
-                    icon: Target,
-                    label: "Experience",
-                    val: opp.experienceLevel || "Any",
-                  },
-                  {
-                    icon: Building2,
-                    label: "Domain",
-                    val: opp.domain || "General",
-                  },
-                ]
-                  .filter((m) => m.val)
-                  .map(({ icon: MIcon, label, val }) => (
-                    <div
-                      key={label}
-                      className="p-3 bg-white/[0.02] border border-white/[0.04] rounded-xl"
-                    >
-                      <div className="flex items-center gap-1.5 mb-1">
-                        <MIcon className="w-3 h-3 text-white/20" />
-                        <span className="text-[8px] font-black text-white/20 uppercase tracking-widest">
-                          {label}
-                        </span>
-                      </div>
-                      <p className="text-xs font-bold text-white/70 truncate">
-                        {val}
-                      </p>
-                    </div>
-                  ))}
-              </div>
-
-              {/* Description */}
-              {opp.description && (
-                <div>
-                  <p className="text-[9px] font-black text-white/20 uppercase tracking-widest mb-2">
-                    About This Opportunity
-                  </p>
-                  <p className="text-sm text-white/60 leading-relaxed">
-                    {opp.description}
-                  </p>
-                </div>
-              )}
-
-              {/* Required Stack */}
-              {opp.requiredTags && opp.requiredTags.length > 0 && (
-                <div>
-                  <p className="text-[9px] font-black text-white/20 uppercase tracking-widest mb-2">
-                    Required Stack
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    {opp.requiredTags.map((tag) => {
-                      const userTagSet = new Set([
-                        ...userSkills.map((s) => s.toLowerCase()),
-                      ]);
-                      const hasTag = userTagSet.has(tag.toLowerCase());
-                      return (
-                        <span
-                          key={tag}
-                          className={cn(
-                            "px-2.5 py-1 rounded-lg text-[10px] font-bold border transition-all",
-                            hasTag
-                              ? "bg-emerald-500/10 border-emerald-500/25 text-emerald-400"
-                              : "bg-white/[0.03] border-white/[0.06] text-white/40",
-                          )}
-                        >
-                          {hasTag && (
-                            <Check className="w-2.5 h-2.5 inline mr-1" />
-                          )}
-                          {tag}
-                        </span>
-                      );
-                    })}
-                  </div>
-                </div>
-              )}
-
-              {/* Perks */}
-              {opp.perks && opp.perks.length > 0 && (
-                <div>
-                  <p className="text-[9px] font-black text-white/20 uppercase tracking-widest mb-2">
-                    Perks & Benefits
-                  </p>
-                  <div className="space-y-1.5">
-                    {opp.perks.map((perk) => (
-                      <div
-                        key={perk}
-                        className="flex items-center gap-2.5 text-xs text-white/50"
-                      >
-                        <Zap className="w-3 h-3 text-[#BFA264] shrink-0" />
-                        {perk}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            {/* Footer CTA */}
-            <div className="p-4 bg-[#050505] border-t border-white/[0.05] shrink-0 flex gap-2.5">
-              <button
-                onClick={() =>
-                  navigate(`/app/opportunities/${opp.type}/${opp.id}`)
-                }
-                className="flex-1 flex items-center justify-center gap-2 py-3.5 bg-[#BFA264] hover:bg-[#D4AF78] text-black font-black text-[10px] uppercase tracking-widest rounded-xl transition-all shadow-[0_0_20px_rgba(191,162,100,0.2)]"
-              >
-                <ExternalLink className="w-3.5 h-3.5" /> View Full Page
-              </button>
-              {opp.applyUrl && (
-                <a
-                  href={opp.applyUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="px-4 py-3.5 bg-white/5 border border-white/10 hover:border-white/20 text-white font-black text-[10px] uppercase tracking-widest rounded-xl transition-all flex items-center gap-2"
-                >
-                  Apply <ArrowUpRight className="w-3.5 h-3.5" />
-                </a>
-              )}
-            </div>
-          </motion.div>
-        </div>
-      </AnimatePresence>
-    );
-  },
-);
-
-// ─── Filter Bar ──────────────────────────────────────────────────────────────
-const FilterBar = memo(({ filters, setFilters, onClear, allTags }) => {
-  const [tagSearch, setTagSearch] = useState("");
-  const filteredTags = useMemo(
-    () =>
-      allTags
-        .filter((t) => t.toLowerCase().includes(tagSearch.toLowerCase()))
-        .slice(0, 30),
-    [allTags, tagSearch],
-  );
+  const daysLeft = opp.closingDate
+    ? Math.max(
+        0,
+        Math.ceil(
+          (new Date(opp.closingDate) - Date.now()) / (1000 * 60 * 60 * 24),
+        ),
+      )
+    : null;
+  const isClosingSoon = daysLeft !== null && daysLeft <= 3;
 
   return (
     <motion.div
-      initial={{ opacity: 0, height: 0 }}
-      animate={{ opacity: 1, height: "auto" }}
-      exit={{ opacity: 0, height: 0 }}
-      className="overflow-hidden"
+      layout
+      initial={{ opacity: 0, y: 16 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{
+        delay: Math.min(index * 0.04, 0.4),
+        duration: 0.4,
+        ease: [0.16, 1, 0.3, 1],
+      }}
+      onClick={() => onSelect(opp)}
+      className="group relative cursor-pointer rounded-[1.5rem] border border-[#1a1a1a] bg-[#0a0a0a] hover:border-[#2a2a2a] transition-all duration-300 overflow-hidden flex flex-col"
+      style={{ minHeight: 270 }}
+      whileHover={{ y: -2 }}
+      whileTap={{ scale: 0.98 }}
+      role="button"
+      tabIndex={0}
+      aria-label={`View ${opp.title} opportunity`}
+      onKeyDown={(e) => e.key === "Enter" && onSelect(opp)}
     >
-      <div className="bg-[#080808] border border-white/[0.05] rounded-2xl p-5 space-y-5 mt-3">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {/* Work Mode */}
-          <div>
-            <label className="text-[9px] font-black text-white/20 uppercase tracking-widest block mb-2">
-              Work Mode
-            </label>
-            <div className="flex flex-wrap gap-1.5">
-              {WORK_MODES.map((m) => (
-                <button
-                  key={m}
-                  onClick={() =>
-                    setFilters((f) => ({
-                      ...f,
-                      workMode: f.workMode === m ? "" : m,
-                    }))
-                  }
-                  className={cn(
-                    "px-2.5 py-1 rounded-lg text-[10px] font-bold border transition-all",
-                    filters.workMode === m
-                      ? "bg-[#BFA264]/15 border-[#BFA264]/30 text-[#BFA264]"
-                      : "bg-white/[0.03] border-white/[0.06] text-white/40 hover:text-white/70",
-                  )}
-                >
-                  {m}
-                </button>
-              ))}
-            </div>
-          </div>
+      {/* Thumbnail */}
+      <div className="relative aspect-[16/7] overflow-hidden shrink-0">
+        {opp.thumbnailUrl ? (
+          <img
+            src={opp.thumbnailUrl}
+            alt={opp.title}
+            className="w-full h-full object-cover opacity-70 group-hover:opacity-90 group-hover:scale-105 transition-all duration-700"
+            loading="lazy"
+          />
+        ) : (
+          <OppPlaceholder type={opp.type} color={color} />
+        )}
+        <div className="absolute inset-0 bg-gradient-to-t from-[#0a0a0a] via-[#0a0a0a]/30 to-transparent" />
 
-          {/* Pay Mode */}
-          <div>
-            <label className="text-[9px] font-black text-white/20 uppercase tracking-widest block mb-2">
-              Compensation
-            </label>
-            <div className="flex flex-wrap gap-1.5">
-              {PAY_MODES.map((m) => (
-                <button
-                  key={m}
-                  onClick={() =>
-                    setFilters((f) => ({
-                      ...f,
-                      payMode: f.payMode === m ? "" : m,
-                    }))
-                  }
-                  className={cn(
-                    "px-2.5 py-1 rounded-lg text-[10px] font-bold border transition-all",
-                    filters.payMode === m
-                      ? "bg-emerald-500/15 border-emerald-500/30 text-emerald-400"
-                      : "bg-white/[0.03] border-white/[0.06] text-white/40 hover:text-white/70",
-                  )}
-                >
-                  {m}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Experience */}
-          <div>
-            <label className="text-[9px] font-black text-white/20 uppercase tracking-widest block mb-2">
-              Experience Level
-            </label>
-            <div className="flex flex-wrap gap-1.5">
-              {EXPERIENCE_LEVELS.map((m) => (
-                <button
-                  key={m}
-                  onClick={() =>
-                    setFilters((f) => ({
-                      ...f,
-                      experienceLevel: f.experienceLevel === m ? "" : m,
-                    }))
-                  }
-                  className={cn(
-                    "px-2.5 py-1 rounded-lg text-[10px] font-bold border transition-all",
-                    filters.experienceLevel === m
-                      ? "bg-sky-500/15 border-sky-500/30 text-sky-400"
-                      : "bg-white/[0.03] border-white/[0.06] text-white/40 hover:text-white/70",
-                  )}
-                >
-                  {m}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Domain */}
-          <div>
-            <label className="text-[9px] font-black text-white/20 uppercase tracking-widest block mb-2">
-              Domain
-            </label>
-            <div className="relative">
-              <select
-                value={filters.domain}
-                onChange={(e) =>
-                  setFilters((f) => ({ ...f, domain: e.target.value }))
-                }
-                className="w-full bg-[#0f0f0f] border border-white/[0.06] text-white/60 text-xs rounded-xl px-3 py-2.5 focus:outline-none focus:border-[#BFA264]/40 appearance-none"
-              >
-                <option value="">All Domains</option>
-                {DOMAINS.map((d) => (
-                  <option key={d} value={d}>
-                    {d}
-                  </option>
-                ))}
-              </select>
-              <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-white/20 pointer-events-none" />
-            </div>
-          </div>
+        {/* Type badge */}
+        <div
+          className="absolute top-2.5 left-2.5 flex items-center gap-1.5 px-2 py-0.5 rounded-lg border backdrop-blur-sm text-[8px] font-black uppercase tracking-widest"
+          style={{ color, background: `${color}18`, borderColor: `${color}30` }}
+        >
+          <Icon className="w-2.5 h-2.5" />
+          {typeConfig.label}
         </div>
 
-        {/* Stack-based search */}
-        <div>
-          <label className="text-[9px] font-black text-white/20 uppercase tracking-widest block mb-2 flex items-center gap-2">
-            <Cpu className="w-3 h-3" /> Stack-Based Filter
-          </label>
-          <div className="relative mb-2">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-white/20" />
-            <input
-              type="text"
-              value={tagSearch}
-              onChange={(e) => setTagSearch(e.target.value)}
-              placeholder="Search tech, tools, apps..."
-              className="w-full bg-[#0f0f0f] border border-white/[0.06] text-white pl-9 pr-3 py-2.5 text-xs rounded-xl focus:outline-none focus:border-[#BFA264]/40 placeholder-white/20"
-            />
+        {/* Closing soon */}
+        {isClosingSoon && daysLeft !== null && (
+          <div className="absolute top-2.5 right-2.5 flex items-center gap-1 px-1.5 py-0.5 bg-red-500/20 border border-red-500/30 rounded-lg backdrop-blur-sm text-[7px] font-black text-red-400 uppercase tracking-widest">
+            <Flame className="w-2 h-2" />
+            {daysLeft === 0 ? "Today" : `${daysLeft}d`}
           </div>
-          <div className="flex flex-wrap gap-1.5 max-h-[80px] overflow-y-auto custom-scrollbar">
-            {filteredTags.map((tag) => {
-              const active = filters.requiredTags.includes(tag);
+        )}
+
+        {/* Probability compact */}
+        <div className="absolute bottom-2 right-2">
+          <ProbabilityBadge pct={pct} tier={tier} compact />
+        </div>
+      </div>
+
+      {/* Content */}
+      <div className="p-3.5 flex flex-col gap-2 flex-1">
+        <div className="flex items-center gap-2 min-w-0">
+          {opp.providerLogo ? (
+            <img
+              src={opp.providerLogo}
+              alt={opp.provider}
+              className="w-5 h-5 rounded object-contain bg-[#111] border border-[#222] shrink-0"
+            />
+          ) : (
+            <div
+              className="w-5 h-5 rounded flex items-center justify-center shrink-0 text-[7px] font-black border"
+              style={{
+                background: `${color}15`,
+                borderColor: `${color}25`,
+                color,
+              }}
+            >
+              {(opp.provider || "?").charAt(0).toUpperCase()}
+            </div>
+          )}
+          <p className="text-[9px] text-white/35 font-medium truncate">
+            {opp.provider || "Unknown"}
+          </p>
+        </div>
+
+        <h3 className="text-xs font-black text-white leading-snug line-clamp-2">
+          {opp.title}
+        </h3>
+
+        {/* Meta */}
+        <div className="flex flex-wrap gap-1 mt-auto">
+          {opp.workMode && (
+            <span className="flex items-center gap-0.5 px-1.5 py-0.5 bg-white/[0.03] border border-white/[0.05] rounded text-[7px] font-bold text-white/30 uppercase tracking-widest">
+              <Globe className="w-2 h-2" /> {opp.workMode}
+            </span>
+          )}
+          {opp.payType && (
+            <span className="flex items-center gap-0.5 px-1.5 py-0.5 bg-white/[0.03] border border-white/[0.05] rounded text-[7px] font-bold text-white/30 uppercase tracking-widest">
+              <DollarSign className="w-2 h-2" /> {opp.payType}
+            </span>
+          )}
+        </div>
+
+        {/* Tags */}
+        {opp.tags && opp.tags.length > 0 && (
+          <div className="flex flex-wrap gap-1">
+            {opp.tags.slice(0, 3).map((tag) => {
+              const has = (userData?.skills?.alignedSkills || []).some(
+                (s) => s.toLowerCase() === tag.toLowerCase(),
+              );
               return (
-                <button
+                <span
                   key={tag}
-                  onClick={() =>
-                    setFilters((f) => ({
-                      ...f,
-                      requiredTags: active
-                        ? f.requiredTags.filter((t) => t !== tag)
-                        : [...f.requiredTags, tag],
-                    }))
-                  }
                   className={cn(
-                    "px-2.5 py-1 rounded-lg text-[10px] font-bold border transition-all",
-                    active
-                      ? "bg-violet-500/15 border-violet-500/30 text-violet-400"
-                      : "bg-white/[0.03] border-white/[0.06] text-white/30 hover:text-white/60",
+                    "px-1.5 py-0.5 rounded text-[7px] font-bold border",
+                    has
+                      ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400"
+                      : "bg-white/[0.02] border-white/[0.04] text-white/20",
                   )}
                 >
-                  {active && <Check className="w-2.5 h-2.5 inline mr-1" />}
                   {tag}
-                </button>
+                </span>
               );
             })}
+            {opp.tags.length > 3 && (
+              <span className="text-[7px] text-white/15 self-center">
+                +{opp.tags.length - 3}
+              </span>
+            )}
+          </div>
+        )}
+
+        {/* Footer */}
+        <div className="flex items-center justify-between pt-2 border-t border-white/[0.04] mt-1">
+          <div className="text-[8px] text-white/20 font-mono flex items-center gap-1">
+            {daysLeft !== null && !isClosingSoon && (
+              <>
+                <Clock className="w-2.5 h-2.5" /> {daysLeft}d left
+              </>
+            )}
           </div>
         </div>
+      </div>
 
-        {/* Clear */}
-        <div className="flex justify-end pt-2 border-t border-white/[0.04]">
-          <button
-            onClick={onClear}
-            className="flex items-center gap-1.5 text-[9px] font-black text-white/25 hover:text-red-400 uppercase tracking-widest transition-colors"
-          >
-            <X className="w-3 h-3" /> Clear All Filters
-          </button>
-        </div>
+      {/* Hover overlay arrow */}
+      <div className="absolute top-2.5 right-2.5 w-6 h-6 bg-black/60 backdrop-blur-sm border border-white/10 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity z-10 pointer-events-none">
+        <ChevronRight className="w-3 h-3 text-white" />
       </div>
     </motion.div>
   );
 });
 
-// ─── Skeleton Card ───────────────────────────────────────────────────────────
-const SkeletonCard = () => (
-  <div className="rounded-[1.25rem] overflow-hidden bg-[#0a0a0a] border border-white/[0.04] animate-pulse">
-    <div className="aspect-[16/7] bg-white/[0.04]" />
-    <div className="p-3.5 space-y-2.5">
-      <div className="h-3 bg-white/[0.04] rounded w-1/3" />
-      <div className="h-4 bg-white/[0.04] rounded w-4/5" />
-      <div className="h-3 bg-white/[0.04] rounded w-3/5" />
-      <div className="h-1 bg-white/[0.04] rounded w-full mt-3" />
+// ─── Detail Sidebar ───────────────────────────────────────────────────────────
+const DetailSidebar = memo(({ opp, userData, onClose, navigate }) => {
+  const typeConfig = OPP_TYPES.find((t) => t.key === opp.type) || OPP_TYPES[0];
+  const Icon = typeConfig.icon;
+  const color = typeConfig.color;
+
+  const userSkills = userData?.skills?.alignedSkills || [];
+  const userVault = userData?.vault || [];
+  const { pct, tier } = calcProbability(userVault, userSkills, opp.tags || []);
+  const daysLeft = opp.closingDate
+    ? Math.max(
+        0,
+        Math.ceil(
+          (new Date(opp.closingDate) - Date.now()) / (1000 * 60 * 60 * 24),
+        ),
+      )
+    : null;
+
+  return (
+    <motion.div
+      initial={{ x: "100%", opacity: 0 }}
+      animate={{ x: 0, opacity: 1 }}
+      exit={{ x: "100%", opacity: 0 }}
+      transition={{ type: "spring", damping: 26, stiffness: 260 }}
+      className="fixed right-0 top-0 bottom-0 w-full md:w-[440px] bg-[#050505] border-l border-[#1a1a1a] z-[201] flex flex-col shadow-[-20px_0_80px_rgba(0,0,0,0.9)] overflow-hidden"
+      role="dialog"
+      aria-label="Opportunity details"
+      aria-modal="true"
+    >
+      {/* Header */}
+      <div className="flex items-center justify-between px-5 py-4 border-b border-[#1a1a1a] bg-[#080808] shrink-0">
+        <div className="flex items-center gap-2.5">
+          <div
+            className="w-8 h-8 rounded-xl flex items-center justify-center border"
+            style={{ background: `${color}15`, borderColor: `${color}30` }}
+          >
+            <Icon className="w-4 h-4" style={{ color }} />
+          </div>
+          <div>
+            <p
+              className="text-[9px] font-black uppercase tracking-widest"
+              style={{ color }}
+            >
+              {typeConfig.label}
+            </p>
+            <p className="text-[9px] text-white/30">{opp.provider}</p>
+          </div>
+        </div>
+        <button
+          onClick={onClose}
+          className="w-8 h-8 bg-[#111] border border-[#222] rounded-full flex items-center justify-center text-[#888] hover:text-white transition-colors"
+          aria-label="Close details"
+        >
+          <X className="w-3.5 h-3.5" />
+        </button>
+      </div>
+
+      {/* Scrollable content */}
+      <div className="flex-1 overflow-y-auto custom-scrollbar">
+        {/* Thumbnail */}
+        <div className="relative aspect-video overflow-hidden shrink-0">
+          {opp.thumbnailUrl ? (
+            <img
+              src={opp.thumbnailUrl}
+              alt={opp.title}
+              className="w-full h-full object-cover"
+            />
+          ) : (
+            <OppPlaceholder type={opp.type} color={color} />
+          )}
+          <div className="absolute inset-0 bg-gradient-to-t from-[#050505] via-transparent to-transparent" />
+        </div>
+
+        <div className="px-5 py-5 space-y-5">
+          <div>
+            <h2 className="text-xl font-black text-white leading-tight mb-2.5">
+              {opp.title}
+            </h2>
+            <ProbabilityBadge pct={pct} tier={tier} />
+          </div>
+
+          {/* Quick stats */}
+          <div className="grid grid-cols-2 gap-2">
+            {[
+              { icon: Globe, label: "Mode", value: opp.workMode || "—" },
+              { icon: DollarSign, label: "Pay", value: opp.payType || "—" },
+              {
+                icon: MapPin,
+                label: "Location",
+                value: opp.location || "Global",
+              },
+              {
+                icon: Clock,
+                label: "Closing",
+                value: daysLeft !== null ? `${daysLeft} days` : "Open",
+              },
+            ].map(({ icon: Ic, label, value }) => (
+              <div
+                key={label}
+                className="p-3 bg-[#0a0a0a] border border-[#1a1a1a] rounded-xl"
+              >
+                <div className="flex items-center gap-1.5 mb-1">
+                  <Ic className="w-3 h-3 text-[#555]" />
+                  <span className="text-[8px] font-black text-[#555] uppercase tracking-widest">
+                    {label}
+                  </span>
+                </div>
+                <span className="text-xs font-bold text-white">{value}</span>
+              </div>
+            ))}
+          </div>
+
+          {/* Description */}
+          {opp.description && (
+            <div>
+              <p className="text-[9px] font-black text-white/30 uppercase tracking-widest mb-2">
+                About
+              </p>
+              <p className="text-sm text-white/55 leading-relaxed">
+                {opp.description}
+              </p>
+            </div>
+          )}
+
+          {/* Required Stack */}
+          {opp.tags && opp.tags.length > 0 && (
+            <div>
+              <p className="text-[9px] font-black text-white/30 uppercase tracking-widest mb-2">
+                Required Stack
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {opp.tags.map((tag) => {
+                  const has = userSkills.some(
+                    (s) => s.toLowerCase() === tag.toLowerCase(),
+                  );
+                  return (
+                    <div
+                      key={tag}
+                      className={cn(
+                        "flex items-center gap-1 px-2.5 py-1 rounded-xl border text-[10px] font-bold",
+                        has
+                          ? "bg-emerald-500/10 border-emerald-500/25 text-emerald-400"
+                          : "bg-red-500/8 border-red-500/20 text-red-400",
+                      )}
+                    >
+                      {has ? (
+                        <Check className="w-2.5 h-2.5" />
+                      ) : (
+                        <X className="w-2.5 h-2.5" />
+                      )}
+                      {tag}
+                    </div>
+                  );
+                })}
+              </div>
+              <p
+                className={cn(
+                  "text-[9px] mt-2 font-bold",
+                  tier === "strong"
+                    ? "text-emerald-400"
+                    : tier === "medium"
+                      ? "text-amber-400"
+                      : "text-red-400",
+                )}
+              >
+                {pct}% Probability Percentile —{" "}
+                {tier === "strong"
+                  ? "Strong fit"
+                  : tier === "medium"
+                    ? "Medium fit"
+                    : "Boost vault to improve match"}
+              </p>
+            </div>
+          )}
+
+          {/* Domains */}
+          {opp.domains && opp.domains.length > 0 && (
+            <div>
+              <p className="text-[9px] font-black text-white/30 uppercase tracking-widest mb-2">
+                Domains
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {opp.domains.map((d) => (
+                  <span
+                    key={d}
+                    className="px-2 py-0.5 bg-[#BFA264]/8 border border-[#BFA264]/20 rounded-lg text-[9px] font-bold text-[#BFA264]/70"
+                  >
+                    {d}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Footer CTAs */}
+      <div className="p-4 border-t border-[#1a1a1a] bg-[#080808] shrink-0 space-y-2">
+        {opp.applyUrl && (
+          <a
+            href={opp.applyUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="w-full flex items-center justify-center gap-2 py-3.5 bg-[#BFA264] hover:bg-[#D4AF78] text-black font-black text-[10px] uppercase tracking-widest rounded-xl transition-all shadow-[0_0_20px_rgba(191,162,100,0.2)]"
+            aria-label={`Apply to ${opp.title}`}
+          >
+            <ExternalLink className="w-3.5 h-3.5" />
+            Apply Now
+          </a>
+        )}
+        <button
+          onClick={() => navigate(`/app/opportunities/${opp.type}/${opp.id}`)}
+          className="w-full flex items-center justify-center gap-2 py-3 bg-[#0a0a0a] border border-[#1a1a1a] hover:border-[#333] text-white font-black text-[10px] uppercase tracking-widest rounded-xl transition-colors"
+          aria-label="View full opportunity page"
+        >
+          View Full Page <ArrowUpRight className="w-3.5 h-3.5" />
+        </button>
+      </div>
+    </motion.div>
+  );
+});
+
+// ─── Filter Bar ────────────────────────────────────────────────────────────────
+const FilterBar = memo(({ filters, setFilters, onClear, userSkills }) => {
+  const [showStack, setShowStack] = useState(false);
+  const [stackInput, setStackInput] = useState("");
+  const activeCount =
+    [filters.workMode, filters.payType, filters.experience].filter(Boolean)
+      .length + (filters.stackTags?.length || 0);
+
+  return (
+    <div className="relative flex flex-wrap gap-2 items-center pt-3">
+      {[
+        { key: "workMode", label: "All Modes", options: WORK_MODES },
+        { key: "payType", label: "All Pay", options: PAY_TYPES },
+        { key: "experience", label: "Any Level", options: EXP_LEVELS },
+      ].map(({ key, label, options }) => (
+        <div className="relative" key={key}>
+          <select
+            value={filters[key] || ""}
+            onChange={(e) =>
+              setFilters((p) => ({ ...p, [key]: e.target.value }))
+            }
+            className="bg-[#0a0a0a] border border-[#1a1a1a] hover:border-[#333] text-white text-[10px] font-bold uppercase tracking-widest px-3 py-2 pr-8 rounded-xl appearance-none outline-none focus:border-[#BFA264]/40 transition-colors cursor-pointer"
+            aria-label={`Filter by ${key}`}
+          >
+            <option value="">{label}</option>
+            {options.map((o) => (
+              <option key={o} value={o}>
+                {o}
+              </option>
+            ))}
+          </select>
+          <ChevronDown className="absolute right-2 top-1/2 -translate-y-1/2 w-3 h-3 text-[#555] pointer-events-none" />
+        </div>
+      ))}
+
+      {/* Stack filter */}
+      <button
+        onClick={() => setShowStack((v) => !v)}
+        className={cn(
+          "flex items-center gap-1.5 px-3 py-2 rounded-xl border text-[10px] font-black uppercase tracking-widest transition-all",
+          showStack || filters.stackTags?.length
+            ? "bg-[#BFA264]/10 border-[#BFA264]/30 text-[#BFA264]"
+            : "bg-[#0a0a0a] border-[#1a1a1a] hover:border-[#333] text-white/40",
+        )}
+        aria-label="Filter by tech stack"
+      >
+        <Cpu className="w-3 h-3" />
+        Stack
+        {!!filters.stackTags?.length && (
+          <span className="w-4 h-4 bg-[#BFA264] text-black text-[8px] font-black rounded-full flex items-center justify-center">
+            {filters.stackTags.length}
+          </span>
+        )}
+      </button>
+
+      {activeCount > 0 && (
+        <button
+          onClick={onClear}
+          className="flex items-center gap-1 px-3 py-2 bg-red-500/8 border border-red-500/15 text-red-400 text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-red-500/15 transition-all"
+          aria-label="Clear all filters"
+        >
+          <X className="w-3 h-3" /> Clear {activeCount}
+        </button>
+      )}
+
+      {/* Stack dropdown */}
+      <AnimatePresence>
+        {showStack && (
+          <motion.div
+            initial={{ opacity: 0, y: -8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            className="absolute top-full left-0 mt-2 w-72 bg-[#0a0a0a] border border-[#1a1a1a] rounded-2xl shadow-2xl z-50 p-4"
+          >
+            <p className="text-[9px] font-black text-white/30 uppercase tracking-widest mb-2">
+              App / Tech Stack Filter
+            </p>
+            <input
+              type="text"
+              value={stackInput}
+              onChange={(e) => setStackInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && stackInput.trim()) {
+                  setFilters((p) => ({
+                    ...p,
+                    stackTags: [...(p.stackTags || []), stackInput.trim()],
+                  }));
+                  setStackInput("");
+                }
+              }}
+              placeholder="Type & press Enter..."
+              className="w-full bg-[#050505] border border-[#222] text-white text-xs px-3 py-2 rounded-xl outline-none focus:border-[#BFA264]/40 transition-colors placeholder:text-white/20"
+              aria-label="Add stack tag filter"
+            />
+            {userSkills.length > 0 && (
+              <div className="mt-3">
+                <p className="text-[8px] font-black text-white/20 uppercase tracking-widest mb-1.5">
+                  Your Skills (quick add)
+                </p>
+                <div className="flex flex-wrap gap-1">
+                  {userSkills.slice(0, 10).map((s) => {
+                    const active = (filters.stackTags || []).includes(s);
+                    return (
+                      <button
+                        key={s}
+                        onClick={() =>
+                          setFilters((p) => ({
+                            ...p,
+                            stackTags: active
+                              ? (p.stackTags || []).filter((t) => t !== s)
+                              : [...(p.stackTags || []), s],
+                          }))
+                        }
+                        className={cn(
+                          "px-2 py-0.5 rounded-lg text-[9px] font-bold border transition-all",
+                          active
+                            ? "bg-[#BFA264]/10 border-[#BFA264]/30 text-[#BFA264]"
+                            : "bg-white/[0.03] border-white/[0.06] text-white/40 hover:text-white/70",
+                        )}
+                      >
+                        {s}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+            {filters.stackTags?.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-1">
+                {filters.stackTags.map((tag) => (
+                  <span
+                    key={tag}
+                    className="flex items-center gap-1 px-2 py-0.5 bg-[#BFA264]/10 border border-[#BFA264]/25 rounded-lg text-[9px] font-bold text-[#BFA264]"
+                  >
+                    {tag}
+                    <button
+                      onClick={() =>
+                        setFilters((p) => ({
+                          ...p,
+                          stackTags: p.stackTags.filter((t) => t !== tag),
+                        }))
+                      }
+                    >
+                      <X className="w-2.5 h-2.5" />
+                    </button>
+                  </span>
+                ))}
+              </div>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+});
+
+// ─── Section Header ────────────────────────────────────────────────────────────
+const SectionHeader = memo(({ type, count, onViewAll }) => {
+  const config = OPP_TYPES.find((t) => t.key === type) || OPP_TYPES[0];
+  const Icon = config.icon;
+  return (
+    <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center gap-2.5">
+        <div
+          className="w-8 h-8 rounded-xl flex items-center justify-center border"
+          style={{
+            background: `${config.color}15`,
+            borderColor: `${config.color}25`,
+          }}
+        >
+          <Icon className="w-4 h-4" style={{ color: config.color }} />
+        </div>
+        <div>
+          <h2 className="text-sm font-black text-white">{config.label}</h2>
+          {count > 0 && (
+            <p className="text-[9px] text-white/30">{count} available</p>
+          )}
+        </div>
+      </div>
+      {count > 0 && (
+        <button
+          onClick={onViewAll}
+          className="flex items-center gap-1 text-[9px] font-black text-[#BFA264]/50 hover:text-[#BFA264] transition-colors uppercase tracking-widest"
+        >
+          View All <ArrowUpRight className="w-3 h-3" />
+        </button>
+      )}
+    </div>
+  );
+});
+
+// ─── Project Card ─────────────────────────────────────────────────────────────
+const ProjectCard = memo(({ project, userData, onSelect, index }) => {
+  const userSkills = userData?.skills?.alignedSkills || [];
+  const userVault = userData?.vault || [];
+  const { pct, tier } = calcProbability(
+    userVault,
+    userSkills,
+    project.tags || [],
+  );
+
+  return (
+    <motion.div
+      layout
+      initial={{ opacity: 0, y: 16 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: Math.min(index * 0.04, 0.4) }}
+      onClick={() => onSelect(project)}
+      className="group cursor-pointer rounded-[1.25rem] border border-[#1a1a1a] bg-[#0a0a0a] hover:border-[#2a2a2a] transition-all duration-300 p-4 flex flex-col gap-3"
+      whileHover={{ y: -2 }}
+      whileTap={{ scale: 0.98 }}
+      role="button"
+      tabIndex={0}
+      aria-label={`View project: ${project.title}`}
+      onKeyDown={(e) => e.key === "Enter" && onSelect(project)}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex items-center gap-2.5 min-w-0">
+          {project.authorAvatar ? (
+            <img
+              src={project.authorAvatar}
+              alt={project.authorName}
+              className="w-8 h-8 rounded-full border border-[#BFA264]/30 object-cover shrink-0"
+            />
+          ) : (
+            <div className="w-8 h-8 rounded-full bg-[#111] border border-[#BFA264]/30 flex items-center justify-center text-[#BFA264] font-black text-xs shrink-0">
+              {(project.authorName || "U").charAt(0).toUpperCase()}
+            </div>
+          )}
+          <div className="min-w-0">
+            <p className="text-xs font-black text-white truncate">
+              {project.authorName || "Operator"}
+            </p>
+            <p className="text-[9px] text-white/30 font-mono">
+              @{project.authorUsername || "—"}
+            </p>
+          </div>
+        </div>
+        <ProbabilityBadge pct={pct} tier={tier} compact />
+      </div>
+
+      <div>
+        <div
+          className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg border text-[8px] font-black uppercase tracking-widest mb-1.5"
+          style={{
+            color: "#8b5cf6",
+            background: "rgba(139,92,246,0.1)",
+            borderColor: "rgba(139,92,246,0.2)",
+          }}
+        >
+          <Code2 className="w-2.5 h-2.5" />
+          {project.projectType || "Project"}
+        </div>
+        <h3 className="text-sm font-black text-white leading-snug">
+          {project.title}
+        </h3>
+        {project.description && (
+          <p className="text-[10px] text-white/40 leading-relaxed mt-1 line-clamp-2">
+            {project.description}
+          </p>
+        )}
+      </div>
+
+      {project.tags?.length > 0 && (
+        <div className="flex flex-wrap gap-1">
+          {project.tags.slice(0, 4).map((tag) => (
+            <span
+              key={tag}
+              className="px-1.5 py-0.5 bg-white/[0.03] border border-white/[0.05] rounded text-[8px] font-bold text-white/25"
+            >
+              {tag}
+            </span>
+          ))}
+        </div>
+      )}
+
+      <div className="flex items-center justify-between pt-2 border-t border-white/[0.04]">
+        <span
+          className={cn(
+            "text-[9px] font-black uppercase tracking-widest",
+            project.payType === "Paid" ? "text-emerald-400" : "text-white/25",
+          )}
+        >
+          {project.payType || "Unpaid"}
+        </span>
+        <span className="flex items-center gap-1 text-[9px] font-black text-white/20 uppercase tracking-widest">
+          View <ChevronRight className="w-3 h-3" />
+        </span>
+      </div>
+    </motion.div>
+  );
+});
+
+// ─── Skeleton ─────────────────────────────────────────────────────────────────
+const OppSkeleton = () => (
+  <div className="rounded-[1.5rem] bg-[#0a0a0a] border border-[#1a1a1a] overflow-hidden animate-pulse">
+    <div className="aspect-[16/7] bg-[#111]" />
+    <div className="p-4 space-y-2.5">
+      <div className="h-3 bg-[#111] rounded w-3/4" />
+      <div className="h-2.5 bg-[#111] rounded w-1/2" />
+      <div className="flex gap-1.5">
+        <div className="h-4 bg-[#111] rounded w-14" />
+        <div className="h-4 bg-[#111] rounded w-14" />
+      </div>
     </div>
   </div>
 );
 
-// ─── Empty State ─────────────────────────────────────────────────────────────
-const EmptyState = ({ isProjectMode, activeType }) => (
-  <motion.div
-    initial={{ opacity: 0 }}
-    animate={{ opacity: 1 }}
-    className="col-span-full flex flex-col items-center justify-center py-24 text-center"
-  >
-    <div className="w-20 h-20 rounded-[2rem] bg-[rgba(191,162,100,0.06)] border border-[rgba(191,162,100,0.15)] flex items-center justify-center mb-6">
-      <Layers className="w-9 h-9 text-[rgba(191,162,100,0.4)]" />
+// ─── Empty State ────────────────────────────────────────────────────────────────
+const EmptyState = ({ activeTab, isProjectsMode }) => {
+  const config = OPP_TYPES.find((t) => t.key === activeTab) || OPP_TYPES[0];
+  const Icon = config.icon;
+  return (
+    <div className="flex flex-col items-center justify-center py-20 text-center col-span-full">
+      <div
+        className="w-20 h-20 rounded-[2rem] flex items-center justify-center border mb-5"
+        style={{
+          background: `${config.color}08`,
+          borderColor: `${config.color}15`,
+        }}
+      >
+        <Icon className="w-9 h-9" style={{ color: `${config.color}35` }} />
+      </div>
+      <h3 className="text-xl font-black text-white mb-2">
+        {isProjectsMode
+          ? "No Community Projects Yet"
+          : `No ${config.label} Yet`}
+      </h3>
+      <p className="text-sm text-white/30 max-w-[260px] leading-relaxed">
+        {isProjectsMode
+          ? "Operators haven't posted projects yet. Be first."
+          : "Curated opportunities coming soon. Check back shortly."}
+      </p>
     </div>
-    <h3 className="text-xl font-black text-white mb-2">
-      No Opportunities Found
-    </h3>
-    <p className="text-sm text-white/30 max-w-[280px] leading-relaxed mb-6">
-      {isProjectMode
-        ? "No community-hosted opportunities yet. Be the first to post one."
-        : `No ${activeType === "all" ? "" : activeType} opportunities match your filters.`}
-    </p>
-    {isProjectMode && (
-      <button className="flex items-center gap-2 px-6 py-3 bg-[#BFA264] text-black font-black text-[10px] uppercase tracking-widest rounded-xl hover:bg-[#D4AF78] transition-all">
-        <Plus className="w-3.5 h-3.5" /> Post Opportunity
-      </button>
-    )}
-  </motion.div>
-);
+  );
+};
 
-// ═════════════════════════════════════════════════════════════════════════════
-// MAIN COMPONENT
-// ═════════════════════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════════════════
+// MAIN PAGE
+// ═══════════════════════════════════════════════════════════════════════════════
 const Opportunities = () => {
   const { userData } = useUserData();
-  const { currentUser } = useAuth();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
 
-  // View state
-  const [activeType, setActiveType] = useState(
-    searchParams.get("type") || "all",
-  );
-  const [isProjectMode, setIsProjectMode] = useState(false);
-  const [viewMode, setViewMode] = useState("grid");
+  const [activeTab, setActiveTab] = useState(searchParams.get("type") || "all");
+  const [isProjectsMode, setIsProjectsMode] = useState(false);
+  const [search, setSearch] = useState("");
+  const [filters, setFilters] = useState({});
   const [showFilters, setShowFilters] = useState(false);
-  const [searchQ, setSearchQ] = useState("");
   const [selectedOpp, setSelectedOpp] = useState(null);
-  const [filters, setFilters] = useState({
-    workMode: "",
-    payMode: "",
-    experienceLevel: "",
-    domain: "",
-    requiredTags: [],
-  });
 
-  // Data state
-  const [opps, setOpps] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [lastDoc, setLastDoc] = useState(null);
-  const [hasMore, setHasMore] = useState(true);
-  const [isPaging, setIsPaging] = useState(false);
-  const [allTags, setAllTags] = useState([]);
-  const [featuredOpps, setFeaturedOpps] = useState([]);
-  const [featuredIdx, setFeaturedIdx] = useState(0);
+  const [oppsByType, setOppsByType] = useState({});
+  const [loading, setLoading] = useState(true);
+  const [projects, setProjects] = useState([]);
+  const [projLoading, setProjLoading] = useState(false);
+  const [lastDocs, setLastDocs] = useState({});
+  const [hasMore, setHasMore] = useState({});
+  const [loadingMore, setLoadingMore] = useState(false);
+
+  // ── Fetch admin opportunities ────────────────────────────────────────────
+  const fetchOpps = useCallback(
+    async (reset = false) => {
+      if (isProjectsMode) return;
+      if (reset) {
+        setLoading(true);
+      }
+
+      const typesToFetch =
+        activeTab === "all"
+          ? OPP_TYPES.filter((t) => t.key !== "all").map((t) => t.key)
+          : [activeTab];
+
+      const results = {};
+      const newLastDocs = {};
+      const newHasMore = {};
+
+      await Promise.all(
+        typesToFetch.map(async (type) => {
+          try {
+            const constraints = [
+              where("type", "==", type),
+              where("isActive", "==", true),
+              orderBy("createdAt", "desc"),
+              limit(PAGE_SIZE),
+            ];
+            if (filters.workMode)
+              constraints.splice(
+                -1,
+                0,
+                where("workMode", "==", filters.workMode),
+              );
+            if (filters.payType)
+              constraints.splice(
+                -1,
+                0,
+                where("payType", "==", filters.payType),
+              );
+            if (filters.experience)
+              constraints.splice(
+                -1,
+                0,
+                where("experienceLevel", "==", filters.experience),
+              );
+            if (!reset && lastDocs[type])
+              constraints.splice(-1, 0, startAfter(lastDocs[type]));
+
+            const snap = await getDocs(
+              query(collection(db, "opportunities"), ...constraints),
+            );
+            let items = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+
+            // Client-side filters (search + stackTags)
+            if (search) {
+              const q = search.toLowerCase();
+              items = items.filter(
+                (o) =>
+                  o.title?.toLowerCase().includes(q) ||
+                  o.provider?.toLowerCase().includes(q) ||
+                  o.description?.toLowerCase().includes(q),
+              );
+            }
+            if (filters.stackTags?.length) {
+              const ft = filters.stackTags.map((t) => t.toLowerCase());
+              items = items.filter((o) => {
+                const ot = new Set((o.tags || []).map((t) => t.toLowerCase()));
+                return ft.some((t) => ot.has(t));
+              });
+            }
+
+            results[type] = reset
+              ? items
+              : [...(oppsByType[type] || []), ...items];
+            newLastDocs[type] = snap.docs[snap.docs.length - 1] || null;
+            newHasMore[type] = snap.docs.length === PAGE_SIZE;
+          } catch {
+            results[type] = oppsByType[type] || [];
+          }
+        }),
+      );
+
+      setOppsByType((prev) => (reset ? results : { ...prev, ...results }));
+      setLastDocs((prev) => ({ ...prev, ...newLastDocs }));
+      setHasMore((prev) => ({ ...prev, ...newHasMore }));
+      setLoading(false);
+      setLoadingMore(false);
+    },
+    [activeTab, filters, search, isProjectsMode],
+  );
+
+  // ── Fetch user projects ──────────────────────────────────────────────────
+  const fetchProjects = useCallback(async () => {
+    setProjLoading(true);
+    try {
+      const constraints = [
+        where("isActive", "==", true),
+        orderBy("createdAt", "desc"),
+        limit(30),
+      ];
+      if (activeTab !== "all")
+        constraints.splice(-1, 0, where("projectType", "==", activeTab));
+      const snap = await getDocs(
+        query(collection(db, "user_projects"), ...constraints),
+      );
+      setProjects(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+    } catch {
+      setProjects([]);
+    } finally {
+      setProjLoading(false);
+    }
+  }, [activeTab]);
+
+  useEffect(() => {
+    if (isProjectsMode) fetchProjects();
+    else fetchOpps(true);
+  }, [activeTab, filters, search, isProjectsMode]);
+
+  useEffect(() => {
+    setSearchParams(activeTab !== "all" ? { type: activeTab } : {});
+  }, [activeTab]);
+
+  const renderedTypes = useMemo(
+    () =>
+      activeTab !== "all"
+        ? [activeTab]
+        : OPP_TYPES.filter((t) => t.key !== "all").map((t) => t.key),
+    [activeTab],
+  );
+
+  const totalCount = useMemo(
+    () => renderedTypes.reduce((s, t) => s + (oppsByType[t] || []).length, 0),
+    [renderedTypes, oppsByType],
+  );
+
+  const anyHasMore = useMemo(
+    () => renderedTypes.some((t) => hasMore[t]),
+    [renderedTypes, hasMore],
+  );
 
   const userSkills = userData?.skills?.alignedSkills || [];
-  const vaultAssets = userData?.vault || [];
 
-  // Active filter count
-  const activeFilterCount = useMemo(
-    () =>
-      Object.values(filters).filter((v) =>
-        Array.isArray(v) ? v.length > 0 : !!v,
-      ).length,
-    [filters],
-  );
-
-  // Client-side search filter
-  const filteredOpps = useMemo(() => {
-    if (!searchQ) return opps;
-    const q = searchQ.toLowerCase();
-    return opps.filter(
-      (o) =>
-        o.title?.toLowerCase().includes(q) ||
-        o.provider?.toLowerCase().includes(q) ||
-        o.description?.toLowerCase().includes(q) ||
-        (o.requiredTags || []).some((t) => t.toLowerCase().includes(q)),
-    );
-  }, [opps, searchQ]);
-
-  // Build Firestore query constraints
-  const buildConstraints = useCallback(
-    (lastDocument = null) => {
-      const constraints = [orderBy("createdAt", "desc"), limit(PAGE_SIZE)];
-      if (activeType !== "all")
-        constraints.push(where("type", "==", activeType));
-      if (isProjectMode) constraints.push(where("hostedByUser", "==", true));
-      else constraints.push(where("hostedByUser", "==", false));
-      if (filters.workMode)
-        constraints.push(where("workMode", "==", filters.workMode));
-      if (filters.payMode)
-        constraints.push(where("payMode", "==", filters.payMode));
-      if (filters.experienceLevel)
-        constraints.push(
-          where("experienceLevel", "==", filters.experienceLevel),
-        );
-      if (filters.domain)
-        constraints.push(where("domain", "==", filters.domain));
-      if (filters.requiredTags.length > 0)
-        constraints.push(
-          where(
-            "requiredTags",
-            "array-contains-any",
-            filters.requiredTags.slice(0, 10),
-          ),
-        );
-      if (lastDocument) constraints.push(startAfter(lastDocument));
-      return constraints;
-    },
-    [activeType, isProjectMode, filters],
-  );
-
-  const loadOpps = useCallback(
-    async (reset = false) => {
-      if (reset) setIsLoading(true);
-      else setIsPaging(true);
-      try {
-        const constraints = buildConstraints(reset ? null : lastDoc);
-        const snap = await getDocs(
-          query(collection(db, "opportunities"), ...constraints),
-        );
-        const items = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-        setOpps((prev) => (reset ? items : [...prev, ...items]));
-        setLastDoc(snap.docs[snap.docs.length - 1] || null);
-        setHasMore(items.length === PAGE_SIZE);
-      } catch (err) {
-        console.error("[Opportunities] load:", err);
-        setOpps([]);
-      } finally {
-        setIsLoading(false);
-        setIsPaging(false);
-      }
-    },
-    [buildConstraints, lastDoc],
-  );
-
-  // Fetch featured (pinned) opportunities
-  useEffect(() => {
-    const fetchFeatured = async () => {
-      try {
-        const snap = await getDocs(
-          query(
-            collection(db, "opportunities"),
-            where("featured", "==", true),
-            where("hostedByUser", "==", false),
-            limit(5),
-          ),
-        );
-        setFeaturedOpps(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
-      } catch {
-        setFeaturedOpps([]);
-      }
-    };
-    fetchFeatured();
-  }, []);
-
-  // Fetch all tags for stack filter
-  useEffect(() => {
-    const fetchTags = async () => {
-      try {
-        const snap = await getDocs(
-          query(collection(db, "opportunities"), limit(100)),
-        );
-        const tagSet = new Set();
-        snap.docs.forEach((d) =>
-          (d.data().requiredTags || []).forEach((t) => tagSet.add(t)),
-        );
-        setAllTags([...tagSet].sort());
-      } catch {
-        setAllTags([]);
-      }
-    };
-    fetchTags();
-  }, []);
-
-  // Reset + refetch on filter/type change
-  useEffect(() => {
-    setOpps([]);
-    setLastDoc(null);
-    setHasMore(true);
-    loadOpps(true);
-    setSearchParams({ type: activeType });
-    // eslint-disable-next-line
-  }, [activeType, isProjectMode, filters]);
-
-  // Featured carousel auto-advance
-  useEffect(() => {
-    if (featuredOpps.length === 0) return;
-    const t = setInterval(
-      () => setFeaturedIdx((i) => (i + 1) % featuredOpps.length),
-      6000,
-    );
-    return () => clearInterval(t);
-  }, [featuredOpps.length]);
-
-  const clearFilters = () =>
-    setFilters({
-      workMode: "",
-      payMode: "",
-      experienceLevel: "",
-      domain: "",
-      requiredTags: [],
-    });
-
-  const activeFeatured = featuredOpps[featuredIdx];
-  const activeFeaturedCfg = activeFeatured
-    ? TYPE_CONFIG[activeFeatured.type] || TYPE_CONFIG.job
-    : null;
+  const handleLoadMore = async () => {
+    setLoadingMore(true);
+    await fetchOpps(false);
+  };
 
   return (
-    <div className="bg-[#030303] min-h-screen text-white selection:bg-[#BFA264]/20 pb-28 relative overflow-x-hidden">
-      <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-[0.02] pointer-events-none" />
+    <div className="min-h-screen bg-[#030303] text-white selection:bg-[#BFA264]/20 pb-32 relative overflow-x-hidden">
+      {/* Ambient bg */}
+      <div className="fixed inset-0 pointer-events-none z-0">
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[700px] h-[350px] bg-[#BFA264]/[0.03] blur-[120px] rounded-full" />
+        <div className="absolute top-0 right-0 w-[350px] h-[350px] bg-violet-500/[0.02] blur-[100px] rounded-full" />
+      </div>
 
-      {/* ── FEATURED HERO BANNER ──────────────────────────────────── */}
-      {!isLoading && featuredOpps.length > 0 && activeFeatured && (
-        <div className="relative overflow-hidden" style={{ minHeight: "46vh" }}>
-          {/* BG Image */}
-          <AnimatePresence mode="wait">
-            <motion.div
-              key={activeFeatured.id}
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 1.2 }}
-              className="absolute inset-0"
-            >
-              {activeFeatured.thumbnailUrl ? (
-                <img
-                  src={activeFeatured.thumbnailUrl}
-                  alt={activeFeatured.title}
-                  className="w-full h-full object-cover opacity-30"
-                />
-              ) : (
-                <div
-                  className="w-full h-full"
-                  style={{
-                    background: `radial-gradient(ellipse at 30% 50%, ${activeFeaturedCfg?.color}20 0%, transparent 60%)`,
-                  }}
-                />
+      {/* ── HEADER ─────────────────────────────────────────────────────── */}
+      <header className="relative z-20 border-b border-[#111] bg-[#050505]/80 backdrop-blur-xl">
+        <div className="max-w-[1600px] mx-auto px-4 md:px-8 pt-5 pb-0">
+          {/* Top row */}
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                <span className="text-[9px] font-black text-emerald-400 uppercase tracking-widest">
+                  Live Opportunities
+                </span>
+              </div>
+              <h1 className="text-2xl md:text-3xl font-black tracking-tight">
+                Opportunities{" "}
+                {totalCount > 0 && (
+                  <span className="text-[10px] font-black text-white/15 uppercase tracking-widest">
+                    {totalCount}+ listings
+                  </span>
+                )}
+              </h1>
+              <p className="text-sm text-white/35 font-medium mt-1 hidden md:block">
+                Jobs, internships, freelance, grants, college fests — curated
+                for your domain.
+              </p>
+            </div>
+
+            {/* Projects Mode Toggle */}
+            <div
+              onClick={() => setIsProjectsMode((v) => !v)}
+              role="switch"
+              aria-checked={isProjectsMode}
+              tabIndex={0}
+              onKeyDown={(e) =>
+                e.key === "Enter" && setIsProjectsMode((v) => !v)
+              }
+              aria-label="Toggle projects mode"
+              className={cn(
+                "flex items-center gap-3 px-4 py-2.5 rounded-xl border cursor-pointer transition-all select-none shrink-0",
+                isProjectsMode
+                  ? "bg-violet-500/10 border-violet-500/25"
+                  : "bg-[#0a0a0a] border-[#1a1a1a] hover:border-[#333]",
               )}
-              <div className="absolute inset-0 bg-gradient-to-r from-[#030303] via-[#030303]/80 to-transparent" />
-              <div className="absolute inset-0 bg-gradient-to-t from-[#030303] via-transparent to-transparent" />
-            </motion.div>
-          </AnimatePresence>
-
-          {/* Content */}
-          <div
-            className="relative z-10 max-w-[1600px] mx-auto px-4 md:px-8 py-12 md:py-16 flex flex-col justify-end"
-            style={{ minHeight: "46vh" }}
-          >
-            <AnimatePresence mode="wait">
-              <motion.div
-                key={activeFeatured.id}
-                initial={{ opacity: 0, y: 16 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -10 }}
-                transition={{ duration: 0.5 }}
-                className="max-w-2xl"
-              >
-                <div className="flex items-center gap-2 mb-3 flex-wrap">
-                  {activeFeaturedCfg && (
-                    <div
-                      className="flex items-center gap-1.5 px-3 py-1 rounded-full text-[9px] font-black uppercase tracking-widest border"
-                      style={{
-                        background: activeFeaturedCfg.bg,
-                        borderColor: activeFeaturedCfg.border,
-                        color: activeFeaturedCfg.color,
-                      }}
-                    >
-                      <activeFeaturedCfg.icon className="w-2.5 h-2.5" />{" "}
-                      {activeFeatured.type}
-                    </div>
-                  )}
-                  <div className="flex items-center gap-1 px-2 py-1 rounded-full bg-[#BFA264]/10 border border-[#BFA264]/20 text-[9px] font-black text-[#BFA264] uppercase tracking-widest">
-                    <Sparkles className="w-2.5 h-2.5" /> Featured
-                  </div>
-                  {timeLeft(activeFeatured.closingDate) && (
-                    <div className="flex items-center gap-1 px-2 py-1 rounded-full bg-black/40 border border-white/10 text-[9px] text-white/50">
-                      <Clock className="w-2.5 h-2.5" />{" "}
-                      {timeLeft(activeFeatured.closingDate)}
-                    </div>
-                  )}
-                </div>
-                <h1
-                  className="font-display font-black text-3xl md:text-5xl leading-tight tracking-tight mb-3"
-                  style={{ letterSpacing: "-0.03em" }}
-                >
-                  {activeFeatured.title}
-                </h1>
-                <p className="text-sm md:text-base text-white/60 leading-relaxed mb-6 max-w-lg">
-                  {activeFeatured.description?.slice(0, 160)}
-                  {activeFeatured.description?.length > 160 ? "..." : ""}
-                </p>
-                <div className="flex items-center gap-3 flex-wrap">
-                  <button
-                    onClick={() => setSelectedOpp(activeFeatured)}
-                    className="flex items-center gap-2 px-6 py-3 font-black text-[11px] uppercase tracking-widest rounded-full text-black transition-all"
-                    style={{
-                      background: `linear-gradient(135deg, #8B7240, #D4AF78)`,
-                      boxShadow: "0 0 24px rgba(191,162,100,0.2)",
-                    }}
-                  >
-                    View Details <ArrowUpRight className="w-3.5 h-3.5" />
-                  </button>
-                  <div className="flex items-center gap-1.5">
-                    {featuredOpps.map((_, i) => (
-                      <button
-                        key={i}
-                        onClick={() => setFeaturedIdx(i)}
-                        className={cn(
-                          "rounded-full transition-all duration-300",
-                          i === featuredIdx
-                            ? "w-5 h-2 bg-white"
-                            : "w-2 h-2 bg-white/20",
-                        )}
-                      />
-                    ))}
-                  </div>
-                </div>
-              </motion.div>
-            </AnimatePresence>
-          </div>
-        </div>
-      )}
-
-      {/* ── MAIN CONTENT ────────────────────────────────────────────── */}
-      <div className="max-w-[1600px] mx-auto px-4 md:px-8 py-6 relative z-10">
-        {/* PAGE HEADER */}
-        <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-6">
-          <div>
-            <p className="text-[9px] font-black text-white/25 uppercase tracking-[0.3em] mb-1">
-              Career Monopoly Engine
-            </p>
-            <h2 className="text-2xl md:text-3xl font-black tracking-tight">
-              Opportunities.
-            </h2>
-          </div>
-
-          {/* Projects Mode Toggle */}
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2 px-3 py-2 bg-[#0a0a0a] border border-white/[0.06] rounded-xl">
-              <span className="text-[10px] font-black text-white/40 uppercase tracking-widest">
-                Projects Mode
-              </span>
-              <button
-                onClick={() => setIsProjectMode((v) => !v)}
+            >
+              <div
                 className={cn(
-                  "relative inline-flex h-5 w-9 items-center rounded-full transition-colors",
-                  isProjectMode ? "bg-[#BFA264]" : "bg-white/10",
+                  "w-8 h-4 rounded-full relative transition-all",
+                  isProjectsMode ? "bg-violet-500" : "bg-[#333]",
                 )}
               >
-                <span
+                <div
                   className={cn(
-                    "inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform shadow",
-                    isProjectMode ? "translate-x-4" : "translate-x-1",
+                    "absolute top-0.5 w-3 h-3 rounded-full bg-white shadow-sm transition-all duration-200",
+                    isProjectsMode ? "left-4" : "left-0.5",
                   )}
                 />
-              </button>
-            </div>
-          </div>
-        </div>
-
-        {/* CONTROLS ROW */}
-        <div className="flex flex-col lg:flex-row gap-3 mb-4">
-          {/* Type tabs — horizontal scroll on mobile */}
-          <div className="flex-1 overflow-x-auto hide-scrollbar">
-            <div className="flex gap-2 pb-1 min-w-max">
-              {OPP_TYPES.map(({ id, label, icon: Icon }) => (
-                <button
-                  key={id}
-                  onClick={() => setActiveType(id)}
-                  className={cn(
-                    "flex items-center gap-2 px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest border whitespace-nowrap transition-all shrink-0",
-                    activeType === id
-                      ? "bg-white text-black border-transparent shadow-[0_0_15px_rgba(255,255,255,0.1)]"
-                      : "bg-[#0a0a0a] border-white/[0.06] text-white/40 hover:text-white hover:border-white/[0.15]",
-                  )}
-                >
-                  <Icon className="w-3.5 h-3.5" />
-                  {label}
-                </button>
-              ))}
+              </div>
+              <span
+                className={cn(
+                  "text-[10px] font-black uppercase tracking-widest",
+                  isProjectsMode ? "text-violet-400" : "text-white/35",
+                )}
+              >
+                Projects Mode
+              </span>
+              <Rocket
+                className={cn(
+                  "w-3.5 h-3.5",
+                  isProjectsMode ? "text-violet-400" : "text-white/20",
+                )}
+              />
             </div>
           </div>
 
-          {/* Search + filter controls */}
-          <div className="flex items-center gap-2 shrink-0">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/25" />
+          {/* Search + filter toggle */}
+          <div className="flex flex-col sm:flex-row gap-3">
+            <div className="relative flex-1 max-w-lg">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#555]" />
               <input
                 type="text"
-                value={searchQ}
-                onChange={(e) => setSearchQ(e.target.value)}
-                placeholder="Search opportunities..."
-                className="w-full lg:w-64 bg-[#0a0a0a] border border-white/[0.06] text-white pl-9 pr-3 py-2.5 rounded-xl text-xs focus:outline-none focus:border-[#BFA264]/40 placeholder-white/20 transition-colors"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search opportunities, companies, skills..."
+                className="w-full bg-[#0a0a0a] border border-[#1a1a1a] focus:border-[#BFA264]/40 text-white pl-9 pr-9 py-2.5 rounded-xl text-sm outline-none transition-colors placeholder:text-white/20"
+                aria-label="Search opportunities"
               />
+              {search && (
+                <button
+                  onClick={() => setSearch("")}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-white/25 hover:text-white"
+                  aria-label="Clear search"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
             </div>
             <button
               onClick={() => setShowFilters((v) => !v)}
               className={cn(
-                "flex items-center gap-2 px-4 py-2.5 rounded-xl border text-[10px] font-black uppercase tracking-widest transition-all",
-                showFilters || activeFilterCount > 0
+                "flex items-center gap-2 px-4 py-2.5 rounded-xl border text-[10px] font-black uppercase tracking-widest transition-all shrink-0",
+                showFilters
                   ? "bg-[#BFA264]/10 border-[#BFA264]/30 text-[#BFA264]"
-                  : "bg-[#0a0a0a] border-white/[0.06] text-white/40 hover:text-white hover:border-white/[0.15]",
+                  : "bg-[#0a0a0a] border-[#1a1a1a] hover:border-[#333] text-white/45",
               )}
+              aria-label="Toggle filters"
             >
               <SlidersHorizontal className="w-3.5 h-3.5" />
               Filters
-              {activeFilterCount > 0 && (
-                <span className="w-4 h-4 rounded-full bg-[#BFA264] text-black text-[8px] font-black flex items-center justify-center">
-                  {activeFilterCount}
-                </span>
-              )}
             </button>
-            <div className="hidden sm:flex bg-[#0a0a0a] border border-white/[0.06] p-1 rounded-xl gap-0.5">
-              {[
-                { id: "grid", Icon: Grid3x3 },
-                { id: "list", Icon: List },
-              ].map(({ id, Icon }) => (
-                <button
-                  key={id}
-                  onClick={() => setViewMode(id)}
-                  className={cn(
-                    "p-2 rounded-lg transition-all",
-                    viewMode === id
-                      ? "bg-white/10 text-white"
-                      : "text-white/25 hover:text-white",
-                  )}
-                >
-                  <Icon className="w-3.5 h-3.5" />
-                </button>
-              ))}
-            </div>
           </div>
+
+          {/* Filter bar */}
+          <AnimatePresence>
+            {showFilters && (
+              <motion.div
+                initial={{ opacity: 0, height: 0 }}
+                animate={{ opacity: 1, height: "auto" }}
+                exit={{ opacity: 0, height: 0 }}
+                className="overflow-visible relative"
+              >
+                <FilterBar
+                  filters={filters}
+                  setFilters={setFilters}
+                  onClear={() => {
+                    setFilters({});
+                    setSearch("");
+                  }}
+                  userSkills={userSkills}
+                />
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
 
-        {/* Filter Panel */}
-        <AnimatePresence>
-          {showFilters && (
-            <FilterBar
-              filters={filters}
-              setFilters={setFilters}
-              onClear={clearFilters}
-              allTags={allTags}
-            />
-          )}
-        </AnimatePresence>
-
-        {/* Active filters display */}
-        {activeFilterCount > 0 && !showFilters && (
-          <div className="flex items-center gap-2 mt-2 mb-4 flex-wrap">
-            <span className="text-[9px] font-black text-white/20 uppercase tracking-widest">
-              Active:
-            </span>
-            {filters.workMode && (
-              <span className="px-2.5 py-1 rounded-lg bg-[#BFA264]/10 border border-[#BFA264]/20 text-[9px] font-bold text-[#BFA264] flex items-center gap-1">
-                {filters.workMode}{" "}
-                <button
-                  onClick={() => setFilters((f) => ({ ...f, workMode: "" }))}
-                >
-                  <X className="w-2.5 h-2.5" />
-                </button>
-              </span>
-            )}
-            {filters.payMode && (
-              <span className="px-2.5 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-[9px] font-bold text-emerald-400 flex items-center gap-1">
-                {filters.payMode}{" "}
-                <button
-                  onClick={() => setFilters((f) => ({ ...f, payMode: "" }))}
-                >
-                  <X className="w-2.5 h-2.5" />
-                </button>
-              </span>
-            )}
-            {filters.requiredTags.map((tag) => (
-              <span
-                key={tag}
-                className="px-2.5 py-1 rounded-lg bg-violet-500/10 border border-violet-500/20 text-[9px] font-bold text-violet-400 flex items-center gap-1"
-              >
-                {tag}{" "}
-                <button
-                  onClick={() =>
-                    setFilters((f) => ({
-                      ...f,
-                      requiredTags: f.requiredTags.filter((t) => t !== tag),
-                    }))
-                  }
-                >
-                  <X className="w-2.5 h-2.5" />
-                </button>
-              </span>
-            ))}
-            <button
-              onClick={clearFilters}
-              className="text-[9px] font-black text-white/20 hover:text-red-400 uppercase tracking-widest transition-colors"
-            >
-              Clear all
-            </button>
-          </div>
-        )}
-
-        {/* Project Mode Banner */}
-        {isProjectMode && (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: "auto" }}
-            className="mb-5 p-4 bg-violet-500/8 border border-violet-500/20 rounded-2xl flex items-center justify-between gap-4 overflow-hidden"
+        {/* ── TYPE TABS ── */}
+        <div className="max-w-[1600px] mx-auto px-4 md:px-8">
+          <div
+            className="flex items-center gap-1 overflow-x-auto hide-scrollbar py-4"
+            role="tablist"
+            aria-label="Opportunity categories"
           >
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-xl bg-violet-500/15 border border-violet-500/20 flex items-center justify-center">
-                <Users className="w-4 h-4 text-violet-400" />
+            {OPP_TYPES.map((type) => {
+              const Icon = type.icon;
+              const active = activeTab === type.key;
+              return (
+                <button
+                  key={type.key}
+                  role="tab"
+                  aria-selected={active}
+                  onClick={() => setActiveTab(type.key)}
+                  className={cn(
+                    "flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest whitespace-nowrap transition-all shrink-0 border min-h-[36px]",
+                    active
+                      ? ""
+                      : "bg-[#0a0a0a] border-transparent text-white/30 hover:text-white/60 hover:bg-[#111]",
+                  )}
+                  style={
+                    active
+                      ? {
+                          background: `${type.color}15`,
+                          borderColor: `${type.color}35`,
+                          color: type.color,
+                        }
+                      : {}
+                  }
+                  aria-label={`Show ${type.label}`}
+                >
+                  <Icon className="w-3.5 h-3.5" />
+                  {type.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </header>
+
+      {/* ── MAIN CONTENT ────────────────────────────────────────────────── */}
+      <main className="max-w-[1600px] mx-auto px-4 md:px-8 py-6 md:py-8 relative z-10">
+        {isProjectsMode ? (
+          <div>
+            <div className="flex items-center gap-3 mb-6">
+              <div className="w-8 h-8 rounded-xl bg-violet-500/10 border border-violet-500/20 flex items-center justify-center">
+                <Rocket className="w-4 h-4 text-violet-400" />
               </div>
               <div>
-                <p className="text-xs font-black text-violet-400">
-                  Projects Mode Active
-                </p>
-                <p className="text-[10px] text-white/30">
-                  Showing community-hosted opportunities. Anyone can post here.
+                <h2 className="text-sm font-black text-white">
+                  Community Projects
+                </h2>
+                <p className="text-[9px] text-white/30">
+                  Opportunities hosted by operators & indie builders
                 </p>
               </div>
             </div>
-            <button className="flex items-center gap-2 px-4 py-2 bg-violet-500/15 border border-violet-500/25 text-violet-400 font-black text-[10px] uppercase tracking-widest rounded-xl hover:bg-violet-500/25 transition-all shrink-0">
-              <Plus className="w-3 h-3" /> Post Project
-            </button>
-          </motion.div>
-        )}
 
-        {/* Results count */}
-        {!isLoading && (
-          <div className="flex items-center justify-between mb-4">
-            <p className="text-[10px] font-bold text-white/20">
-              {filteredOpps.length}{" "}
-              {filteredOpps.length === 1 ? "opportunity" : "opportunities"}{" "}
-              {searchQ ? `for "${searchQ}"` : ""}
-            </p>
-            {!isLoading && (
-              <button
-                onClick={() => loadOpps(true)}
-                className="flex items-center gap-1.5 text-[9px] font-black text-white/20 hover:text-white uppercase tracking-widest transition-colors"
-              >
-                <RefreshCw className="w-3 h-3" /> Refresh
-              </button>
+            {projLoading ? (
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+                {Array.from({ length: 8 }).map((_, i) => (
+                  <OppSkeleton key={i} />
+                ))}
+              </div>
+            ) : projects.length === 0 ? (
+              <EmptyState activeTab={activeTab} isProjectsMode />
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                {projects.map((p, i) => (
+                  <ProjectCard
+                    key={p.id}
+                    project={p}
+                    userData={userData}
+                    onSelect={setSelectedOpp}
+                    index={i}
+                  />
+                ))}
+              </div>
             )}
           </div>
-        )}
-
-        {/* GRID */}
-        {isLoading ? (
-          <div
-            className={cn(
-              "grid gap-4",
-              viewMode === "grid"
-                ? "grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5"
-                : "grid-cols-1 lg:grid-cols-2",
-            )}
-          >
-            {Array.from({ length: 12 }).map((_, i) => (
-              <SkeletonCard key={i} />
+        ) : loading ? (
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+            {Array.from({ length: 10 }).map((_, i) => (
+              <OppSkeleton key={i} />
             ))}
           </div>
-        ) : (
-          <div
-            className={cn(
-              "grid gap-4",
-              viewMode === "grid"
-                ? "grid-cols-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5"
-                : "grid-cols-1 lg:grid-cols-2",
-            )}
-          >
-            <AnimatePresence>
-              {filteredOpps.length === 0 ? (
-                <EmptyState
-                  isProjectMode={isProjectMode}
-                  activeType={activeType}
-                />
-              ) : (
-                filteredOpps.map((opp) => (
-                  <OppCard
-                    key={opp.id}
-                    opp={opp}
-                    onSelect={setSelectedOpp}
-                    userSkills={userSkills}
-                    vaultAssets={vaultAssets}
-                    isProjectMode={isProjectMode}
+        ) : activeTab === "all" ? (
+          /* ── ALL MODE — sectioned ── */
+          <div className="space-y-12">
+            {renderedTypes.map((type) => {
+              const items = oppsByType[type] || [];
+              if (items.length === 0) return null;
+              return (
+                <section key={type} aria-labelledby={`section-${type}`}>
+                  <SectionHeader
+                    type={type}
+                    count={items.length}
+                    onViewAll={() => setActiveTab(type)}
                   />
-                ))
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+                    {items.map((opp, i) => (
+                      <OppCard
+                        key={opp.id}
+                        opp={opp}
+                        userData={userData}
+                        onSelect={setSelectedOpp}
+                        index={i}
+                      />
+                    ))}
+                  </div>
+                </section>
+              );
+            })}
+            {totalCount === 0 && <EmptyState activeTab="all" />}
+          </div>
+        ) : (
+          /* ── SINGLE TYPE MODE ── */
+          <div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+              {(oppsByType[activeTab] || []).map((opp, i) => (
+                <OppCard
+                  key={opp.id}
+                  opp={opp}
+                  userData={userData}
+                  onSelect={setSelectedOpp}
+                  index={i}
+                />
+              ))}
+              {(!oppsByType[activeTab] ||
+                oppsByType[activeTab].length === 0) && (
+                <EmptyState activeTab={activeTab} />
               )}
-            </AnimatePresence>
+            </div>
+            {hasMore[activeTab] && (
+              <div className="flex justify-center mt-8">
+                <button
+                  onClick={handleLoadMore}
+                  disabled={loadingMore}
+                  className="flex items-center gap-2 px-8 py-3.5 bg-[#0a0a0a] border border-[#1a1a1a] hover:border-[#333] text-white/55 hover:text-white text-xs font-black uppercase tracking-widest rounded-2xl transition-all"
+                  aria-label="Load more opportunities"
+                >
+                  {loadingMore ? (
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <ChevronDown className="w-4 h-4" />
+                  )}
+                  {loadingMore ? "Loading..." : "Load More"}
+                </button>
+              </div>
+            )}
           </div>
         )}
+      </main>
 
-        {/* Load More */}
-        {hasMore && !isLoading && filteredOpps.length > 0 && (
-          <div className="flex justify-center mt-8">
-            <button
-              onClick={() => loadOpps(false)}
-              disabled={isPaging}
-              className="flex items-center gap-2 px-8 py-3.5 bg-[#0a0a0a] border border-white/[0.06] hover:border-white/20 text-white/50 hover:text-white text-xs font-black uppercase tracking-widest rounded-2xl transition-all"
-            >
-              {isPaging ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <ChevronDown className="w-4 h-4" />
-              )}
-              {isPaging ? "Loading..." : "Load More"}
-            </button>
-          </div>
+      {/* ── DETAIL SIDEBAR ──────────────────────────────────────────────── */}
+      <AnimatePresence>
+        {selectedOpp && (
+          <>
+            <motion.div
+              key="sidebar-backdrop"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[200]"
+              onClick={() => setSelectedOpp(null)}
+            />
+            <DetailSidebar
+              key="sidebar"
+              opp={selectedOpp}
+              userData={userData}
+              onClose={() => setSelectedOpp(null)}
+              navigate={navigate}
+            />
+          </>
         )}
-      </div>
-
-      {/* Detail Sidebar */}
-      {selectedOpp && (
-        <DetailSidebar
-          opp={selectedOpp}
-          onClose={() => setSelectedOpp(null)}
-          userSkills={userSkills}
-          vaultAssets={vaultAssets}
-          navigate={navigate}
-        />
-      )}
+      </AnimatePresence>
     </div>
   );
 };
