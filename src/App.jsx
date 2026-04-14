@@ -98,7 +98,9 @@ const RouteTitleManager = () => {
           title = "Vault | Discotive";
           break;
         case "connective":
-          title = "Connective | Discotive";
+          if (path.includes("network")) title = "Network | Discotive";
+          else if (path.includes("feed")) title = "Execution Feed | Discotive";
+          else title = "Connective | Discotive";
           break;
         case "learn":
           title = "Learn | Discotive";
@@ -279,10 +281,7 @@ function App() {
                     </GhostAwareRoute>
                   }
                 />
-                <Route
-                  path="opportunities"
-                  element={<ComingSoon title="Opportunities" />}
-                />
+                <Route path="opportunities" element={<Opportunities />} />
                 <Route path="vault" element={<Vault />} />
                 <Route path="hubs" element={<ComingSoon title="Hubs" />} />
                 {/* PROFILE ROUTES */}

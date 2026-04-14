@@ -74,30 +74,27 @@ const topNavItems = [
 ];
 
 const upperMiddleNavItems = [
-  // {
-  //   icon: LaptopMinimalCheck,
-  //   label: "Execution Agent",
-  //   path: "/app/agent",
-  // },
-  { icon: Trophy, label: "Leaderboard", path: "/app/leaderboard" },
-  // { icon: Briefcase, label: "Opportunities", path: "/app/opportunities" },
+  { icon: Briefcase, label: "Opportunities", path: "/app/opportunities" },
 ];
 
-const lowerMiddleNavItems = [
-  { icon: FolderOpen, label: "Asset Vault", path: "/app/vault" },
-  // { icon: Users, label: "Connective", path: "/app/connective" },
-  // { icon: Compass, label: "Discover Hubs", path: "/app/hubs" },
-];
+// Transparency section completely purged per architecture mandate.
 
 const upperContentNavItems = [
-  { icon: Users, label: "Connective", path: "/app/connective" },
-  // { icon: Compass, label: "Discover Hubs", path: "/app/hubs" },
+  { icon: Trophy, label: "Leaderboard", path: "/app/leaderboard" },
+  {
+    icon: Users,
+    label: "Connective",
+    path: "/app/connective",
+    subItems: [
+      { label: "Feed", path: "/app/connective/feed" },
+      { label: "Network", path: "/app/connective/network" },
+    ],
+  },
 ];
 
 const lowerContentNavItems = [
+  { icon: FolderOpen, label: "Asset Vault", path: "/app/vault" },
   { icon: BookOpen, label: "Learn", path: "/app/learn" },
-  // { icon: Mic, label: "Podcasts", path: "/app/podcasts" },
-  // { icon: FileText, label: "Assessments", path: "/app/assessments" },
 ];
 
 const bottomNavItems = [
@@ -366,14 +363,19 @@ const MainLayout = () => {
 
   const NavItem = ({ item, isCollapsed }) => {
     const Icon = item.icon;
-    const isActive = location.pathname === item.path;
 
-    /**
-     * @description
-     * A nav item is "ghost-locked" if the user is a ghost AND the route
-     * appears in GHOST_LOCKED_ROUTES. Leaderboard (/app/leaderboard)
-     * is intentionally NOT in that list so ghost users can preview it.
-     */
+    // Check if the current path matches the parent or any child node
+    const isParentActive =
+      location.pathname === item.path ||
+      (item.subItems &&
+        item.subItems.some((sub) => location.pathname.startsWith(sub.path)));
+
+    const [isSubMenuOpen, setIsSubMenuOpen] = useState(isParentActive);
+
+    useEffect(() => {
+      if (isParentActive && !isCollapsed) setIsSubMenuOpen(true);
+    }, [isParentActive, isCollapsed]);
+
     const isItemLocked =
       isGhostUser &&
       GHOST_LOCKED_ROUTES.some(
@@ -381,50 +383,101 @@ const MainLayout = () => {
       );
 
     return (
-      <Link
-        to={item.path}
-        onClick={
-          isItemLocked
-            ? (e) => {
-                e.preventDefault();
-                navigate(item.path);
-              }
-            : undefined
-        }
-        className={cn(
-          "flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 group relative border border-transparent",
-          isActive
-            ? "bg-[rgba(191,162,100,0.08)] text-[#D4AF78] border-[rgba(191,162,100,0.25)] shadow-[0_0_15px_rgba(191,162,100,0.05)] font-bold"
-            : isItemLocked
-              ? "text-[#444] hover:bg-[#111] font-medium cursor-pointer"
-              : "text-[#F5F0E8]/60 hover:bg-[rgba(191,162,100,0.04)] hover:text-[#E8D5A3] font-medium",
-        )}
-        title={isCollapsed ? item.label : undefined}
-      >
-        <Icon
+      <div className="flex flex-col gap-1 w-full">
+        <Link
+          to={item.subItems ? item.path + "/feed" : item.path} // Default to feed if clicking connective
+          onClick={
+            isItemLocked
+              ? (e) => {
+                  e.preventDefault();
+                  navigate(item.path);
+                }
+              : item.subItems
+                ? (e) => {
+                    if (!isCollapsed) {
+                      e.preventDefault();
+                      setIsSubMenuOpen(!isSubMenuOpen);
+                    }
+                  }
+                : undefined
+          }
           className={cn(
-            "w-5 h-5 shrink-0 transition-colors",
-            isActive
-              ? "text-[#BFA264]"
-              : isItemLocked
-                ? "text-[#333]"
-                : "text-[#F5F0E8]/40 group-hover:text-[#BFA264]",
+            "flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 group relative border border-transparent w-full",
+            isParentActive && !item.subItems
+              ? "bg-[rgba(191,162,100,0.08)] text-[#D4AF78] border-[rgba(191,162,100,0.25)] shadow-[0_0_15px_rgba(191,162,100,0.05)] font-bold"
+              : isParentActive && item.subItems
+                ? "text-[#D4AF78] font-bold"
+                : isItemLocked
+                  ? "text-[#444] hover:bg-[#111] font-medium cursor-pointer"
+                  : "text-[#F5F0E8]/60 hover:bg-[rgba(191,162,100,0.04)] hover:text-[#E8D5A3] font-medium",
           )}
-        />
-        {!isCollapsed && (
-          <span className="truncate text-sm tracking-wide flex-1">
-            {item.label}
-          </span>
-        )}
-        {/* Lock badge — only visible in expanded state */}
-        {isItemLocked && !isCollapsed && (
-          <Lock className="w-3 h-3 text-[#333] shrink-0" />
-        )}
-        {/* Collapsed lock tooltip dot */}
-        {isItemLocked && isCollapsed && (
-          <span className="absolute top-1 right-1 w-1.5 h-1.5 bg-[#333] rounded-full" />
-        )}
-      </Link>
+          title={isCollapsed ? item.label : undefined}
+        >
+          <Icon
+            className={cn(
+              "w-5 h-5 shrink-0 transition-colors",
+              isParentActive
+                ? "text-[#BFA264]"
+                : isItemLocked
+                  ? "text-[#333]"
+                  : "text-[#F5F0E8]/40 group-hover:text-[#BFA264]",
+            )}
+          />
+          {!isCollapsed && (
+            <span className="truncate text-sm tracking-wide flex-1">
+              {item.label}
+            </span>
+          )}
+          {!isCollapsed && item.subItems && (
+            <ChevronDown
+              className={cn(
+                "w-3 h-3 text-[#BFA264]/50 transition-transform duration-300",
+                isSubMenuOpen && "rotate-180",
+              )}
+            />
+          )}
+          {isItemLocked && !isCollapsed && (
+            <Lock className="w-3 h-3 text-[#333] shrink-0" />
+          )}
+          {isItemLocked && isCollapsed && (
+            <span className="absolute top-1 right-1 w-1.5 h-1.5 bg-[#333] rounded-full" />
+          )}
+        </Link>
+
+        {/* --- DYNAMIC NESTED SUBMENU ENGINE --- */}
+        <AnimatePresence>
+          {item.subItems && isSubMenuOpen && !isCollapsed && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
+              transition={{ duration: 0.2, ease: "easeOut" }}
+              className="flex flex-col gap-1 pl-10 pr-2 overflow-hidden"
+            >
+              {item.subItems.map((sub) => {
+                const isSubActive =
+                  location.pathname === sub.path ||
+                  (location.pathname === item.path &&
+                    sub.path.endsWith("feed"));
+                return (
+                  <Link
+                    key={sub.path}
+                    to={sub.path}
+                    className={cn(
+                      "text-[11px] py-2 px-3 rounded-lg transition-all border border-transparent font-black tracking-widest uppercase",
+                      isSubActive
+                        ? "bg-[rgba(191,162,100,0.08)] text-[#D4AF78] border-[rgba(191,162,100,0.25)] shadow-[0_0_10px_rgba(191,162,100,0.05)]"
+                        : "text-[#F5F0E8]/40 hover:text-[#E8D5A3] hover:bg-[rgba(191,162,100,0.04)]",
+                    )}
+                  >
+                    {sub.label}
+                  </Link>
+                );
+              })}
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
     );
   };
 
@@ -470,7 +523,7 @@ const MainLayout = () => {
                 src={
                   userData?.tier === "PRO" || userData?.tier === "ENTERPRISE"
                     ? "/logo-premium.png"
-                    : "/logo-no-bg-white.png"
+                    : "/logo.png"
                 }
                 alt="Discotive Logo"
                 width={32}
@@ -561,25 +614,6 @@ const MainLayout = () => {
               </div>
             )}
             {upperMiddleNavItems.map((item) => (
-              <NavItem
-                key={item.path}
-                item={item}
-                isCollapsed={!isSidebarOpen}
-              />
-            ))}
-          </div>
-
-          <div className="space-y-1">
-            {isSidebarOpen ? (
-              <p className="px-3 text-[10px] font-bold text-[#555] uppercase tracking-[0.2em] mb-2 mt-4">
-                Transparency
-              </p>
-            ) : (
-              <div className="flex justify-center mb-2 mt-4 px-2">
-                <div className="w-6 h-[1px] bg-white/10 rounded-full" />
-              </div>
-            )}
-            {lowerMiddleNavItems.map((item) => (
               <NavItem
                 key={item.path}
                 item={item}

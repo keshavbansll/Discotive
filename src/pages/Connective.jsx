@@ -168,34 +168,6 @@ const useToasts = () => {
   return { toasts, addToast, dismissToast };
 };
 
-// ─── Main Tab Button ──────────────────────────────────────────────────────────
-const MainTabButton = ({ id, label, icon: Icon, badge, active, onClick }) => (
-  <button
-    onClick={() => onClick(id)}
-    className={cn(
-      "relative flex items-center gap-2.5 px-5 py-3 rounded-2xl text-[11px] font-black uppercase tracking-wider transition-all duration-300 shrink-0",
-      active
-        ? "bg-gradient-to-r from-[#BFA264] to-[#D4AF78] text-[#030303] shadow-[0_4px_24px_rgba(191,162,100,0.35)] border border-transparent"
-        : "text-[rgba(245,240,232,0.40)] hover:text-[rgba(245,240,232,0.75)] hover:bg-[rgba(255,255,255,0.04)] border border-transparent",
-    )}
-  >
-    <Icon className="w-4 h-4" />
-    <span className="hidden sm:block">{label}</span>
-    {badge > 0 && (
-      <span
-        className={cn(
-          "min-w-[16px] h-4 px-1 rounded-full text-[8px] font-black flex items-center justify-center",
-          active
-            ? "bg-[#030303] text-[#BFA264]"
-            : "bg-[#BFA264] text-[#030303]",
-        )}
-      >
-        {badge}
-      </span>
-    )}
-  </button>
-);
-
 // ─── Intelligence Hub ─────────────────────────────────────────────────────────
 const IntelligenceHub = ({
   peekUser,
@@ -966,15 +938,6 @@ const Connective = () => {
 
   const handlePeekOperator = useCallback((user) => setPeekUser(user), []);
 
-  const mainTabs = [
-    { id: "feed", label: "Feed", icon: RadioTower, badge: 0 },
-    {
-      id: "network",
-      label: "Network",
-      icon: Users,
-      badge: networkStats.pendingInbound,
-    },
-  ];
   const uid = currentUser?.uid;
   const userTier = userData?.tier || "ESSENTIAL";
 
@@ -986,28 +949,21 @@ const Connective = () => {
       <div className="sticky top-0 z-50 bg-[rgba(3,3,3,0.92)] backdrop-blur-xl border-b border-[rgba(255,255,255,0.04)]">
         <div className="max-w-[1600px] mx-auto px-4 md:px-8">
           <div className="flex items-center justify-between h-14 md:h-16">
+            {" "}
             <div className="flex items-center gap-6">
+              {" "}
               <div className="flex items-center gap-2">
-                <RadioTower className="w-5 h-5 text-[#BFA264]" />
+                {" "}
+                <RadioTower className="w-5 h-5 text-[#BFA264]" />{" "}
                 <h1
-                  className="text-base font-black tracking-tight text-[#F5F0E8] hidden sm:block"
+                  className="text-base font-black tracking-tight text-[#F5F0E8] hidden sm:block uppercase"
                   style={{ fontFamily: "Montserrat, sans-serif" }}
                 >
-                  CONNECTIVE
-                </h1>
-              </div>
-              <div className="flex items-center gap-1">
-                {mainTabs.map((tab) => (
-                  <MainTabButton
-                    key={tab.id}
-                    {...tab}
-                    active={activeTab === tab.id}
-                    onClick={handleTabChange}
-                  />
-                ))}
-              </div>
+                  Connective /{" "}
+                  {activeTab === "network" ? "Network" : "Feed"}{" "}
+                </h1>{" "}
+              </div>{" "}
             </div>
-
             <div className="flex items-center gap-3 md:gap-6">
               <div className="flex items-center gap-3 md:hidden">
                 <div className="flex items-center gap-1.5">
