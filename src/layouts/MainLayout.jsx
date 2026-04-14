@@ -1,6 +1,7 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, Suspense } from "react";
 import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
+
 import { auth, db } from "../firebase";
 import { signOut } from "firebase/auth";
 import {
@@ -1219,7 +1220,25 @@ const MainLayout = () => {
                   </button>
                 </motion.div>
               )}
-              <Outlet />
+
+              {/* MAANG-GRADE UX: Nested Suspense Boundary for seamless shell transitions */}
+              <Suspense
+                fallback={
+                  <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    className="flex-1 flex flex-col items-center justify-center min-h-[60vh] w-full"
+                  >
+                    <div className="w-10 h-10 border-[3px] border-[rgba(191,162,100,0.1)] border-t-[#BFA264] rounded-full animate-spin drop-shadow-[0_0_15px_rgba(191,162,100,0.4)]" />
+                    <span className="mt-5 text-[10px] font-bold text-[#BFA264]/60 uppercase tracking-[0.3em] animate-pulse">
+                      Initializing Sector
+                    </span>
+                  </motion.div>
+                }
+              >
+                <Outlet />
+              </Suspense>
             </>
           )}
         </main>
