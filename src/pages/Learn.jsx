@@ -1,6 +1,6 @@
 /**
  * @fileoverview Discotive Learn — Content Database & Knowledge Engine
- * @module Pages/LearnDatabase
+ * @module Pages/Learn
  *
  * @description
  * Browse verified certificates, courses, and curated videos from the
@@ -67,6 +67,7 @@ import {
 import { cn } from "../lib/cn";
 import { useUserData } from "../hooks/useUserData";
 import { useAuth } from "../contexts/AuthContext";
+import { useOnboardingGate } from "../hooks/useOnboardingGate";
 import { db } from "../firebase";
 import { doc, getDoc } from "firebase/firestore";
 import {
@@ -981,18 +982,30 @@ const AdminFormModal = ({ type, item, onClose, onSaved, adminEmail }) => {
 // ═══════════════════════════════════════════════════════════════════════════════
 // MAIN COMPONENT
 // ═══════════════════════════════════════════════════════════════════════════════
-const LearnDatabase = () => {
+const Learn = () => {
   const { userData, loading: userLoading } = useUserData();
   const { requireOnboarding } = useOnboardingGate();
   const { currentUser } = useAuth();
   const navigate = useNavigate();
 
   // ── View state ──────────────────────────────────────────────────────────
-  const [activeTab, setActiveTab] = useState("certs"); // certs | videos
+  const [activeTab, setActiveTab] = useState("certs"); // certs | videos | podcasts
   const [domain, setDomain] = useState("");
   const [category, setCategory] = useState("");
+  const [costFilter, setCostFilter] = useState(""); // "" | "Free" | "Paid"
+  const [audienceFilter, setAudienceFilter] = useState(""); // "" | "Students" | "Professionals" | "All"
   const [searchQ, setSearchQ] = useState("");
   const [showFilters, setShowFilters] = useState(false);
+  const [suggestModalOpen, setSuggestModalOpen] = useState(false);
+  const [suggestType, setSuggestType] = useState("cert"); // cert | video | podcast
+  const [suggestForm, setSuggestForm] = useState({
+    title: "",
+    url: "",
+    provider: "",
+    notes: "",
+  });
+  const [isSuggesting, setIsSuggesting] = useState(false);
+  const [suggestSuccess, setSuggestSuccess] = useState(false);
 
   // ── Data state ──────────────────────────────────────────────────────────
   const [certs, setCerts] = useState([]);
@@ -1001,6 +1014,9 @@ const LearnDatabase = () => {
   const [videoLastDoc, setVideoLastDoc] = useState(null);
   const [hasMoreCerts, setHasMoreCerts] = useState(true);
   const [hasMoreVideos, setHasMoreVideos] = useState(true);
+  const [podcasts, setPodcasts] = useState([]);
+  const [podcastLastDoc, setPodcastLastDoc] = useState(null);
+  const [hasMorePodcasts, setHasMorePodcasts] = useState(true);
   const [isLoading, setIsLoading] = useState(true);
   const [isPaging, setIsPaging] = useState(false);
 
@@ -1052,6 +1068,41 @@ const LearnDatabase = () => {
       .catch(() => {});
   }, [currentUser?.uid]);
 
+  // ── Submit Suggestion ────────────────────────────────────────────────────
+  const handleSuggestSubmit = async () => {
+    if (!suggestForm.title.trim() || !suggestForm.url.trim()) return;
+    if (!currentUser?.uid) return;
+    setIsSuggesting(true);
+    try {
+      const {
+        addDoc,
+        collection: col,
+        serverTimestamp,
+      } = await import("firebase/firestore");
+      await addDoc(col(db, "learn_suggestions"), {
+        type: suggestType,
+        title: suggestForm.title.trim(),
+        url: suggestForm.url.trim(),
+        provider: suggestForm.provider.trim(),
+        notes: suggestForm.notes.trim(),
+        submittedBy: currentUser.uid,
+        submittedByUsername: userData?.identity?.username || "",
+        status: "PENDING",
+        createdAt: serverTimestamp(),
+      });
+      setSuggestSuccess(true);
+      setTimeout(() => {
+        setSuggestSuccess(false);
+        setSuggestModalOpen(false);
+        setSuggestForm({ title: "", url: "", provider: "", notes: "" });
+      }, 2000);
+    } catch (e) {
+      console.error("[Learn] Suggest failed:", e);
+    } finally {
+      setIsSuggesting(false);
+    }
+  };
+
   // ── Initial fetch ────────────────────────────────────────────────────────
   const loadCerts = useCallback(
     async (reset = false) => {
@@ -1069,7 +1120,7 @@ const LearnDatabase = () => {
         setCertLastDoc(res.lastDocument);
         setHasMoreCerts(res.hasMore);
       } catch (e) {
-        console.error("[LearnDatabase] certs:", e);
+        console.error("[Learn] certs:", e);
       } finally {
         setIsLoading(false);
         setIsPaging(false);
@@ -1094,7 +1145,7 @@ const LearnDatabase = () => {
         setVideoLastDoc(res.lastDocument);
         setHasMoreVideos(res.hasMore);
       } catch (e) {
-        console.error("[LearnDatabase] videos:", e);
+        console.error("[Learn] videos:", e);
       } finally {
         setIsLoading(false);
         setIsPaging(false);
@@ -1103,15 +1154,44 @@ const LearnDatabase = () => {
     [domain, category, videoLastDoc, hasMoreVideos],
   );
 
+  const loadPodcasts = useCallback(
+    async (reset = false) => {
+      if (!hasMorePodcasts && !reset) return;
+      if (reset) setIsLoading(true);
+      else setIsPaging(true);
+      try {
+        const res = await fetchVideos({
+          domain: domain || null,
+          category: "podcast",
+          lastDocument: reset ? null : podcastLastDoc,
+          pageSize: PAGE_SIZE,
+        });
+        setPodcasts((prev) => (reset ? res.items : [...prev, ...res.items]));
+        setPodcastLastDoc(res.lastDocument);
+        setHasMorePodcasts(res.hasMore);
+      } catch (e) {
+        console.error("[Learn] podcasts:", e);
+      } finally {
+        setIsLoading(false);
+        setIsPaging(false);
+      }
+    },
+    [domain, podcastLastDoc, hasMorePodcasts],
+  );
+
   // Reset + refetch on filter change
   useEffect(() => {
     setCerts([]);
     setVideos([]);
+    setPodcasts([]);
     setCertLastDoc(null);
     setVideoLastDoc(null);
+    setPodcastLastDoc(null);
     setHasMoreCerts(true);
     setHasMoreVideos(true);
+    setHasMorePodcasts(true);
     if (activeTab === "certs") loadCerts(true);
+    else if (activeTab === "podcasts") loadPodcasts(true);
     else loadVideos(true);
     // eslint-disable-next-line
   }, [domain, category, activeTab]);
@@ -1204,22 +1284,35 @@ const LearnDatabase = () => {
                   </p>
                 </div>
               ))}
-              {isAdmin && (
-                <div className="flex gap-2 ml-2">
+              <div className="flex gap-2 ml-2">
+                <button
+                  onClick={() => {
+                    setSuggestType(
+                      activeTab === "videos"
+                        ? "video"
+                        : activeTab === "podcasts"
+                          ? "podcast"
+                          : "cert",
+                    );
+                    setSuggestModalOpen(true);
+                  }}
+                  className="flex items-center gap-1.5 px-4 py-2 bg-violet-500/10 border border-violet-500/20 text-violet-400 text-[10px] font-black rounded-xl uppercase tracking-widest hover:bg-violet-500/20 transition-all"
+                >
+                  <Plus className="w-3 h-3" /> Suggest Resource
+                </button>
+                {isAdmin && (
                   <button
-                    onClick={() => handleAdminCreate("cert")}
+                    onClick={() =>
+                      handleAdminCreate(
+                        activeTab === "certs" ? "cert" : "video",
+                      )
+                    }
                     className="flex items-center gap-1.5 px-3 py-2 bg-[#BFA264]/10 border border-[#BFA264]/20 text-[#BFA264] text-[10px] font-black rounded-xl uppercase tracking-widest hover:bg-[#BFA264]/20 transition-all"
                   >
-                    <Plus className="w-3 h-3" /> Cert
+                    <Plus className="w-3 h-3" /> Add
                   </button>
-                  <button
-                    onClick={() => handleAdminCreate("video")}
-                    className="flex items-center gap-1.5 px-3 py-2 bg-sky-500/10 border border-sky-500/20 text-sky-400 text-[10px] font-black rounded-xl uppercase tracking-widest hover:bg-sky-500/20 transition-all"
-                  >
-                    <Plus className="w-3 h-3" /> Video
-                  </button>
-                </div>
-              )}
+                )}
+              </div>
             </div>
           </div>
 
@@ -1228,8 +1321,9 @@ const LearnDatabase = () => {
             {/* Tabs */}
             <div className="flex bg-[#0a0a0a] border border-[#1a1a1a] rounded-xl p-1 shrink-0">
               {[
-                { id: "certs", label: "Certificates", icon: Award },
-                { id: "videos", label: "Video Hub", icon: Video },
+                { id: "certs", label: "Courses", icon: Award },
+                { id: "videos", label: "Videos", icon: Video },
+                { id: "podcasts", label: "Podcasts", icon: BookOpen },
               ].map(({ id, label, icon: Icon }) => (
                 <button
                   key={id}
@@ -1365,12 +1459,48 @@ const LearnDatabase = () => {
                     </div>
                   )}
 
-                  {(domain || category) && (
+                  <div className="flex-1 min-w-[140px]">
+                    <label className="block text-[9px] font-black text-[#444] uppercase tracking-widest mb-1.5">
+                      Cost
+                    </label>
+                    <div className="relative">
+                      <select
+                        value={costFilter}
+                        onChange={(e) => setCostFilter(e.target.value)}
+                        className="w-full bg-[#0a0a0a] border border-[#1a1a1a] text-white px-4 py-2.5 rounded-xl text-xs focus:outline-none focus:border-[#BFA264]/40 appearance-none"
+                      >
+                        <option value="">Free & Paid</option>
+                        <option value="Free">Free Only</option>
+                        <option value="Paid">Paid Only</option>
+                      </select>
+                      <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#555] pointer-events-none" />
+                    </div>
+                  </div>
+                  <div className="flex-1 min-w-[140px]">
+                    <label className="block text-[9px] font-black text-[#444] uppercase tracking-widest mb-1.5">
+                      For
+                    </label>
+                    <div className="relative">
+                      <select
+                        value={audienceFilter}
+                        onChange={(e) => setAudienceFilter(e.target.value)}
+                        className="w-full bg-[#0a0a0a] border border-[#1a1a1a] text-white px-4 py-2.5 rounded-xl text-xs focus:outline-none focus:border-[#BFA264]/40 appearance-none"
+                      >
+                        <option value="">Everyone</option>
+                        <option value="Students">Students</option>
+                        <option value="Professionals">Professionals</option>
+                      </select>
+                      <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[#555] pointer-events-none" />
+                    </div>
+                  </div>
+                  {(domain || category || costFilter || audienceFilter) && (
                     <div className="flex items-end">
                       <button
                         onClick={() => {
                           setDomain("");
                           setCategory("");
+                          setCostFilter("");
+                          setAudienceFilter("");
                         }}
                         className="px-4 py-2.5 bg-red-500/8 border border-red-500/15 text-red-400 text-[10px] font-black rounded-xl uppercase tracking-widest hover:bg-red-500/15 transition-all"
                       >
@@ -1460,6 +1590,58 @@ const LearnDatabase = () => {
               </>
             )}
 
+            {/* PODCASTS TAB */}
+            {activeTab === "podcasts" && (
+              <>
+                {podcasts.length === 0 && !isLoading ? (
+                  <div className="flex flex-col items-center justify-center py-24 text-center">
+                    <BookOpen className="w-16 h-16 text-[#1a1a1a] mb-4" />
+                    <h3 className="text-xl font-black text-white mb-2">
+                      No Podcasts Yet
+                    </h3>
+                    <p className="text-sm text-[#555] max-w-sm">
+                      Curated podcasts and audio content will appear here.
+                      Suggest one using the button above.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+                    <AnimatePresence>
+                      {podcasts.map((video) => (
+                        <VideoCard
+                          key={video.id}
+                          video={video}
+                          completion={completionMap[video.discotiveLearnId]}
+                          onSelect={(v) => {
+                            setSelectedItem(v);
+                            setSelectedType("video");
+                          }}
+                          isAdmin={isAdmin}
+                          onEdit={handleAdminEdit}
+                        />
+                      ))}
+                    </AnimatePresence>
+                  </div>
+                )}
+                {hasMorePodcasts && podcasts.length > 0 && (
+                  <div className="flex justify-center mt-8">
+                    <button
+                      onClick={() => loadPodcasts(false)}
+                      disabled={isPaging}
+                      className="flex items-center gap-2 px-8 py-3.5 bg-[#0a0a0a] border border-[#1a1a1a] hover:border-[#333] text-[#888] hover:text-white text-xs font-black uppercase tracking-widest rounded-2xl transition-all"
+                    >
+                      {isPaging ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <ChevronDown className="w-4 h-4" />
+                      )}{" "}
+                      {isPaging ? "Loading..." : "Load More"}
+                    </button>
+                  </div>
+                )}
+              </>
+            )}
+
             {/* VIDEOS TAB */}
             {activeTab === "videos" && (
               <>
@@ -1518,6 +1700,134 @@ const LearnDatabase = () => {
         )}
       </main>
 
+      {/* ── Suggest Resource Modal ──────────────────────────────────── */}
+      <AnimatePresence>
+        {suggestModalOpen && (
+          <div className="fixed inset-0 z-[400] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setSuggestModalOpen(false)}
+              className="absolute inset-0 bg-black/85 backdrop-blur-xl"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.96, y: 16 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0 }}
+              className="relative w-full max-w-md bg-[#080808] border border-[#1e1e1e] rounded-[2rem] overflow-hidden shadow-2xl"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between px-6 py-4 border-b border-[#1a1a1a] bg-[#050505]">
+                <h3 className="text-sm font-black text-white flex items-center gap-2">
+                  <Plus className="w-4 h-4 text-violet-400" /> Suggest a
+                  Resource
+                </h3>
+                <button
+                  onClick={() => setSuggestModalOpen(false)}
+                  className="w-7 h-7 bg-white/[0.05] border border-white/10 rounded-full flex items-center justify-center text-[#888] hover:text-white"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+              {suggestSuccess ? (
+                <div className="p-10 flex flex-col items-center text-center gap-3">
+                  <div className="w-12 h-12 rounded-full bg-emerald-500/15 border border-emerald-500/25 flex items-center justify-center">
+                    <Check className="w-6 h-6 text-emerald-400" />
+                  </div>
+                  <p className="text-sm font-black text-white">
+                    Suggestion submitted!
+                  </p>
+                  <p className="text-xs text-[#555]">
+                    Our team reviews all suggestions within 48 hours.
+                  </p>
+                </div>
+              ) : (
+                <div className="p-6 space-y-4">
+                  <div className="flex gap-2 p-1 bg-[#0d0d0d] border border-[#1a1a1a] rounded-xl">
+                    {["cert", "video", "podcast"].map((t) => (
+                      <button
+                        key={t}
+                        onClick={() => setSuggestType(t)}
+                        className={cn(
+                          "flex-1 py-2 text-[9px] font-black uppercase tracking-widest rounded-lg transition-all",
+                          suggestType === t
+                            ? "bg-violet-500/15 text-violet-400 border border-violet-500/25"
+                            : "text-[#555] hover:text-white",
+                        )}
+                      >
+                        {t === "cert"
+                          ? "Course"
+                          : t === "video"
+                            ? "Video"
+                            : "Podcast"}
+                      </button>
+                    ))}
+                  </div>
+                  {[
+                    {
+                      key: "title",
+                      label: "Title *",
+                      placeholder: "e.g. Full Stack Web Development",
+                    },
+                    {
+                      key: "url",
+                      label: "Link / URL *",
+                      placeholder: "https://...",
+                    },
+                    {
+                      key: "provider",
+                      label: "Platform / Creator",
+                      placeholder: "e.g. Coursera, Fireship, Lex Fridman",
+                    },
+                    {
+                      key: "notes",
+                      label: "Why is this valuable?",
+                      placeholder: "Optional note for our team...",
+                    },
+                  ].map(({ key, label, placeholder }) => (
+                    <div key={key}>
+                      <label className="block text-[9px] font-black text-[#444] uppercase tracking-widest mb-1.5">
+                        {label}
+                      </label>
+                      <input
+                        type={key === "url" ? "url" : "text"}
+                        value={suggestForm[key]}
+                        onChange={(e) =>
+                          setSuggestForm((p) => ({
+                            ...p,
+                            [key]: e.target.value,
+                          }))
+                        }
+                        placeholder={placeholder}
+                        className="w-full bg-[#0d0d0d] border border-[#1e1e1e] rounded-xl px-4 py-2.5 text-sm text-white placeholder-[#333] focus:outline-none focus:border-violet-500/40 transition-colors"
+                      />
+                    </div>
+                  ))}
+                  <button
+                    onClick={handleSuggestSubmit}
+                    disabled={
+                      isSuggesting ||
+                      !suggestForm.title.trim() ||
+                      !suggestForm.url.trim()
+                    }
+                    className="w-full py-3.5 bg-violet-500 hover:bg-violet-400 disabled:opacity-40 text-white font-black text-[10px] uppercase tracking-widest rounded-xl transition-all flex items-center justify-center gap-2"
+                  >
+                    {isSuggesting ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <>
+                        <Check className="w-4 h-4" /> Submit Suggestion
+                      </>
+                    )}
+                  </button>
+                </div>
+              )}
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       {/* ── Detail Sheet ──────────────────────────────────────────────── */}
       <AnimatePresence>
         {selectedItem && (
@@ -1550,4 +1860,4 @@ const LearnDatabase = () => {
   );
 };
 
-export default LearnDatabase;
+export default Learn;

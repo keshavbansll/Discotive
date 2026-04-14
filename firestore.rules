@@ -52,6 +52,19 @@ service cloud.firestore {
       allow read: if isAuthenticated();
       allow write: if isAdmin();
     }
+    match /learn_suggestions/{suggestionId} {
+      allow read: if isAdmin();
+      allow create: if isAuthenticated()
+        && request.resource.data.submittedBy == request.auth.uid
+        && request.resource.data.status == "PENDING"
+        && request.resource.data.title is string
+        && request.resource.data.url is string;
+      allow update, delete: if isAdmin();
+    }
+    match /opportunities/{opportunityId} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
     match /app_catalog/{document=**} {
       allow read: if isAuthenticated();
       allow write: if isAdmin();

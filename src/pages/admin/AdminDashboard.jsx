@@ -69,11 +69,27 @@ import {
   ExternalLink,
   Plus,
   Trash2,
+  Pencil,
+  Check,
 } from "lucide-react";
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
 import { cn } from "../../lib/cn";
 import EfficiencyMeterWidget from "./EfficiencyMeterWidget";
 import AppProficiencyWidget from "./AppProficiencyWidget";
+import {
+  collection as fsCollection,
+  getDocs as fsGetDocs,
+  query as fsQuery,
+  where as fsWhere,
+  deleteDoc as fsDeleteDoc,
+  doc as fsDoc,
+  updateDoc as fsUpdateDoc,
+  addDoc as fsAddDoc,
+  serverTimestamp as fsServerTimestamp,
+  orderBy as fsOrderBy,
+  limit as fsLimit,
+} from "firebase/firestore";
+import { deleteUser as fbDeleteUser } from "firebase/auth";
 
 // ============================================================================
 // TAXONOMY DICTIONARIES (Synced from Auth)
@@ -500,6 +516,360 @@ const MultiSelect = ({
 // MAIN ADMIN DASHBOARD
 // ============================================================================
 
+// ============================================================================
+// OPPORTUNITY FORM MODAL
+// ============================================================================
+const OPP_TYPES_LIST = [
+  "job",
+  "internship",
+  "freelance",
+  "hackathon",
+  "fellowship",
+  "mentorship",
+  "college_fest",
+  "competition",
+  "grant",
+  "workshop",
+  "open_source",
+];
+const WORK_MODES = ["Remote", "In-Person", "Hybrid", "Global"];
+
+const OppFormModal = ({ opp, onClose, onSaved }) => {
+  const [form, setForm] = useState({
+    title: opp?.title || "",
+    type: opp?.type || "job",
+    provider: opp?.provider || "",
+    providerLogo: opp?.providerLogo || "",
+    thumbnailUrl: opp?.thumbnailUrl || "",
+    description: opp?.description || "",
+    applyUrl: opp?.applyUrl || "",
+    workMode: opp?.workMode || "Remote",
+    payType: opp?.payType || "Paid",
+    location: opp?.location || "",
+    compensation: opp?.compensation || "",
+    experienceLevel: opp?.experienceLevel || "",
+    closingDate: opp?.closingDate || "",
+    domain: opp?.domain || "",
+    tags: (opp?.tags || []).join(", "),
+    domains: (opp?.domains || []).join(", "),
+    isActive: opp?.isActive ?? true,
+    featured: opp?.featured ?? false,
+    isVerified: opp?.isVerified ?? false,
+  });
+  const [saving, setSaving] = useState(false);
+  const fld =
+    "w-full bg-[#111] border border-[#222] rounded-xl px-4 py-2.5 text-xs text-white placeholder-white/20 focus:outline-none focus:border-amber-500/40 transition-colors";
+
+  const handleSave = async () => {
+    if (!form.title.trim() || !form.type) return;
+    setSaving(true);
+    try {
+      const payload = {
+        ...form,
+        tags: form.tags
+          .split(",")
+          .map((t) => t.trim())
+          .filter(Boolean),
+        domains: form.domains
+          .split(",")
+          .map((t) => t.trim())
+          .filter(Boolean),
+        updatedAt: serverTimestamp(),
+      };
+      if (opp?.id) {
+        await updateDoc(doc(db, "opportunities", opp.id), payload);
+      } else {
+        await addDoc(collection(db, "opportunities"), {
+          ...payload,
+          createdAt: serverTimestamp(),
+        });
+      }
+      onSaved();
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return createPortal(
+    <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm">
+      <motion.div
+        initial={{ opacity: 0, scale: 0.96 }}
+        animate={{ opacity: 1, scale: 1 }}
+        className="w-full max-w-2xl max-h-[90vh] flex flex-col bg-[#0a0a0c] border border-white/[0.08] rounded-2xl shadow-2xl overflow-hidden"
+      >
+        <div className="flex items-center justify-between p-5 border-b border-white/[0.05] shrink-0">
+          <h3 className="text-sm font-black text-white">
+            {opp ? "Edit" : "Create"} Opportunity
+          </h3>
+          <button onClick={onClose} className="text-white/40 hover:text-white">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-5 custom-scrollbar">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="col-span-2">
+              <label className="block text-[9px] font-bold text-white/30 uppercase tracking-widest mb-1">
+                Title *
+              </label>
+              <input
+                value={form.title}
+                onChange={(e) =>
+                  setForm((p) => ({ ...p, title: e.target.value }))
+                }
+                className={fld}
+                placeholder="e.g. Frontend Engineer Intern"
+              />
+            </div>
+            <div>
+              <label className="block text-[9px] font-bold text-white/30 uppercase tracking-widest mb-1">
+                Type
+              </label>
+              <select
+                value={form.type}
+                onChange={(e) =>
+                  setForm((p) => ({ ...p, type: e.target.value }))
+                }
+                className={cn(fld, "appearance-none")}
+              >
+                {OPP_TYPES_LIST.map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-[9px] font-bold text-white/30 uppercase tracking-widest mb-1">
+                Work Mode
+              </label>
+              <select
+                value={form.workMode}
+                onChange={(e) =>
+                  setForm((p) => ({ ...p, workMode: e.target.value }))
+                }
+                className={cn(fld, "appearance-none")}
+              >
+                {WORK_MODES.map((m) => (
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-[9px] font-bold text-white/30 uppercase tracking-widest mb-1">
+                Provider / Company
+              </label>
+              <input
+                value={form.provider}
+                onChange={(e) =>
+                  setForm((p) => ({ ...p, provider: e.target.value }))
+                }
+                className={fld}
+                placeholder="e.g. Google"
+              />
+            </div>
+            <div>
+              <label className="block text-[9px] font-bold text-white/30 uppercase tracking-widest mb-1">
+                Pay Type
+              </label>
+              <select
+                value={form.payType}
+                onChange={(e) =>
+                  setForm((p) => ({ ...p, payType: e.target.value }))
+                }
+                className={cn(fld, "appearance-none")}
+              >
+                {["Paid", "Unpaid", "Equity", "Stipend", "Prize Money"].map(
+                  (p) => (
+                    <option key={p} value={p}>
+                      {p}
+                    </option>
+                  ),
+                )}
+              </select>
+            </div>
+            <div>
+              <label className="block text-[9px] font-bold text-white/30 uppercase tracking-widest mb-1">
+                Compensation / Stipend
+              </label>
+              <input
+                value={form.compensation}
+                onChange={(e) =>
+                  setForm((p) => ({ ...p, compensation: e.target.value }))
+                }
+                className={fld}
+                placeholder="e.g. ₹15,000/month"
+              />
+            </div>
+            <div>
+              <label className="block text-[9px] font-bold text-white/30 uppercase tracking-widest mb-1">
+                Location
+              </label>
+              <input
+                value={form.location}
+                onChange={(e) =>
+                  setForm((p) => ({ ...p, location: e.target.value }))
+                }
+                className={fld}
+                placeholder="e.g. Bangalore, India"
+              />
+            </div>
+            <div>
+              <label className="block text-[9px] font-bold text-white/30 uppercase tracking-widest mb-1">
+                Closing Date
+              </label>
+              <input
+                type="date"
+                value={form.closingDate}
+                onChange={(e) =>
+                  setForm((p) => ({ ...p, closingDate: e.target.value }))
+                }
+                className={fld}
+              />
+            </div>
+            <div>
+              <label className="block text-[9px] font-bold text-white/30 uppercase tracking-widest mb-1">
+                Experience Level
+              </label>
+              <input
+                value={form.experienceLevel}
+                onChange={(e) =>
+                  setForm((p) => ({ ...p, experienceLevel: e.target.value }))
+                }
+                className={fld}
+                placeholder="e.g. Beginner, 0-1 years"
+              />
+            </div>
+            <div className="col-span-2">
+              <label className="block text-[9px] font-bold text-white/30 uppercase tracking-widest mb-1">
+                Apply URL
+              </label>
+              <input
+                type="url"
+                value={form.applyUrl}
+                onChange={(e) =>
+                  setForm((p) => ({ ...p, applyUrl: e.target.value }))
+                }
+                className={fld}
+                placeholder="https://..."
+              />
+            </div>
+            <div className="col-span-2">
+              <label className="block text-[9px] font-bold text-white/30 uppercase tracking-widest mb-1">
+                Thumbnail URL
+              </label>
+              <input
+                type="url"
+                value={form.thumbnailUrl}
+                onChange={(e) =>
+                  setForm((p) => ({ ...p, thumbnailUrl: e.target.value }))
+                }
+                className={fld}
+                placeholder="https://..."
+              />
+            </div>
+            <div className="col-span-2">
+              <label className="block text-[9px] font-bold text-white/30 uppercase tracking-widest mb-1">
+                Description
+              </label>
+              <textarea
+                rows={3}
+                value={form.description}
+                onChange={(e) =>
+                  setForm((p) => ({ ...p, description: e.target.value }))
+                }
+                className={cn(fld, "resize-none")}
+              />
+            </div>
+            <div className="col-span-2">
+              <label className="block text-[9px] font-bold text-white/30 uppercase tracking-widest mb-1">
+                Required Tags (comma-separated)
+              </label>
+              <input
+                value={form.tags}
+                onChange={(e) =>
+                  setForm((p) => ({ ...p, tags: e.target.value }))
+                }
+                className={fld}
+                placeholder="React, Figma, Python"
+              />
+            </div>
+            <div className="col-span-2">
+              <label className="block text-[9px] font-bold text-white/30 uppercase tracking-widest mb-1">
+                Domains (comma-separated)
+              </label>
+              <input
+                value={form.domains}
+                onChange={(e) =>
+                  setForm((p) => ({ ...p, domains: e.target.value }))
+                }
+                className={fld}
+                placeholder="Engineering & Tech, Design & Creative"
+              />
+            </div>
+            <div className="flex items-center gap-3">
+              <label className="text-xs text-white/50">Active</label>
+              <button
+                onClick={() =>
+                  setForm((p) => ({ ...p, isActive: !p.isActive }))
+                }
+                className={cn(
+                  "w-10 h-5 rounded-full transition-all relative",
+                  form.isActive ? "bg-emerald-500" : "bg-[#333]",
+                )}
+              >
+                <span
+                  className={cn(
+                    "absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform",
+                    form.isActive ? "left-5" : "left-0.5",
+                  )}
+                />
+              </button>
+            </div>
+            <div className="flex items-center gap-3">
+              <label className="text-xs text-white/50">Featured</label>
+              <button
+                onClick={() =>
+                  setForm((p) => ({ ...p, featured: !p.featured }))
+                }
+                className={cn(
+                  "w-10 h-5 rounded-full transition-all relative",
+                  form.featured ? "bg-amber-500" : "bg-[#333]",
+                )}
+              >
+                <span
+                  className={cn(
+                    "absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform",
+                    form.featured ? "left-5" : "left-0.5",
+                  )}
+                />
+              </button>
+            </div>
+          </div>
+        </div>
+        <div className="p-4 border-t border-white/[0.05] shrink-0">
+          <button
+            onClick={handleSave}
+            disabled={saving || !form.title.trim()}
+            className="w-full py-3 bg-amber-500 hover:bg-amber-400 disabled:opacity-40 text-black font-black text-[10px] uppercase tracking-widest rounded-xl flex items-center justify-center gap-2"
+          >
+            {saving ? (
+              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Check className="w-3.5 h-3.5" />
+            )}{" "}
+            {opp ? "Update" : "Publish"} Opportunity
+          </button>
+        </div>
+      </motion.div>
+    </div>,
+    document.body,
+  );
+};
+
 const AdminDashboard = () => {
   const navigate = useNavigate();
 
@@ -532,6 +902,23 @@ const AdminDashboard = () => {
   // — App Verifications State —
   const [appVerifications, setAppVerifications] = useState([]);
   const [appCatalog, setAppCatalog] = useState([]);
+
+  // — Learn Suggestions State —
+  const [learnSuggestions, setLearnSuggestions] = useState([]);
+  const [reviewingSuggestion, setReviewingSuggestion] = useState(null);
+  const [suggestionAction, setSuggestionAction] = useState({});
+
+  // — Opportunities State —
+  const [opportunities, setOpportunities] = useState([]);
+  const [oppFormOpen, setOppFormOpen] = useState(false);
+  const [oppEditItem, setOppEditItem] = useState(null);
+
+  // — User Management State —
+  const [userManagementOpen, setUserManagementOpen] = useState(false);
+  const [userSearchQ, setUserSearchQ] = useState("");
+  const [managedUsers, setManagedUsers] = useState([]);
+  const [userSearchLoading, setUserSearchLoading] = useState(false);
+  const [deletingUser, setDeletingUser] = useState(null);
 
   // ── DATA FETCHER ──────────────────────────────────────────────────────────
   const fetchAllData = useCallback(async () => {
@@ -687,6 +1074,37 @@ const AdminDashboard = () => {
         setAppCatalog([]);
       }
 
+      // Learn Suggestions
+      try {
+        const lsSnap = await getDocs(
+          query(
+            collection(db, "learn_suggestions"),
+            where("status", "==", "PENDING"),
+            orderBy("createdAt", "desc"),
+            limit(30),
+          ),
+        );
+        setLearnSuggestions(
+          lsSnap.docs.map((d) => ({ id: d.id, ...d.data() })),
+        );
+      } catch (_) {
+        setLearnSuggestions([]);
+      }
+
+      // Opportunities
+      try {
+        const oppSnap = await getDocs(
+          query(
+            collection(db, "opportunities"),
+            orderBy("createdAt", "desc"),
+            limit(50),
+          ),
+        );
+        setOpportunities(oppSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
+      } catch (_) {
+        setOpportunities([]);
+      }
+
       setLastRefresh(new Date());
     } catch (err) {
       console.error("[AdminDashboard] Fetch failed:", err);
@@ -712,6 +1130,94 @@ const AdminDashboard = () => {
     { name: "Essential", value: stats.essential, color: "#2a2a2a" },
     { name: "Pro", value: stats.pro, color: "#f59e0b" },
   ];
+
+  const handleUserSearch = async () => {
+    if (!userSearchQ.trim()) return;
+    setUserSearchLoading(true);
+    try {
+      const byUsername = await getDocs(
+        query(
+          collection(db, "users"),
+          where("identity.username", "==", userSearchQ.trim()),
+          limit(5),
+        ),
+      );
+      const byEmail = await getDocs(
+        query(
+          collection(db, "users"),
+          where("identity.email", "==", userSearchQ.trim()),
+          limit(5),
+        ),
+      );
+      const combined = [...byUsername.docs, ...byEmail.docs];
+      const seen = new Set();
+      const deduped = combined.filter((d) => {
+        if (seen.has(d.id)) return false;
+        seen.add(d.id);
+        return true;
+      });
+      setManagedUsers(deduped.map((d) => ({ id: d.id, ...d.data() })));
+    } catch (e) {
+      setManagedUsers([]);
+    } finally {
+      setUserSearchLoading(false);
+    }
+  };
+
+  const handleHardDeleteUser = async (userId, username) => {
+    if (
+      !window.confirm(
+        `PERMANENT DELETE: This will wipe @${username}'s entire Discotive account from Firestore. This cannot be undone. Type the username to confirm in the next prompt.`,
+      )
+    )
+      return;
+    const typed = window.prompt(
+      `Type "${username}" to permanently delete this account:`,
+    );
+    if (typed !== username) {
+      alert("Username mismatch. Deletion cancelled.");
+      return;
+    }
+    setDeletingUser(userId);
+    try {
+      // Delete Firestore document (subcollections must be handled separately or via Cloud Function in production)
+      await deleteDoc(doc(db, "users", userId));
+      setManagedUsers((prev) => prev.filter((u) => u.id !== userId));
+      alert(
+        `@${username} has been permanently deleted from Firestore. Note: Firebase Auth record must be deleted via Firebase Console or a Cloud Function.`,
+      );
+    } catch (e) {
+      console.error("[Admin] Hard delete failed:", e);
+      alert("Delete failed: " + e.message);
+    } finally {
+      setDeletingUser(null);
+    }
+  };
+
+  const handleSuggestionApprove = async (suggestion) => {
+    try {
+      await updateDoc(doc(db, "learn_suggestions", suggestion.id), {
+        status: "APPROVED",
+        reviewedAt: serverTimestamp(),
+        reviewedBy: auth.currentUser?.email,
+      });
+      setLearnSuggestions((prev) => prev.filter((s) => s.id !== suggestion.id));
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  const handleSuggestionReject = async (id) => {
+    try {
+      await updateDoc(doc(db, "learn_suggestions", id), {
+        status: "REJECTED",
+        reviewedAt: serverTimestamp(),
+      });
+      setLearnSuggestions((prev) => prev.filter((s) => s.id !== id));
+    } catch (e) {
+      console.error(e);
+    }
+  };
 
   const handleDeleteResource = async (collectionName, docId) => {
     if (
@@ -1897,9 +2403,289 @@ const AdminDashboard = () => {
         </div>
       </div>
 
+      {/* ── USER MANAGEMENT WIDGET ── */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.6 }}
+        className="bg-[#0a0a0c] border border-white/[0.05] rounded-[2rem] p-6 mb-4"
+      >
+        <div className="flex items-center justify-between mb-5">
+          <h2 className="text-[10px] font-bold text-white/40 uppercase tracking-widest flex items-center gap-2">
+            <Users className="w-4 h-4 text-red-400" /> User Management
+          </h2>
+          <span className="text-[9px] text-red-400/60 uppercase tracking-widest font-bold">
+            ⚠ Destructive Actions
+          </span>
+        </div>
+        <div className="flex gap-2 mb-4">
+          <input
+            type="text"
+            value={userSearchQ}
+            onChange={(e) => setUserSearchQ(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && handleUserSearch()}
+            placeholder="Search by @username or email..."
+            className="flex-1 bg-[#111] border border-[#222] rounded-xl px-4 py-2.5 text-xs text-white placeholder-white/20 focus:outline-none focus:border-red-500/30 transition-colors"
+          />
+          <button
+            onClick={handleUserSearch}
+            disabled={userSearchLoading}
+            className="px-5 py-2.5 bg-red-500/10 border border-red-500/20 text-red-400 font-black text-[10px] uppercase tracking-widest rounded-xl hover:bg-red-500/15 disabled:opacity-40 flex items-center gap-2"
+          >
+            {userSearchLoading ? (
+              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+            ) : (
+              <Search className="w-3.5 h-3.5" />
+            )}{" "}
+            Find
+          </button>
+        </div>
+        {managedUsers.length > 0 && (
+          <div className="space-y-2">
+            {managedUsers.map((user) => {
+              const name =
+                `${user.identity?.firstName || ""} ${user.identity?.lastName || ""}`.trim() ||
+                user.identity?.username ||
+                "Unknown";
+              return (
+                <div
+                  key={user.id}
+                  className="flex items-center gap-3 p-3.5 bg-[#050505] border border-[#1a1a1a] rounded-xl"
+                >
+                  <div className="w-9 h-9 rounded-xl bg-[#111] border border-[#222] flex items-center justify-center text-sm font-black text-white/50 shrink-0">
+                    {name.charAt(0)}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-bold text-white truncate">
+                      {name}
+                    </p>
+                    <p className="text-[10px] text-white/30 font-mono">
+                      @{user.identity?.username} · {user.tier || "ESSENTIAL"} ·
+                      Score: {user.discotiveScore?.current || 0}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() =>
+                      handleHardDeleteUser(
+                        user.id,
+                        user.identity?.username || user.id,
+                      )
+                    }
+                    disabled={deletingUser === user.id}
+                    className="flex items-center gap-1.5 px-3 py-2 bg-red-500/10 border border-red-500/25 text-red-400 text-[10px] font-black rounded-xl hover:bg-red-500/20 disabled:opacity-40 transition-all uppercase tracking-widest"
+                  >
+                    {deletingUser === user.id ? (
+                      <RefreshCw className="w-3 h-3 animate-spin" />
+                    ) : (
+                      <Trash2 className="w-3 h-3" />
+                    )}{" "}
+                    Delete
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+        {managedUsers.length === 0 && userSearchQ && !userSearchLoading && (
+          <p className="text-center text-xs text-white/20 py-4">
+            No users found for "{userSearchQ}"
+          </p>
+        )}
+      </motion.div>
+
+      {/* ── LEARN SUGGESTIONS WIDGET ── */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.65 }}
+        className="bg-[#0a0a0c] border border-white/[0.05] rounded-[2rem] p-6 mb-4"
+      >
+        <div className="flex items-center justify-between mb-5">
+          <h2 className="text-[10px] font-bold text-white/40 uppercase tracking-widest flex items-center gap-2">
+            <Database className="w-4 h-4 text-violet-400" /> Learn Suggestions
+            {learnSuggestions.length > 0 && (
+              <span className="w-5 h-5 rounded-full bg-violet-500 text-white text-[8px] font-black flex items-center justify-center">
+                {learnSuggestions.length}
+              </span>
+            )}
+          </h2>
+        </div>
+        {learnSuggestions.length === 0 ? (
+          <p className="text-center text-xs text-white/20 py-6">
+            No pending suggestions.
+          </p>
+        ) : (
+          <div className="space-y-3">
+            {learnSuggestions.map((s) => (
+              <div
+                key={s.id}
+                className="flex flex-col sm:flex-row sm:items-center gap-3 p-4 bg-[#050505] border border-white/[0.04] rounded-xl"
+              >
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span
+                      className={cn(
+                        "text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded border",
+                        s.type === "cert"
+                          ? "bg-amber-500/10 border-amber-500/20 text-amber-400"
+                          : s.type === "podcast"
+                            ? "bg-violet-500/10 border-violet-500/20 text-violet-400"
+                            : "bg-sky-500/10 border-sky-500/20 text-sky-400",
+                      )}
+                    >
+                      {s.type}
+                    </span>
+                    <p className="text-xs font-bold text-white truncate">
+                      {s.title}
+                    </p>
+                  </div>
+                  <a
+                    href={s.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-[10px] text-sky-400 hover:underline font-mono truncate block"
+                  >
+                    {s.url}
+                  </a>
+                  {s.provider && (
+                    <p className="text-[10px] text-white/30 mt-0.5">
+                      {s.provider}
+                    </p>
+                  )}
+                  {s.notes && (
+                    <p className="text-[10px] text-white/20 italic mt-0.5">
+                      "{s.notes}"
+                    </p>
+                  )}
+                  <p className="text-[9px] text-white/20 mt-1">
+                    Suggested by @{s.submittedByUsername}
+                  </p>
+                </div>
+                <div className="flex gap-2 shrink-0">
+                  <button
+                    onClick={() => handleSuggestionApprove(s)}
+                    className="px-3 py-2 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[9px] font-black rounded-xl hover:bg-emerald-500/20 transition-all uppercase tracking-widest flex items-center gap-1.5"
+                  >
+                    <Check className="w-3 h-3" /> Approve
+                  </button>
+                  <button
+                    onClick={() => handleSuggestionReject(s.id)}
+                    className="px-3 py-2 bg-red-500/10 border border-red-500/20 text-red-400 text-[9px] font-black rounded-xl hover:bg-red-500/20 transition-all uppercase tracking-widest flex items-center gap-1.5"
+                  >
+                    <X className="w-3 h-3" /> Reject
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </motion.div>
+
+      {/* ── OPPORTUNITY MANAGEMENT WIDGET ── */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.7 }}
+        className="bg-[#0a0a0c] border border-white/[0.05] rounded-[2rem] p-6 mb-6"
+      >
+        <div className="flex items-center justify-between mb-5">
+          <h2 className="text-[10px] font-bold text-white/40 uppercase tracking-widest flex items-center gap-2">
+            <Zap className="w-4 h-4 text-amber-400" /> Opportunity Management
+            <span className="text-white/30 font-normal normal-case tracking-normal text-[10px]">
+              ({opportunities.length} total)
+            </span>
+          </h2>
+          <button
+            onClick={() => {
+              setOppEditItem(null);
+              setOppFormOpen(true);
+            }}
+            className="flex items-center gap-2 px-4 py-2 bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-amber-500/15 transition-all"
+          >
+            <PlusCircle className="w-3.5 h-3.5" /> New Opportunity
+          </button>
+        </div>
+        {opportunities.length === 0 ? (
+          <p className="text-center text-xs text-white/20 py-6">
+            No opportunities posted yet.
+          </p>
+        ) : (
+          <div className="space-y-2 max-h-[400px] overflow-y-auto custom-scrollbar pr-1">
+            {opportunities.map((opp) => (
+              <div
+                key={opp.id}
+                className="flex items-center gap-3 p-3.5 bg-[#050505] border border-white/[0.04] rounded-xl group"
+              >
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-0.5">
+                    <span className="text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/20 text-amber-400">
+                      {opp.type || "job"}
+                    </span>
+                    <p className="text-xs font-bold text-white truncate">
+                      {opp.title}
+                    </p>
+                  </div>
+                  <p className="text-[10px] text-white/30">
+                    {opp.provider}{" "}
+                    {opp.closingDate &&
+                      `· Closes ${new Date(opp.closingDate).toLocaleDateString()}`}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <button
+                    onClick={() => {
+                      setOppEditItem(opp);
+                      setOppFormOpen(true);
+                    }}
+                    className="p-1.5 bg-white/[0.04] border border-white/[0.06] rounded-lg hover:bg-white/10 transition-colors"
+                  >
+                    <Pencil className="w-3.5 h-3.5 text-[#888]" />
+                  </button>
+                  <button
+                    onClick={async () => {
+                      if (!window.confirm("Delete this opportunity?")) return;
+                      await handleDeleteResource("opportunities", opp.id);
+                      setOpportunities((prev) =>
+                        prev.filter((o) => o.id !== opp.id),
+                      );
+                    }}
+                    className="p-1.5 bg-red-500/10 border border-red-500/20 rounded-lg hover:bg-red-500/20 transition-colors"
+                  >
+                    <Trash2 className="w-3.5 h-3.5 text-red-400" />
+                  </button>
+                  <div
+                    className={cn(
+                      "w-2 h-2 rounded-full shrink-0",
+                      opp.isActive ? "bg-emerald-500" : "bg-[#333]",
+                    )}
+                    title={opp.isActive ? "Active" : "Inactive"}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </motion.div>
+
       {/* Render Modals */}
       <AddVideoModal />
       <AddCertificateModal />
+      {oppFormOpen &&
+        createPortal(
+          <OppFormModal
+            opp={oppEditItem}
+            onClose={() => {
+              setOppFormOpen(false);
+              setOppEditItem(null);
+            }}
+            onSaved={() => {
+              setOppFormOpen(false);
+              setOppEditItem(null);
+              handleRefresh();
+            }}
+          />,
+          document.body,
+        )}
     </div>
   );
 };
