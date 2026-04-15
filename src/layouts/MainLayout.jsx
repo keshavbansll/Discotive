@@ -504,8 +504,234 @@ const MainLayout = () => {
     return () => window.removeEventListener("keydown", handleGlobalKeyDown);
   }, []);
 
+  const renderProfileMenuContent = (isMobile = false) => (
+    <>
+      {isMobile && (
+        <div className="flex items-center justify-between px-4 pb-4 border-b border-white/5 shrink-0">
+          <span className="font-extrabold text-sm tracking-widest text-[#F5F0E8]">
+            ACCOUNT
+          </span>
+          <button
+            onClick={() => setShowProfileMenu(false)}
+            className="p-1.5 bg-[#111] border border-white/5 rounded-full text-[#888] hover:text-[#F5F0E8] transition-colors"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
+      <div className="flex-1 overflow-y-auto custom-scrollbar">
+        {/* Header: User Info — Ghost-aware */}
+        <div className="px-4 py-3 flex items-center gap-3">
+          <div
+            className={cn(
+              "w-10 h-10 rounded-full border flex items-center justify-center text-sm font-bold shrink-0 overflow-hidden",
+              isGhostUser
+                ? "bg-amber-500/10 border-amber-500/30 text-amber-500"
+                : "bg-[#111] border-[#BFA264]/40 text-[#BFA264]",
+            )}
+          >
+            {isGhostUser ? (
+              "?"
+            ) : userData?.identity?.avatarUrl ? (
+              <img
+                src={userData.identity.avatarUrl}
+                alt="Avatar"
+                className="w-full h-full object-cover"
+              />
+            ) : (
+              userData?.identity?.firstName?.charAt(0) || "U"
+            )}
+          </div>
+          <div className="min-w-0">
+            {isGhostUser ? (
+              <>
+                <p className="font-extrabold text-sm text-amber-400 truncate">
+                  Incomplete Profile
+                </p>
+                <p className="text-[10px] text-[#666] font-mono truncate">
+                  Onboarding required
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="font-extrabold text-sm text-white truncate">
+                  {userData?.identity?.firstName} {userData?.identity?.lastName}
+                </p>
+                <p className="text-[10px] md:text-xs text-[#888] font-mono truncate">
+                  @{userData?.identity?.username || "—"}
+                </p>
+              </>
+            )}
+          </div>
+        </div>
+
+        <div className="px-4 pb-2 border-b border-[#222]">
+          {isGhostUser ? (
+            <button
+              onClick={() => {
+                setShowProfileMenu(false);
+                navigate("/auth?step=2");
+              }}
+              className="flex items-center gap-1.5 text-amber-400 text-xs font-bold hover:text-amber-300 transition-colors"
+            >
+              <ArrowRight className="w-3 h-3" />
+              Complete Onboarding to unlock profile
+            </button>
+          ) : (
+            <Link
+              to="/app/profile"
+              onClick={() => setShowProfileMenu(false)}
+              className="text-blue-400 text-xs font-bold hover:text-blue-300 transition-colors"
+            >
+              View full profile
+            </Link>
+          )}
+        </div>
+
+        {/* Admin Dashboard — only visible to admins */}
+        {isAdmin && (
+          <div className="px-4 py-2 border-b border-[#222]">
+            <Link
+              to="/app/admin"
+              onClick={() => setShowProfileMenu(false)}
+              className="flex items-center gap-2 text-[10px] font-black text-rose-400 hover:text-rose-300 transition-colors uppercase tracking-widest"
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" />
+              Admin Dashboard
+            </Link>
+          </div>
+        )}
+
+        {/* Section 1: Localization */}
+        <div className="py-2 border-b border-[#222]">
+          <div className="px-4 py-2.5 flex items-center gap-3 text-[#ccc] text-xs md:text-sm pointer-events-none">
+            <MapPin className="w-4 h-4 text-[#888]" />
+            <span>Location: {userData?.footprint?.location || "Unmapped"}</span>
+          </div>
+          <button
+            onClick={() => setShowLanguageMenu(true)}
+            className="w-full px-4 py-2.5 flex items-center justify-between text-[#ccc] hover:bg-[#111] transition-colors text-xs md:text-sm text-left"
+          >
+            <div className="flex items-center gap-3">
+              <Languages className="w-4 h-4 text-[#888]" />
+              <span>Language: English</span>
+            </div>
+            <ChevronRightIcon className="w-4 h-4 text-[#666]" />
+          </button>
+        </div>
+
+        {/* Section 2: Account Controls */}
+        <div className="py-2 border-b border-[#222]">
+          <Link
+            to="/app/settings"
+            onClick={() => setShowProfileMenu(false)}
+            className="px-4 py-2.5 flex items-center gap-3 text-[#ccc] hover:bg-[#111] transition-colors text-xs md:text-sm"
+          >
+            <Settings className="w-4 h-4 text-[#888]" /> Settings
+          </Link>
+          <Link
+            to="/premium"
+            onClick={() => setShowProfileMenu(false)}
+            className="px-4 py-2.5 flex items-center gap-3 text-[#ccc] hover:bg-[#111] transition-colors text-xs md:text-sm"
+          >
+            <Shield className="w-4 h-4 text-[#888]" /> Discotive Pro
+          </Link>
+          <button className="w-full px-4 py-2.5 flex items-center justify-between text-[#ccc] hover:bg-[#111] transition-colors text-xs md:text-sm text-left">
+            <div className="flex items-center gap-3">
+              <Moon className="w-4 h-4 text-[#888]" /> Appearance: Dark
+            </div>
+          </button>
+        </div>
+
+        {/* Section 3: Support */}
+        <div className="py-2 border-b border-[#222]">
+          <button
+            onClick={() => {
+              setShowProfileMenu(false);
+              setIsSupportTicketOpen(true);
+            }}
+            className="w-full px-4 py-2.5 flex items-center gap-3 text-[#ccc] hover:bg-[#111] transition-colors text-xs md:text-sm text-left"
+          >
+            <Ticket className="w-4 h-4 text-[#888]" /> Raise a Support Ticket
+          </button>
+          <button
+            onClick={() => {
+              setShowProfileMenu(false);
+              setIsFeedbackOpen(true);
+            }}
+            className="w-full px-4 py-2.5 flex items-center gap-3 text-[#ccc] hover:bg-[#111] transition-colors text-xs md:text-sm text-left"
+          >
+            <MessageSquare className="w-4 h-4 text-[#888]" /> Send Feedback
+          </button>
+        </div>
+
+        {/* Section 4: Sign Out */}
+        <div className="py-2">
+          <button
+            onClick={handleLogout}
+            className="w-full px-4 py-2.5 flex items-center gap-3 text-[#ccc] hover:bg-[#111] transition-colors text-xs md:text-sm text-left"
+          >
+            <LogOut className="w-4 h-4 text-[#888]" /> Sign out
+          </button>
+        </div>
+      </div>
+    </>
+  );
+
+  const renderLanguageMenuContent = (isMobile = false) => (
+    <>
+      <div className="flex items-center gap-2 px-2 pb-2 border-b border-[#222] shrink-0">
+        <button
+          onClick={() => setShowLanguageMenu(false)}
+          className="p-2 hover:bg-[#111] rounded-full transition-colors"
+        >
+          <ChevronLeft className="w-5 h-5 text-white" />
+        </button>
+        <span className="font-bold text-sm text-white">Choose Language</span>
+      </div>
+      <div className="flex-1 overflow-y-auto custom-scrollbar">
+        <div className="py-2">
+          <button className="w-full px-4 py-3 flex items-center justify-between hover:bg-[#111] transition-colors">
+            <span className="text-sm text-white font-medium">English (US)</span>
+            <Check className="w-4 h-4 text-white" />
+          </button>
+        </div>
+        <div className="px-4 py-6 text-center border-t border-[#222]">
+          <Globe className="w-8 h-8 text-[#333] mx-auto mb-3" />
+          <p className="text-xs font-bold text-[#888] uppercase tracking-widest">
+            More languages coming soon
+          </p>
+        </div>
+      </div>
+    </>
+  );
+
+  // --- EDGE SWIPE GESTURE DETECTION ---
+  const touchStartRef = useRef(0);
+
+  const handleTouchStart = (e) => {
+    touchStartRef.current = e.touches[0].clientX;
+  };
+
+  const handleTouchMove = (e) => {
+    // Prevent triggering if a menu is already open
+    if (showProfileMenu || isMobileMenuOpen) return;
+
+    const touchEnd = e.touches[0].clientX;
+    const distance = touchEnd - touchStartRef.current;
+
+    // Trigger only if swipe starts near the very left edge (< 40px) and moves right
+    if (touchStartRef.current < 40 && distance > 50) {
+      setShowProfileMenu(true);
+    }
+  };
+
   return (
-    <div className="flex h-[100ddvh] bg-[#030303] overflow-hidden text-white selection:bg-white selection:text-black w-full fixed inset-0">
+    <div
+      className="flex h-[100ddvh] bg-[#030303] overflow-hidden text-white selection:bg-white selection:text-black w-full fixed inset-0"
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+    >
       {/* ========================================================= */}
       {/* DESKTOP SIDEBAR (Strict z-[100] to overlay content)       */}
       {/* ========================================================= */}
@@ -906,220 +1132,102 @@ const MainLayout = () => {
                 </div>
               )}
             </button>
-
-            <AnimatePresence mode="wait">
-              {/* 1. MAIN PROFILE MENU */}
-              {showProfileMenu && !showLanguageMenu && (
-                <motion.div
-                  key="main-menu"
-                  initial={{ opacity: 0, y: 10, scale: 0.95 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                  transition={{ duration: 0.15 }}
-                  className="absolute left-0 md:left-auto md:right-0 top-full mt-3 w-[280px] md:w-[320px] bg-[#0A0A0A] border border-white/5 rounded-2xl shadow-[0_30px_80px_rgba(0,0,0,0.95)] overflow-hidden z-[120] flex flex-col py-2"
-                >
-                  {/* Header: User Info — Ghost-aware */}
-                  <div className="px-4 py-3 flex items-center gap-3">
-                    <div
-                      className={cn(
-                        "w-10 h-10 rounded-full border flex items-center justify-center text-sm font-bold shrink-0 overflow-hidden",
-                        isGhostUser
-                          ? "bg-amber-500/10 border-amber-500/30 text-amber-500"
-                          : "bg-[#111] border-[#BFA264]/40 text-[#BFA264]",
-                      )}
-                    >
-                      {isGhostUser ? (
-                        "?"
-                      ) : userData?.identity?.avatarUrl ? (
-                        <img
-                          src={userData.identity.avatarUrl}
-                          alt="Avatar"
-                          className="w-full h-full object-cover"
-                        />
-                      ) : (
-                        userData?.identity?.firstName?.charAt(0) || "U"
-                      )}
-                    </div>
-                    <div className="min-w-0">
-                      {isGhostUser ? (
-                        <>
-                          <p className="font-extrabold text-sm text-amber-400 truncate">
-                            Incomplete Profile
-                          </p>
-                          <p className="text-[10px] text-[#666] font-mono truncate">
-                            Onboarding required
-                          </p>
-                        </>
-                      ) : (
-                        <>
-                          <p className="font-extrabold text-sm text-white truncate">
-                            {userData?.identity?.firstName}{" "}
-                            {userData?.identity?.lastName}
-                          </p>
-                          <p className="text-[10px] md:text-xs text-[#888] font-mono truncate">
-                            @{userData?.identity?.username || "—"}
-                          </p>
-                        </>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="px-4 pb-2 border-b border-[#222]">
-                    {isGhostUser ? (
-                      <button
-                        onClick={() => {
-                          setShowProfileMenu(false);
-                          navigate("/auth?step=2");
-                        }}
-                        className="flex items-center gap-1.5 text-amber-400 text-xs font-bold hover:text-amber-300 transition-colors"
-                      >
-                        <ArrowRight className="w-3 h-3" />
-                        Complete Onboarding to unlock profile
-                      </button>
-                    ) : (
-                      <Link
-                        to="/app/profile"
-                        onClick={() => setShowProfileMenu(false)}
-                        className="text-blue-400 text-xs font-bold hover:text-blue-300 transition-colors"
-                      >
-                        View full profile
-                      </Link>
-                    )}
-                  </div>
-
-                  {/* Admin Dashboard — only visible to admins */}
-                  {isAdmin && (
-                    <div className="px-4 py-2 border-b border-[#222]">
-                      <Link
-                        to="/app/admin"
-                        onClick={() => setShowProfileMenu(false)}
-                        className="flex items-center gap-2 text-[10px] font-black text-rose-400 hover:text-rose-300 transition-colors uppercase tracking-widest"
-                      >
-                        <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" />
-                        Admin Dashboard
-                      </Link>
-                    </div>
-                  )}
-
-                  {/* Section 1: Localization */}
-                  <div className="py-2 border-b border-[#222]">
-                    <div className="px-4 py-2.5 flex items-center gap-3 text-[#ccc] text-xs md:text-sm pointer-events-none">
-                      <MapPin className="w-4 h-4 text-[#888]" />
-                      <span>
-                        Location: {userData?.footprint?.location || "Unmapped"}
-                      </span>
-                    </div>
-                    <button
-                      onClick={() => setShowLanguageMenu(true)}
-                      className="w-full px-4 py-2.5 flex items-center justify-between text-[#ccc] hover:bg-[#111] transition-colors text-xs md:text-sm text-left"
-                    >
-                      <div className="flex items-center gap-3">
-                        <Languages className="w-4 h-4 text-[#888]" />
-                        <span>Language: English</span>
-                      </div>
-                      <ChevronRightIcon className="w-4 h-4 text-[#666]" />
-                    </button>
-                  </div>
-
-                  {/* Section 2: Account Controls */}
-                  <div className="py-2 border-b border-[#222]">
-                    <Link
-                      to="/app/settings"
-                      onClick={() => setShowProfileMenu(false)}
-                      className="px-4 py-2.5 flex items-center gap-3 text-[#ccc] hover:bg-[#111] transition-colors text-xs md:text-sm"
-                    >
-                      <Settings className="w-4 h-4 text-[#888]" /> Settings
-                    </Link>
-                    <Link
-                      to="/premium"
-                      onClick={() => setShowProfileMenu(false)}
-                      className="px-4 py-2.5 flex items-center gap-3 text-[#ccc] hover:bg-[#111] transition-colors text-xs md:text-sm"
-                    >
-                      <Shield className="w-4 h-4 text-[#888]" /> Discotive Pro
-                    </Link>
-                    <button className="w-full px-4 py-2.5 flex items-center justify-between text-[#ccc] hover:bg-[#111] transition-colors text-xs md:text-sm text-left">
-                      <div className="flex items-center gap-3">
-                        <Moon className="w-4 h-4 text-[#888]" /> Appearance:
-                        Dark
-                      </div>
-                    </button>
-                  </div>
-
-                  {/* Section 3: Support */}
-                  <div className="py-2 border-b border-[#222]">
-                    <button
-                      onClick={() => {
-                        setShowProfileMenu(false);
-                        setIsSupportTicketOpen(true);
-                      }}
-                      className="w-full px-4 py-2.5 flex items-center gap-3 text-[#ccc] hover:bg-[#111] transition-colors text-xs md:text-sm text-left"
-                    >
-                      <Ticket className="w-4 h-4 text-[#888]" /> Raise a Support
-                      Ticket
-                    </button>
-                    <Link
-                      onClick={() => setIsFeedbackOpen(true)}
-                      className="px-4 py-2.5 flex items-center gap-3 text-[#ccc] hover:bg-[#111] transition-colors text-xs md:text-sm"
-                    >
-                      <MessageSquare className="w-4 h-4 text-[#888]" /> Send
-                      Feedback
-                    </Link>
-                  </div>
-
-                  {/* Section 4: Sign Out */}
-                  <div className="py-2">
-                    <button
-                      onClick={handleLogout}
-                      className="w-full px-4 py-2.5 flex items-center gap-3 text-[#ccc] hover:bg-[#111] transition-colors text-xs md:text-sm text-left"
-                    >
-                      <LogOut className="w-4 h-4 text-[#888]" /> Sign out
-                    </button>
-                  </div>
-                </motion.div>
-              )}
-
-              {/* 2. NESTED LANGUAGE MENU */}
-              {showProfileMenu && showLanguageMenu && (
-                <motion.div
-                  key="language-menu"
-                  initial={{ opacity: 0, x: 20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: 20 }}
-                  transition={{ duration: 0.15 }}
-                  className="absolute left-0 md:left-auto md:right-0 top-full mt-3 w-[280px] md:w-[320px] bg-[#0A0A0A] border border-white/5 rounded-2xl shadow-[0_30px_80px_rgba(0,0,0,0.95)] overflow-hidden z-[120] flex flex-col py-2"
-                >
-                  <div className="flex items-center gap-2 px-2 pb-2 border-b border-[#222]">
-                    <button
-                      onClick={() => setShowLanguageMenu(false)}
-                      className="p-2 hover:bg-[#111] rounded-full transition-colors"
-                    >
-                      <ChevronLeft className="w-5 h-5 text-white" />
-                    </button>
-                    <span className="font-bold text-sm text-white">
-                      Choose Language
-                    </span>
-                  </div>
-
-                  <div className="py-2">
-                    <button className="w-full px-4 py-3 flex items-center justify-between hover:bg-[#111] transition-colors">
-                      <span className="text-sm text-white font-medium">
-                        English (US)
-                      </span>
-                      <Check className="w-4 h-4 text-white" />
-                    </button>
-                  </div>
-
-                  <div className="px-4 py-6 text-center border-t border-[#222]">
-                    <Globe className="w-8 h-8 text-[#333] mx-auto mb-3" />
-                    <p className="text-xs font-bold text-[#888] uppercase tracking-widest">
-                      More languages coming soon
-                    </p>
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
           </div>
         </header>
+
+        {/* --- PROFILE DROPDOWN ENGINE (Rendered at root for absolute z-index priority) --- */}
+        <AnimatePresence>
+          {/* MOBILE MENU WRAPPERS */}
+          {showProfileMenu && !showLanguageMenu && (
+            <motion.div key="mobile-main-wrapper" className="md:hidden">
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.2 }}
+                className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[9990]"
+                onClick={() => {
+                  setShowProfileMenu(false);
+                  setShowLanguageMenu(false);
+                }}
+              />
+              <motion.div
+                initial={{ opacity: 0, x: "-100%" }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: "-100%" }}
+                transition={{ type: "spring", damping: 25, stiffness: 200 }}
+                className="fixed inset-y-0 left-0 w-[85vw] max-w-[320px] bg-[#0A0A0A] border-r border-white/5 shadow-2xl z-[9999] flex flex-col py-6 overflow-hidden"
+              >
+                {renderProfileMenuContent(true)}
+              </motion.div>
+            </motion.div>
+          )}
+
+          {showProfileMenu && showLanguageMenu && (
+            <motion.div key="mobile-lang-wrapper" className="md:hidden">
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.2 }}
+                className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[9990]"
+                onClick={() => {
+                  setShowProfileMenu(false);
+                  setShowLanguageMenu(false);
+                }}
+              />
+              <motion.div
+                initial={{ opacity: 0, x: "-100%" }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: "-100%" }}
+                transition={{ type: "spring", damping: 25, stiffness: 200 }}
+                className="fixed inset-y-0 left-0 w-[85vw] max-w-[320px] bg-[#0A0A0A] border-r border-white/5 shadow-2xl z-[9999] flex flex-col py-6 overflow-hidden"
+              >
+                {renderLanguageMenuContent(true)}
+              </motion.div>
+            </motion.div>
+          )}
+
+          {/* DESKTOP MENU WRAPPERS */}
+          {showProfileMenu && !showLanguageMenu && (
+            <motion.div key="desktop-main-wrapper" className="hidden md:block">
+              <div
+                className="fixed inset-0 z-[9990]"
+                onClick={() => setShowProfileMenu(false)}
+              />
+              <motion.div
+                initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                transition={{ duration: 0.15 }}
+                className="fixed right-4 md:right-8 top-[calc(5rem+env(safe-area-inset-top)+12px)] w-[320px] bg-[#0A0A0A] border border-white/5 rounded-2xl shadow-[0_30px_80px_rgba(0,0,0,0.95)] z-[9999] flex-col py-2 max-h-[80vh] overflow-hidden"
+              >
+                {renderProfileMenuContent(false)}
+              </motion.div>
+            </motion.div>
+          )}
+
+          {showProfileMenu && showLanguageMenu && (
+            <motion.div key="desktop-lang-wrapper" className="hidden md:block">
+              <div
+                className="fixed inset-0 z-[9990]"
+                onClick={() => {
+                  setShowProfileMenu(false);
+                  setShowLanguageMenu(false);
+                }}
+              />
+              <motion.div
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: 20 }}
+                transition={{ duration: 0.15 }}
+                className="fixed right-4 md:right-8 top-[calc(5rem+env(safe-area-inset-top)+12px)] w-[320px] bg-[#0A0A0A] border border-white/5 rounded-2xl shadow-[0_30px_80px_rgba(0,0,0,0.95)] z-[9999] flex-col py-2 max-h-[80vh] overflow-hidden"
+              >
+                {renderLanguageMenuContent(false)}
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* --- MAIN PAGE CONTENT OUTLET --- */}
         <main className="flex-1 overflow-y-auto overflow-x-hidden relative z-0 custom-scrollbar">
@@ -1407,7 +1515,7 @@ const MainLayout = () => {
                 )}
 
                 {/* Core Actions Grid */}
-                <div className="grid grid-cols-3 gap-3">
+                <div className="grid grid-cols-2 gap-3">
                   <Link
                     to="/app/profile"
                     onClick={() => setIsMobileMenuOpen(false)}
@@ -1423,9 +1531,19 @@ const MainLayout = () => {
                     onClick={() => setIsMobileMenuOpen(false)}
                     className="flex flex-col items-center justify-center gap-2 p-4 bg-[#0F0F0F] border border-white/5 rounded-2xl active:bg-[#111]"
                   >
-                    <Settings className="w-5 h-5 text-[#BFA264]" />
+                    <BookOpen className="w-5 h-5 text-[#BFA264]" />
                     <span className="text-xs font-bold text-[#F5F0E8]">
-                      Settings
+                      Learn
+                    </span>
+                  </Link>
+                  <Link
+                    to="/app/opportunities"
+                    onClick={() => setIsMobileMenuOpen(false)}
+                    className="flex flex-col items-center justify-center gap-2 p-4 bg-[#0F0F0F] border border-white/5 rounded-2xl active:bg-[#111]"
+                  >
+                    <Briefcase className="w-5 h-5 text-[#BFA264]" />
+                    <span className="text-xs font-bold text-[#F5F0E8]">
+                      Opportunities
                     </span>
                   </Link>
                   <Link

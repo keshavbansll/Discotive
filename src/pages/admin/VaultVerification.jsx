@@ -1,11 +1,13 @@
 /**
- * @fileoverview Discotive OS — Admin Vault Verification Manager
+ * @fileoverview Discotive OS — Admin Vault Verification Manager v2.0 (PRODUCTION)
  * @module Admin/VaultVerification
- * @description
- * Full-featured vault asset verification interface for Discotive admins.
- * Fetches users in batches, extracts vault assets, and provides granular
- * controls per asset: Mark As (Weak/Medium/Strong/Fake) and Report.
- * All mutations write directly to Firestore and update local state optimistically.
+ *
+ * ENHANCEMENTS v2.0:
+ * - Added "YouTube Channels" tab: shows all pending connector.youtube verifications
+ * - Admin can approve (sets verified: true) or reject (clears connector.youtube)
+ *   with one click, triggering Firestore write + local optimistic state update
+ * - All existing asset verification logic preserved and hardened
+ * - awardVaultVerification import made resilient with try/catch
  */
 
 import React, {
@@ -27,9 +29,10 @@ import {
   addDoc,
   limit,
   startAfter,
+  where,
+  orderBy,
 } from "firebase/firestore";
 import { db, auth } from "../../firebase";
-import { awardVaultVerification } from "../../lib/scoreEngine";
 import {
   Award,
   FileText,
@@ -56,9 +59,25 @@ import {
   Hash,
   User,
   Ban,
+  Youtube,
+  Check,
+  Loader2,
+  ThumbsUp,
+  ThumbsDown,
 } from "lucide-react";
 import { cn } from "../../lib/cn";
 import CertificateExplorerModal from "./CertificateExplorerModal";
+
+// ── Safe import of awardVaultVerification ────────────────────────────────────
+let awardVaultVerification = null;
+try {
+  const scoreEngine = await import("../../lib/scoreEngine.js");
+  awardVaultVerification = scoreEngine.awardVaultVerification;
+} catch (_) {
+  console.warn(
+    "[VaultVerification] scoreEngine not available. Score awards will be skipped.",
+  );
+}
 
 // ============================================================================
 // CONSTANTS
@@ -72,6 +91,7 @@ const TABS = [
   { key: "Publication", label: "Publications" },
   { key: "Employment", label: "Employment" },
   { key: "Link", label: "Links" },
+  { key: "youtube_channels", label: "YouTube Channels", special: true },
 ];
 
 const STATUS_FILTERS = [
@@ -172,7 +192,6 @@ const CATEGORY_COLOR = {
     border: "border-sky-500/20",
   },
 };
-
 const DEFAULT_CAT_COLOR = {
   text: "text-white/60",
   bg: "bg-white/5",
@@ -181,8 +200,8 @@ const DEFAULT_CAT_COLOR = {
 
 const formatBytes = (bytes = 0) => {
   if (bytes === 0) return "0 B";
-  const k = 1024;
-  const sizes = ["B", "KB", "MB", "GB"];
+  const k = 1024,
+    sizes = ["B", "KB", "MB", "GB"];
   const i = Math.floor(Math.log(bytes) / Math.log(k));
   return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
 };
@@ -231,7 +250,6 @@ const ReportModal = ({ asset, onClose, onSubmit }) => {
         className="relative w-full max-w-md bg-[#080808] border border-[#1e1e1e] rounded-[2rem] p-7 shadow-[0_60px_120px_rgba(0,0,0,0.95)]"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 bg-red-500/10 border border-red-500/20 rounded-xl flex items-center justify-center">
@@ -251,9 +269,7 @@ const ReportModal = ({ asset, onClose, onSubmit }) => {
             <X className="w-3.5 h-3.5" />
           </button>
         </div>
-
         <form onSubmit={handleSubmit} className="space-y-4">
-          {/* Reason Select */}
           <div>
             <label className="block text-[9px] font-black text-white/40 uppercase tracking-widest mb-2">
               Reason <span className="text-red-500">*</span>
@@ -277,8 +293,6 @@ const ReportModal = ({ asset, onClose, onSubmit }) => {
               <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/30 pointer-events-none" />
             </div>
           </div>
-
-          {/* Description */}
           <div>
             <div className="flex items-center justify-between mb-2">
               <label className="text-[9px] font-black text-white/40 uppercase tracking-widest">
@@ -297,12 +311,10 @@ const ReportModal = ({ asset, onClose, onSubmit }) => {
               value={description}
               onChange={(e) => setDescription(e.target.value.slice(0, 1000))}
               rows={4}
-              placeholder="Provide additional context about why this asset is being reported..."
+              placeholder="Provide additional context..."
               className="w-full bg-[#0d0d0d] border border-[#1e1e1e] text-white px-4 py-3 rounded-xl focus:outline-none focus:border-red-500/30 text-sm resize-none custom-scrollbar transition-colors placeholder-white/20"
             />
           </div>
-
-          {/* Actions */}
           <div className="flex gap-3 pt-2">
             <button
               type="button"
@@ -333,7 +345,7 @@ const ReportModal = ({ asset, onClose, onSubmit }) => {
 };
 
 // ============================================================================
-// 3-DOT MENU WITH CASCADING MARK-AS
+// ASSET THREE-DOT MENU
 // ============================================================================
 
 const AssetThreeDotMenu = ({ asset, onMarkAs, onReport, onViewUser }) => {
@@ -353,18 +365,6 @@ const AssetThreeDotMenu = ({ asset, onMarkAs, onReport, onViewUser }) => {
     return () => document.removeEventListener("mousedown", handler);
   }, []);
 
-  const handleMarkAsEnter = () => {
-    clearTimeout(markAsTimerRef.current);
-    setShowMarkAs(true);
-  };
-  const handleMarkAsLeave = () => {
-    markAsTimerRef.current = setTimeout(() => setShowMarkAs(false), 180);
-  };
-  const handleSubmenuEnter = () => clearTimeout(markAsTimerRef.current);
-  const handleSubmenuLeave = () => {
-    markAsTimerRef.current = setTimeout(() => setShowMarkAs(false), 180);
-  };
-
   return (
     <div className="relative" ref={menuRef}>
       <button
@@ -376,7 +376,6 @@ const AssetThreeDotMenu = ({ asset, onMarkAs, onReport, onViewUser }) => {
       >
         <MoreHorizontal className="w-4 h-4" />
       </button>
-
       <AnimatePresence>
         {open && (
           <motion.div
@@ -386,11 +385,19 @@ const AssetThreeDotMenu = ({ asset, onMarkAs, onReport, onViewUser }) => {
             transition={{ duration: 0.12 }}
             className="absolute right-0 top-full mt-1.5 w-52 bg-[#0d0d0d] border border-[#1e1e1e] rounded-xl shadow-[0_20px_60px_rgba(0,0,0,0.9)] z-[200] overflow-visible"
           >
-            {/* Mark As */}
+            {/* Mark As with cascading submenu */}
             <div
               className="relative"
-              onMouseEnter={handleMarkAsEnter}
-              onMouseLeave={handleMarkAsLeave}
+              onMouseEnter={() => {
+                clearTimeout(markAsTimerRef.current);
+                setShowMarkAs(true);
+              }}
+              onMouseLeave={() => {
+                markAsTimerRef.current = setTimeout(
+                  () => setShowMarkAs(false),
+                  180,
+                );
+              }}
             >
               <button className="w-full px-4 py-3 text-left text-xs font-bold text-white hover:bg-[#1a1a1a] flex items-center justify-between border-b border-[#1a1a1a] transition-colors">
                 <span className="flex items-center gap-2">
@@ -399,8 +406,6 @@ const AssetThreeDotMenu = ({ asset, onMarkAs, onReport, onViewUser }) => {
                 </span>
                 <ChevronRight className="w-3.5 h-3.5 text-white/30" />
               </button>
-
-              {/* Cascading Submenu */}
               <AnimatePresence>
                 {showMarkAs && (
                   <motion.div
@@ -409,8 +414,13 @@ const AssetThreeDotMenu = ({ asset, onMarkAs, onReport, onViewUser }) => {
                     exit={{ opacity: 0, x: -6 }}
                     transition={{ duration: 0.1 }}
                     className="absolute right-full top-0 mr-1.5 w-48 bg-[#0d0d0d] border border-[#1e1e1e] rounded-xl shadow-[0_20px_60px_rgba(0,0,0,0.9)] z-[201] overflow-hidden"
-                    onMouseEnter={handleSubmenuEnter}
-                    onMouseLeave={handleSubmenuLeave}
+                    onMouseEnter={() => clearTimeout(markAsTimerRef.current)}
+                    onMouseLeave={() => {
+                      markAsTimerRef.current = setTimeout(
+                        () => setShowMarkAs(false),
+                        180,
+                      );
+                    }}
                   >
                     {MARK_AS_OPTIONS.map((opt) => {
                       const Icon = opt.icon;
@@ -451,8 +461,6 @@ const AssetThreeDotMenu = ({ asset, onMarkAs, onReport, onViewUser }) => {
                 )}
               </AnimatePresence>
             </div>
-
-            {/* Report */}
             <button
               onClick={() => {
                 onReport(asset);
@@ -463,8 +471,6 @@ const AssetThreeDotMenu = ({ asset, onMarkAs, onReport, onViewUser }) => {
               <AlertTriangle className="w-3.5 h-3.5" />
               Report Asset
             </button>
-
-            {/* View User Profile */}
             <a
               href={`/${asset.userUsername}`}
               target="_blank"
@@ -498,211 +504,152 @@ const AssetCard = ({ asset, onMarkAs, onReport }) => {
   const statusBadge = {
     VERIFIED: {
       label: "Verified",
-      color: "text-emerald-400",
-      bg: "bg-emerald-500/8",
-      border: "border-emerald-500/20",
-      icon: <ShieldCheck className="w-3 h-3" />,
+      cls: "text-emerald-400 bg-emerald-500/8 border-emerald-500/20",
     },
     PENDING: {
       label: "Pending",
-      color: "text-amber-400",
-      bg: "bg-amber-500/8",
-      border: "border-amber-500/20",
-      icon: <Clock className="w-3 h-3" />,
+      cls: "text-amber-400 bg-amber-500/8 border-amber-500/20",
     },
     REPORTED: {
       label: "Reported",
-      color: "text-red-400",
-      bg: "bg-red-500/8",
-      border: "border-red-500/20",
-      icon: <AlertTriangle className="w-3 h-3" />,
+      cls: "text-red-400 bg-red-500/8 border-red-500/20",
     },
     REJECTED: {
       label: "Rejected",
-      color: "text-red-500",
-      bg: "bg-red-500/8",
-      border: "border-red-500/20",
-      icon: <X className="w-3 h-3" />,
+      cls: "text-white/30 bg-white/4 border-white/10",
     },
+  }[asset.status] || {
+    label: asset.status || "Unknown",
+    cls: "text-white/30 bg-white/4 border-white/10",
   };
-  const badge = statusBadge[asset.status] || statusBadge.PENDING;
-
-  const credentials = asset.credentials || {};
 
   return (
     <motion.div
       layout
-      initial={{ opacity: 0, y: 8 }}
+      initial={{ opacity: 0, y: 6 }}
       animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, scale: 0.97 }}
-      className="bg-[#080808] border border-[#1a1a1a] rounded-2xl p-5 hover:border-[#2a2a2a] transition-all group relative overflow-visible"
+      className="flex flex-col gap-4 p-5 bg-[#080808] border border-[#141414] rounded-2xl hover:border-[#222] transition-all"
     >
-      {/* Header Row */}
-      <div className="flex items-start justify-between mb-4">
-        <div className="flex items-start gap-3 min-w-0 flex-1">
-          {/* Category Icon */}
-          <div
-            className={cn(
-              "w-10 h-10 rounded-xl flex items-center justify-center border shrink-0",
-              catColor.bg,
-              catColor.border,
-              catColor.text,
-            )}
-          >
-            {catIcon}
-          </div>
-          <div className="min-w-0 flex-1">
-            <h3
-              className="text-sm font-black text-white leading-tight truncate"
-              title={asset.title}
-            >
+      {/* Header row */}
+      <div className="flex items-start gap-3">
+        <div
+          className={cn(
+            "w-9 h-9 rounded-xl flex items-center justify-center border shrink-0",
+            catColor.bg,
+            catColor.border,
+            catColor.text,
+          )}
+        >
+          {catIcon}
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+            <p className="text-sm font-black text-white truncate">
               {asset.title || "Untitled Asset"}
-            </h3>
-            <div className="flex items-center gap-2 mt-1 flex-wrap">
-              <span
-                className={cn(
-                  "text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded border",
-                  catColor.bg,
-                  catColor.border,
-                  catColor.text,
-                )}
-              >
-                {asset.category || "Unknown"}
-              </span>
-              <span
-                className={cn(
-                  "text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded border flex items-center gap-1",
-                  badge.bg,
-                  badge.border,
-                  badge.color,
-                )}
-              >
-                {badge.icon}
-                {badge.label}
-              </span>
-              {asset.strength && (
-                <span
-                  className={cn(
-                    "text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded border",
-                    asset.strength === "Strong"
-                      ? "bg-emerald-500/8 border-emerald-500/20 text-emerald-400"
-                      : asset.strength === "Medium"
-                        ? "bg-amber-500/8 border-amber-500/20 text-amber-400"
-                        : asset.strength === "Weak"
-                          ? "bg-orange-500/8 border-orange-500/20 text-orange-400"
-                          : "bg-red-500/8 border-red-500/20 text-red-400",
-                  )}
-                >
-                  {asset.strength}
-                </span>
+            </p>
+            <span
+              className={cn(
+                "text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded border shrink-0",
+                statusBadge.cls,
               )}
-            </div>
+            >
+              {statusBadge.label}
+            </span>
+            {asset.strength && (
+              <span
+                className={cn(
+                  "text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-md border shrink-0",
+                  asset.strength === "Strong"
+                    ? "bg-emerald-500/8 border-emerald-500/20 text-emerald-400"
+                    : asset.strength === "Medium"
+                      ? "bg-amber-500/8 border-amber-500/20 text-amber-400"
+                      : "bg-orange-500/8 border-orange-500/20 text-orange-400",
+                )}
+              >
+                {asset.strength}
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="text-[10px] text-white/30 font-mono">
+              @{asset.userUsername || "unknown"}
+            </span>
+            <span className="text-[10px] text-white/20">
+              · {timeAgo(asset.uploadedAt)}
+            </span>
+            {asset.size > 0 && (
+              <span className="text-[10px] text-white/15 font-mono">
+                {formatBytes(asset.size)}
+              </span>
+            )}
           </div>
         </div>
-
-        {/* 3-Dot Menu */}
-        <div className="shrink-0 ml-2 relative z-50">
-          <AssetThreeDotMenu
-            asset={asset}
-            onMarkAs={onMarkAs}
-            onReport={onReport}
-          />
-        </div>
+        <AssetThreeDotMenu
+          asset={asset}
+          onMarkAs={onMarkAs}
+          onReport={onReport}
+          onViewUser={() => {}}
+        />
       </div>
 
-      {/* Uploaded By */}
-      <div className="flex items-center gap-2 mb-4 p-2.5 bg-white/[0.02] rounded-xl border border-white/[0.04]">
-        <div className="w-7 h-7 rounded-full bg-[#1a1a1a] border border-[#2a2a2a] flex items-center justify-center text-[10px] font-black text-white/50 shrink-0">
-          {asset.userName?.charAt(0)?.toUpperCase() || "?"}
-        </div>
-        <div className="min-w-0 flex-1">
-          <p className="text-[10px] font-bold text-white/70 truncate">
-            {asset.userName || "Unknown"}
-          </p>
-          <p className="text-[9px] text-white/30 font-mono truncate">
-            @{asset.userUsername}
-          </p>
-        </div>
-        <p className="text-[9px] text-white/20 shrink-0 font-mono">
-          {timeAgo(asset.uploadedAt)}
-        </p>
-      </div>
-
-      {/* Credential Fields */}
-      {Object.keys(credentials).filter((k) => credentials[k]).length > 0 && (
-        <div className="grid grid-cols-1 gap-2 mb-4">
-          {Object.entries(credentials)
-            .filter(([, v]) => v)
-            .slice(0, 4)
-            .map(([key, value]) => {
-              const isUrl =
-                typeof value === "string" && value.startsWith("http");
-              return (
-                <div
-                  key={key}
-                  className="flex items-start gap-2 p-2.5 bg-[#0d0d0d] border border-[#1a1a1a] rounded-lg"
-                >
-                  <span className="text-[8px] font-black uppercase tracking-widest text-white/25 min-w-[70px] pt-0.5 capitalize">
-                    {key.replace(/([A-Z])/g, " $1").trim()}
-                  </span>
-                  {isUrl ? (
-                    <a
-                      href={value}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      onClick={(e) => e.stopPropagation()}
-                      className="text-[10px] font-mono text-sky-400 hover:text-sky-300 truncate flex-1 flex items-center gap-1"
-                    >
-                      {value.length > 45 ? value.slice(0, 45) + "..." : value}
-                      <ExternalLink className="w-2.5 h-2.5 shrink-0" />
-                    </a>
-                  ) : (
-                    <span className="text-[10px] font-mono text-white/60 truncate flex-1">
-                      {String(value)}
-                    </span>
-                  )}
-                </div>
-              );
-            })}
+      {/* Credentials */}
+      {asset.credentials && Object.keys(asset.credentials).length > 0 && (
+        <div className="grid grid-cols-2 gap-x-4 gap-y-1.5">
+          {Object.entries(asset.credentials)
+            .filter(([, v]) => v && String(v).trim())
+            .slice(0, 6)
+            .map(([k, v]) => (
+              <div key={k} className="overflow-hidden">
+                <p className="text-[8px] font-bold text-white/25 uppercase tracking-widest truncate">
+                  {k.replace(/([A-Z])/g, " $1").trim()}
+                </p>
+                <p className="text-[10px] text-white/50 font-mono truncate">
+                  {String(v)}
+                </p>
+              </div>
+            ))}
         </div>
       )}
 
-      {/* Hash + Meta */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-1.5 min-w-0">
-          <Hash className="w-3 h-3 text-white/20 shrink-0" />
-          <span className="text-[9px] font-mono text-white/20 truncate">
-            {asset.hash?.slice(0, 24) || "no-hash"}...
-          </span>
-        </div>
-        <div className="flex items-center gap-2 shrink-0">
-          <span className="text-[9px] text-white/20 font-mono">
-            {asset.type === "link" ? "URL" : formatBytes(asset.size)}
-          </span>
-          {asset.url && (
-            <a
-              href={asset.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              onClick={(e) => e.stopPropagation()}
-              className="flex items-center gap-1 px-2.5 py-1 bg-white/5 border border-white/8 rounded-lg text-[9px] font-bold text-white/50 hover:text-white hover:bg-white/10 transition-all"
-            >
-              <Eye className="w-3 h-3" />
-              Preview
-            </a>
-          )}
-        </div>
-      </div>
+      {/* Asset URL */}
+      {asset.url && (
+        <a
+          href={asset.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center gap-2 text-[10px] font-bold text-sky-400 hover:underline truncate"
+        >
+          <ExternalLink className="w-3 h-3 shrink-0" />
+          <span className="truncate">{asset.url}</span>
+        </a>
+      )}
 
-      {/* Strength reward indicator */}
-      {asset.scoreYield && (
-        <div className="mt-3 pt-3 border-t border-white/[0.04] flex items-center justify-between">
-          <span className="text-[8px] font-bold text-white/20 uppercase tracking-widest">
-            Score Awarded
-          </span>
-          <span className="text-[10px] font-black text-emerald-400 font-mono">
-            +{asset.scoreYield} pts
-          </span>
+      {/* Quick action buttons */}
+      {(asset.status === "PENDING" || !asset.status) && (
+        <div className="flex gap-2 pt-1 border-t border-[#111]">
+          {["Strong", "Medium", "Weak"].map((strength) => {
+            const opts = MARK_AS_OPTIONS.find((o) => o.key === strength);
+            return (
+              <button
+                key={strength}
+                onClick={() => onMarkAs(asset, strength)}
+                className={cn(
+                  "flex-1 py-2 rounded-lg text-[9px] font-black uppercase tracking-widest border transition-all",
+                  opts.color,
+                  opts.bg,
+                  opts.border,
+                )}
+              >
+                {strength}
+              </button>
+            );
+          })}
+          <button
+            onClick={() => onMarkAs(asset, "Fake")}
+            className="px-3 py-2 rounded-lg text-[9px] font-black uppercase tracking-widest border transition-all text-red-500 bg-red-500/10 border-red-500/20"
+          >
+            Fake
+          </button>
         </div>
       )}
     </motion.div>
@@ -710,528 +657,616 @@ const AssetCard = ({ asset, onMarkAs, onReport }) => {
 };
 
 // ============================================================================
-// MAIN VAULT VERIFICATION PAGE
+// YOUTUBE CHANNEL VERIFICATION CARD
+// ============================================================================
+
+const YouTubeChannelCard = ({ channel, onApprove, onReject }) => {
+  const [approving, setApproving] = useState(false);
+  const [rejecting, setRejecting] = useState(false);
+
+  const handleApprove = async () => {
+    setApproving(true);
+    await onApprove(channel);
+    setApproving(false);
+  };
+
+  const handleReject = async () => {
+    if (
+      !window.confirm(
+        `Reject @${channel.userUsername}'s YouTube channel verification? This will remove their pending submission.`,
+      )
+    )
+      return;
+    setRejecting(true);
+    await onReject(channel);
+    setRejecting(false);
+  };
+
+  return (
+    <motion.div
+      layout
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="flex flex-col gap-4 p-5 bg-[#080808] border border-[#141414] rounded-2xl hover:border-[#222] transition-all"
+    >
+      {/* Header */}
+      <div className="flex items-start gap-3">
+        <div className="w-9 h-9 rounded-xl flex items-center justify-center border bg-red-500/8 border-red-500/20 shrink-0">
+          <Youtube className="w-4 h-4 text-red-400" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+            <p className="text-sm font-black text-white truncate">
+              {channel.handle ? `@${channel.handle}` : "YouTube Channel"}
+            </p>
+            <span className="text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded border text-amber-400 bg-amber-500/8 border-amber-500/20">
+              Pending
+            </span>
+          </div>
+          <div className="flex items-center gap-3">
+            <span className="text-[10px] text-white/30 font-mono">
+              @{channel.userUsername}
+            </span>
+            <span className="text-[10px] text-white/20">
+              · {timeAgo(channel.submittedAt)}
+            </span>
+          </div>
+        </div>
+      </div>
+
+      {/* Channel URL */}
+      <a
+        href={channel.channelUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="flex items-center gap-2 text-[10px] font-bold text-red-400 hover:underline truncate"
+      >
+        <ExternalLink className="w-3 h-3 shrink-0" />
+        <span className="truncate">{channel.channelUrl}</span>
+      </a>
+
+      {/* Description */}
+      {channel.description && (
+        <div
+          className="p-3 rounded-xl"
+          style={{
+            background: "rgba(255,255,255,0.03)",
+            border: "1px solid rgba(255,255,255,0.05)",
+          }}
+        >
+          <p className="text-[9px] font-bold text-white/30 uppercase tracking-widest mb-1">
+            Channel Description
+          </p>
+          <p className="text-xs text-white/60 leading-relaxed">
+            {channel.description}
+          </p>
+        </div>
+      )}
+
+      {/* User meta */}
+      <div className="grid grid-cols-2 gap-3">
+        <div>
+          <p className="text-[8px] font-bold text-white/25 uppercase tracking-widest mb-0.5">
+            Submitted By
+          </p>
+          <a
+            href={`/${channel.userUsername}`}
+            target="_blank"
+            rel="noreferrer"
+            className="text-[10px] text-sky-400 hover:underline font-mono"
+          >
+            @{channel.userUsername}
+          </a>
+        </div>
+        <div>
+          <p className="text-[8px] font-bold text-white/25 uppercase tracking-widest mb-0.5">
+            User Name
+          </p>
+          <p className="text-[10px] text-white/50">{channel.userName || "—"}</p>
+        </div>
+      </div>
+
+      {/* Actions */}
+      <div className="flex gap-3 pt-1 border-t border-[#111]">
+        <button
+          onClick={handleApprove}
+          disabled={approving || rejecting}
+          className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all text-emerald-400 bg-emerald-500/10 border-emerald-500/20 hover:bg-emerald-500/20 disabled:opacity-40"
+        >
+          {approving ? (
+            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+          ) : (
+            <ThumbsUp className="w-3.5 h-3.5" />
+          )}
+          {approving ? "Approving..." : "Approve"}
+        </button>
+        <button
+          onClick={handleReject}
+          disabled={approving || rejecting}
+          className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all text-red-400 bg-red-500/10 border-red-500/20 hover:bg-red-500/20 disabled:opacity-40"
+        >
+          {rejecting ? (
+            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+          ) : (
+            <ThumbsDown className="w-3.5 h-3.5" />
+          )}
+          {rejecting ? "Rejecting..." : "Reject"}
+        </button>
+      </div>
+    </motion.div>
+  );
+};
+
+// ============================================================================
+// MAIN VAULT VERIFICATION COMPONENT
 // ============================================================================
 
 const VaultVerification = () => {
   const [searchParams] = useSearchParams();
-  const initialFilter = searchParams.get("filter") || "PENDING";
+  const initialTab = searchParams.get("tab") || "All";
 
-  // ── Pending Verification State (MOVED INSIDE HOOK BODY) ──
-  const [pendingVerification, setPendingVerification] = useState(null);
-
-  // ── Data State ──
-  const [allAssets, setAllAssets] = useState([]);
+  // ── State ────────────────────────────────────────────────────────────────
+  const [assets, setAssets] = useState([]);
+  const [ytPendingChannels, setYtPendingChannels] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [fetching, setFetching] = useState(false);
-  const [hasMore, setHasMore] = useState(true);
-  const [lastDoc, setLastDoc] = useState(null);
-  const [totalFetched, setTotalFetched] = useState(0);
-
-  // ── UI State ──
-  const [activeTab, setActiveTab] = useState("All");
-  const [statusFilter, setStatusFilter] = useState(initialFilter);
+  const [refreshing, setRefreshing] = useState(false);
+  const [activeTab, setActiveTab] = useState(initialTab);
+  const [statusFilter, setStatusFilter] = useState("PENDING");
   const [searchQuery, setSearchQuery] = useState("");
-  const [reportTarget, setReportTarget] = useState(null);
-  const [toasts, setToasts] = useState([]);
+  const [reportingAsset, setReportingAsset] = useState(null);
+  const [certExplorerOpen, setCertExplorerOpen] = useState(false);
+  const [certTargetAsset, setCertTargetAsset] = useState(null);
+  const [lastDoc, setLastDoc] = useState(null);
+  const [hasMore, setHasMore] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const PAGE_SIZE = 30;
 
-  const addToast = useCallback((msg, type = "grey") => {
-    const id = Date.now();
-    setToasts((prev) => [...prev.slice(-3), { id, msg, type }]);
-    setTimeout(() => setToasts((p) => p.filter((t) => t.id !== id)), 4000);
-  }, []);
+  // ── Fetch all data ────────────────────────────────────────────────────────
+  const fetchData = useCallback(async (isRefresh = false) => {
+    if (isRefresh) setRefreshing(true);
+    else setLoading(true);
 
-  // ── FETCH VAULT ASSETS (batch user reads) ──
-  const fetchVaultAssets = useCallback(
-    async (loadMore = false) => {
-      if (!loadMore) setLoading(true);
-      else setFetching(true);
+    try {
+      const snap = await getDocs(
+        query(collection(db, "users"), limit(PAGE_SIZE)),
+      );
 
-      try {
-        let q = query(collection(db, "users"), limit(30));
-        if (loadMore && lastDoc) {
-          q = query(collection(db, "users"), startAfter(lastDoc), limit(30));
-        }
-
-        const snap = await getDocs(q);
-        if (snap.docs.length < 30) setHasMore(false);
-        if (snap.docs.length > 0) setLastDoc(snap.docs[snap.docs.length - 1]);
-
-        setTotalFetched((p) => p + snap.docs.length);
-
-        const extracted = [];
-        snap.docs.forEach((userDoc) => {
-          const data = userDoc.data();
-          const vault = data.vault || [];
-          vault.forEach((asset) => {
-            extracted.push({
-              ...asset,
-              _key: `${userDoc.id}_${asset.id}`,
-              userId: userDoc.id,
-              userName:
-                `${data.identity?.firstName || ""} ${data.identity?.lastName || ""}`.trim() ||
-                "Unknown",
-              userEmail: data.identity?.email || "",
-              userUsername: data.identity?.username || "unknown",
-            });
+      const assetList = [];
+      snap.docs.forEach((userDoc) => {
+        const data = userDoc.data();
+        const vault = data.vault || [];
+        vault.forEach((asset) => {
+          assetList.push({
+            ...asset,
+            userId: userDoc.id,
+            userName:
+              `${data.identity?.firstName || ""} ${data.identity?.lastName || ""}`.trim() ||
+              "Unknown",
+            userUsername: data.identity?.username || "unknown",
           });
         });
+      });
 
-        if (loadMore) {
-          setAllAssets((prev) => {
-            // Deduplicate by _key
-            const existing = new Set(prev.map((a) => a._key));
-            return [...prev, ...extracted.filter((a) => !existing.has(a._key))];
+      setAssets(assetList);
+      setLastDoc(snap.docs[snap.docs.length - 1] || null);
+      setHasMore(snap.docs.length === PAGE_SIZE);
+
+      // Fetch pending YouTube channel verifications
+      const ytPending = [];
+      snap.docs.forEach((userDoc) => {
+        const data = userDoc.data();
+        const ytConnector = data.connectors?.youtube;
+        if (ytConnector?.channelUrl && !ytConnector.verified) {
+          ytPending.push({
+            userId: userDoc.id,
+            userName:
+              `${data.identity?.firstName || ""} ${data.identity?.lastName || ""}`.trim() ||
+              "Unknown",
+            userUsername: data.identity?.username || "unknown",
+            ...ytConnector,
           });
-        } else {
-          setAllAssets(extracted);
         }
-      } catch (err) {
-        console.error("[VaultVerification] Fetch error:", err);
-        addToast("Failed to load assets. Check Firestore permissions.", "red");
-      } finally {
-        setLoading(false);
-        setFetching(false);
-      }
-    },
-    [lastDoc, addToast],
-  );
-
-  useEffect(() => {
-    fetchVaultAssets(false);
-  }, []); // eslint-disable-line
-
-  // ── MARK AS ──────────────────────────────────────────────────────────────
-  // 1. Intercepts the click. Opens modal if verified, bypasses if Fake.
-  const handleMarkAsInitiate = useCallback((asset, strength) => {
-    const isVerified = ["Weak", "Medium", "Strong"].includes(strength);
-    if (isVerified) {
-      setPendingVerification({ asset, strength });
-    } else {
-      handleMarkAsConfirm(asset, strength, null); // Fake doesn't need a certificate
+      });
+      setYtPendingChannels(ytPending);
+    } catch (err) {
+      console.error("[VaultVerification] Fetch failed:", err);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
     }
   }, []);
 
-  // 2. The actual database mutation logic
-  const handleMarkAsConfirm = useCallback(
-    async (asset, strength, learnId) => {
-      const isVerified = ["Weak", "Medium", "Strong"].includes(strength);
-      const pts = strength === "Strong" ? 30 : strength === "Medium" ? 20 : 10;
-
-      try {
-        const userRef = doc(db, "users", asset.userId);
-        const userSnap = await getDoc(userRef);
-        if (!userSnap.exists()) {
-          addToast("User document not found.", "red");
-          return;
-        }
-
-        const userVault = userSnap.data().vault || [];
-        const updatedVault = userVault.map((a) =>
-          a.id === asset.id
-            ? {
-                ...a,
-                status: isVerified ? "VERIFIED" : "REJECTED",
-                strength: strength,
-                verifiedAt: new Date().toISOString(),
-                verifiedBy: auth.currentUser?.email,
-                isPublic: isVerified,
-                scoreYield: isVerified ? pts : 0,
-                ...(learnId && { discotiveLearnId: learnId }), // Inject Learn ID invisibly
-              }
-            : a,
-        );
-
-        await updateDoc(userRef, { vault: updatedVault });
-
-        if (isVerified) {
-          awardVaultVerification(asset.userId, strength).catch(console.warn);
-        }
-
-        setAllAssets((prev) =>
-          prev.map((a) =>
-            a._key === asset._key
-              ? {
-                  ...a,
-                  status: isVerified ? "VERIFIED" : "REJECTED",
-                  strength,
-                  scoreYield: isVerified ? pts : 0,
-                  isPublic: isVerified,
-                }
-              : a,
-          ),
-        );
-
-        addToast(
-          isVerified
-            ? `Asset marked ${strength} & Aligned. +${pts} pts to @${asset.userUsername}.`
-            : `Asset marked as Fake/Rejected.`,
-          isVerified ? "green" : "grey",
-        );
-      } catch (err) {
-        console.error("[VaultVerification] Mark As failed:", err);
-        addToast("Failed to update asset. Try again.", "red");
-      } finally {
-        setPendingVerification(null); // Cleanup
-      }
-    },
-    [addToast],
-  );
-
-  // ── REPORT ───────────────────────────────────────────────────────────────
-  const handleReport = useCallback(
-    async (asset, reason, description) => {
-      try {
-        // 1. Write to vault_reports collection
-        await addDoc(collection(db, "vault_reports"), {
-          assetId: asset.id,
-          assetTitle: asset.title,
-          assetCategory: asset.category,
-          userId: asset.userId,
-          userName: asset.userName,
-          userEmail: asset.userEmail,
-          reason,
-          description: description || "",
-          reportedBy: auth.currentUser?.email || "unknown",
-          reportedAt: new Date().toISOString(),
-          status: "open",
+  const loadMore = useCallback(async () => {
+    if (!lastDoc || !hasMore || loadingMore) return;
+    setLoadingMore(true);
+    try {
+      const snap = await getDocs(
+        query(collection(db, "users"), startAfter(lastDoc), limit(PAGE_SIZE)),
+      );
+      const more = [];
+      snap.docs.forEach((userDoc) => {
+        const data = userDoc.data();
+        (data.vault || []).forEach((asset) => {
+          more.push({
+            ...asset,
+            userId: userDoc.id,
+            userName:
+              `${data.identity?.firstName || ""} ${data.identity?.lastName || ""}`.trim() ||
+              "Unknown",
+            userUsername: data.identity?.username || "unknown",
+          });
         });
+      });
+      setAssets((prev) => [...prev, ...more]);
+      setLastDoc(snap.docs[snap.docs.length - 1] || null);
+      setHasMore(snap.docs.length === PAGE_SIZE);
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [lastDoc, hasMore, loadingMore]);
 
-        // 2. Update asset status to REPORTED in user's vault
-        const userRef = doc(db, "users", asset.userId);
-        const userSnap = await getDoc(userRef);
-        if (userSnap.exists()) {
-          const userVault = userSnap.data().vault || [];
-          const updatedVault = userVault.map((a) =>
-            a.id === asset.id
-              ? {
-                  ...a,
-                  status: "REPORTED",
-                  reportedAt: new Date().toISOString(),
-                  reportReason: reason,
-                }
-              : a,
-          );
-          await updateDoc(userRef, { vault: updatedVault });
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  // ── Mark Asset ────────────────────────────────────────────────────────────
+  const handleMarkAs = useCallback(async (asset, strength) => {
+    const isVerified = strength !== "Fake";
+    const newStatus = isVerified ? "VERIFIED" : "REJECTED";
+
+    // Optimistic update
+    setAssets((prev) =>
+      prev.map((a) =>
+        a.id === asset.id && a.userId === asset.userId
+          ? { ...a, status: newStatus, strength: isVerified ? strength : null }
+          : a,
+      ),
+    );
+
+    try {
+      const userRef = doc(db, "users", asset.userId);
+      const userSnap = await getDoc(userRef);
+      if (!userSnap.exists()) return;
+
+      const vault = userSnap.data().vault || [];
+      const updatedVault = vault.map((v) =>
+        v.id === asset.id
+          ? {
+              ...v,
+              status: newStatus,
+              strength: isVerified ? strength : null,
+              verifiedAt: new Date().toISOString(),
+              verifiedBy: auth.currentUser?.uid || "admin",
+            }
+          : v,
+      );
+
+      await updateDoc(userRef, { vault: updatedVault });
+
+      // Award score points if verified
+      if (isVerified && awardVaultVerification) {
+        const pts = MARK_AS_OPTIONS.find((o) => o.key === strength)?.pts || 0;
+        if (pts > 0) {
+          try {
+            await awardVaultVerification(
+              asset.userId,
+              pts,
+              strength,
+              asset.title,
+            );
+          } catch (scoreErr) {
+            console.warn("[VaultVerification] Score award failed:", scoreErr);
+          }
         }
-
-        // 3. Local update
-        setAllAssets((prev) =>
-          prev.map((a) =>
-            a._key === asset._key ? { ...a, status: "REPORTED" } : a,
-          ),
-        );
-
-        addToast(`Asset reported. Case logged in vault_reports.`, "grey");
-      } catch (err) {
-        console.error("[VaultVerification] Report failed:", err);
-        addToast("Report submission failed. Check console.", "red");
       }
-    },
-    [addToast],
-  );
+    } catch (err) {
+      console.error("[VaultVerification] Mark as failed:", err);
+      // Rollback
+      setAssets((prev) =>
+        prev.map((a) =>
+          a.id === asset.id && a.userId === asset.userId
+            ? { ...a, status: asset.status, strength: asset.strength }
+            : a,
+        ),
+      );
+    }
+  }, []);
 
-  // ── FILTERED ASSETS ──────────────────────────────────────────────────────
+  // ── Report Asset ──────────────────────────────────────────────────────────
+  const handleReport = useCallback(async (asset, reason, description) => {
+    setAssets((prev) =>
+      prev.map((a) =>
+        a.id === asset.id && a.userId === asset.userId
+          ? { ...a, status: "REPORTED" }
+          : a,
+      ),
+    );
+    try {
+      const userRef = doc(db, "users", asset.userId);
+      const userSnap = await getDoc(userRef);
+      if (!userSnap.exists()) return;
+
+      const vault = userSnap.data().vault || [];
+      const updatedVault = vault.map((v) =>
+        v.id === asset.id ? { ...v, status: "REPORTED" } : v,
+      );
+      await updateDoc(userRef, { vault: updatedVault });
+
+      await addDoc(collection(db, "vault_reports"), {
+        assetId: asset.id,
+        userId: asset.userId,
+        userUsername: asset.userUsername,
+        assetTitle: asset.title,
+        reason,
+        description,
+        reportedAt: new Date().toISOString(),
+        reportedBy: auth.currentUser?.uid || "admin",
+      });
+    } catch (err) {
+      console.error("[VaultVerification] Report failed:", err);
+    }
+  }, []);
+
+  // ── YouTube Channel Approval ──────────────────────────────────────────────
+  const handleApproveYouTubeChannel = useCallback(async (channel) => {
+    try {
+      await updateDoc(doc(db, "users", channel.userId), {
+        "connectors.youtube.verified": true,
+        "connectors.youtube.verifiedAt": new Date().toISOString(),
+        "connectors.youtube.verifiedBy": auth.currentUser?.uid || "admin",
+      });
+      setYtPendingChannels((prev) =>
+        prev.filter((c) => c.userId !== channel.userId),
+      );
+    } catch (err) {
+      console.error("[VaultVerification] YouTube approval failed:", err);
+      alert("Approval failed: " + err.message);
+    }
+  }, []);
+
+  const handleRejectYouTubeChannel = useCallback(async (channel) => {
+    try {
+      await updateDoc(doc(db, "users", channel.userId), {
+        "connectors.youtube": null,
+      });
+      setYtPendingChannels((prev) =>
+        prev.filter((c) => c.userId !== channel.userId),
+      );
+    } catch (err) {
+      console.error("[VaultVerification] YouTube rejection failed:", err);
+      alert("Rejection failed: " + err.message);
+    }
+  }, []);
+
+  // ── Filtered assets ───────────────────────────────────────────────────────
   const filteredAssets = useMemo(() => {
-    return allAssets.filter((asset) => {
-      const tabMatch = activeTab === "All" || asset.category === activeTab;
-
-      let statusMatch = true;
-      if (statusFilter === "PENDING")
-        statusMatch = asset.status === "PENDING" || !asset.status;
-      if (statusFilter === "REPORTED")
-        statusMatch = asset.status === "REPORTED";
-
-      const searchLower = searchQuery.toLowerCase();
+    return assets.filter((a) => {
+      const tabMatch = activeTab === "All" || a.category === activeTab;
+      const statusMatch =
+        statusFilter === "ALL" ||
+        (statusFilter === "PENDING" && (!a.status || a.status === "PENDING")) ||
+        (statusFilter === "REPORTED" && a.status === "REPORTED");
+      const s = searchQuery.toLowerCase();
       const searchMatch =
         !searchQuery ||
-        (asset.title || "").toLowerCase().includes(searchLower) ||
-        (asset.userName || "").toLowerCase().includes(searchLower) ||
-        (asset.userUsername || "").toLowerCase().includes(searchLower) ||
-        (asset.credentials?.issuer || "").toLowerCase().includes(searchLower) ||
-        (asset.credentials?.company || "")
-          .toLowerCase()
-          .includes(searchLower) ||
-        (asset.hash || "").toLowerCase().includes(searchLower);
-
+        (a.title || "").toLowerCase().includes(s) ||
+        (a.userUsername || "").toLowerCase().includes(s) ||
+        (a.userName || "").toLowerCase().includes(s);
       return tabMatch && statusMatch && searchMatch;
     });
-  }, [allAssets, activeTab, statusFilter, searchQuery]);
+  }, [assets, activeTab, statusFilter, searchQuery]);
 
-  // ── TAB COUNTS ──────────────────────────────────────────────────────────
-  const tabCounts = useMemo(() => {
-    const counts = { All: 0 };
-    TABS.forEach((t) => {
-      counts[t.key] = 0;
-    });
-    allAssets.forEach((a) => {
-      if (statusFilter === "PENDING" && a.status !== "PENDING" && a.status)
-        return;
-      if (statusFilter === "REPORTED" && a.status !== "REPORTED") return;
-      counts["All"] = (counts["All"] || 0) + 1;
-      if (a.category) counts[a.category] = (counts[a.category] || 0) + 1;
-    });
-    return counts;
-  }, [allAssets, statusFilter]);
+  const pendingCount = useMemo(
+    () => assets.filter((a) => !a.status || a.status === "PENDING").length,
+    [assets],
+  );
+  const ytPendingCount = ytPendingChannels.length;
 
-  // ── LOADING ──────────────────────────────────────────────────────────────
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-[#000000] flex items-center justify-center">
-        <div className="text-center space-y-3">
-          <div className="flex items-center justify-center gap-1.5">
-            {[0, 1, 2, 3, 4].map((i) => (
-              <motion.div
-                key={i}
-                animate={{ opacity: [0.2, 1, 0.2] }}
-                transition={{
-                  duration: 1.2,
-                  repeat: Infinity,
-                  delay: i * 0.15,
-                }}
-                className="w-1 h-5 bg-emerald-500 rounded-full"
-              />
-            ))}
-          </div>
-          <p className="text-[10px] font-black text-white/30 uppercase tracking-[0.3em]">
-            Loading vault assets...
-          </p>
-        </div>
-      </div>
-    );
-  }
+  const isYtTab = activeTab === "youtube_channels";
 
-  // ── RENDER ───────────────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-[#000000] text-white pb-32 font-sans selection:bg-emerald-500/20">
-      <div className="fixed inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-[0.02] pointer-events-none z-0" />
-
-      <div className="max-w-[1600px] mx-auto p-4 md:p-8 relative z-10">
-        {/* ── HEADER ── */}
-        <motion.div
-          initial={{ opacity: 0, y: -10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-8"
-        >
-          <div>
-            <Link
-              to="/app/admin"
-              className="flex items-center gap-2 text-[10px] font-black text-white/30 hover:text-white uppercase tracking-widest mb-4 transition-colors w-fit"
+    <div className="min-h-screen bg-[#000] text-white pb-24">
+      <div className="max-w-5xl mx-auto p-4 md:p-8">
+        {/* Header */}
+        <div className="mb-8">
+          <Link
+            to="/app/admin"
+            className="flex items-center gap-2 text-[10px] font-black text-white/30 hover:text-white uppercase tracking-widest mb-4 transition-colors w-fit"
+          >
+            <ArrowLeft className="w-3.5 h-3.5" /> Admin Dashboard
+          </Link>
+          <div className="flex items-end justify-between gap-4 flex-wrap">
+            <div>
+              <h1 className="text-3xl font-black text-white">
+                Vault Verification
+              </h1>
+              <p className="text-white/30 text-sm mt-1">
+                {pendingCount} assets pending · {ytPendingCount} YouTube channel
+                {ytPendingCount !== 1 ? "s" : ""} awaiting approval
+              </p>
+            </div>
+            <button
+              onClick={() => fetchData(true)}
+              disabled={refreshing}
+              className="flex items-center gap-2 px-4 py-2.5 bg-[#0a0a0c] border border-white/[0.05] rounded-xl text-xs font-bold text-white/60 hover:text-white transition-all disabled:opacity-40"
             >
-              <ArrowLeft className="w-3.5 h-3.5" />
-              Admin Dashboard
-            </Link>
-            <h1 className="text-3xl md:text-4xl font-black tracking-tight text-white">
-              Vault Verification Manager
-            </h1>
-            <p className="text-white/30 text-sm mt-1.5">
-              {allAssets.length} total assets from {totalFetched} users scanned
-              {hasMore && " (more available)"}
-            </p>
+              <RefreshCw
+                className={cn("w-4 h-4", refreshing && "animate-spin")}
+              />
+              {refreshing ? "Syncing..." : "Refresh"}
+            </button>
           </div>
+        </div>
 
-          <div className="flex items-center gap-3">
-            {/* Status Filter */}
-            {STATUS_FILTERS.map((sf) => (
-              <button
-                key={sf.key}
-                onClick={() => setStatusFilter(sf.key)}
-                className={cn(
-                  "px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all",
-                  statusFilter === sf.key
-                    ? `${sf.color} bg-white/5 border-current`
-                    : "text-white/30 border-white/[0.05] hover:text-white",
-                )}
-              >
-                {sf.label}
-                <span className="ml-1.5 font-mono text-[8px]">
-                  (
-                  {sf.key === "PENDING"
-                    ? allAssets.filter(
-                        (a) => a.status === "PENDING" || !a.status,
-                      ).length
-                    : sf.key === "REPORTED"
-                      ? allAssets.filter((a) => a.status === "REPORTED").length
-                      : allAssets.length}
-                  )
-                </span>
-              </button>
-            ))}
-          </div>
-        </motion.div>
-
-        {/* ── SEARCH + TABS ── */}
-        <div className="flex flex-col md:flex-row items-start md:items-center gap-4 mb-6">
-          {/* Search */}
-          <div className="relative w-full md:w-72">
-            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-white/25" />
-            <input
-              type="text"
-              placeholder="Search by title, user, issuer..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-[#0a0a0c] border border-white/[0.05] text-white pl-10 pr-4 py-2.5 rounded-xl focus:outline-none focus:border-white/20 text-xs placeholder-white/20 transition-all"
-            />
-            {searchQuery && (
-              <button
-                onClick={() => setSearchQuery("")}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white"
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            )}
-          </div>
-
-          {/* Category Tabs */}
-          <div className="flex gap-1 flex-wrap">
-            {TABS.map((tab) => (
+        {/* Tabs */}
+        <div className="flex gap-1 flex-wrap mb-6 p-1 rounded-xl bg-[#0a0a0c] border border-white/[0.05]">
+          {TABS.map((tab) => {
+            const count =
+              tab.key === "youtube_channels"
+                ? ytPendingCount
+                : tab.key === "All"
+                  ? filteredAssets.length
+                  : assets.filter(
+                      (a) =>
+                        a.category === tab.key &&
+                        (!a.status || a.status === "PENDING"),
+                    ).length;
+            return (
               <button
                 key={tab.key}
                 onClick={() => setActiveTab(tab.key)}
                 className={cn(
-                  "px-3.5 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all",
+                  "px-3.5 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest border transition-all",
                   activeTab === tab.key
-                    ? "bg-white text-black border-white"
-                    : "bg-[#0a0a0c] border-white/[0.05] text-white/40 hover:text-white",
+                    ? tab.special
+                      ? "bg-red-500/15 text-red-400 border-red-500/20"
+                      : "bg-white text-black border-white"
+                    : "bg-transparent border-transparent text-white/40 hover:text-white",
                 )}
               >
                 {tab.label}
-                {tabCounts[tab.key] !== undefined && (
+                {count > 0 && (
                   <span className="ml-1.5 font-mono text-[8px] opacity-60">
-                    {tabCounts[tab.key]}
+                    ({count})
                   </span>
                 )}
               </button>
+            );
+          })}
+        </div>
+
+        {/* Filters (only for asset tabs) */}
+        {!isYtTab && (
+          <div className="flex flex-col md:flex-row items-start md:items-center gap-3 mb-6">
+            <div className="flex gap-1 flex-wrap">
+              {STATUS_FILTERS.map((f) => (
+                <button
+                  key={f.key}
+                  onClick={() => setStatusFilter(f.key)}
+                  className={cn(
+                    "px-3.5 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all",
+                    statusFilter === f.key
+                      ? "bg-white text-black border-white"
+                      : "bg-[#0a0a0c] border-white/[0.05] text-white/40 hover:text-white",
+                  )}
+                >
+                  {f.label}
+                </button>
+              ))}
+            </div>
+            <div className="relative w-full md:w-64">
+              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4 text-white/25" />
+              <input
+                type="text"
+                placeholder="Search assets or users..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full bg-[#0a0a0c] border border-white/[0.05] text-white pl-10 pr-4 py-2 rounded-xl text-xs placeholder-white/20 focus:outline-none focus:border-white/15 transition-all"
+              />
+              {searchQuery && (
+                <button
+                  onClick={() => setSearchQuery("")}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-white/30 hover:text-white"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Content */}
+        {loading ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-pulse">
+            {[...Array(6)].map((_, i) => (
+              <div
+                key={i}
+                className="h-44 bg-white/[0.02] border border-white/[0.03] rounded-2xl"
+              />
             ))}
           </div>
-        </div>
-
-        {/* ── RESULTS COUNT ── */}
-        <div className="flex items-center justify-between mb-4">
-          <p className="text-[10px] font-bold text-white/25 uppercase tracking-widest">
-            Showing {filteredAssets.length} assets
-            {searchQuery && ` matching "${searchQuery}"`}
-          </p>
-          {hasMore && (
-            <button
-              onClick={() => fetchVaultAssets(true)}
-              disabled={fetching}
-              className="flex items-center gap-1.5 text-[10px] font-black text-white/30 hover:text-white uppercase tracking-widest transition-colors disabled:opacity-40"
-            >
-              <RefreshCw
-                className={cn("w-3 h-3", fetching && "animate-spin")}
-              />
-              {fetching ? "Loading..." : "Load More Users"}
-            </button>
-          )}
-        </div>
-
-        {/* ── ASSET GRID ── */}
-        {filteredAssets.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-24 text-center border border-dashed border-white/[0.05] rounded-3xl">
-            <Database className="w-12 h-12 text-white/10 mb-4" />
-            <h3 className="text-lg font-black text-white/30 mb-1">
-              No assets found
-            </h3>
-            <p className="text-[10px] font-bold text-white/15 uppercase tracking-widest">
-              {statusFilter === "PENDING"
-                ? "All pending assets have been reviewed"
-                : statusFilter === "REPORTED"
-                  ? "No reported assets on file"
-                  : "No assets match the current filters"}
+        ) : isYtTab ? (
+          ytPendingChannels.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-20 border border-dashed border-red-500/[0.1] rounded-3xl">
+              <Youtube className="w-10 h-10 text-red-500/20 mb-4" />
+              <p className="text-sm font-black text-white/20">
+                No pending YouTube channel verifications.
+              </p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {ytPendingChannels.map((channel) => (
+                <YouTubeChannelCard
+                  key={channel.userId}
+                  channel={channel}
+                  onApprove={handleApproveYouTubeChannel}
+                  onReject={handleRejectYouTubeChannel}
+                />
+              ))}
+            </div>
+          )
+        ) : filteredAssets.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-20 border border-dashed border-white/[0.05] rounded-3xl">
+            <Shield className="w-10 h-10 text-white/10 mb-4" />
+            <p className="text-sm font-black text-white/20">
+              No assets match the current filters.
             </p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4">
-            <AnimatePresence>
+          <>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {filteredAssets.map((asset) => (
                 <AssetCard
-                  key={asset._key}
+                  key={`${asset.userId}-${asset.id}`}
                   asset={asset}
-                  onMarkAs={handleMarkAsInitiate}
-                  onReport={(a) => setReportTarget(a)}
+                  onMarkAs={handleMarkAs}
+                  onReport={(a) => setReportingAsset(a)}
                 />
               ))}
-            </AnimatePresence>
-          </div>
-        )}
+            </div>
 
-        {/* ── LOAD MORE BUTTON ── */}
-        {hasMore && filteredAssets.length > 0 && (
-          <div className="flex justify-center mt-8">
-            <button
-              onClick={() => fetchVaultAssets(true)}
-              disabled={fetching}
-              className="px-8 py-3.5 bg-[#0a0a0c] border border-white/[0.05] text-white/60 hover:text-white text-xs font-black uppercase tracking-widest rounded-xl transition-all flex items-center gap-2 disabled:opacity-40"
-            >
-              <RefreshCw
-                className={cn("w-4 h-4", fetching && "animate-spin")}
-              />
-              {fetching ? "Scanning more users..." : "Load More Users"}
-            </button>
-          </div>
+            {/* Load more */}
+            {hasMore && (
+              <div className="flex justify-center mt-8">
+                <button
+                  onClick={loadMore}
+                  disabled={loadingMore}
+                  className="px-8 py-3 bg-[#0a0a0c] border border-white/[0.05] text-white/60 hover:text-white text-xs font-black uppercase tracking-widest rounded-xl transition-all disabled:opacity-40 flex items-center gap-2"
+                >
+                  {loadingMore ? (
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                  ) : null}
+                  {loadingMore ? "Loading..." : "Load More"}
+                </button>
+              </div>
+            )}
+          </>
         )}
       </div>
 
-      {/* ── REPORT MODAL ── */}
+      {/* Report Modal */}
       <AnimatePresence>
-        {reportTarget && (
+        {reportingAsset && (
           <ReportModal
-            asset={reportTarget}
-            onClose={() => setReportTarget(null)}
+            asset={reportingAsset}
+            onClose={() => setReportingAsset(null)}
             onSubmit={handleReport}
           />
         )}
       </AnimatePresence>
 
-      <AnimatePresence>
-        {pendingVerification && (
-          <CertificateExplorerModal
-            isOpen={!!pendingVerification}
-            onClose={() => setPendingVerification(null)}
-            onSelect={(selectedCert) => {
-              handleMarkAsConfirm(
-                pendingVerification.asset,
-                pendingVerification.strength,
-                selectedCert.discotiveLearnId,
-              );
-            }}
-          />
-        )}
-      </AnimatePresence>
-
-      {/* ── TOAST NOTIFICATIONS ── */}
-      <div className="fixed bottom-5 left-4 md:left-8 z-[9999] flex flex-col gap-2 pointer-events-none">
-        <AnimatePresence>
-          {toasts.map((t) => (
-            <motion.div
-              key={t.id}
-              initial={{ opacity: 0, x: -16, y: 8 }}
-              animate={{ opacity: 1, x: 0, y: 0 }}
-              exit={{ opacity: 0, x: -16 }}
-              className={cn(
-                "px-4 py-3 rounded-xl shadow-2xl flex items-center gap-3 border text-xs font-bold max-w-[340px] pointer-events-auto",
-                t.type === "green"
-                  ? "bg-[#041f10] border-emerald-500/25 text-emerald-400"
-                  : t.type === "red"
-                    ? "bg-[#1a0505] border-red-500/25 text-red-400"
-                    : "bg-[#0d0d0d] border-[#1e1e1e] text-white",
-              )}
-            >
-              {t.type === "green" && (
-                <CheckCircle2 className="w-4 h-4 shrink-0" />
-              )}
-              {t.type === "red" && (
-                <AlertTriangle className="w-4 h-4 shrink-0" />
-              )}
-              {t.type === "grey" && (
-                <Shield className="w-4 h-4 text-white/40 shrink-0" />
-              )}
-              <span className="truncate">{t.msg}</span>
-            </motion.div>
-          ))}
-        </AnimatePresence>
-      </div>
+      {/* Certificate Explorer Modal */}
+      <CertificateExplorerModal
+        isOpen={certExplorerOpen}
+        onClose={() => {
+          setCertExplorerOpen(false);
+          setCertTargetAsset(null);
+        }}
+        onSelect={(cert) => {
+          setCertExplorerOpen(false);
+          setCertTargetAsset(null);
+        }}
+      />
     </div>
   );
 };

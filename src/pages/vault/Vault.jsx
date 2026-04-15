@@ -39,10 +39,10 @@ import {
   getDownloadURL,
   deleteObject,
 } from "firebase/storage";
-import { db, storage, auth } from "../firebase";
-import { useAuth } from "../contexts/AuthContext";
-import { useUserData } from "../hooks/useUserData";
-import { cn } from "../lib/cn";
+import { db, storage, auth } from "../../firebase";
+import { useAuth } from "../../contexts/AuthContext";
+import { useUserData } from "../../hooks/useUserData";
+import { cn } from "../../lib/cn";
 import { createPortal } from "react-dom";
 import {
   Database,
@@ -100,6 +100,7 @@ import {
   Box,
 } from "lucide-react";
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
+import ConnectorHub from "./connectors/ConnectorHub";
 
 // ─── Design Tokens ────────────────────────────────────────────────────────────
 const G = {
@@ -2135,7 +2136,7 @@ const Vault = () => {
   const [selectedAsset, setSelectedAsset] = useState(null);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [shareTarget, setShareTarget] = useState(null);
-  const [connectorTarget, setConnectorTarget] = useState(null);
+  const [connectorHubOpen, setConnectorHubOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
 
   // ── Load vault from Firestore ──────────────────────────────────────────────
@@ -2530,6 +2531,21 @@ const Vault = () => {
                 <SlidersHorizontal className="w-3.5 h-3.5" />
               </button>
 
+              {/* Connectors CTA */}
+              <motion.button
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.97 }}
+                onClick={() => setConnectorHubOpen(true)}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all"
+                style={{
+                  background: V.surface,
+                  border: "1px solid rgba(255,255,255,0.07)",
+                  color: T.secondary,
+                }}
+              >
+                <Link2 className="w-3.5 h-3.5" /> Connectors
+              </motion.button>
+
               {/* Upload CTA */}
               <motion.button
                 whileHover={{ scale: 1.02 }}
@@ -2643,8 +2659,10 @@ const Vault = () => {
                     }}
                   >
                     <ConnectorPanel
-                      connectedApps={userData?.connectedApps || []}
-                      onConnect={(connector) => setConnectorTarget(connector)}
+                      connectedApps={Object.keys(
+                        userData?.connectors || {},
+                      ).filter((k) => userData?.connectors?.[k])}
+                      onConnect={() => setConnectorHubOpen(true)}
                     />
                   </div>
                 </div>
@@ -2893,15 +2911,20 @@ const Vault = () => {
         )}
       </AnimatePresence>
 
-      {/* ── CONNECTOR MODAL ── */}
-      <AnimatePresence>
-        {connectorTarget && (
-          <ConnectorModal
-            connector={connectorTarget}
-            onClose={() => setConnectorTarget(null)}
-          />
-        )}
-      </AnimatePresence>
+      {/* ── CONNECTOR HUB ── */}
+      <ConnectorHub
+        isOpen={connectorHubOpen}
+        onClose={() => setConnectorHubOpen(false)}
+        userData={userData}
+        onVaultAssetAdded={(newAsset, updatedVault) => {
+          setAssets((prev) => [
+            ...prev,
+            { ...newAsset, _localKey: `${newAsset.id}_${prev.length}` },
+          ]);
+          patchLocalData({ vault: updatedVault });
+        }}
+        addToast={addToast}
+      />
 
       {/* ── TOAST STACK ── */}
       {createPortal(

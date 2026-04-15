@@ -23,6 +23,7 @@ import {
   limit,
   getDocs,
   getCountFromServer,
+  documentId,
 } from "firebase/firestore";
 import { db } from "../firebase";
 import { useUserData, useOnboardingGate } from "../hooks/useUserData";
@@ -151,6 +152,49 @@ const useLearnPreview = (domain) => {
       .finally(() => setLoading(false));
   }, [domain]);
   return { items, loading };
+};
+
+const useAlliances = (allyIds) => {
+  const [allies, setAllies] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const prevIds = useRef("");
+
+  useEffect(() => {
+    const idsString = (allyIds || []).join(",");
+    if (!allyIds || !allyIds.length || idsString === prevIds.current) return;
+    prevIds.current = idsString;
+
+    const fetchAllies = async () => {
+      setLoading(true);
+      try {
+        const top20Ids = allyIds.slice(0, 20);
+        const chunks = [];
+        for (let i = 0; i < top20Ids.length; i += 10) {
+          chunks.push(top20Ids.slice(i, i + 10));
+        }
+        const results = [];
+        for (const chunk of chunks) {
+          const q = query(
+            collection(db, "users"),
+            where(documentId(), "in", chunk),
+          );
+          const snap = await getDocs(q);
+          snap.forEach((d) => results.push({ id: d.id, ...d.data() }));
+        }
+        results.sort(
+          (a, b) =>
+            (b.discotiveScore?.current || 0) - (a.discotiveScore?.current || 0),
+        );
+        setAllies(results);
+      } catch (e) {
+        console.error("[useAlliances] fetch failed:", e);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchAllies();
+  }, [allyIds]);
+  return { allies, loading };
 };
 
 const useTrackedRivals = (uid) => {
@@ -1483,6 +1527,94 @@ const RivalCard = memo(({ rival, userScore, idx }) => {
   );
 });
 
+/* ─── Alliance Card ──────────────────────────────────────────────────────── */
+const AllianceCard = memo(({ ally, idx }) => {
+  const score = ally.discotiveScore?.current || 0;
+  const name =
+    `${ally.identity?.firstName || ""} ${ally.identity?.lastName || ""}`.trim() ||
+    "Operator";
+  const username = ally.identity?.username || "—";
+  const avatarUrl =
+    ally.identity?.avatarUrl ||
+    `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=0A0A0A&color=8B5CF6`;
+
+  return (
+    <motion.div
+      {...FADE_UP(idx * 0.07)}
+      className="shrink-0 relative cursor-pointer group rounded-xl overflow-hidden"
+      style={{
+        width: 180,
+        height: 270,
+        background: V.depth,
+        scrollSnapAlign: "start",
+      }}
+      whileHover={{ scale: 1.02 }}
+      whileTap={{ scale: 0.98 }}
+    >
+      <div className="absolute inset-0 z-0">
+        <img
+          src={avatarUrl}
+          alt=""
+          className="w-full h-full object-cover opacity-[0.25] group-hover:opacity-10 transition-opacity duration-500"
+        />
+        <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent opacity-80 group-hover:opacity-100 transition-opacity duration-500" />
+        <div
+          className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none"
+          style={{
+            background: `linear-gradient(to top,rgba(139,92,246,0.15) 0%,transparent 100%)`,
+          }}
+        />
+      </div>
+
+      <div className="absolute top-4 left-4 z-20">
+        <div
+          className="flex items-center gap-1.5 px-2 py-0.5 rounded-full"
+          style={{
+            background: "rgba(139,92,246,0.15)",
+            border: "1px solid rgba(139,92,246,0.3)",
+            backdropFilter: "blur(4px)",
+          }}
+        >
+          <Users size={8} style={{ color: "#8b5cf6" }} />
+          <span
+            className="text-[7px] font-black uppercase tracking-wider"
+            style={{ color: "#8b5cf6" }}
+          >
+            Alliance
+          </span>
+        </div>
+      </div>
+
+      <div className="relative z-10 p-4 flex flex-col h-full justify-end opacity-0 group-hover:opacity-100 transition-all duration-500 translate-y-4 group-hover:translate-y-0">
+        <span
+          className="font-display font-black text-3xl leading-none mb-1"
+          style={{ color: G.bright, letterSpacing: "-0.04em" }}
+        >
+          {score.toLocaleString()}
+        </span>
+        <span
+          className="text-sm font-bold truncate leading-tight mb-0.5"
+          style={{ color: T.primary }}
+        >
+          {name}
+        </span>
+        <span
+          className="text-[9px] font-mono truncate mb-2"
+          style={{ color: T.dim }}
+        >
+          @{username}
+        </span>
+        <span
+          className="text-[10px] font-black font-mono mt-1"
+          style={{ color: "#8b5cf6" }}
+        >
+          {ally.identity?.domain || "General"}
+        </span>
+      </div>
+    </motion.div>
+  );
+});
+
 /* ─── Learn Video Card ───────────────────────────────────────────────────── */
 const LearnCard = memo(({ video, idx }) => {
   const thumb =
@@ -1938,6 +2070,7 @@ const MobileDashboard = ({
   domainPct,
   vaultAssets,
   rivals,
+  allies,
   learnItems,
   opps,
   telemetryEvents,
@@ -2342,6 +2475,89 @@ const MobileDashboard = ({
         )}
       </div>
 
+      {/* ── ALLIANCES (horizontal scroll) ── */}
+      <div className="mb-6">
+        <div className="flex items-center justify-between mb-3 px-4">
+          <div className="flex items-center gap-2">
+            <Users size={12} style={{ color: "#8b5cf6" }} />
+            <span
+              className="text-[9px] font-black uppercase tracking-widest"
+              style={{ color: T.dim }}
+            >
+              Alliances
+            </span>
+          </div>
+          <Link
+            to="/app/connective"
+            className="text-[9px] font-black uppercase tracking-widest flex items-center gap-1"
+            style={{ color: G.base }}
+          >
+            Network <ArrowUpRight size={9} />
+          </Link>
+        </div>
+        {allies.length === 0 ? (
+          <div
+            className="px-4 py-5 mx-4 rounded-xl border border-dashed text-center"
+            style={{
+              borderColor: "rgba(139,92,246,0.2)",
+              background: "rgba(139,92,246,0.04)",
+            }}
+          >
+            <Users
+              size={24}
+              style={{ color: "rgba(139,92,246,0.3)", margin: "0 auto 8px" }}
+            />
+            <p
+              className="text-xs font-black"
+              style={{ color: "rgba(139,92,246,0.5)" }}
+            >
+              No alliances forged.
+            </p>
+            <button
+              onClick={() => navigate("/app/connective")}
+              className="mt-3 text-[9px] font-black uppercase tracking-widest px-4 py-2 rounded-lg"
+              style={{
+                background: "rgba(139,92,246,0.1)",
+                color: "#8b5cf6",
+                border: "1px solid rgba(139,92,246,0.2)",
+              }}
+            >
+              Find Allies →
+            </button>
+          </div>
+        ) : (
+          <div
+            className="overflow-x-auto hide-scrollbar px-4"
+            style={{ WebkitOverflowScrolling: "touch" }}
+          >
+            <div
+              className="flex gap-3"
+              style={{ scrollSnapType: "x mandatory" }}
+            >
+              {allies.map((a, i) => (
+                <AllianceCard key={a.id} ally={a} idx={i} />
+              ))}
+              {(userData?.allies?.length || 0) > 20 && (
+                <div
+                  onClick={() => navigate("/app/connective")}
+                  className="shrink-0 flex items-center justify-center cursor-pointer group rounded-xl border border-dashed border-[#8b5cf6]/30 bg-[#8b5cf6]/5 hover:bg-[#8b5cf6]/10 transition-colors"
+                  style={{ width: 180, height: 270, scrollSnapAlign: "start" }}
+                >
+                  <div className="text-center">
+                    <div className="w-12 h-12 rounded-full border border-[#8b5cf6]/50 flex items-center justify-center mx-auto mb-3 group-hover:scale-110 transition-transform">
+                      <ArrowRight size={20} style={{ color: "#8b5cf6" }} />
+                    </div>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-[#8b5cf6]">
+                      See All {userData?.allies?.length || 0}
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* ── CONSISTENCY (horizontal scroll, 44px touch) ── */}
       <div className="px-4 mb-6">
         <ConsistencyMatrix userData={userData} horizontal={true} />
@@ -2592,7 +2808,17 @@ const Dashboard = () => {
   const { data: percentilesData } = usePercentiles(score, userData);
   const globalPct = percentilesData?.global ?? 100;
   const domainPct = percentilesData?.domain ?? 100;
-  const { rivals, loading: rivalsLoading } = useTrackedRivals(userData?.uid);
+  const { rivals: rawRivals, loading: rivalsLoading } = useTrackedRivals(
+    userData?.uid,
+  );
+  const { allies, loading: alliesLoading } = useAlliances(userData?.allies);
+
+  // Filter out allies from rivals just in case they bled over
+  const rivals = useMemo(() => {
+    const allyIds = new Set(userData?.allies || []);
+    return rawRivals.filter((r) => !allyIds.has(r.targetId));
+  }, [rawRivals, userData?.allies]);
+
   const { items: learnItems } = useLearnPreview(domain);
   const opps = useOpportunities(userData?.uid, domain);
   const scoreLogs = useScoreLog(userData?.uid);
@@ -2633,6 +2859,7 @@ const Dashboard = () => {
     domainPct,
     vaultAssets,
     rivals,
+    allies,
     learnItems,
     opps,
     telemetryEvents,
@@ -2825,6 +3052,57 @@ const Dashboard = () => {
                   {rivals.map((r, i) => (
                     <RivalCard key={r.id} rival={r} userScore={score} idx={i} />
                   ))}
+                </Swimlane>
+              </motion.section>
+
+              <div
+                style={{
+                  height: 1,
+                  background: "rgba(255,255,255,0.03)",
+                  marginBottom: 40,
+                }}
+              />
+
+              {/* Alliances */}
+              <motion.section
+                {...FADE_UP(0.18)}
+                className="pb-14 pl-8 md:pl-12"
+              >
+                <Swimlane
+                  label="Alliances"
+                  icon={Users}
+                  iconColor="#8b5cf6"
+                  cta="Network"
+                  ctaLink="/app/connective"
+                  isEmpty={allies.length === 0}
+                  emptyTitle="No alliances forged."
+                  emptySub="Connect with top operators in your domain to track their velocity and build your syndicate."
+                  emptyCtaLabel="Find Allies"
+                  emptyCtaLink="/app/connective"
+                >
+                  {allies.map((a, i) => (
+                    <AllianceCard key={a.id} ally={a} idx={i} />
+                  ))}
+                  {(userData?.allies?.length || 0) > 20 && (
+                    <div
+                      onClick={() => navigate("/app/connective")}
+                      className="shrink-0 flex items-center justify-center cursor-pointer group rounded-xl border border-dashed border-[#8b5cf6]/30 bg-[#8b5cf6]/5 hover:bg-[#8b5cf6]/10 transition-colors"
+                      style={{
+                        width: 180,
+                        height: 270,
+                        scrollSnapAlign: "start",
+                      }}
+                    >
+                      <div className="text-center">
+                        <div className="w-12 h-12 rounded-full border border-[#8b5cf6]/50 flex items-center justify-center mx-auto mb-3 group-hover:scale-110 transition-transform">
+                          <ArrowRight size={20} style={{ color: "#8b5cf6" }} />
+                        </div>
+                        <p className="text-[10px] font-black uppercase tracking-widest text-[#8b5cf6]">
+                          See All {userData?.allies?.length || 0}
+                        </p>
+                      </div>
+                    </div>
+                  )}
                 </Swimlane>
               </motion.section>
 

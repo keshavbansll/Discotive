@@ -1,4 +1,4 @@
-// firestore.rules — UPDATED for 3-collection onboarding architecture
+// firestore.rules — v2.0 — Vault + Connectors allowlisted
 // Deploy: firebase deploy --only firestore:rules  (run in project root)
 rules_version = '2';
 service cloud.firestore {
@@ -113,17 +113,14 @@ service cloud.firestore {
     }
 
     // =========================================================================
-    // 4. CORE USER AUTH LEDGER — Minimal: tier, onboarding_status, email
-    //    NOTE: onboarding_status: "pending" | "completed"
+    // 4. CORE USER AUTH LEDGER
     // =========================================================================
     match /users/{userId} {
-      allow read: if true; // Public for username availability + SEO
+      allow read: if true;
 
       allow create: if isOwner(userId)
-        // Zero-trust: no tier escalation, no pre-seeded scores
         && (!("tier" in request.resource.data) || request.resource.data.tier == "ESSENTIAL")
         && (!("discotiveScore" in request.resource.data) || request.resource.data.discotiveScore.current == 0)
-        // Onboarding status must be explicitly set
         && request.resource.data.onboarding_status in ["pending", "completed"];
 
       allow delete: if isOwner(userId);
@@ -136,11 +133,22 @@ service cloud.firestore {
                 'onboarding_status', 'onboardingComplete', 'isGhostUser',
                 'createdAt', 'onboardingScoreAwarded',
 
-                // Identity fields (writable during onboarding)
+                // Identity & profile fields
                 'identity', 'links', 'footprint', 'settings', 'professional',
                 'vision', 'skills', 'resources', 'wildcard', 'discotiveId',
                 'profileViews', 'pendingAppVerifications', 'profileCompleteness',
                 'deferredOnboarding', 'baseline',
+
+                // ─── VAULT ───────────────────────────────────────────────────
+                // Vault array: uploaded files, synced connector assets.
+                // Owner-writable. Admin can also write (for verification updates).
+                'vault', 'vault_count',
+
+                // ─── CONNECTORS ──────────────────────────────────────────────
+                // Third-party connector state (GitHub username, YouTube channel,
+                // Stripe key refs, etc.). Owner manages connection metadata.
+                // Token storage is handled via Cloud Functions only.
+                'connectors', 'connectedApps',
 
                 // Gamification & Consistency Engine
                 'discotiveScore', 'score_history', 'consistency_log',
@@ -148,25 +156,24 @@ service cloud.firestore {
                 'dailyAllianceSent', 'journal_ledger',
 
                 // UI States
-                'notifications', 'hasUnreadNotifications'
+                'notifications', 'hasUnreadNotifications',
+
+                // Allies (written by Cloud Functions for alliance logic)
+                'allies'
               ]))
         || isAdmin();
     }
 
     // =========================================================================
-    // 5. PUBLIC PROFILES — Visible even to unauthenticated (SEO)
-    //    Writes require: owner + onboarding completed
+    // 5. PUBLIC PROFILES
     // =========================================================================
     match /profiles/{userId} {
-      // Public read for SEO and public profile pages
       allow read: if true;
 
-      // Owner can create their profile (only after onboarding)
       allow create: if isOwner(userId)
         && get(/databases/$(database)/documents/users/$(userId))
             .data.onboarding_status == "completed";
 
-      // Owner can update their own profile
       allow update: if isOwner(userId)
         && get(/databases/$(database)/documents/users/$(userId))
             .data.onboarding_status == "completed"
@@ -183,19 +190,15 @@ service cloud.firestore {
     }
 
     // =========================================================================
-    // 6. USER METRICS — Score, rank, streaks — client writes via scoreEngine.js
-    //    Writes ONLY for allowed score fields. No tier escalation via metrics.
+    // 6. USER METRICS
     // =========================================================================
     match /user_metrics/{userId} {
-      // Owner can read. Admin can read all.
       allow read: if isOwner(userId) || isAdmin();
 
-      // Create: only owner, no pre-seeded artificially high scores
       allow create: if isOwner(userId)
         && (!("discotiveScore" in request.resource.data)
           || request.resource.data.discotiveScore.current == 0);
 
-      // Update: strictly allowlisted score-engine fields only
       allow update: if isOwner(userId)
         && request.resource.data.diff(resource.data).affectedKeys()
             .hasOnly([
@@ -269,12 +272,21 @@ service cloud.firestore {
     }
 
     // =========================================================================
-    // 12. VAULT
+    // 12. VAULT SUBCOLLECTION (legacy path — primary vault lives on users doc)
     // =========================================================================
     match /users/{userId}/vault/{assetId} {
       allow read: if (resource.data.isPublic == true)
         || isOwner(userId) || isAdmin();
       allow write: if isOwner(userId) || isAdmin();
+    }
+
+    // =========================================================================
+    // 13. VAULT REPORTS (admin-generated from VaultVerification)
+    // =========================================================================
+    match /vault_reports/{reportId} {
+      allow read: if isAdmin();
+      allow create: if isAdmin();
+      allow update, delete: if isAdmin();
     }
 
     // =========================================================================
@@ -291,7 +303,7 @@ service cloud.firestore {
         && request.resource.data.likedBy.size() == 0;
       allow update: if isAuthenticated()
         && request.resource.data.diff(resource.data).affectedKeys()
-            .hasOnly(['likedBy', 'likesCount', 'replyCount']);
+            .hasOnly(['likedBy', 'likesCount', 'replyCount', 'bounty']);
       allow delete: if isAdmin()
         || (isAuthenticated() && resource.data.authorId == request.auth.uid);
     }
@@ -382,7 +394,7 @@ service cloud.firestore {
     }
     match /bounty_escrow/{postId} {
       allow read: if isAuthenticated();
-      allow write: if false; // Strict: Cloud Functions Admin SDK only
+      allow write: if false;
     }
   }
 }

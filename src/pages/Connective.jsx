@@ -949,20 +949,42 @@ const Connective = () => {
       <div className="sticky top-0 z-50 bg-[rgba(3,3,3,0.92)] backdrop-blur-xl border-b border-[rgba(255,255,255,0.04)]">
         <div className="max-w-[1600px] mx-auto px-4 md:px-8">
           <div className="flex items-center justify-between h-14 md:h-16">
-            {" "}
             <div className="flex items-center gap-6">
-              {" "}
               <div className="flex items-center gap-2">
-                {" "}
-                <RadioTower className="w-5 h-5 text-[#BFA264]" />{" "}
+                <RadioTower className="w-5 h-5 text-[#BFA264]" />
                 <h1
                   className="text-base font-black tracking-tight text-[#F5F0E8] hidden sm:block uppercase"
                   style={{ fontFamily: "Montserrat, sans-serif" }}
                 >
-                  Connective /{" "}
-                  {activeTab === "network" ? "Network" : "Feed"}{" "}
-                </h1>{" "}
-              </div>{" "}
+                  Connective / {activeTab === "network" ? "Network" : "Feed"}
+                </h1>
+
+                {/* Mobile Tabs */}
+                <div className="flex sm:hidden items-center bg-[rgba(255,255,255,0.03)] border border-[rgba(255,255,255,0.06)] rounded-lg p-0.5 ml-1">
+                  <button
+                    onClick={() => handleTabChange("feed")}
+                    className={cn(
+                      "px-3 py-1 rounded-md text-[10px] font-black uppercase tracking-widest transition-all",
+                      activeTab === "feed"
+                        ? "bg-[rgba(191,162,100,0.15)] text-[#BFA264] shadow-[0_0_10px_rgba(191,162,100,0.1)]"
+                        : "text-[rgba(245,240,232,0.40)] hover:text-white",
+                    )}
+                  >
+                    Feed
+                  </button>
+                  <button
+                    onClick={() => handleTabChange("network")}
+                    className={cn(
+                      "px-3 py-1 rounded-md text-[10px] font-black uppercase tracking-widest transition-all",
+                      activeTab === "network"
+                        ? "bg-[rgba(191,162,100,0.15)] text-[#BFA264] shadow-[0_0_10px_rgba(191,162,100,0.1)]"
+                        : "text-[rgba(245,240,232,0.40)] hover:text-white",
+                    )}
+                  >
+                    Network
+                  </button>
+                </div>
+              </div>
             </div>
             <div className="flex items-center gap-3 md:gap-6">
               <div className="flex items-center gap-3 md:hidden">
@@ -1060,7 +1082,7 @@ const Connective = () => {
                         </p>
                         <button
                           onClick={() => handleTabChange("network")}
-                          className="text-[9px] font-black text-[#BFA264] hover:text-[#D4AF78] uppercase tracking-widest flex items-center gap-1"
+                          className="hidden md:flex text-[9px] font-black text-[#BFA264] hover:text-[#D4AF78] uppercase tracking-widest items-center gap-1"
                         >
                           See All <ChevronRight className="w-3 h-3" />
                         </button>

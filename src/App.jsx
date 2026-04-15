@@ -26,7 +26,7 @@ import ComingSoon from "./components/ComingSoon";
 const Auth = lazy(() => import("./pages/Auth"));
 const Dashboard = lazy(() => import("./pages/Dashboard"));
 const Leaderboard = lazy(() => import("./pages/Leaderboard"));
-const Vault = lazy(() => import("./pages/Vault"));
+const Vault = lazy(() => import("./pages/vault/Vault"));
 const Profile = lazy(() => import("./pages/Profile"));
 const EditProfile = lazy(() => import("./pages/EditProfile"));
 const Settings = lazy(() => import("./pages/Settings"));
