@@ -845,7 +845,6 @@ const PostCard = ({
 
   return (
     <motion.article
-      layout
       initial={{ opacity: 0, y: 12, scale: 0.98 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
       exit={{ opacity: 0, y: -8, scale: 0.98 }}
@@ -1234,7 +1233,7 @@ const VirtualizedFeedContainer = ({
   return (
     <div
       ref={parentRef}
-      className="overflow-y-auto custom-scrollbar pr-1 pb-12"
+      className="overflow-y-auto custom-scrollbar pr-1 pb-12 w-full"
       style={{ maxHeight: "calc(100vh - 200px)" }}
     >
       <div
@@ -1244,50 +1243,47 @@ const VirtualizedFeedContainer = ({
           position: "relative",
         }}
       >
-        <AnimatePresence mode="popLayout">
-          {virtualizer.getVirtualItems().map((vItem) => {
-            const isLoaderRow = vItem.index >= posts.length;
+        {virtualizer.getVirtualItems().map((vItem) => {
+          const isLoaderRow = vItem.index >= posts.length;
 
-            return (
-              <motion.div
-                key={isLoaderRow ? "loader" : posts[vItem.index].id}
-                data-index={vItem.index}
-                ref={virtualizer.measureElement}
-                layout
-                initial={{ opacity: 0, y: 20 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, scale: 0.95 }}
-                style={{
-                  position: "absolute",
-                  top: 0,
-                  left: 0,
-                  width: "100%",
-                  transform: `translateY(${vItem.start}px)`,
-                  paddingBottom: "16px", // Replaces space-y-4
-                }}
-              >
-                {isLoaderRow ? (
-                  <div className="flex justify-center py-6">
-                    <Loader2 className="w-6 h-6 animate-spin text-[rgba(191,162,100,0.4)]" />
-                  </div>
-                ) : (
-                  <PostCard
-                    isAdmin={isAdmin}
-                    post={posts[vItem.index]}
-                    uid={uid}
-                    userData={userData}
-                    onLike={onLike}
-                    onDelete={onDelete}
-                    onFetchComments={onFetchComments}
-                    onAddComment={onAddComment}
-                    onDeleteComment={onDeleteComment}
-                    onPeekOperator={onPeekOperator}
-                  />
-                )}
-              </motion.div>
-            );
-          })}
-        </AnimatePresence>
+          // Get the actual post ID if available
+          const postKey = isLoaderRow ? "loader" : posts[vItem.index]?.id;
+
+          return (
+            <div
+              key={postKey}
+              data-index={vItem.index}
+              ref={virtualizer.measureElement}
+              style={{
+                position: "absolute",
+                top: 0,
+                left: 0,
+                width: "100%",
+                transform: `translateY(${vItem.start}px)`,
+                paddingBottom: "16px", // Prevents overlapping margins
+              }}
+            >
+              {isLoaderRow ? (
+                <div className="flex justify-center py-6">
+                  <Loader2 className="w-6 h-6 animate-spin text-[rgba(191,162,100,0.4)]" />
+                </div>
+              ) : (
+                <PostCard
+                  isAdmin={isAdmin}
+                  post={posts[vItem.index]}
+                  uid={uid}
+                  userData={userData}
+                  onLike={onLike}
+                  onDelete={onDelete}
+                  onFetchComments={onFetchComments}
+                  onAddComment={onAddComment}
+                  onDeleteComment={onDeleteComment}
+                  onPeekOperator={onPeekOperator}
+                />
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
