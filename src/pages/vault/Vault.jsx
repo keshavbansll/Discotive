@@ -44,6 +44,7 @@ import { useAuth } from "../../contexts/AuthContext";
 import { useUserData } from "../../hooks/useUserData";
 import { cn } from "../../lib/cn";
 import { createPortal } from "react-dom";
+import { useNavigate } from "react-router-dom";
 import {
   Database,
   Upload,
@@ -305,71 +306,13 @@ const CONNECTORS = [
     key: "github",
     label: "GitHub",
     icon: Github,
-    color: "#e2e8f0",
     description: "Repos, PRs, Gists",
-  },
-  {
-    key: "figma",
-    label: "Figma",
-    icon: Figma,
-    color: "#a78bfa",
-    description: "Live prototypes",
   },
   {
     key: "youtube",
     label: "YouTube",
     icon: Youtube,
-    color: "#ef4444",
     description: "Videos & analytics",
-  },
-  {
-    key: "medium",
-    label: "Medium",
-    icon: FileText,
-    color: "#e2e8f0",
-    description: "Articles & drafts",
-  },
-  {
-    key: "spotify",
-    label: "Spotify",
-    icon: Music,
-    color: "#22c55e",
-    description: "Tracks & episodes",
-  },
-  {
-    key: "devpost",
-    label: "Devpost",
-    icon: Code2,
-    color: "#38bdf8",
-    description: "Hackathon wins",
-  },
-  {
-    key: "scholar",
-    label: "Scholar",
-    icon: BookOpen,
-    color: "#fbbf24",
-    description: "Papers & citations",
-  },
-  {
-    key: "stripe",
-    label: "Stripe",
-    icon: BarChart2,
-    color: "#7c3aed",
-    description: "MRR & volume",
-  },
-  {
-    key: "pitch",
-    label: "Pitch",
-    icon: Layers,
-    color: "#f97316",
-    description: "Decks & proposals",
-  },
-  {
-    key: "spline",
-    label: "Spline",
-    icon: Box,
-    color: "#06b6d4",
-    description: "3D / WebGL models",
   },
 ];
 
@@ -699,21 +642,40 @@ const TriStateToggle = memo(({ value, onChange }) => {
 // ─── Connector Card ───────────────────────────────────────────────────────────
 const ConnectorCard = memo(({ connector, connected, onClick }) => {
   const Icon = connector.icon;
+
+  let bg = V.surface;
+  let border = "rgba(255,255,255,0.05)";
+  let iconColor = T.dim;
+  let textColor = T.dim;
+
+  if (connector.key === "github") {
+    bg = "#000000";
+    border = "1px solid rgba(255,255,255,0.15)";
+    iconColor = "#FFFFFF";
+    textColor = "#FFFFFF";
+  } else if (connector.key === "youtube") {
+    if (connected) {
+      bg = "#ef4444";
+      border = "1px solid #ef4444";
+      iconColor = "#FFFFFF";
+      textColor = "#FFFFFF";
+    } else {
+      bg = V.surface;
+      border = "1px solid rgba(255,255,255,0.1)";
+      iconColor = "rgba(255,255,255,0.4)";
+      textColor = "rgba(255,255,255,0.4)";
+    }
+  }
+
   return (
     <motion.button
       whileHover={{ scale: 1.02 }}
       whileTap={{ scale: 0.97 }}
       onClick={onClick}
-      className="relative flex flex-col items-center gap-2 p-3 rounded-2xl border transition-all text-center group overflow-hidden"
-      style={{
-        background: connected ? `${connector.color}0A` : V.surface,
-        borderColor: connected
-          ? `${connector.color}35`
-          : "rgba(255,255,255,0.05)",
-        minWidth: 72,
-      }}
+      className="relative flex flex-col items-center gap-2 p-3 rounded-2xl transition-all text-center group overflow-hidden"
+      style={{ background: bg, border: border, minWidth: 72 }}
     >
-      {connected && (
+      {connected && connector.key !== "youtube" && (
         <div
           className="absolute top-1.5 right-1.5 w-3 h-3 rounded-full flex items-center justify-center"
           style={{ background: "#10b981" }}
@@ -721,13 +683,24 @@ const ConnectorCard = memo(({ connector, connected, onClick }) => {
           <Check className="w-2 h-2 text-white" />
         </div>
       )}
+      {connected && connector.key === "youtube" && (
+        <div
+          className="absolute top-1.5 right-1.5 w-3 h-3 rounded-full flex items-center justify-center"
+          style={{ background: "#FFFFFF" }}
+        >
+          <Check className="w-2 h-2 text-[#ef4444]" />
+        </div>
+      )}
       <Icon
         className="w-5 h-5"
-        style={{ color: connected ? connector.color : T.dim }}
+        style={{
+          color: iconColor,
+          fill: connector.key === "github" ? "#FFFFFF" : "transparent",
+        }}
       />
       <span
         className="text-[8px] font-bold uppercase tracking-widest leading-tight"
-        style={{ color: connected ? connector.color : T.dim }}
+        style={{ color: textColor }}
       >
         {connector.label}
       </span>
@@ -2136,8 +2109,8 @@ const Vault = () => {
   const [selectedAsset, setSelectedAsset] = useState(null);
   const [uploadOpen, setUploadOpen] = useState(false);
   const [shareTarget, setShareTarget] = useState(null);
-  const [connectorHubOpen, setConnectorHubOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(true);
+  const navigate = useNavigate();
 
   // ── Load vault from Firestore ──────────────────────────────────────────────
   useEffect(() => {
@@ -2535,7 +2508,7 @@ const Vault = () => {
               <motion.button
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.97 }}
-                onClick={() => setConnectorHubOpen(true)}
+                onClick={() => navigate("/app/vault/connectors/github")}
                 className="flex items-center gap-2 px-4 py-2.5 rounded-xl font-black text-[10px] uppercase tracking-widest transition-all"
                 style={{
                   background: V.surface,
@@ -2662,7 +2635,9 @@ const Vault = () => {
                       connectedApps={Object.keys(
                         userData?.connectors || {},
                       ).filter((k) => userData?.connectors?.[k])}
-                      onConnect={() => setConnectorHubOpen(true)}
+                      onConnect={(connector) =>
+                        navigate(`/app/vault/connectors/${connector.key}`)
+                      }
                     />
                   </div>
                 </div>
@@ -2910,21 +2885,6 @@ const Vault = () => {
           />
         )}
       </AnimatePresence>
-
-      {/* ── CONNECTOR HUB ── */}
-      <ConnectorHub
-        isOpen={connectorHubOpen}
-        onClose={() => setConnectorHubOpen(false)}
-        userData={userData}
-        onVaultAssetAdded={(newAsset, updatedVault) => {
-          setAssets((prev) => [
-            ...prev,
-            { ...newAsset, _localKey: `${newAsset.id}_${prev.length}` },
-          ]);
-          patchLocalData({ vault: updatedVault });
-        }}
-        addToast={addToast}
-      />
 
       {/* ── TOAST STACK ── */}
       {createPortal(

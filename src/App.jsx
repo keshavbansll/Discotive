@@ -27,6 +27,9 @@ const Auth = lazy(() => import("./pages/Auth"));
 const Dashboard = lazy(() => import("./pages/Dashboard"));
 const Leaderboard = lazy(() => import("./pages/Leaderboard"));
 const Vault = lazy(() => import("./pages/vault/Vault"));
+const ConnectorHub = lazy(
+  () => import("./pages/vault/connectors/ConnectorHub"),
+);
 const Profile = lazy(() => import("./pages/Profile"));
 const EditProfile = lazy(() => import("./pages/EditProfile"));
 const Settings = lazy(() => import("./pages/Settings"));
@@ -283,6 +286,10 @@ function App() {
                 />
                 <Route path="opportunities" element={<Opportunities />} />
                 <Route path="vault" element={<Vault />} />
+                <Route
+                  path="vault/connectors/:connectorId"
+                  element={<ConnectorHub />}
+                />
                 <Route path="hubs" element={<ComingSoon title="Hubs" />} />
                 {/* PROFILE ROUTES */}
                 <Route path="profile" element={<Profile />} />

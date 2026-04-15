@@ -110,11 +110,6 @@ const HeroCarousel = memo(({ videos, onDelete }) => {
     return () => clearInterval(t);
   }, [videos.length, playing]);
 
-  // Reset player when switching slides
-  useEffect(() => {
-    setPlaying(false);
-  }, [activeIdx]);
-
   if (!videos.length) return null;
   const active = videos[activeIdx];
   const ytId = active?.ytId;
@@ -122,10 +117,12 @@ const HeroCarousel = memo(({ videos, onDelete }) => {
   const prev = (e) => {
     e.stopPropagation();
     setActiveIdx((p) => (p - 1 + videos.length) % videos.length);
+    setPlaying(false);
   };
   const next = (e) => {
     e.stopPropagation();
     setActiveIdx((p) => (p + 1) % videos.length);
+    setPlaying(false);
   };
 
   const strengthStyle = {
@@ -314,7 +311,10 @@ const HeroCarousel = memo(({ videos, onDelete }) => {
           {videos.map((_, i) => (
             <button
               key={i}
-              onClick={() => setActiveIdx(i)}
+              onClick={() => {
+                setActiveIdx(i);
+                setPlaying(false);
+              }}
               className="rounded-full transition-all"
               style={{
                 width: i === activeIdx ? 20 : 6,
@@ -1320,22 +1320,5 @@ const YouTubeConnector = ({ userData, onVaultAssetAdded, addToast }) => {
     </motion.div>
   );
 };
-
-// Missing import used in pending state
-const Clock = ({ className, style }) => (
-  <svg
-    className={className}
-    style={style}
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth={2}
-    strokeLinecap="round"
-    strokeLinejoin="round"
-  >
-    <circle cx="12" cy="12" r="10" />
-    <polyline points="12 6 12 12 16 14" />
-  </svg>
-);
 
 export default YouTubeConnector;

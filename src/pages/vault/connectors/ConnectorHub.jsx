@@ -19,7 +19,8 @@ import React, {
   useMemo,
 } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { createPortal } from "react-dom";
+import { useParams, useNavigate } from "react-router-dom";
+import { useUserData } from "../../../hooks/useUserData";
 import {
   Github,
   Youtube,
@@ -70,93 +71,17 @@ const CONNECTOR_REGISTRY = [
     key: "github",
     label: "GitHub",
     icon: Github,
-    color: "#e2e8f0",
+    color: "#FFFFFF",
     description: "Repos, commit activity, code stats",
-    status: "live",
     component: "GitHubConnector",
-    connectionPath: "username",
   },
   {
     key: "youtube",
     label: "YouTube",
     icon: Youtube,
-    color: "#ef4444",
+    color: "#FFFFFF",
     description: "Creator hub, video portfolio",
-    status: "live",
     component: "YouTubeConnector",
-    connectionPath: "channelUrl",
-  },
-  {
-    key: "figma",
-    label: "Figma",
-    icon: Figma,
-    color: "#a78bfa",
-    description: "Design files, prototypes",
-    status: "soon",
-    eta: "Q3 2025",
-  },
-  {
-    key: "medium",
-    label: "Medium",
-    icon: FileText,
-    color: "#e2e8f0",
-    description: "Articles, publications",
-    status: "soon",
-    eta: "Q3 2025",
-  },
-  {
-    key: "spotify",
-    label: "Spotify",
-    icon: Music,
-    color: "#22c55e",
-    description: "Podcasts, tracks, playlists",
-    status: "soon",
-    eta: "Q3 2025",
-  },
-  {
-    key: "devpost",
-    label: "Devpost",
-    icon: Code2,
-    color: "#38bdf8",
-    description: "Hackathon wins, projects",
-    status: "soon",
-    eta: "Q4 2025",
-  },
-  {
-    key: "scholar",
-    label: "Scholar",
-    icon: BookOpen,
-    color: "#fbbf24",
-    description: "Papers, citations, h-index",
-    status: "soon",
-    eta: "Q4 2025",
-  },
-  {
-    key: "stripe",
-    label: "Stripe",
-    icon: BarChart2,
-    color: "#7c3aed",
-    description: "MRR, revenue, transactions",
-    status: "soon",
-    eta: "Q4 2025",
-  },
-  {
-    key: "pitch",
-    label: "Pitch",
-    icon: Layers,
-    color: "#f97316",
-    description: "Decks, investor proposals",
-    status: "soon",
-    eta: "2026",
-  },
-  {
-    key: "spline",
-    label: "Spline",
-    icon: Box,
-    color: "#06b6d4",
-    description: "3D scenes, WebGL models",
-    status: "soon",
-    eta: "2026",
   },
 ];
 
@@ -267,23 +192,34 @@ const ComingSoonContent = memo(({ connector }) => {
 const SidebarItem = memo(
   ({ connector, isActive, isConnected, isPending, onClick }) => {
     const Icon = connector.icon;
-    const isSoon = connector.status === "soon";
+
+    let btnBg = isActive ? "rgba(255,255,255,0.05)" : "transparent";
+    let btnBorder = isActive
+      ? "1px solid rgba(255,255,255,0.06)"
+      : "1px solid transparent";
+    let iconBlockBg = "transparent";
+    let iconColor = "rgba(255,255,255,0.2)";
+
+    if (connector.key === "github") {
+      iconBlockBg = "#000000";
+      iconColor = "#FFFFFF";
+    } else if (connector.key === "youtube") {
+      if (isConnected) {
+        iconBlockBg = "#ef4444";
+        iconColor = "#FFFFFF";
+      } else {
+        iconBlockBg = "transparent";
+        iconColor = "rgba(255,255,255,0.4)";
+      }
+    }
 
     return (
       <motion.button
         onClick={onClick}
-        whileHover={!isSoon ? { x: 2 } : {}}
+        whileHover={{ x: 2 }}
         className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-left transition-all relative"
-        style={{
-          background: isActive ? "rgba(255,255,255,0.05)" : "transparent",
-          border: isActive
-            ? "1px solid rgba(255,255,255,0.06)"
-            : "1px solid transparent",
-          opacity: isSoon ? 0.55 : 1,
-          cursor: isSoon ? "default" : "pointer",
-        }}
+        style={{ background: btnBg, border: btnBorder, cursor: "pointer" }}
       >
-        {/* Status dot */}
         <div
           className="w-1.5 h-1.5 rounded-full shrink-0"
           style={{
@@ -291,30 +227,26 @@ const SidebarItem = memo(
               ? isPending
                 ? "#f59e0b"
                 : "#10b981"
-              : isSoon
-                ? "rgba(255,255,255,0.15)"
-                : "rgba(255,255,255,0.2)",
+              : "rgba(255,255,255,0.2)",
           }}
         />
-
-        {/* Dynamic App Block Icon */}
         <div
           className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0 transition-all"
           style={{
-            background: isConnected ? "#050505" : "transparent",
+            background: iconBlockBg,
             border: isConnected
               ? "1px solid rgba(255,255,255,0.15)"
-              : "1px solid transparent",
+              : "1px solid rgba(255,255,255,0.1)",
           }}
         >
           <Icon
             className="w-4 h-4 shrink-0 transition-colors"
             style={{
-              color: isConnected ? connector.color : "rgba(255,255,255,0.2)",
+              color: iconColor,
+              fill: connector.key === "github" ? "#FFFFFF" : "transparent",
             }}
           />
         </div>
-
         <div className="flex-1 min-w-0">
           <p
             className="text-[11px] font-bold truncate"
@@ -332,14 +264,8 @@ const SidebarItem = memo(
               Pending Verification
             </p>
           )}
-          {isSoon && (
-            <p className="text-[8px]" style={{ color: T.dim }}>
-              {connector.eta}
-            </p>
-          )}
         </div>
-
-        {isActive && !isSoon && (
+        {isActive && (
           <ChevronRight className="w-3 h-3 shrink-0" style={{ color: T.dim }} />
         )}
       </motion.button>
@@ -348,21 +274,32 @@ const SidebarItem = memo(
 );
 
 // ─── MAIN CONNECTOR HUB ───────────────────────────────────────────────────────
-const ConnectorHub = ({
-  isOpen,
-  onClose,
-  userData,
-  onVaultAssetAdded,
-  addToast,
-}) => {
-  const [activeKey, setActiveKey] = useState("github");
+const ConnectorHub = () => {
+  const { connectorId } = useParams();
+  const navigate = useNavigate();
+  const { userData, patchLocalData } = useUserData();
+
+  const activeKey = connectorId || "github";
+
+  const addToast = useCallback((msg, type) => {
+    // Optional: Sync this with your global Toast context if applicable
+    console.log(`[Toast ${type}]: ${msg}`);
+  }, []);
+
+  const onVaultAssetAdded = useCallback(
+    (newAsset, updatedVault) => {
+      patchLocalData({ vault: updatedVault });
+    },
+    [patchLocalData],
+  );
 
   const activeConnector = useMemo(
-    () => CONNECTOR_REGISTRY.find((c) => c.key === activeKey),
+    () =>
+      CONNECTOR_REGISTRY.find((c) => c.key === activeKey) ||
+      CONNECTOR_REGISTRY[0],
     [activeKey],
   );
 
-  // Derive connected state for each connector from userData
   const connectorStates = useMemo(() => {
     const states = {};
     CONNECTOR_REGISTRY.forEach((c) => {
@@ -376,7 +313,7 @@ const ConnectorHub = ({
       };
     });
     return states;
-  }, [userData]); // Corrected dependency array to satisfy React Compiler constraints
+  }, [userData]);
 
   const connectedCount = useMemo(
     () => Object.values(connectorStates).filter((s) => s.connected).length,
@@ -385,12 +322,8 @@ const ConnectorHub = ({
 
   const renderConnectorContent = useCallback(() => {
     if (!activeConnector) return null;
-    if (activeConnector.status === "soon")
-      return <ComingSoonContent connector={activeConnector} />;
-
     const sharedProps = { userData, onVaultAssetAdded, addToast };
-
-    switch (activeKey) {
+    switch (activeConnector.key) {
       case "github":
         return (
           <Suspense fallback={<ConnectorLoader />}>
@@ -404,249 +337,212 @@ const ConnectorHub = ({
           </Suspense>
         );
       default:
-        return <ComingSoonContent connector={activeConnector} />;
+        return null;
     }
-  }, [activeKey, activeConnector, userData, onVaultAssetAdded, addToast]);
+  }, [activeConnector, userData, onVaultAssetAdded, addToast]);
 
-  if (!isOpen) return null;
+  return (
+    <div className="w-full min-h-[85vh] flex items-center justify-center py-6 px-4 md:px-8">
+      <motion.div
+        initial={{ opacity: 0, scale: 0.97, y: 20 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        className="relative z-10 w-full max-w-6xl h-[85vh] flex overflow-hidden rounded-[2rem]"
+        style={{
+          background: V.bg,
+          border: "1px solid rgba(255,255,255,0.06)",
+          boxShadow: "0 40px 120px rgba(0,0,0,0.9)",
+        }}
+      >
+        <div className="absolute inset-0 pointer-events-none overflow-hidden rounded-[2rem]">
+          {activeConnector && (
+            <motion.div
+              key={activeConnector.key}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute top-0 left-1/4 w-[600px] h-[300px] rounded-full blur-[120px]"
+              style={{ background: `rgba(255,255,255,0.03)` }}
+            />
+          )}
+        </div>
 
-  return createPortal(
-    <AnimatePresence>
-      {isOpen && (
-        <>
-          {/* Backdrop */}
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            onClick={onClose}
-            className="fixed inset-0 z-[500]"
-            style={{
-              background: "rgba(0,0,0,0.85)",
-              backdropFilter: "blur(12px)",
-            }}
-          />
-
-          {/* Panel */}
-          <motion.div
-            initial={{ opacity: 0, scale: 0.97, y: 20 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.97, y: 20 }}
-            transition={{ type: "spring", damping: 30, stiffness: 350 }}
-            className="fixed inset-4 md:inset-8 z-[501] flex overflow-hidden rounded-[2rem]"
-            style={{
-              background: V.bg,
-              border: "1px solid rgba(255,255,255,0.06)",
-              boxShadow: "0 40px 120px rgba(0,0,0,0.9)",
-            }}
-            onClick={(e) => e.stopPropagation()}
+        {/* ── LEFT SIDEBAR ── */}
+        <div
+          className="relative z-10 w-60 shrink-0 flex flex-col overflow-y-auto"
+          style={{
+            borderRight: "1px solid rgba(255,255,255,0.05)",
+            background: "rgba(10,10,10,0.5)",
+          }}
+        >
+          <div
+            className="flex items-center justify-between px-4 py-4 shrink-0"
+            style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}
           >
-            {/* Ambient glow */}
-            <div className="absolute inset-0 pointer-events-none overflow-hidden rounded-[2rem]">
-              {activeConnector && (
-                <motion.div
-                  key={activeKey}
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  className="absolute top-0 left-1/4 w-[600px] h-[300px] rounded-full blur-[120px]"
-                  style={{ background: `${activeConnector.color}05` }}
-                />
-              )}
+            <div>
+              <p
+                className="text-xs font-black"
+                style={{
+                  color: T.primary,
+                  fontFamily: "'Montserrat', sans-serif",
+                }}
+              >
+                Connectors
+              </p>
+              <p className="text-[9px]" style={{ color: T.dim }}>
+                {connectedCount} connected
+              </p>
             </div>
+            <button
+              onClick={() => navigate("/app/vault")}
+              className="w-7 h-7 rounded-full flex items-center justify-center transition-all hover:bg-white/10"
+              style={{ background: "rgba(255,255,255,0.04)" }}
+            >
+              <X className="w-3.5 h-3.5" style={{ color: T.dim }} />
+            </button>
+          </div>
 
-            {/* ── LEFT SIDEBAR ── */}
+          <div className="px-3 pt-4 pb-2">
+            {CONNECTOR_REGISTRY.map((c) => (
+              <SidebarItem
+                key={c.key}
+                connector={c}
+                isActive={activeKey === c.key}
+                isConnected={connectorStates[c.key]?.connected}
+                isPending={connectorStates[c.key]?.pending}
+                onClick={() => navigate(`/app/vault/connectors/${c.key}`)}
+              />
+            ))}
+          </div>
+
+          <div className="mt-auto px-3 pb-4">
             <div
-              className="relative z-10 w-60 shrink-0 flex flex-col overflow-y-auto"
+              className="p-3 rounded-xl"
               style={{
-                borderRight: "1px solid rgba(255,255,255,0.05)",
-                background: "rgba(10,10,10,0.5)",
+                background: G.dimBg,
+                border: `1px solid ${G.border}`,
               }}
             >
-              {/* Header */}
+              <div className="flex items-center gap-2 mb-1">
+                <Zap className="w-3 h-3" style={{ color: G.bright }} />
+                <span
+                  className="text-[9px] font-black uppercase tracking-widest"
+                  style={{ color: G.bright }}
+                >
+                  Pro Perk
+                </span>
+              </div>
+              <p className="text-[9px]" style={{ color: T.dim }}>
+                Pro users get priority verification for synced connector assets.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* ── RIGHT CONTENT ── */}
+        <div className="flex-1 flex flex-col overflow-hidden relative z-10">
+          {activeConnector && (
+            <div
+              className="flex items-center gap-3 px-6 py-4 shrink-0"
+              style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}
+            >
               <div
-                className="flex items-center justify-between px-4 py-4 shrink-0"
-                style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}
+                className="w-8 h-8 rounded-lg flex items-center justify-center"
+                style={{
+                  background:
+                    activeConnector.key === "github"
+                      ? "#000000"
+                      : connectorStates[activeConnector.key]?.connected
+                        ? "#ef4444"
+                        : "transparent",
+                  border:
+                    activeConnector.key === "github"
+                      ? "1px solid rgba(255,255,255,0.15)"
+                      : connectorStates[activeConnector.key]?.connected
+                        ? "none"
+                        : "1px solid rgba(255,255,255,0.1)",
+                }}
               >
-                <div>
-                  <p
-                    className="text-xs font-black"
+                {React.createElement(activeConnector.icon, {
+                  className: "w-4 h-4",
+                  style: {
+                    color:
+                      activeConnector.key === "github"
+                        ? "#FFFFFF"
+                        : connectorStates[activeConnector.key]?.connected
+                          ? "#FFFFFF"
+                          : "rgba(255,255,255,0.4)",
+                    fill:
+                      activeConnector.key === "github"
+                        ? "#FFFFFF"
+                        : "transparent",
+                  },
+                })}
+              </div>
+              <div>
+                <p className="text-sm font-black" style={{ color: T.primary }}>
+                  {activeConnector.label}
+                </p>
+                <p className="text-[10px]" style={{ color: T.dim }}>
+                  {activeConnector.description}
+                </p>
+              </div>
+
+              {connectorStates[activeKey]?.connected && (
+                <div
+                  className="ml-auto flex items-center gap-1.5 px-2.5 py-1 rounded-full"
+                  style={
+                    connectorStates[activeKey]?.pending
+                      ? {
+                          background: "rgba(245,158,11,0.1)",
+                          border: "1px solid rgba(245,158,11,0.25)",
+                        }
+                      : {
+                          background: "rgba(16,185,129,0.1)",
+                          border: "1px solid rgba(16,185,129,0.25)",
+                        }
+                  }
+                >
+                  <div
+                    className="w-1.5 h-1.5 rounded-full animate-pulse"
                     style={{
-                      color: T.primary,
-                      fontFamily: "'Montserrat', sans-serif",
+                      background: connectorStates[activeKey]?.pending
+                        ? "#f59e0b"
+                        : "#10b981",
+                    }}
+                  />
+                  <span
+                    className="text-[9px] font-black uppercase tracking-widest"
+                    style={{
+                      color: connectorStates[activeKey]?.pending
+                        ? "#f59e0b"
+                        : "#10b981",
                     }}
                   >
-                    Connectors
-                  </p>
-                  <p className="text-[9px]" style={{ color: T.dim }}>
-                    {connectedCount} connected
-                  </p>
-                </div>
-                <button
-                  onClick={onClose}
-                  className="w-7 h-7 rounded-full flex items-center justify-center transition-all hover:bg-white/10"
-                  style={{ background: "rgba(255,255,255,0.04)" }}
-                  aria-label="Close connectors"
-                >
-                  <X className="w-3.5 h-3.5" style={{ color: T.dim }} />
-                </button>
-              </div>
-
-              {/* Live section */}
-              <div className="px-3 pt-4 pb-2">
-                <p
-                  className="text-[8px] font-black uppercase tracking-widest px-2 mb-2"
-                  style={{ color: "rgba(16,185,129,0.6)" }}
-                >
-                  ● Live
-                </p>
-                {CONNECTOR_REGISTRY.filter((c) => c.status === "live").map(
-                  (c) => (
-                    <SidebarItem
-                      key={c.key}
-                      connector={c}
-                      isActive={activeKey === c.key}
-                      isConnected={connectorStates[c.key]?.connected}
-                      isPending={connectorStates[c.key]?.pending}
-                      onClick={() => setActiveKey(c.key)}
-                    />
-                  ),
-                )}
-              </div>
-
-              {/* Coming soon section */}
-              <div className="px-3 pt-2 pb-4">
-                <p
-                  className="text-[8px] font-black uppercase tracking-widest px-2 mb-2"
-                  style={{ color: "rgba(245,158,11,0.5)" }}
-                >
-                  ◑ Coming Soon
-                </p>
-                {CONNECTOR_REGISTRY.filter((c) => c.status === "soon").map(
-                  (c) => (
-                    <SidebarItem
-                      key={c.key}
-                      connector={c}
-                      isActive={activeKey === c.key}
-                      isConnected={false}
-                      isPending={false}
-                      onClick={() => setActiveKey(c.key)}
-                    />
-                  ),
-                )}
-              </div>
-
-              {/* Pro note */}
-              <div className="mt-auto px-3 pb-4">
-                <div
-                  className="p-3 rounded-xl"
-                  style={{
-                    background: G.dimBg,
-                    border: `1px solid ${G.border}`,
-                  }}
-                >
-                  <div className="flex items-center gap-2 mb-1">
-                    <Zap className="w-3 h-3" style={{ color: G.bright }} />
-                    <span
-                      className="text-[9px] font-black uppercase tracking-widest"
-                      style={{ color: G.bright }}
-                    >
-                      Pro Perk
-                    </span>
-                  </div>
-                  <p className="text-[9px]" style={{ color: T.dim }}>
-                    Pro users get priority verification for synced connector
-                    assets.
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {/* ── RIGHT CONTENT ── */}
-            <div className="flex-1 flex flex-col overflow-hidden relative z-10">
-              {/* Content Header */}
-              {activeConnector && (
-                <div
-                  className="flex items-center gap-3 px-6 py-4 shrink-0"
-                  style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}
-                >
-                  {React.createElement(activeConnector.icon, {
-                    className: "w-5 h-5",
-                    style: { color: activeConnector.color },
-                  })}
-                  <div>
-                    <p
-                      className="text-sm font-black"
-                      style={{ color: T.primary }}
-                    >
-                      {activeConnector.label}
-                    </p>
-                    <p className="text-[10px]" style={{ color: T.dim }}>
-                      {activeConnector.description}
-                    </p>
-                  </div>
-
-                  {/* Connection status badge */}
-                  {connectorStates[activeKey]?.connected && (
-                    <div
-                      className="ml-auto flex items-center gap-1.5 px-2.5 py-1 rounded-full"
-                      style={
-                        connectorStates[activeKey]?.pending
-                          ? {
-                              background: "rgba(245,158,11,0.1)",
-                              border: "1px solid rgba(245,158,11,0.25)",
-                            }
-                          : {
-                              background: "rgba(16,185,129,0.1)",
-                              border: "1px solid rgba(16,185,129,0.25)",
-                            }
-                      }
-                    >
-                      <div
-                        className="w-1.5 h-1.5 rounded-full animate-pulse"
-                        style={{
-                          background: connectorStates[activeKey]?.pending
-                            ? "#f59e0b"
-                            : "#10b981",
-                        }}
-                      />
-                      <span
-                        className="text-[9px] font-black uppercase tracking-widest"
-                        style={{
-                          color: connectorStates[activeKey]?.pending
-                            ? "#f59e0b"
-                            : "#10b981",
-                        }}
-                      >
-                        {connectorStates[activeKey]?.pending
-                          ? "Pending Verification"
-                          : "Connected"}
-                      </span>
-                    </div>
-                  )}
+                    {connectorStates[activeKey]?.pending
+                      ? "Pending Verification"
+                      : "Connected"}
+                  </span>
                 </div>
               )}
-
-              {/* Scrollable content */}
-              <div className="flex-1 overflow-y-auto custom-scrollbar px-6 py-5">
-                <AnimatePresence mode="wait">
-                  <motion.div
-                    key={activeKey}
-                    initial={{ opacity: 0, x: 10 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    exit={{ opacity: 0, x: -10 }}
-                    transition={{ duration: 0.2 }}
-                  >
-                    {renderConnectorContent()}
-                  </motion.div>
-                </AnimatePresence>
-              </div>
             </div>
-          </motion.div>
-        </>
-      )}
-    </AnimatePresence>,
-    document.body,
+          )}
+
+          <div className="flex-1 overflow-y-auto custom-scrollbar px-6 py-5">
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={activeKey}
+                initial={{ opacity: 0, x: 10 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: -10 }}
+                transition={{ duration: 0.2 }}
+              >
+                {renderConnectorContent()}
+              </motion.div>
+            </AnimatePresence>
+          </div>
+        </div>
+      </motion.div>
+    </div>
   );
 };
 

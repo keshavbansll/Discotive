@@ -366,7 +366,7 @@ service cloud.firestore {
         && request.resource.data.participantIds.size() == 2;
       allow update: if isAuthenticated()
         && resource.data.participantIds.hasAny([request.auth.uid])
-        && request.resource.data.diff(resource.data)
+        && request.resource.data.diff(resource.data,)
             .affectedKeys().hasOnly([
               'lastMessage', 'lastMessageAt', 'lastSenderId',
               'unreadCounts', 'updatedAt'
