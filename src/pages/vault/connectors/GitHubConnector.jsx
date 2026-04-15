@@ -43,8 +43,9 @@ import {
   Zap,
 } from "lucide-react";
 import { doc, updateDoc, arrayUnion } from "firebase/firestore";
-import { db } from "../../../firebase";
+import { db, auth } from "../../../firebase";
 import { useAuth } from "../../../contexts/AuthContext";
+import { GithubAuthProvider, linkWithPopup } from "firebase/auth";
 
 // ─── Design Tokens ────────────────────────────────────────────────────────────
 const G = {
@@ -464,15 +465,16 @@ const GitHubConnector = ({ userData, onVaultAssetAdded, addToast }) => {
   const [activeTab, setActiveTab] = useState("overview");
   const [rateLimitReset, setRateLimitReset] = useState(null);
 
-  // ── Restore persisted state on mount ──────────────────────────────────────
+  // ── Restore persisted state ───────────────────────────────────────────────
   useEffect(() => {
-    const existing = userData?.connectors?.github;
-    if (existing?.username) {
-      setInputUsername(existing.username);
+    const existingUsername = userData?.connectors?.github?.username;
+    if (existingUsername && phase === "idle") {
       setPhase("fetching");
-      fetchGitHubData(existing.username);
+      fetchGitHubData(existingUsername);
     }
-    // Restore already-synced repos from vault
+  }, [userData?.connectors?.github?.username]); // Reacts immediately when user data becomes available
+
+  useEffect(() => {
     if (userData?.vault?.length) {
       const synced = new Set(
         userData.vault
@@ -481,20 +483,23 @@ const GitHubConnector = ({ userData, onVaultAssetAdded, addToast }) => {
       );
       setSyncedRepos(synced);
     }
-  }, []); // Run once on mount only
+  }, [userData?.vault]);
 
   // ── GitHub API Fetch ──────────────────────────────────────────────────────
   const fetchGitHubData = useCallback(
-    async (username) => {
+    async (username, token = null) => {
       setLoading(true);
       setError(null);
 
       try {
         const headers = {
           Accept: "application/vnd.github.v3+json",
-          // NOTE: No Authorization header — public API only. 60 req/hr unauthenticated.
-          // For production scale, set a GITHUB_TOKEN secret in Vercel env and proxy through a Cloud Function.
         };
+
+        // Use OAuth token if provided to bump rate limit to 5000/hr
+        if (token) {
+          headers.Authorization = `token ${token}`;
+        }
 
         const [userRes, reposRes, eventsRes] = await Promise.all([
           fetch(`https://api.github.com/users/${username}`, { headers }),
@@ -621,15 +626,58 @@ const GitHubConnector = ({ userData, onVaultAssetAdded, addToast }) => {
 
   // ── Connect handler ───────────────────────────────────────────────────────
   const handleConnect = useCallback(async () => {
-    const username = inputUsername
-      .trim()
-      .replace(/^@/, "")
-      .replace(/^https?:\/\/(www\.)?github\.com\//, "")
-      .split("/")[0];
-    if (!username) return;
     setPhase("fetching");
-    await fetchGitHubData(username);
-  }, [inputUsername, fetchGitHubData]);
+    setError(null);
+    try {
+      const provider = new GithubAuthProvider();
+      // provider.addScope('repo'); // Uncomment this if you want to request private repo access in the future
+
+      const result = await linkWithPopup(auth.currentUser, provider);
+      const credential = GithubAuthProvider.credentialFromResult(result);
+      const token = credential.accessToken;
+
+      // Extract the exact GitHub username securely from the OAuth response payload
+      const username =
+        result._tokenResponse?.screenName ||
+        result.user.reloadUserInfo?.providerUserInfo?.find(
+          (p) => p.providerId === "github.com",
+        )?.screenName;
+
+      if (!username) {
+        throw new Error(
+          "Could not extract GitHub username from authentication payload.",
+        );
+      }
+
+      await fetchGitHubData(username, token);
+    } catch (err) {
+      console.error("[GitHub OAuth Error]", err);
+      if (err.code === "auth/credential-already-in-use") {
+        setError(
+          "This GitHub account is already linked to another Discotive profile.",
+        );
+      } else if (err.code === "auth/provider-already-linked") {
+        // Fallback: If already linked, grab the username from existing provider data
+        const profile = auth.currentUser.providerData.find(
+          (p) => p.providerId === "github.com",
+        );
+        if (profile?.uid) {
+          await fetchGitHubData(profile.uid);
+          return;
+        } else {
+          setError(
+            "GitHub is linked but user data is missing. Please contact support.",
+          );
+        }
+      } else if (err.code === "auth/popup-closed-by-user") {
+        setPhase("idle");
+        return;
+      } else {
+        setError(err.message || "Authentication failed.");
+      }
+      setPhase("error");
+    }
+  }, [fetchGitHubData]);
 
   // ── Disconnect handler ────────────────────────────────────────────────────
   const handleDisconnect = useCallback(async () => {
@@ -810,49 +858,39 @@ const GitHubConnector = ({ userData, onVaultAssetAdded, addToast }) => {
           )}
         </AnimatePresence>
 
-        <div className="w-full max-w-sm space-y-3">
-          <div className="relative">
-            <span
-              className="absolute left-4 top-1/2 -translate-y-1/2 text-sm font-bold select-none"
-              style={{ color: T.dim }}
-            >
-              @
-            </span>
-            <input
-              type="text"
-              value={inputUsername}
-              onChange={(e) => setInputUsername(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && handleConnect()}
-              placeholder="your-github-username"
-              className="w-full pl-8 pr-4 py-3.5 rounded-xl text-sm font-bold focus:outline-none transition-all"
-              style={{
-                background: V.surface,
-                border: `1px solid ${inputUsername ? G.border : "rgba(255,255,255,0.07)"}`,
-                color: T.primary,
-              }}
-              autoFocus
-            />
+        <div className="w-full max-w-sm space-y-4">
+          <div className="flex items-center gap-3 p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 text-left">
+            <AlertTriangle className="w-6 h-6 text-amber-400 shrink-0" />
+            <div>
+              <p className="text-xs font-black text-amber-400 uppercase tracking-widest mb-1">
+                Not Connected
+              </p>
+              <p className="text-[10px] text-amber-400/70 leading-relaxed">
+                You must authenticate via OAuth to verify ownership of your
+                repositories.
+              </p>
+            </div>
           </div>
           <motion.button
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.97 }}
             onClick={handleConnect}
-            disabled={!inputUsername.trim()}
-            className="w-full py-3.5 rounded-xl font-black text-[11px] uppercase tracking-widest flex items-center justify-center gap-2 disabled:opacity-40 transition-all"
+            className="w-full py-3.5 rounded-xl font-black text-[11px] uppercase tracking-widest flex items-center justify-center gap-2 transition-all"
             style={{
               background: `linear-gradient(135deg, ${G.deep}, ${G.bright})`,
               color: "#0a0a0a",
+              boxShadow: `0 0 20px rgba(191,162,100,0.2)`,
             }}
           >
             <Github className="w-4 h-4" />
-            Connect Profile
+            Connect Now
           </motion.button>
         </div>
 
-        <div className="flex items-center gap-1.5 mt-4">
-          <Info className="w-3 h-3" style={{ color: T.dim }} />
-          <p className="text-[9px]" style={{ color: T.dim }}>
-            Uses the public GitHub API. No login or access token required.
+        <div className="flex items-center justify-center gap-1.5 mt-4">
+          <Lock className="w-3 h-3" style={{ color: "#10b981" }} />
+          <p className="text-[9px] font-bold" style={{ color: "#10b981" }}>
+            Secure OAuth connection. No passwords stored.
           </p>
         </div>
       </motion.div>

@@ -297,10 +297,23 @@ const SidebarItem = memo(
           }}
         />
 
-        <Icon
-          className="w-4 h-4 shrink-0"
-          style={{ color: isActive ? connector.color : T.dim }}
-        />
+        {/* Dynamic App Block Icon */}
+        <div
+          className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0 transition-all"
+          style={{
+            background: isConnected ? "#050505" : "transparent",
+            border: isConnected
+              ? "1px solid rgba(255,255,255,0.15)"
+              : "1px solid transparent",
+          }}
+        >
+          <Icon
+            className="w-4 h-4 shrink-0 transition-colors"
+            style={{
+              color: isConnected ? connector.color : "rgba(255,255,255,0.2)",
+            }}
+          />
+        </div>
 
         <div className="flex-1 min-w-0">
           <p
@@ -363,7 +376,7 @@ const ConnectorHub = ({
       };
     });
     return states;
-  }, [userData?.connectors]);
+  }, [userData]); // Corrected dependency array to satisfy React Compiler constraints
 
   const connectedCount = useMemo(
     () => Object.values(connectorStates).filter((s) => s.connected).length,
