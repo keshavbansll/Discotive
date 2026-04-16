@@ -413,7 +413,7 @@ const ConnectorHub = () => {
                   letterSpacing: "-0.03em",
                 }}
               >
-                {activeConnector?.label} Integration
+                {activeConnector?.label}
               </h1>
               <p className="text-sm mt-1" style={{ color: T.secondary }}>
                 {activeConnector?.description}

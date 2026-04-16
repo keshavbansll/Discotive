@@ -49,6 +49,7 @@ import {
   Database,
   Eye,
   Calendar,
+  ChevronLeft,
 } from "lucide-react";
 import { doc, updateDoc, arrayUnion } from "firebase/firestore";
 import { db } from "../../../firebase";
@@ -1130,6 +1131,11 @@ const GitHubConnector = ({ userData, onVaultAssetAdded, addToast }) => {
   const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
+  /* ── Repos Pagination & Search State ── */
+  const [repoSearch, setRepoSearch] = useState("");
+  const [repoPage, setRepoPage] = useState(1);
+  const REPOS_PER_PAGE = 12;
+
   /* ── Vault repos ─────────────────────────────────────────────────────── */
   const vaultRepos = useMemo(
     () => (userData?.vault || []).filter((a) => a.connectorSource === "github"),
@@ -1425,30 +1431,29 @@ const GitHubConnector = ({ userData, onVaultAssetAdded, addToast }) => {
           }}
         >
           {tabs.map(({ key, label, icon: Icon }) => (
-            <motion.button
+            <button
               key={key}
-              whileTap={{ scale: 0.97 }}
               onClick={() => setActiveTab(key)}
-              className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all"
-              style={
-                activeTab === key
-                  ? {
-                      background: G.dimBg,
-                      color: G.bright,
-                      border: `1px solid ${G.border}`,
-                    }
-                  : {
-                      color: T.dim,
-                      border: "1px solid transparent",
-                    }
-              }
+              className="flex-1 relative flex items-center justify-center gap-1.5 py-2 text-[10px] font-black uppercase tracking-widest transition-colors z-10"
+              style={{ color: activeTab === key ? G.bright : T.dim }}
             >
-              <Icon className="w-3.5 h-3.5" />
-              <span className="hidden sm:inline">{label}</span>
-              <span className="sm:hidden">
+              {activeTab === key && (
+                <motion.div
+                  layoutId="activeTabHighlight"
+                  className="absolute inset-0 rounded-lg"
+                  style={{
+                    background: G.dimBg,
+                    border: `1px solid ${G.border}`,
+                  }}
+                  transition={{ type: "spring", stiffness: 400, damping: 30 }}
+                />
+              )}
+              <Icon className="w-3.5 h-3.5 relative z-10" />
+              <span className="hidden sm:inline relative z-10">{label}</span>
+              <span className="sm:hidden relative z-10">
                 {key.charAt(0).toUpperCase() + key.slice(1)}
               </span>
-            </motion.button>
+            </button>
           ))}
         </div>
       </motion.div>
@@ -1569,12 +1574,31 @@ const GitHubConnector = ({ userData, onVaultAssetAdded, addToast }) => {
 
               {vaultRepos.length === 0 ? (
                 <div
-                  className="py-8 text-center rounded-xl"
-                  style={{ border: "1px dashed rgba(255,255,255,0.1)" }}
+                  className="flex gap-4 overflow-x-auto hide-scrollbar pb-4 px-1"
+                  style={{
+                    scrollSnapType: "x mandatory",
+                    WebkitOverflowScrolling: "touch",
+                  }}
                 >
-                  <p className="text-xs text-white/40">
-                    No connected repositories yet.
-                  </p>
+                  {[1, 2, 3, 4].map((i) => (
+                    <div
+                      key={i}
+                      className="shrink-0 relative rounded-xl flex items-center justify-center overflow-hidden"
+                      style={{
+                        width: 180,
+                        height: 240,
+                        scrollSnapAlign: "start",
+                        background: "rgba(255,255,255,0.015)",
+                        border: "1px solid rgba(255,255,255,0.04)",
+                        backdropFilter: "blur(8px)",
+                      }}
+                    >
+                      <BookOpen
+                        size={40}
+                        style={{ color: "rgba(255,255,255,0.05)" }}
+                      />
+                    </div>
+                  ))}
                 </div>
               ) : (
                 <div
@@ -1584,59 +1608,105 @@ const GitHubConnector = ({ userData, onVaultAssetAdded, addToast }) => {
                     WebkitOverflowScrolling: "touch",
                   }}
                 >
-                  {vaultRepos.map((asset, i) => (
-                    <motion.div
-                      key={asset.id}
-                      className="shrink-0 relative cursor-pointer group rounded-xl overflow-hidden flex flex-col justify-between p-4 transition-all"
-                      style={{
-                        width: 180,
-                        height: 240,
-                        scrollSnapAlign: "start",
-                        background: `linear-gradient(to bottom, ${V.depth} 0%, ${V.elevated} 100%)`,
-                        border: "1px solid rgba(255,255,255,0.06)",
-                      }}
-                      whileHover={{ y: -4, border: `1px solid ${G.border}` }}
-                    >
-                      <div className="absolute top-0 right-0 p-3 opacity-[0.06] group-hover:opacity-10 transition-opacity">
-                        <BookOpen size={90} style={{ color: G.base }} />
-                      </div>
-                      <div className="relative z-10">
-                        <div
-                          className="w-8 h-8 rounded-lg flex items-center justify-center mb-3"
-                          style={{ background: "rgba(255,255,255,0.05)" }}
-                        >
-                          <Github className="w-4 h-4 text-white" />
-                        </div>
-                        <h3 className="text-sm font-black leading-tight text-white line-clamp-2 mb-1">
-                          {asset.title}
-                        </h3>
-                        <p className="text-[10px] font-bold uppercase tracking-widest text-[#BFA264]/70">
-                          {asset.credentials?.language || "Repository"}
-                        </p>
-                      </div>
-                      <div className="relative z-10 flex items-center justify-between">
-                        <div className="flex items-center gap-1.5 text-[10px] font-black font-mono text-[#f59e0b]">
-                          <Star className="w-3 h-3" />{" "}
-                          {fmtNum(asset.credentials?.stars || 0)}
-                        </div>
-                        {asset.status === "VERIFIED" ? (
-                          <div className="flex items-center gap-1 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full">
-                            <Check className="w-2.5 h-2.5 text-emerald-400" />
-                            <span className="text-[8px] font-black uppercase tracking-widest text-emerald-400">
-                              Verified
-                            </span>
-                          </div>
-                        ) : (
-                          <div className="flex items-center gap-1 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-full">
-                            <Clock className="w-2.5 h-2.5 text-amber-400" />
-                            <span className="text-[8px] font-black uppercase tracking-widest text-amber-400">
-                              Review
-                            </span>
+                  {vaultRepos.map((asset, i) => {
+                    const isPending = asset.status !== "VERIFIED";
+                    return (
+                      <motion.div
+                        key={asset.id}
+                        className="shrink-0 relative cursor-pointer group rounded-xl overflow-hidden flex flex-col justify-between p-4 transition-all"
+                        style={{
+                          width: 180,
+                          height: 240,
+                          scrollSnapAlign: "start",
+                          background: isPending
+                            ? "linear-gradient(to bottom, rgba(10,10,10,0.5) 0%, rgba(3,3,3,0.8) 100%)"
+                            : `linear-gradient(to bottom, ${V.depth} 0%, ${V.elevated} 100%)`,
+                          border: isPending
+                            ? "1px dashed rgba(255,255,255,0.08)"
+                            : "1px solid rgba(255,255,255,0.06)",
+                        }}
+                        whileHover={{
+                          y: -4,
+                          border: `1px solid ${isPending ? "rgba(245,158,11,0.3)" : G.border}`,
+                        }}
+                      >
+                        {/* Pending Overlay & Hover Details */}
+                        {isPending && (
+                          <>
+                            {/* Default view: Just a giant faded clock */}
+                            <div
+                              className="absolute inset-0 flex flex-col items-center justify-center opacity-100 group-hover:opacity-0 transition-opacity duration-300 z-20"
+                              style={{ background: "rgba(0,0,0,0.5)" }}
+                            >
+                              <Clock
+                                size={40}
+                                style={{ color: "rgba(255,255,255,0.15)" }}
+                                className="mb-2"
+                              />
+                              <span className="text-[9px] font-black uppercase tracking-widest text-white/30">
+                                Pending Review
+                              </span>
+                            </div>
+
+                            {/* Hover view: Show Details */}
+                            <div className="absolute inset-0 bg-[#0A0A0A]/95 p-4 flex flex-col opacity-0 group-hover:opacity-100 transition-opacity duration-300 z-30 backdrop-blur-md">
+                              <h4 className="text-xs font-black text-amber-400 mb-1 leading-tight line-clamp-2">
+                                {asset.title}
+                              </h4>
+                              <p className="text-[9px] text-white/50 line-clamp-4 leading-relaxed mb-auto">
+                                {asset.description}
+                              </p>
+                              <div className="text-[8px] font-mono text-white/30 space-y-1">
+                                <p>Lang: {asset.credentials?.language}</p>
+                                <p>
+                                  Stars: {fmtNum(asset.credentials?.stars || 0)}
+                                </p>
+                              </div>
+                            </div>
+                          </>
+                        )}
+
+                        {!isPending && (
+                          <div className="absolute top-0 right-0 p-3 opacity-[0.06] group-hover:opacity-10 transition-opacity">
+                            <BookOpen size={90} style={{ color: G.base }} />
                           </div>
                         )}
-                      </div>
-                    </motion.div>
-                  ))}
+
+                        <div
+                          className={`relative z-10 ${isPending ? "opacity-20" : ""}`}
+                        >
+                          <div
+                            className="w-8 h-8 rounded-lg flex items-center justify-center mb-3"
+                            style={{ background: "rgba(255,255,255,0.05)" }}
+                          >
+                            <Github className="w-4 h-4 text-white" />
+                          </div>
+                          <h3 className="text-sm font-black leading-tight text-white line-clamp-2 mb-1">
+                            {asset.title}
+                          </h3>
+                          <p className="text-[10px] font-bold uppercase tracking-widest text-[#BFA264]/70">
+                            {asset.credentials?.language || "Repository"}
+                          </p>
+                        </div>
+                        <div
+                          className={`relative z-10 flex items-center justify-between ${isPending ? "opacity-20" : ""}`}
+                        >
+                          <div className="flex items-center gap-1.5 text-[10px] font-black font-mono text-[#f59e0b]">
+                            <Star className="w-3 h-3" />{" "}
+                            {fmtNum(asset.credentials?.stars || 0)}
+                          </div>
+                          {!isPending && (
+                            <div className="flex items-center gap-1 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full">
+                              <Check className="w-2.5 h-2.5 text-emerald-400" />
+                              <span className="text-[8px] font-black uppercase tracking-widest text-emerald-400">
+                                Verified
+                              </span>
+                            </div>
+                          )}
+                        </div>
+                      </motion.div>
+                    );
+                  })}
                 </div>
               )}
             </motion.div>
@@ -1647,145 +1717,232 @@ const GitHubConnector = ({ userData, onVaultAssetAdded, addToast }) => {
         {activeTab === "repos" && (
           <motion.div
             key="repos"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
             transition={{ duration: 0.2 }}
+            className="flex flex-col gap-5"
           >
-            {repos.length === 0 ? (
-              <div
-                className="flex flex-col items-center justify-center py-16 rounded-2xl"
-                style={{
-                  background: V.surface,
-                  border: "1px solid rgba(255,255,255,0.04)",
+            {/* Search Bar */}
+            <div className="relative">
+              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-white/30" />
+              <input
+                type="text"
+                placeholder="Search repositories..."
+                value={repoSearch}
+                onChange={(e) => {
+                  setRepoSearch(e.target.value);
+                  setRepoPage(1);
                 }}
-              >
-                <BookOpen className="w-10 h-10 mb-4" style={{ color: T.dim }} />
-                <p className="font-black" style={{ color: T.dim }}>
-                  No public repositories.
+                className="w-full bg-white/[0.03] border border-white/5 rounded-2xl pl-11 pr-4 py-3.5 text-sm focus:outline-none focus:border-[#BFA264]/50 transition-colors text-white placeholder-white/30 shadow-inner"
+              />
+            </div>
+
+            {repos.filter(
+              (r) =>
+                r.name.toLowerCase().includes(repoSearch.toLowerCase()) ||
+                (r.description &&
+                  r.description
+                    .toLowerCase()
+                    .includes(repoSearch.toLowerCase())),
+            ).length === 0 ? (
+              <div className="py-16 text-center border border-white/5 rounded-2xl bg-white/[0.02]">
+                <BookOpen className="w-10 h-10 mx-auto mb-3 text-white/20" />
+                <p className="text-white/40 text-sm font-bold">
+                  No repositories found.
                 </p>
               </div>
             ) : (
               <>
-                {/* Desktop: horizontal scroll swimlane */}
-                <div className="hidden md:block">
-                  <div
-                    className="overflow-x-auto hide-scrollbar -mx-1 px-1 pb-4"
-                    style={{ WebkitOverflowScrolling: "touch" }}
-                  >
-                    <div
-                      className="flex gap-4"
-                      style={{ scrollSnapType: "x mandatory" }}
-                    >
-                      {repos.map((repo, i) => (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                  {repos
+                    .filter(
+                      (r) =>
+                        r.name
+                          .toLowerCase()
+                          .includes(repoSearch.toLowerCase()) ||
+                        (r.description &&
+                          r.description
+                            .toLowerCase()
+                            .includes(repoSearch.toLowerCase())),
+                    )
+                    .slice(
+                      (repoPage - 1) * REPOS_PER_PAGE,
+                      repoPage * REPOS_PER_PAGE,
+                    )
+                    .map((repo, i) => {
+                      const isSynced = syncedRepos.has(repo.id);
+                      const isSyncing = syncingRepoId === repo.id;
+                      const langColor = LANG_COLORS[repo.language] || "#4a4a4a";
+
+                      return (
                         <motion.div
                           key={repo.id}
-                          initial={{ opacity: 0, x: 20 }}
-                          animate={{ opacity: 1, x: 0 }}
-                          transition={{ delay: i * 0.04, duration: 0.3 }}
+                          initial={{ opacity: 0, scale: 0.95 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          transition={{ delay: i * 0.03 }}
+                          className="relative flex flex-col justify-between p-4 rounded-[1.25rem] group cursor-default aspect-[4/3] sm:aspect-auto sm:h-52"
+                          style={{
+                            background: isSynced
+                              ? "rgba(16,185,129,0.05)"
+                              : "rgba(255,255,255,0.02)",
+                            border: `1px solid ${isSynced ? "rgba(16,185,129,0.2)" : "rgba(255,255,255,0.06)"}`,
+                          }}
+                          whileHover={{
+                            y: -4,
+                            borderColor: isSynced
+                              ? "rgba(16,185,129,0.4)"
+                              : G.border,
+                          }}
                         >
-                          <RepoCard
-                            repo={repo}
-                            onSync={handleSyncRepo}
-                            synced={syncedRepos.has(repo.id)}
-                            syncing={syncingRepoId === repo.id}
-                          />
-                        </motion.div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Mobile: vertical list */}
-                <div className="md:hidden space-y-3">
-                  {repos.map((repo, i) => {
-                    const langColor = LANG_COLORS[repo.language] || "#4a4a4a";
-                    const isSynced = syncedRepos.has(repo.id);
-                    const isSyncing = syncingRepoId === repo.id;
-
-                    return (
-                      <motion.div
-                        key={repo.id}
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: i * 0.04, duration: 0.3 }}
-                        className="flex items-center gap-3 p-3.5 rounded-2xl"
-                        style={{
-                          background: isSynced
-                            ? "rgba(16,185,129,0.04)"
-                            : V.surface,
-                          border: `1px solid ${isSynced ? "rgba(16,185,129,0.2)" : "rgba(255,255,255,0.05)"}`,
-                        }}
-                      >
-                        <div
-                          className="w-1 self-stretch rounded-full shrink-0"
-                          style={{ background: langColor }}
-                        />
-                        <div className="flex-1 min-w-0">
-                          <p
-                            className="text-[13px] font-black truncate"
-                            style={{ color: T.primary }}
-                          >
-                            {repo.name}
-                          </p>
-                          {repo.description && (
-                            <p
-                              className="text-[10px] line-clamp-1 mt-0.5"
-                              style={{ color: T.secondary }}
-                            >
-                              {repo.description}
+                          {/* Repo Card Content */}
+                          <div className="flex-1 min-w-0 flex flex-col">
+                            <div className="flex items-start justify-between gap-2 mb-2">
+                              <div className="flex items-center gap-2 min-w-0">
+                                <div
+                                  className="w-2 h-2 rounded-full shrink-0"
+                                  style={{ background: langColor }}
+                                />
+                                <h3
+                                  className="text-sm font-black text-white truncate"
+                                  title={repo.name}
+                                >
+                                  {repo.name}
+                                </h3>
+                              </div>
+                              <a
+                                href={repo.html_url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="shrink-0 p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                              >
+                                <ExternalLink className="w-3.5 h-3.5 text-white/30 hover:text-white" />
+                              </a>
+                            </div>
+                            <p className="text-[10px] text-white/50 line-clamp-3 leading-relaxed">
+                              {repo.description || "No description provided."}
                             </p>
-                          )}
-                          <div
-                            className="flex items-center gap-2 mt-1 text-[9px] font-mono"
-                            style={{ color: T.dim }}
-                          >
-                            {repo.language && <span>{repo.language}</span>}
-                            {repo.stargazers_count > 0 && (
-                              <span className="flex items-center gap-0.5">
-                                <Star className="w-2.5 h-2.5 text-amber-500" />
-                                {repo.stargazers_count}
-                              </span>
-                            )}
                           </div>
-                        </div>
-                        <motion.button
-                          whileTap={{ scale: 0.9 }}
-                          onClick={() =>
-                            !isSynced && !isSyncing && handleSyncRepo(repo)
-                          }
-                          disabled={isSynced || isSyncing}
-                          className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
-                          style={
-                            isSynced
-                              ? {
-                                  background: "rgba(16,185,129,0.1)",
-                                  border: "1px solid rgba(16,185,129,0.2)",
-                                }
-                              : {
-                                  background: G.dimBg,
-                                  border: `1px solid ${G.border}`,
-                                }
-                          }
-                        >
-                          {isSyncing ? (
-                            <Loader2
-                              className="w-3.5 h-3.5 animate-spin"
-                              style={{ color: G.bright }}
-                            />
-                          ) : isSynced ? (
-                            <Check className="w-3.5 h-3.5 text-emerald-400" />
-                          ) : (
-                            <Upload
-                              className="w-3.5 h-3.5"
-                              style={{ color: G.bright }}
-                            />
-                          )}
-                        </motion.button>
-                      </motion.div>
-                    );
-                  })}
+
+                          <div className="mt-auto pt-3">
+                            <div className="flex items-center justify-between text-[9px] font-mono text-white/40 mb-3">
+                              <span>{repo.language || "Mixed"}</span>
+                              <span className="flex items-center gap-0.5">
+                                <Star className="w-3 h-3 text-amber-500" />{" "}
+                                {fmtNum(repo.stargazers_count)}
+                              </span>
+                            </div>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                !isSynced && !isSyncing && handleSyncRepo(repo);
+                              }}
+                              disabled={isSynced || isSyncing}
+                              className="w-full py-2.5 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all shadow-sm"
+                              style={{
+                                background: isSynced
+                                  ? "rgba(16,185,129,0.1)"
+                                  : isSyncing
+                                    ? "rgba(255,255,255,0.05)"
+                                    : G.dimBg,
+                                color: isSynced
+                                  ? "#10b981"
+                                  : isSyncing
+                                    ? T.dim
+                                    : G.bright,
+                                border: `1px solid ${isSynced ? "rgba(16,185,129,0.2)" : isSyncing ? "transparent" : G.border}`,
+                                cursor: isSynced ? "default" : "pointer",
+                              }}
+                            >
+                              {isSyncing ? (
+                                <Loader2 className="w-3.5 h-3.5 animate-spin mx-auto" />
+                              ) : isSynced ? (
+                                "Synced to Vault"
+                              ) : (
+                                "Submit for Verification"
+                              )}
+                            </button>
+                          </div>
+                        </motion.div>
+                      );
+                    })}
                 </div>
+
+                {/* Pagination */}
+                {Math.ceil(
+                  repos.filter(
+                    (r) =>
+                      r.name.toLowerCase().includes(repoSearch.toLowerCase()) ||
+                      (r.description &&
+                        r.description
+                          .toLowerCase()
+                          .includes(repoSearch.toLowerCase())),
+                  ).length / REPOS_PER_PAGE,
+                ) > 1 && (
+                  <div className="flex items-center justify-center gap-3 mt-6">
+                    <button
+                      onClick={() => setRepoPage((p) => Math.max(1, p - 1))}
+                      disabled={repoPage === 1}
+                      className="w-9 h-9 rounded-xl flex items-center justify-center bg-white/[0.03] border border-white/10 hover:bg-white/10 disabled:opacity-30 transition-all"
+                    >
+                      <ChevronLeft className="w-4 h-4 text-white" />
+                    </button>
+                    <span className="text-[11px] font-black font-mono text-white/50 px-2">
+                      {repoPage} /{" "}
+                      {Math.ceil(
+                        repos.filter(
+                          (r) =>
+                            r.name
+                              .toLowerCase()
+                              .includes(repoSearch.toLowerCase()) ||
+                            (r.description &&
+                              r.description
+                                .toLowerCase()
+                                .includes(repoSearch.toLowerCase())),
+                        ).length / REPOS_PER_PAGE,
+                      )}
+                    </span>
+                    <button
+                      onClick={() =>
+                        setRepoPage((p) =>
+                          Math.min(
+                            Math.ceil(
+                              repos.filter(
+                                (r) =>
+                                  r.name
+                                    .toLowerCase()
+                                    .includes(repoSearch.toLowerCase()) ||
+                                  (r.description &&
+                                    r.description
+                                      .toLowerCase()
+                                      .includes(repoSearch.toLowerCase())),
+                              ).length / REPOS_PER_PAGE,
+                            ),
+                            p + 1,
+                          ),
+                        )
+                      }
+                      disabled={
+                        repoPage ===
+                        Math.ceil(
+                          repos.filter(
+                            (r) =>
+                              r.name
+                                .toLowerCase()
+                                .includes(repoSearch.toLowerCase()) ||
+                              (r.description &&
+                                r.description
+                                  .toLowerCase()
+                                  .includes(repoSearch.toLowerCase())),
+                          ).length / REPOS_PER_PAGE,
+                        )
+                      }
+                      className="w-9 h-9 rounded-xl flex items-center justify-center bg-white/[0.03] border border-white/10 hover:bg-white/10 disabled:opacity-30 transition-all"
+                    >
+                      <ChevronRight className="w-4 h-4 text-white" />
+                    </button>
+                  </div>
+                )}
               </>
             )}
           </motion.div>
