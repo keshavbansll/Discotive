@@ -121,10 +121,11 @@ service cloud.firestore {
     }
 
     // =========================================================================
-    // 4. CORE USER AUTH LEDGER
+    // 4. CORE USER AUTH LEDGER (LOCKED DOWN)
     // =========================================================================
     match /users/{userId} {
-      allow read: if true;
+      // Patch: Prevent unauthorized data scraping
+      allow read: if isAuthenticated();
 
       allow create: if isOwner(userId)
         && (!("tier" in request.resource.data) || request.resource.data.tier == "ESSENTIAL")
@@ -133,43 +134,30 @@ service cloud.firestore {
 
       allow delete: if isOwner(userId);
 
-      allow update: if
-        (isOwner(userId)
-          && request.resource.data.diff(resource.data).affectedKeys()
-              .hasOnly([
-                // Onboarding completion
-                'onboarding_status', 'onboardingComplete', 'isGhostUser',
-                'createdAt', 'onboardingScoreAwarded',
-
-                // Identity & profile fields
-                'identity', 'links', 'footprint', 'settings', 'professional',
-                'vision', 'skills', 'resources', 'wildcard', 'discotiveId',
-                'profileViews', 'pendingAppVerifications', 'profileCompleteness',
-                'deferredOnboarding', 'baseline',
-
-                // ─── VAULT ───────────────────────────────────────────────────
-                // Vault array: uploaded files, synced connector assets.
-                // Owner-writable. Admin can also write (for verification updates).
-                'vault', 'vault_count',
-
-                // ─── CONNECTORS ──────────────────────────────────────────────
-                // Third-party connector state (GitHub username, YouTube channel,
-                // Stripe key refs, etc.). Owner manages connection metadata.
-                // Token storage is handled via Cloud Functions only.
-                'connectors', 'connectedApps',
-
-                // Gamification & Consistency Engine
-                'discotiveScore', 'score_history', 'consistency_log',
-                'login_history', 'daily_scores', 'monthly_scores',
-                'dailyAllianceSent', 'journal_ledger',
-
-                // UI States
-                'notifications', 'hasUnreadNotifications',
-
-                // Allies (written by Cloud Functions for alliance logic)
-                'allies'
-              ]))
-        || isAdmin();
+      allow update: if isAdmin() || (isOwner(userId) && (
+        // Pipeline A: Standard Daily Updates (SCORE & TIER MUTATION STRICTLY FORBIDDEN)
+        (request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'identity', 'links', 'footprint', 'settings', 'professional',
+          'vision', 'skills', 'resources', 'wildcard', 'discotiveId',
+          'profileViews', 'pendingAppVerifications', 'profileCompleteness',
+          'deferredOnboarding', 'baseline', 'vault', 'vault_count',
+          'connectors', 'connectedApps', 'login_history', 'dailyAllianceSent',
+          'journal_ledger', 'notifications', 'hasUnreadNotifications'
+        ]))
+        ||
+        // Pipeline B: One-Time OS Boot Sequence (Airtight Score Minting)
+        (request.resource.data.diff(resource.data).affectedKeys().hasAny(['discotiveScore', 'tier'])
+          && resource.data.onboardingComplete != true
+          && request.resource.data.onboardingComplete == true
+          && request.resource.data.tier == "ESSENTIAL"
+          && request.resource.data.discotiveScore.current == 50
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'onboarding_status', 'onboardingComplete', 'isGhostUser',
+            'createdAt', 'onboardingScoreAwarded', 'identity', 'vision', 'baseline', 'skills',
+            'profileCompleteness', 'deferredOnboarding', 'discotiveScore',
+            'score_history', 'consistency_log', 'login_history'
+          ]))
+      ));
     }
 
     // =========================================================================

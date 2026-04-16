@@ -185,6 +185,7 @@ const MainLayout = () => {
     }
   };
   const [searchQuery, setSearchQuery] = useState("");
+  const [isNavigating, setIsNavigating] = useState(false);
 
   const location = useLocation();
   const navigate = useNavigate();
@@ -195,6 +196,7 @@ const MainLayout = () => {
   if (location.pathname !== prevPath) {
     setPrevPath(location.pathname);
     setIsMobileMenuOpen(false);
+    setIsNavigating(false); // Kill loader exactly when the new chunk finishes downloading
     // You can also safely close other menus here if needed:
     // setShowProfileMenu(false);
     // setShowNotifMenu(false);
@@ -301,6 +303,32 @@ const MainLayout = () => {
     }
   };
 
+  // MAANG-GRADE FIX: Pre-emptive Navigation State Override
+  // React 18 holds Suspense transitions in the background by default, causing
+  // the app to look "frozen" on the old page while lazy chunks download.
+  // We manually trigger an immediate global loading state to provide instant feedback.
+  const handleInstantNav = (path, e) => {
+    if (e) e.preventDefault();
+
+    // 1. Immediately drop all overlay UI
+    setShowProfileMenu(false);
+    setShowLanguageMenu(false);
+    setIsMobileMenuOpen(false);
+
+    // 2. Prevent redundant routing
+    if (
+      location.pathname === path ||
+      location.pathname === path.replace("/feed", "")
+    )
+      return;
+
+    // 3. Trigger immediate fallback UI
+    setIsNavigating(true);
+
+    // 4. Push routing to next frame so the loader renders instantly
+    setTimeout(() => navigate(path), 10);
+  };
+
   const handleLogout = async () => {
     try {
       await signOut(auth);
@@ -359,22 +387,21 @@ const MainLayout = () => {
 
     return (
       <div className="flex flex-col gap-1 w-full">
-        <Link
-          to={item.subItems ? item.path + "/feed" : item.path} // Default to feed if clicking connective
+        <a
+          href={item.subItems ? item.path + "/feed" : item.path} // Default to feed if clicking connective
           onClick={
             isItemLocked
-              ? (e) => {
-                  e.preventDefault();
-                  navigate(item.path);
-                }
+              ? (e) => handleInstantNav(item.path, e)
               : item.subItems
                 ? (e) => {
                     if (!isCollapsed) {
                       e.preventDefault();
                       setIsSubMenuOpen(!isSubMenuOpen);
+                    } else {
+                      handleInstantNav(item.path + "/feed", e);
                     }
                   }
-                : undefined
+                : (e) => handleInstantNav(item.path, e)
           }
           className={cn(
             "flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 group relative border border-transparent w-full",
@@ -417,7 +444,7 @@ const MainLayout = () => {
           {isItemLocked && isCollapsed && (
             <span className="absolute top-1 right-1 w-1.5 h-1.5 bg-[#333] rounded-full" />
           )}
-        </Link>
+        </a>
 
         {/* --- DYNAMIC NESTED SUBMENU ENGINE --- */}
         <AnimatePresence>
@@ -542,37 +569,34 @@ const MainLayout = () => {
         <div className="px-4 pb-2 border-b border-[#222]">
           {isGhostUser ? (
             <button
-              onClick={() => {
-                setShowProfileMenu(false);
-                navigate("/auth?step=2");
-              }}
+              onClick={(e) => handleInstantNav("/auth?step=2", e)}
               className="flex items-center gap-1.5 text-amber-400 text-xs font-bold hover:text-amber-300 transition-colors"
             >
               <ArrowRight className="w-3 h-3" />
               Complete Onboarding to unlock profile
             </button>
           ) : (
-            <Link
-              to="/app/profile"
-              onClick={() => setShowProfileMenu(false)}
+            <a
+              href="/app/profile"
+              onClick={(e) => handleInstantNav("/app/profile", e)}
               className="text-blue-400 text-xs font-bold hover:text-blue-300 transition-colors"
             >
               View full profile
-            </Link>
+            </a>
           )}
         </div>
 
         {/* Admin Dashboard — only visible to admins */}
         {isAdmin && (
           <div className="px-4 py-2 border-b border-[#222]">
-            <Link
-              to="/app/admin"
-              onClick={() => setShowProfileMenu(false)}
+            <a
+              href="/app/admin"
+              onClick={(e) => handleInstantNav("/app/admin", e)}
               className="flex items-center gap-2 text-[10px] font-black text-rose-400 hover:text-rose-300 transition-colors uppercase tracking-widest"
             >
               <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse" />
               Admin Dashboard
-            </Link>
+            </a>
           </div>
         )}
 
@@ -596,20 +620,20 @@ const MainLayout = () => {
 
         {/* Section 2: Account Controls */}
         <div className="py-2 border-b border-[#222]">
-          <Link
-            to="/app/settings"
-            onClick={() => setShowProfileMenu(false)}
+          <a
+            href="/app/settings"
+            onClick={(e) => handleInstantNav("/app/settings", e)}
             className="px-4 py-2.5 flex items-center gap-3 text-[#ccc] hover:bg-[#111] transition-colors text-xs md:text-sm"
           >
             <Settings className="w-4 h-4 text-[#888]" /> Settings
-          </Link>
-          <Link
-            to="/premium"
-            onClick={() => setShowProfileMenu(false)}
+          </a>
+          <a
+            href="/premium"
+            onClick={(e) => handleInstantNav("/premium", e)}
             className="px-4 py-2.5 flex items-center gap-3 text-[#ccc] hover:bg-[#111] transition-colors text-xs md:text-sm"
           >
             <Shield className="w-4 h-4 text-[#888]" /> Discotive Pro
-          </Link>
+          </a>
           <button className="w-full px-4 py-2.5 flex items-center justify-between text-[#ccc] hover:bg-[#111] transition-colors text-xs md:text-sm text-left">
             <div className="flex items-center gap-3">
               <Moon className="w-4 h-4 text-[#888]" /> Appearance: Dark
@@ -1304,7 +1328,7 @@ const MainLayout = () => {
                 </motion.div>
               )}
 
-              {/* MAANG-GRADE UX: Nested Suspense Boundary for seamless shell transitions */}
+              {/* MAANG-GRADE UX: Nested Suspense Boundary & Manual Transition Override */}
               <Suspense
                 fallback={
                   <motion.div
@@ -1320,7 +1344,21 @@ const MainLayout = () => {
                   </motion.div>
                 }
               >
-                <Outlet />
+                {isNavigating ? (
+                  <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    className="flex-1 flex flex-col items-center justify-center min-h-[60vh] w-full"
+                  >
+                    <div className="w-10 h-10 border-[3px] border-[rgba(191,162,100,0.1)] border-t-[#BFA264] rounded-full animate-spin drop-shadow-[0_0_15px_rgba(191,162,100,0.4)]" />
+                    <span className="mt-5 text-[10px] font-bold text-[#BFA264]/60 uppercase tracking-[0.3em] animate-pulse">
+                      Initializing Sector
+                    </span>
+                  </motion.div>
+                ) : (
+                  <Outlet />
+                )}
               </Suspense>
             </>
           )}
@@ -1330,7 +1368,7 @@ const MainLayout = () => {
       {/* ========================================================= */}
       {/* MOBILE BOTTOM NAVIGATION BAR (Strictly 5 Icons)           */}
       {/* ========================================================= */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-[#0A0A0A]/90 backdrop-blur-2xl border-t border-white/5 z-[100] flex items-center justify-around px-2 pb-[env(safe-area-inset-bottom)] pt-1 min-h-[calc(4rem+env(safe-area-inset-bottom))]">
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-[#050505] border-t border-white/5 z-[100] flex items-center justify-around px-2 pb-[env(safe-area-inset-bottom)] pt-1 min-h-[calc(4rem+env(safe-area-inset-bottom))] shadow-[0_-10px_40px_rgba(0,0,0,0.6)]">
         {[
           { icon: LayoutDashboard, path: "/app", label: "Dashboard" },
           { icon: Users, path: "/app/connective", label: "Connective" },
@@ -1342,9 +1380,10 @@ const MainLayout = () => {
           const isMobileItemLocked =
             isGhostUser && GHOST_LOCKED_ROUTES.some((r) => r === item.path);
           return (
-            <Link
+            <a
               key={item.path}
-              to={item.path}
+              href={item.path}
+              onClick={(e) => handleInstantNav(item.path, e)}
               className={cn(
                 "flex flex-col items-center justify-center w-14 h-full gap-1 transition-all active:scale-90 duration-150 relative",
                 isActive
@@ -1369,7 +1408,7 @@ const MainLayout = () => {
               <span className="text-[9px] font-bold tracking-wider">
                 {item.label}
               </span>
-            </Link>
+            </a>
           );
         })}
 
@@ -1401,7 +1440,7 @@ const MainLayout = () => {
               exit={{ opacity: 0 }}
               transition={{ duration: 0.2 }}
               onClick={() => setIsMobileMenuOpen(false)}
-              className="md:hidden fixed inset-0 bg-black/80 backdrop-blur-md z-[9998]"
+              className="md:hidden fixed inset-0 bg-[#030303]/95 z-[9998]"
             />
 
             {/* Bottom Sheet */}
@@ -1409,8 +1448,13 @@ const MainLayout = () => {
               initial={{ opacity: 0, y: "100%" }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: "100%" }}
-              transition={{ type: "spring", damping: 25, stiffness: 200 }}
-              className="md:hidden fixed bottom-0 left-0 right-0 bg-[#0A0A0A] border-t border-white/10 z-[9999] flex flex-col rounded-t-[2rem] overflow-hidden shadow-[0_-20px_60px_rgba(0,0,0,0.8)] pb-[calc(1rem+env(safe-area-inset-bottom))]"
+              transition={{
+                type: "tween",
+                ease: [0.25, 1, 0.5, 1],
+                duration: 0.3,
+              }}
+              style={{ willChange: "transform" }}
+              className="md:hidden fixed bottom-0 left-0 right-0 bg-[#0A0A0A] border-t border-white/10 z-[9999] flex flex-col rounded-t-[2rem] overflow-hidden shadow-[0_-20px_60px_rgba(0,0,0,0.9)] pb-[calc(1rem+env(safe-area-inset-bottom))]"
             >
               {/* Handle/Pill */}
               <div
@@ -1491,53 +1535,53 @@ const MainLayout = () => {
 
                 {/* Core Actions Grid */}
                 <div className="grid grid-cols-2 gap-3">
-                  <Link
-                    to="/app/profile"
-                    onClick={() => setIsMobileMenuOpen(false)}
+                  <a
+                    href="/app/profile"
+                    onClick={(e) => handleInstantNav("/app/profile", e)}
                     className="flex flex-col items-center justify-center gap-2 p-4 bg-[#0F0F0F] border border-white/5 rounded-2xl active:bg-[#111]"
                   >
                     <User className="w-5 h-5 text-[#BFA264]" />
                     <span className="text-xs font-bold text-[#F5F0E8]">
                       Profile
                     </span>
-                  </Link>
-                  <Link
-                    to="/app/learn"
-                    onClick={() => setIsMobileMenuOpen(false)}
+                  </a>
+                  <a
+                    href="/app/learn"
+                    onClick={(e) => handleInstantNav("/app/learn", e)}
                     className="flex flex-col items-center justify-center gap-2 p-4 bg-[#0F0F0F] border border-white/5 rounded-2xl active:bg-[#111]"
                   >
                     <BookOpen className="w-5 h-5 text-[#BFA264]" />
                     <span className="text-xs font-bold text-[#F5F0E8]">
                       Learn
                     </span>
-                  </Link>
-                  <Link
-                    to="/app/opportunities"
-                    onClick={() => setIsMobileMenuOpen(false)}
+                  </a>
+                  <a
+                    href="/app/opportunities"
+                    onClick={(e) => handleInstantNav("/app/opportunities", e)}
                     className="flex flex-col items-center justify-center gap-2 p-4 bg-[#0F0F0F] border border-white/5 rounded-2xl active:bg-[#111]"
                   >
                     <Briefcase className="w-5 h-5 text-[#BFA264]" />
                     <span className="text-xs font-bold text-[#F5F0E8]">
                       Opportunities
                     </span>
-                  </Link>
-                  <Link
-                    to="/app/settings"
-                    onClick={() => setIsMobileMenuOpen(false)}
+                  </a>
+                  <a
+                    href="/app/settings"
+                    onClick={(e) => handleInstantNav("/app/settings", e)}
                     className="flex flex-col items-center justify-center gap-2 p-4 bg-[#0F0F0F] border border-white/5 rounded-2xl active:bg-[#111]"
                   >
                     <Settings className="w-5 h-5 text-[#BFA264]" />
                     <span className="text-xs font-bold text-[#F5F0E8]">
                       Settings
                     </span>
-                  </Link>
+                  </a>
                 </div>
 
                 {/* Premium & Admin */}
                 <div className="space-y-2">
-                  <Link
-                    to="/premium"
-                    onClick={() => setIsMobileMenuOpen(false)}
+                  <a
+                    href="/premium"
+                    onClick={(e) => handleInstantNav("/premium", e)}
                     className="flex items-center justify-between p-4 bg-gradient-to-r from-[rgba(191,162,100,0.15)] to-transparent border border-[rgba(191,162,100,0.25)] rounded-2xl active:bg-[rgba(191,162,100,0.2)]"
                   >
                     <div className="flex items-center gap-4">
@@ -1547,11 +1591,11 @@ const MainLayout = () => {
                       </span>
                     </div>
                     <Zap className="w-4 h-4 text-[#D4AF78]" />
-                  </Link>
+                  </a>
                   {isAdmin && (
-                    <Link
-                      to="/app/admin"
-                      onClick={() => setIsMobileMenuOpen(false)}
+                    <a
+                      href="/app/admin"
+                      onClick={(e) => handleInstantNav("/app/admin", e)}
                       className="flex items-center justify-between p-4 bg-rose-500/10 border border-rose-500/20 rounded-2xl active:bg-rose-500/20"
                     >
                       <div className="flex items-center gap-4">
@@ -1560,7 +1604,7 @@ const MainLayout = () => {
                           Admin Dashboard
                         </span>
                       </div>
-                    </Link>
+                    </a>
                   )}
                 </div>
 

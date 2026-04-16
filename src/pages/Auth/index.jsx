@@ -172,7 +172,9 @@ const GLOBAL_CSS = `
   --r-sm: 12px;
 }
 
-.ob-root * { box-sizing: border-box; margin: 0; padding: 0; }
+/* Strictly scoped reset to prevent main dashboard layout destruction */
+.ob-root, .ob-root * { box-sizing: border-box; }
+.ob-root p, .ob-root h1, .ob-root h2, .ob-root h3, .ob-root div, .ob-root span, .ob-root button, .ob-root input { margin: 0; padding: 0; }
 
 .ob-root {
   min-height: 100svh;
@@ -3065,13 +3067,7 @@ export default function AuthOrchestrator() {
   const [localError, setLocalError] = useState("");
   const [showExecution, setShowExecution] = useState(false);
 
-  // Inject CSS
-  useEffect(() => {
-    const el = document.createElement("style");
-    el.textContent = GLOBAL_CSS;
-    document.head.appendChild(el);
-    return () => document.head.removeChild(el);
-  }, []);
+  // CSS injected natively via React's Virtual DOM to guarantee synchronous cleanup
 
   // Initialize from Landing Page payload
   useEffect(() => {
@@ -3479,8 +3475,8 @@ export default function AuthOrchestrator() {
 
   return (
     <div className="ob-root">
-      <LeftPanel stepIndex={leftIdx} onBack={handleGlobalBack} />
-
+      <style dangerouslySetInnerHTML={{ __html: GLOBAL_CSS }} />
+            <LeftPanel stepIndex={leftIdx} onBack={handleGlobalBack} />
       <div className="ob-right" style={{ position: "relative" }}>
         <div
           style={{
@@ -3610,7 +3606,6 @@ export default function AuthOrchestrator() {
           </AnimatePresence>
         </div>
       </div>
-
       <AnimatePresence>
         {showExecution && (
           <StepExecution

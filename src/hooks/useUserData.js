@@ -5,21 +5,24 @@ import { db } from "../firebase";
 import { useAuth } from "../contexts/AuthContext";
 
 export const useOnboardingGate = () => {
-  const { userData } = useUserData();
+  const { userData, loading } = useUserData();
   const navigate = useNavigate();
 
   const requireOnboarding = useCallback(
     (action) => {
+      // Guard: Do not execute route evaluation until the memory state has resolved
+      if (loading) return false;
+
       if (!userData || userData.isGhostUser || !userData.onboardingComplete) {
         navigate("/auth", { state: { isLogin: false, trigger: action } });
         return false;
       }
       return true;
     },
-    [userData, navigate],
+    [userData, loading, navigate],
   );
 
-  return { requireOnboarding, isGhost: !userData?.onboardingComplete };
+  return { requireOnboarding, isGhost: !userData?.onboardingComplete, loading };
 };
 
 // Session-scoped cache keyed by UID — safe
