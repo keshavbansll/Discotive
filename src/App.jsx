@@ -48,10 +48,6 @@ const Connective = lazy(() => import("./pages/Connective"));
 
 // Admin Modules (Heavy tables, graphs, CMS logic - KEEP LAZY)
 const AdminDashboard = lazy(() => import("./pages/admin/AdminDashboard"));
-const VaultVerification = lazy(() => import("./pages/admin/VaultVerification"));
-const TicketManager = lazy(() => import("./pages/admin/TicketManager"));
-const ReportManager = lazy(() => import("./pages/admin/ReportManager"));
-const FeedbackManager = lazy(() => import("./pages/admin/FeedbackManager"));
 
 const ProtectedRoute = ({ children }) => {
   const { currentUser } = useAuth();
@@ -317,15 +313,7 @@ function App() {
                 {/* ── ADMIN ROUTES (protected by AdminRoute — checks `admins` Firestore collection) ── */}
                 <Route path="admin" element={<AdminRoute />}>
                   <Route index element={<AdminDashboard />} />
-                  <Route
-                    path="users/verifyvault"
-                    element={<VaultVerification />}
-                  />
-                  <Route path="tickets" element={<TicketManager />} />
-                  <Route path="reports" element={<ReportManager />} />
-                  <Route path="tickets" element={<TicketManager />} />
-                  <Route path="reports" element={<ReportManager />} />
-                  <Route path="feedback" element={<FeedbackManager />} />
+                  <Route path="*" element={<AdminDashboard />} />
                 </Route>
               </Route>
               <Route

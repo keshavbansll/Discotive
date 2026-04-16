@@ -1,20 +1,58 @@
+/**
+ * @fileoverview scoreEngine.js v2.0 — Config-driven, no daily login points.
+ * All point values are loaded from Firestore system/scoring_config.
+ * Falls back to hardcoded defaults if config unavailable.
+ */
+
 import {
   doc,
   getDoc,
-  setDoc,
-  updateDoc,
-  increment,
-  arrayUnion,
   collection,
   runTransaction,
   serverTimestamp,
+  arrayUnion,
+  setDoc,
 } from "firebase/firestore";
 import { db } from "../firebase";
 
-/**
- * MAANG-Grade Time Enforcement
- * Centralized single source of truth for IST calendar dates.
- */
+// ── Default scoring config (overridden by system/scoring_config) ─────────────
+export const SCORE_DEFAULTS = {
+  vaultVerifiedStrong: 30,
+  vaultVerifiedMedium: 20,
+  vaultVerifiedWeak: 10,
+  allianceForged: 15,
+  allianceRequestSent: 5,
+  taskCompleted: 5,
+  taskReverted: -15,
+  nodeCoreCompleted: 30,
+  nodeBranchCompleted: 15,
+  videoWatchFull: 10,
+  appVerified: 25,
+  githubRepoVerified: 25,
+  onboardingBonus: 50,
+};
+
+// ── Cached config ─────────────────────────────────────────────────────────────
+let _configCache = null;
+let _configFetchedAt = 0;
+const CONFIG_TTL = 5 * 60 * 1000; // 5 min
+
+const getConfig = async () => {
+  const now = Date.now();
+  if (_configCache && now - _configFetchedAt < CONFIG_TTL) return _configCache;
+  try {
+    const snap = await getDoc(doc(db, "system", "scoring_config"));
+    _configCache = snap.exists()
+      ? { ...SCORE_DEFAULTS, ...snap.data() }
+      : SCORE_DEFAULTS;
+    _configFetchedAt = now;
+  } catch {
+    _configCache = SCORE_DEFAULTS;
+  }
+  return _configCache;
+};
+
+// ── IST date helper ───────────────────────────────────────────────────────────
 const getISTDateStrings = () => {
   const options = {
     timeZone: "Asia/Kolkata",
@@ -23,38 +61,23 @@ const getISTDateStrings = () => {
     day: "2-digit",
   };
   const formatter = new Intl.DateTimeFormat("en-CA", options);
-
   const now = new Date();
   const todayStr = formatter.format(now);
-
-  // Safe 24-hour subtraction (India does not observe DST)
   const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
   const yesterdayStr = formatter.format(yesterday);
-
   return { todayStr, monthStr: todayStr.substring(0, 7), yesterdayStr };
 };
 
 /**
- * @function mutateScore
- * @param {string} userId
- * @param {number} amount — Points to add (negative = penalty)
- * @param {string} reason — Human-readable mutation label
- * @param {boolean} [silent=false] — If true, skips score_history append
- * @description
- * Atomic score mutation. Uses Firestore `increment` to prevent race
- * conditions on concurrent writes. Also appends to score_history so
- * the Dashboard sparkline reflects intra-day activity, not just
- * daily login snapshots. Reads current score for the history entry
- * via the post-increment value approximation (increment + last known).
+ * Core score mutation — uses atomic Firestore transaction.
  */
 export const mutateScore = async (
   userId,
   amount,
   reason = "Task Update",
-  silent = false, // FIX: Added missing parameter
+  silent = false,
 ) => {
   if (!userId || amount === 0) return;
-
   const userRef = doc(db, "users", userId);
   const logRef = doc(collection(userRef, "score_log"));
 
@@ -65,281 +88,167 @@ export const mutateScore = async (
 
       const userData = userDoc.data();
       const currentScore = userData.discotiveScore?.current || 0;
-
       const newScore = Math.max(0, currentScore + amount);
       const actualChange = newScore - currentScore;
-
       if (actualChange === 0 && amount < 0) return;
 
-      // FIX: Synchronized to IST
       const { todayStr, monthStr } = getISTDateStrings();
       const now = new Date();
       const expireAt = new Date(now.getTime() + 24 * 60 * 60 * 1000);
 
       transaction.update(userRef, {
         "discotiveScore.current": newScore,
-        "discotiveScore.lastAmount": actualChange, // FIX: Synced meta
-        "discotiveScore.lastReason": reason, // FIX: Synced meta
-        "discotiveScore.lastUpdatedAt": now.toISOString(), // FIX: Synced meta
+        "discotiveScore.lastAmount": actualChange,
+        "discotiveScore.lastReason": reason,
+        "discotiveScore.lastUpdatedAt": now.toISOString(),
         [`daily_scores.${todayStr}`]: newScore,
         [`monthly_scores.${monthStr}`]: newScore,
       });
 
-      // FIX: Implemented silent contract
       if (!silent) {
         transaction.set(logRef, {
           score: newScore,
           change: actualChange,
           rawAttempt: amount,
-          reason: reason,
-          date: now.toISOString(), // Standardized UTC is fine for absolute chronological sorting
+          reason,
+          date: now.toISOString(),
           timestamp: serverTimestamp(),
-          expireAt: expireAt,
+          expireAt,
         });
       }
     });
-
-    console.log("Score transaction committed.");
   } catch (error) {
-    console.error("Score transaction failed: ", error);
+    console.error("Score transaction failed:", error);
     throw error;
   }
 };
 
-export const processDailyConsistency = async (userId) => {
-  if (!userId) return;
-  const userRef = doc(db, "users", userId);
-
-  try {
-    await runTransaction(db, async (transaction) => {
-      const snap = await transaction.get(userRef);
-      if (!snap.exists()) return; // Abort if ghost doc isn't initialized
-      const data = snap.data();
-
-      // FIX: Use centralized IST strings for BOTH today and yesterday
-      const { todayStr, monthStr, yesterdayStr } = getISTDateStrings();
-      const lastLogin = data.discotiveScore?.lastLoginDate;
-
-      if (lastLogin === todayStr) return;
-
-      let pointChange = 0;
-      let reason = "";
-      let newStreak = data.discotiveScore?.streak || 0;
-
-      if (!lastLogin) {
-        pointChange = 50;
-        reason = "OS Initialization";
-        newStreak = 1;
-      } else {
-        pointChange = 10;
-        reason = "Daily Execution";
-        if (lastLogin === yesterdayStr) {
-          newStreak += 1;
-        } else {
-          newStreak = 1;
-        }
-      }
-
-      // Safe against race conditions because it's inside the transaction lock
-      const currentScore = data.discotiveScore?.current || 0;
-      const targetScore = Math.max(0, currentScore + pointChange);
-      const actualChange = targetScore - currentScore;
-
-      const existingDailyScores = data.daily_scores || {};
-      const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-
-      const options = {
-        timeZone: "Asia/Kolkata",
-        year: "numeric",
-        month: "2-digit",
-        day: "2-digit",
-      };
-      const formatter = new Intl.DateTimeFormat("en-CA", options);
-      const thirtyDaysAgoStr = formatter.format(thirtyDaysAgo);
-
-      const updatedDailyScores = {
-        ...existingDailyScores,
-        [todayStr]: targetScore,
-      };
-
-      Object.keys(updatedDailyScores).forEach((dateStr) => {
-        if (dateStr < thirtyDaysAgoStr) delete updatedDailyScores[dateStr];
-      });
-
-      const payload = {
-        "discotiveScore.current": targetScore, // FIX: Use absolute targetScore, avoid increment() mixup
-        "discotiveScore.lastLoginDate": todayStr,
-        "discotiveScore.streak": newStreak,
-        "discotiveScore.lastAmount": actualChange,
-        "discotiveScore.lastReason": reason,
-        "discotiveScore.lastUpdatedAt": new Date().toISOString(),
-        consistency_log: arrayUnion(todayStr),
-        login_history: arrayUnion(todayStr),
-        daily_scores: updatedDailyScores,
-        [`monthly_scores.${monthStr}`]: targetScore,
-      };
-
-      if (lastLogin && lastLogin !== todayStr) {
-        payload["discotiveScore.last24h"] = currentScore;
-      }
-
-      transaction.update(userRef, payload);
-    });
-  } catch (error) {
-    console.error("Consistency Engine Failed:", error);
-  }
-};
-
-// Granular Roadmap Events
-export const awardTaskCompletion = (userId, isCompleted) =>
-  mutateScore(
-    userId,
-    isCompleted ? 5 : -15,
-    isCompleted ? "Task Executed" : "Task Reverted Penalty",
-  );
-export const awardNodeCompletion = (userId, nodeType) => {
-  let pts = 0;
-  let reason = "";
-  if (nodeType === "core") {
-    pts = 30;
-    reason = "Secured Core Milestone";
-  } else if (nodeType === "branch") {
-    pts = 15;
-    reason = "Secured Sub-Routine";
-  } else if (nodeType === "video") {
-    pts = 25;
-    reason = "Media Analyzed & Verified";
-  } else if (nodeType === "asset") {
-    pts = 20;
-    reason = "Vault Proof Verified";
-  }
-  mutateScore(userId, pts, reason);
-};
-
 /**
- * @function awardVaultVerification
- * @description Fires when an admin marks an asset as Verified.
- * Point value scales with strength rating.
- * @param {string} strength — "Weak" | "Medium" | "Strong"
+ * NOTE: processDailyConsistency is intentionally REMOVED.
+ * No daily login points per product decision.
+ * Call awardOnboardingComplete on first completion instead.
  */
-export const awardVaultVerification = (userId, strength) => {
-  const pts = strength === "Strong" ? 30 : strength === "Medium" ? 20 : 10;
+
+// ── Config-driven wrappers ────────────────────────────────────────────────────
+
+export const awardTaskCompletion = async (userId, isCompleted) => {
+  const config = await getConfig();
+  const pts = isCompleted ? config.taskCompleted : config.taskReverted;
   return mutateScore(
     userId,
     pts,
-    `Vault Asset Verified (${strength})`,
-    true, // silent — no sparkline entry, it's an admin action
+    isCompleted ? "Task Executed" : "Task Reverted Penalty",
   );
 };
 
-// --- NETWORK & ALLIANCE EVENTS ---
+export const awardNodeCompletion = async (userId, nodeType) => {
+  const config = await getConfig();
+  const pts =
+    nodeType === "core" ? config.nodeCoreCompleted : config.nodeBranchCompleted;
+  const reason =
+    nodeType === "core" ? "Secured Core Milestone" : "Secured Sub-Routine";
+  if (pts) mutateScore(userId, pts, reason);
+};
+
+export const awardVaultVerification = async (userId, strength) => {
+  const config = await getConfig();
+  const key =
+    strength === "Strong"
+      ? "vaultVerifiedStrong"
+      : strength === "Medium"
+        ? "vaultVerifiedMedium"
+        : "vaultVerifiedWeak";
+  const pts = config[key] ?? SCORE_DEFAULTS[key];
+  return mutateScore(userId, pts, `Vault Asset Verified (${strength})`, true);
+};
+
 export const awardAllianceAction = async (userId, actionType) => {
   if (!userId) return;
-
-  let points = 0;
-  let reason = "";
+  const config = await getConfig();
 
   if (actionType === "sent") {
     const { todayStr } = getISTDateStrings();
     const userRef = doc(db, "users", userId);
-
-    try {
-      // Security Gate: Verify and lock the rate limit via Transaction
-      const isAuthorized = await runTransaction(db, async (tx) => {
-        const snap = await tx.get(userRef);
-        if (!snap.exists()) return false;
-
-        const data = snap.data();
-        const dailyLimit = data.dailyAllianceSent || { count: 0, date: "" };
-
-        if (dailyLimit.date === todayStr && dailyLimit.count >= 5) {
-          return false; // Farm attempt blocked
-        }
-
-        const newCount =
-          dailyLimit.date === todayStr ? dailyLimit.count + 1 : 1;
-        tx.update(userRef, {
-          dailyAllianceSent: { count: newCount, date: todayStr },
-        });
-        return true;
+    const isAuthorized = await runTransaction(db, async (tx) => {
+      const snap = await tx.get(userRef);
+      if (!snap.exists()) return false;
+      const data = snap.data();
+      const dailyLimit = data.dailyAllianceSent || { count: 0, date: "" };
+      if (dailyLimit.date === todayStr && dailyLimit.count >= 5) return false;
+      const newCount = dailyLimit.date === todayStr ? dailyLimit.count + 1 : 1;
+      tx.update(userRef, {
+        dailyAllianceSent: { count: newCount, date: todayStr },
       });
-
-      if (!isAuthorized) {
-        console.warn(
-          `[ScoreEngine] Anti-farm rate limit enforced for user: ${userId}`,
-        );
-        return; // Terminate execution immediately
-      }
-
-      points = 5;
-      reason = "Alliance Request Sent";
-    } catch (error) {
-      console.error("[ScoreEngine] Rate limit transaction failed:", error);
-      return; // Fail closed: Do not award points if the validation DB call fails
-    }
+      return true;
+    });
+    if (!isAuthorized) return;
+    await mutateScore(
+      userId,
+      config.allianceRequestSent,
+      "Alliance Request Sent",
+    );
   } else if (actionType === "accepted") {
-    points = 15;
-    reason = "Alliance Forged";
+    await mutateScore(userId, config.allianceForged, "Alliance Forged");
   } else {
-    points = -5;
-    reason = "Alliance Action Reversed";
+    await mutateScore(userId, -5, "Alliance Action Reversed");
   }
-
-  // Await the mutation. Fire-and-forget causes race conditions in rapid UI interactions.
-  await mutateScore(userId, points, reason);
 };
 
-/**
- * @function awardOnboardingComplete
- * @description One-time bonus for completing the full 8-step onboarding.
- * Uses a transaction as a lock to guarantee no double-spends on concurrent requests.
- */
 export const awardOnboardingComplete = async (userId) => {
   if (!userId) return;
+  const config = await getConfig();
   try {
     const userRef = doc(db, "users", userId);
-
-    // 1. ATOMIC LOCK: Only returns true if this specific thread flips the flag
-    const isFirstCompletion = await runTransaction(db, async (tx) => {
+    const isFirst = await runTransaction(db, async (tx) => {
       const snap = await tx.get(userRef);
       if (!snap.exists() || snap.data()?.onboardingScoreAwarded) return false;
-
       tx.update(userRef, { onboardingScoreAwarded: true });
       return true;
     });
-
-    // 2. MUTATION: Safe to execute outside the lock because the lock prevents duplicates
-    if (isFirstCompletion) {
-      await mutateScore(userId, 50, "Onboarding Complete - OS Initialized");
-    }
+    if (isFirst)
+      await mutateScore(
+        userId,
+        config.onboardingBonus,
+        "Onboarding Complete - OS Initialized",
+      );
   } catch (err) {
     console.error("[ScoreEngine] Onboarding award failed:", err);
   }
 };
 
-/**
- * @function initGhostUserScore
- * @description Called when a Google/OAuth user lands on the platform without
- * completing onboarding. Wrapped in a transaction to prevent race-condition overwrites.
- */
+export const awardAppVerification = async (userId, appName) => {
+  const config = await getConfig();
+  return mutateScore(
+    userId,
+    config.appVerified,
+    `App Verified: ${appName}`,
+    true,
+  );
+};
+
+export const awardGithubRepoVerification = async (userId, repoName) => {
+  const config = await getConfig();
+  return mutateScore(
+    userId,
+    config.githubRepoVerified,
+    `GitHub Repo Verified: ${repoName}`,
+    true,
+  );
+};
+
 export const initGhostUserScore = async (userId, displayName, email) => {
   if (!userId) return;
   try {
     const userRef = doc(db, "users", userId);
     const { todayStr } = getISTDateStrings();
-
     await runTransaction(db, async (tx) => {
       const snap = await tx.get(userRef);
-
-      // CRITICAL: Atomic check. If Thread A creates it, Thread B aborts here.
       if (snap.exists()) return;
-
       tx.set(
         userRef,
         {
           "discotiveScore.current": 0,
           "discotiveScore.streak": 0,
-          "discotiveScore.lastLoginDate": todayStr,
           "discotiveScore.lastAmount": 0,
           "discotiveScore.lastReason": "Ghost Account — Onboarding Pending",
           "discotiveScore.lastUpdatedAt": new Date().toISOString(),

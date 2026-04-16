@@ -155,110 +155,6 @@ exports.razorpayWebhook = onRequest(
 );
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 3. DAILY INACTIVITY SWEEP (Scheduled, already v2)
-// ─────────────────────────────────────────────────────────────────────────────
-
-exports.dailyInactivitySweep = onSchedule(
-  {
-    schedule: "59 23 * * *",
-    timeZone: "Asia/Kolkata",
-    timeoutSeconds: 300,
-  },
-  async (event) => {
-    // --- 🔴 MAANG-GRADE FIX: FREEZE TIME ---
-    // If batch processing crosses midnight, dynamic Date() calls will corrupt the query.
-    // We bind the time strictly to the CRON's scheduled invocation.
-    const executionTime = event.scheduleTime
-      ? new Date(event.scheduleTime)
-      : new Date();
-
-    const options = {
-      timeZone: "Asia/Kolkata",
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    };
-    const formatter = new Intl.DateTimeFormat("en-CA", options);
-    const todayStr = formatter.format(executionTime);
-    const monthStr = todayStr.substring(0, 7);
-
-    const usersRef = db.collection("users");
-    // --- 🔴 MAANG-GRADE FIX: ILLEGAL FIRESTORE QUERY ---
-    // You cannot have inequalities on both lastLoginDate AND current score.
-    const snapshot = await usersRef
-      .where("discotiveScore.lastLoginDate", "<", todayStr)
-      .get();
-
-    if (snapshot.empty) {
-      console.log("[CRON] No inactive users found.");
-      return;
-    }
-
-    // Filter the > 0 constraint in memory
-    const validDocs = snapshot.docs.filter(
-      (doc) => (doc.data().discotiveScore?.current || 0) > 0,
-    );
-
-    if (validDocs.length === 0) return;
-
-    console.log(`[CRON] Penalty sweep for ${snapshot.size} users.`);
-
-    const USERS_PER_BATCH = 250;
-    // --- 🔴 MAANG-GRADE FIX: STAGNANT ECONOMY ---
-    // Penalty must outweigh the standard +10 login bonus to enforce consistency.
-    const PENALTY_AMOUNT = 15;
-
-    const batches = [];
-    let currentBatch = db.batch();
-    let userCount = 0;
-
-    snapshot.docs.forEach((userDoc) => {
-      const data = userDoc.data();
-      const currentScore = data.discotiveScore?.current || 0;
-      const newScore = Math.max(0, currentScore - PENALTY_AMOUNT);
-      const actualChange = newScore - currentScore;
-      if (actualChange === 0) return;
-
-      const expireAt = new Date(executionTime.getTime() + 24 * 60 * 60 * 1000);
-
-      currentBatch.update(userDoc.ref, {
-        "discotiveScore.current": newScore,
-        "discotiveScore.streak": 0, // Wipe the streak
-        "discotiveScore.lastAmount": actualChange,
-        "discotiveScore.lastReason": "System Penalty - Inconsistency",
-        "discotiveScore.lastUpdatedAt": FieldValue.serverTimestamp(),
-        [`daily_scores.${todayStr}`]: newScore,
-        [`monthly_scores.${monthStr}`]: newScore,
-      });
-
-      const logRef = userDoc.ref.collection("score_log").doc();
-      currentBatch.set(logRef, {
-        score: newScore,
-        change: actualChange,
-        rawAttempt: -PENALTY_AMOUNT,
-        reason: "System Penalty - Inconsistency",
-        date: executionTime.toISOString(),
-        timestamp: FieldValue.serverTimestamp(),
-        expireAt: admin.firestore.Timestamp.fromDate(expireAt),
-      });
-
-      userCount++;
-      if (userCount === USERS_PER_BATCH) {
-        batches.push(currentBatch.commit());
-        currentBatch = db.batch();
-        userCount = 0;
-      }
-    });
-
-    if (userCount > 0) batches.push(currentBatch.commit());
-    await Promise.all(batches);
-    console.log(
-      `[CRON] Inactivity sweep complete. ${snapshot.size} users penalised.`,
-    );
-  },
-);
-
-// ─────────────────────────────────────────────────────────────────────────────
 // 4. SUBMIT NODE VERIFICATION (Callable → V2)
 //    BREAKING CHANGE: handler now receives (request) not (data, context)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1786,4 +1682,35 @@ exports.acceptBountyAnswer = onCall(async (request) => {
   });
 
   return { success: true };
+});
+
+exports.getScoringConfig = onCall(async (request) => {
+  // Public read — any authenticated user can fetch scoring config
+  if (!request.auth) {
+    throw new HttpsError("unauthenticated", "Login required.");
+  }
+  try {
+    const configDoc = await db.collection("system").doc("scoring_config").get();
+    if (!configDoc.exists) {
+      // Return defaults
+      return {
+        vaultVerifiedStrong: 30,
+        vaultVerifiedMedium: 20,
+        vaultVerifiedWeak: 10,
+        allianceForged: 15,
+        allianceRequestSent: 5,
+        taskCompleted: 5,
+        taskReverted: -15,
+        nodeCoreCompleted: 30,
+        nodeBranchCompleted: 15,
+        videoWatchFull: 10,
+        appVerified: 25,
+        githubRepoVerified: 25,
+        onboardingBonus: 50,
+      };
+    }
+    return configDoc.data();
+  } catch (err) {
+    throw new HttpsError("internal", "Failed to fetch scoring config.");
+  }
 });

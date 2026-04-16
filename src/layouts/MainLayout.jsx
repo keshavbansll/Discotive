@@ -62,7 +62,6 @@ import {
 } from "lucide-react";
 
 import { cn } from "../lib/cn";
-import { processDailyConsistency } from "../lib/scoreEngine";
 import FeedbackModal from "../components/FeedbackModal";
 
 import SupportTicketModal from "../components/SupportTicketModal";
@@ -233,35 +232,10 @@ const MainLayout = () => {
     if (!loading && !userData) {
       navigate("/auth?step=2");
     }
-  }, [loading, userData, navigate]);
+  }, [loading, userData, navigate]); // Per architectural mandate, daily login points have been removed.
+  // Boot sequence no longer triggers processDailyConsistency.
 
-  // ── CORE OS BOOT: Daily Consistency Check ────────────────────────────────
-  useEffect(() => {
-    if (!userData?.uid) return;
-
-    // 1. MAANG-GRADE: Match the backend's exact timezone (IST) to prevent 5:30 AM loop bugs
-    const options = {
-      timeZone: "Asia/Kolkata",
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-    };
-    const todayStr = new Intl.DateTimeFormat("en-CA", options).format(
-      new Date(),
-    );
-
-    // 2. PRIMARY GUARD: If Firestore already registered today's login, abort immediately.
-    if (userData.discotiveScore?.lastLoginDate === todayStr) return;
-
-    // 3. SECONDARY GUARD: Session cache to prevent race conditions during React remounts
-    const cacheKey = `sys_boot_${userData.uid}_${todayStr}`;
-    if (sessionStorage.getItem(cacheKey)) return;
-
-    // Lock the cache and fire the transaction
-    sessionStorage.setItem(cacheKey, "true");
-    processDailyConsistency(userData.uid);
-  }, [userData?.uid, userData?.discotiveScore?.lastLoginDate]);
-
+  // ── CORE OS BOOT: Daily Consistency Check [DEPRECATED] ───────────────────
   // --- STRICT CLICK-OUTSIDE REFS ---
   const profileMenuRef = useRef(null);
   const notifMenuRef = useRef(null);

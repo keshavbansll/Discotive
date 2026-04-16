@@ -1,11 +1,7 @@
 /**
- * @fileoverview Discotive OS — Admin Command Center
- * @module Admin/Dashboard
- * @description
- * Platform analytics hub for Discotive administrators.
- * All Firestore reads use getCountFromServer (for aggregates) or getDocs with
- * explicit limits to stay well within the free tier budget.
- * No onSnapshot listeners. Data is fetched once on mount with a manual refresh option.
+ * @fileoverview Discotive OS — Admin Command Center v3.0
+ * @description Complete MAANG-grade rewrite. Sidebar nav, dark cinematic theme,
+ * modular panels, full user management, score control, connector approvals.
  */
 
 import React, {
@@ -14,10 +10,11 @@ import React, {
   useCallback,
   useRef,
   useMemo,
+  memo,
 } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, Outlet, useLocation } from "react-router-dom";
 import {
   collection,
   query,
@@ -30,12 +27,16 @@ import {
   serverTimestamp,
   doc,
   updateDoc,
+  deleteDoc,
+  getDoc,
   arrayUnion,
   deleteField,
-  deleteDoc,
+  setDoc,
 } from "firebase/firestore";
 import { db, auth } from "../../firebase";
+import { deleteUser } from "firebase/auth";
 import {
+  LayoutDashboard,
   Users,
   Crown,
   Zap,
@@ -43,24 +44,18 @@ import {
   ShieldCheck,
   ShieldAlert,
   Activity,
-  MessageSquare,
   Ticket,
   AlertTriangle,
-  ArrowUpRight,
   RefreshCw,
   Clock,
   UserPlus,
-  ChevronRight,
-  ChevronDown,
   Award,
   FileText,
-  Link as LinkIcon,
   Code2,
   Briefcase,
-  BookOpen,
+  Link as LinkIcon,
   TrendingUp,
   Shield,
-  LayoutDashboard,
   Monitor,
   Video as VideoIcon,
   PlusCircle,
@@ -71,2621 +66,3155 @@ import {
   Trash2,
   Pencil,
   Check,
+  ChevronDown,
+  ChevronRight,
+  Settings,
+  LogOut,
+  Menu,
+  BarChart3,
+  MessageSquare,
+  Flag,
+  Star,
+  Globe,
+  Youtube,
+  Github,
+  Loader2,
+  ArrowUpRight,
+  Eye,
+  Hash,
+  Layers,
+  Sliders,
+  BookOpen,
+  Flame,
+  Target,
+  DollarSign,
+  Play,
+  ThumbsUp,
+  ThumbsDown,
+  Lock,
+  Unlock,
+  CheckCircle,
+  XCircle,
+  Bell,
+  Sidebar,
+  ChevronLeft,
 } from "lucide-react";
-import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from "recharts";
 import { cn } from "../../lib/cn";
-import EfficiencyMeterWidget from "./EfficiencyMeterWidget";
-import AppProficiencyWidget from "./AppProficiencyWidget";
-import {
-  collection as fsCollection,
-  getDocs as fsGetDocs,
-  query as fsQuery,
-  where as fsWhere,
-  deleteDoc as fsDeleteDoc,
-  doc as fsDoc,
-  updateDoc as fsUpdateDoc,
-  addDoc as fsAddDoc,
-  serverTimestamp as fsServerTimestamp,
-  orderBy as fsOrderBy,
-  limit as fsLimit,
-} from "firebase/firestore";
-import { deleteUser as fbDeleteUser } from "firebase/auth";
 
-// ============================================================================
-// TAXONOMY DICTIONARIES (Synced from Auth)
-// ============================================================================
-
-const MACRO_DOMAINS = [
-  "Engineering",
-  "Design",
-  "Filmmaking",
-  "Business/Operations",
-  "Marketing",
-  "Sales",
-  "Science",
-  "Healthcare/Medical",
-  "Arts/Humanities",
-  "Legal",
-  "Finance/Accounting",
-  "Content Creation",
-  "Education/Academia",
-  "Architecture",
-  "Government/Policy",
-].sort();
-
-const MICRO_NICHES = [
-  "Software Engineer",
-  "Frontend Developer",
-  "Backend Developer",
-  "Full-Stack Developer",
-  "AI/ML Engineer",
-  "Data Scientist",
-  "Data Analyst",
-  "Data Engineer",
-  "DevOps Engineer",
-  "Cloud Architect",
-  "Blockchain Developer",
-  "Cybersecurity Analyst",
-  "Game Developer",
-  "UI/UX Designer",
-  "Product Designer",
-  "Graphic Designer",
-  "3D Modeler",
-  "Animator",
-  "Director",
-  "Producer",
-  "Cinematographer",
-  "Video Editor",
-  "Screenwriter",
-  "Actor",
-  "Founder / CEO",
-  "COO",
-  "CTO",
-  "Product Manager",
-  "Project Manager",
-  "Consultant",
-  "Venture Capitalist",
-  "Investment Banker",
-  "Financial Analyst",
-  "Accountant",
-  "Growth Marketer",
-  "Digital Marketer",
-  "SEO Specialist",
-  "Social Media Manager",
-  "B2B Sales",
-  "Account Executive",
-  "Copywriter",
-  "Journalist",
-  "Public Relations",
-  "Physician",
-  "Surgeon",
-  "Psychologist",
-  "Researcher",
-  "Professor",
-  "Corporate Lawyer",
-].sort();
-
-const RAW_SKILLS = [
-  "Python",
-  "JavaScript",
-  "TypeScript",
-  "React.js",
-  "Next.js",
-  "Vue.js",
-  "Node.js",
-  "Express.js",
-  "Django",
-  "Flask",
-  "Spring Boot",
-  "Java",
-  "C++",
-  "C#",
-  "C",
-  "Go",
-  "Rust",
-  "Ruby",
-  "Swift",
-  "Kotlin",
-  "SQL",
-  "PostgreSQL",
-  "MySQL",
-  "MongoDB",
-  "Redis",
-  "Firebase",
-  "AWS",
-  "Google Cloud (GCP)",
-  "Microsoft Azure",
-  "Docker",
-  "Kubernetes",
-  "Git",
-  "Machine Learning",
-  "Deep Learning",
-  "TensorFlow",
-  "PyTorch",
-  "Computer Vision",
-  "NLP",
-  "Pandas",
-  "Tableau",
-  "PowerBI",
-  "Blockchain",
-  "Solidity",
-  "Figma",
-  "Adobe XD",
-  "Adobe Photoshop",
-  "Adobe Illustrator",
-  "Adobe Premiere Pro",
-  "Adobe After Effects",
-  "DaVinci Resolve",
-  "Blender",
-  "Unity",
-  "Unreal Engine",
-  "SEO",
-  "SEM",
-  "Google Analytics",
-  "Facebook Ads",
-  "Copywriting",
-  "B2B Sales",
-  "Cold Calling",
-  "Public Speaking",
-  "Financial Modeling",
-  "Project Management",
-  "Agile",
-].sort();
-
-// ============================================================================
-// HELPERS & CUSTOM COMPONENTS
-// ============================================================================
-
-const getAssetCategoryIcon = (cat) => {
-  const map = {
-    Certificate: <Award className="w-3.5 h-3.5" />,
-    Resume: <FileText className="w-3.5 h-3.5" />,
-    Project: <Code2 className="w-3.5 h-3.5" />,
-    Publication: <BookOpen className="w-3.5 h-3.5" />,
-    Employment: <Briefcase className="w-3.5 h-3.5" />,
-    Link: <LinkIcon className="w-3.5 h-3.5" />,
-  };
-  return map[cat] || <Database className="w-3.5 h-3.5" />;
+// ── Design tokens ─────────────────────────────────────────────────────────────
+const G = {
+  base: "#BFA264",
+  bright: "#D4AF78",
+  deep: "#8B7240",
+  dim: "rgba(191,162,100,0.08)",
+  border: "rgba(191,162,100,0.25)",
+};
+const V = {
+  bg: "#030303",
+  depth: "#0A0A0A",
+  surface: "#0F0F0F",
+  elevated: "#141414",
+};
+const T = {
+  primary: "#F5F0E8",
+  secondary: "rgba(245,240,232,0.60)",
+  dim: "rgba(245,240,232,0.28)",
 };
 
-const timeAgo = (isoDate) => {
-  if (!isoDate) return "—";
-  const diff = Date.now() - new Date(isoDate).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 60) return `${mins}m ago`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `${hrs}h ago`;
-  return `${Math.floor(hrs / 24)}d ago`;
+// ── Helpers ───────────────────────────────────────────────────────────────────
+const timeAgo = (iso) => {
+  if (!iso) return "—";
+  const diff = Date.now() - new Date(iso?.toDate?.() || iso).getTime();
+  const m = Math.floor(diff / 60000);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  return `${Math.floor(h / 24)}d ago`;
 };
 
-const extractYouTubeId = (url) => {
-  if (!url) return null;
-  const match = url.match(
-    /(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=|watch\?.+&v=))([\w-]{11})/i,
-  );
-  return match ? match[1] : url;
-};
+// ── NAV CONFIG ────────────────────────────────────────────────────────────────
+const NAV_SECTIONS = [
+  {
+    label: "Overview",
+    items: [{ key: "overview", label: "Dashboard", icon: LayoutDashboard }],
+  },
+  {
+    label: "Platform",
+    items: [
+      { key: "users", label: "User Management", icon: Users },
+      { key: "vault", label: "Vault Verification", icon: Shield },
+      { key: "connectors", label: "Connector Approvals", icon: LinkIcon },
+      { key: "scoring", label: "Scoring Engine", icon: Zap },
+    ],
+  },
+  {
+    label: "Content",
+    items: [
+      { key: "learn", label: "Learn Database", icon: BookOpen },
+      { key: "opportunities", label: "Opportunities", icon: Target },
+    ],
+  },
+  {
+    label: "Moderation",
+    items: [
+      { key: "tickets", label: "Support Tickets", icon: Ticket },
+      { key: "reports", label: "Reports", icon: Flag },
+      { key: "feedback", label: "Feedback", icon: MessageSquare },
+    ],
+  },
+];
 
-const StatCard = ({ label, value, icon: Icon, color, subtext, delay = 0 }) => (
-  <motion.div
-    initial={{ opacity: 0, y: 20 }}
-    animate={{ opacity: 1, y: 0 }}
-    transition={{ delay, duration: 0.5, ease: [0.22, 1, 0.36, 1] }}
-    className="bg-[#0a0a0c] border border-white/[0.05] rounded-[1.5rem] p-6 flex flex-col justify-between min-h-[120px]"
-  >
-    <div className="flex items-center justify-between mb-3">
-      <span className="text-[9px] font-bold text-white/40 uppercase tracking-widest">
-        {label}
-      </span>
-      <div
-        className={cn(
-          "w-8 h-8 rounded-xl flex items-center justify-center",
-          `bg-current/10`,
+// ══════════════════════════════════════════════════════════════════════════════
+// SIDEBAR
+// ══════════════════════════════════════════════════════════════════════════════
+const AdminSidebar = memo(
+  ({ activePanel, setActivePanel, collapsed, setCollapsed, stats }) => {
+    const allItems = NAV_SECTIONS.flatMap((s) => s.items);
+    const badgeMap = {
+      vault: stats.pendingVault,
+      tickets: stats.openTickets,
+      reports: stats.pendingReports,
+      connectors: stats.pendingConnectors,
+    };
+
+    return (
+      <motion.aside
+        animate={{ width: collapsed ? 64 : 240 }}
+        transition={{ type: "spring", damping: 28, stiffness: 300 }}
+        className="h-screen flex flex-col overflow-hidden shrink-0 border-r"
+        style={{ background: V.depth, borderColor: "rgba(255,255,255,0.05)" }}
+      >
+        {/* Logo */}
+        <div
+          className="h-16 flex items-center px-4 border-b shrink-0"
+          style={{ borderColor: "rgba(255,255,255,0.05)" }}
+        >
+          <button
+            onClick={() => setCollapsed(!collapsed)}
+            className="w-8 h-8 rounded-lg flex items-center justify-center mr-3 shrink-0 hover:bg-white/5 transition-colors"
+          >
+            {collapsed ? (
+              <ChevronRight className="w-4 h-4" style={{ color: T.dim }} />
+            ) : (
+              <ChevronLeft className="w-4 h-4" style={{ color: T.dim }} />
+            )}
+          </button>
+          {!collapsed && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              className="flex items-center gap-2"
+            >
+              <span
+                className="text-xs font-black tracking-[0.2em] uppercase"
+                style={{ color: G.bright }}
+              >
+                DISCOTIVE
+              </span>
+              <span
+                className="text-[8px] px-1.5 py-0.5 rounded font-black uppercase tracking-widest"
+                style={{
+                  background: "rgba(239,68,68,0.15)",
+                  color: "#f87171",
+                  border: "1px solid rgba(239,68,68,0.25)",
+                }}
+              >
+                ADMIN
+              </span>
+            </motion.div>
+          )}
+        </div>
+
+        {/* Nav */}
+        <div className="flex-1 overflow-y-auto py-3 custom-scrollbar">
+          {NAV_SECTIONS.map((section) => (
+            <div key={section.label} className="mb-4">
+              {!collapsed && (
+                <p className="text-[8px] font-black text-white/20 uppercase tracking-[0.2em] px-4 mb-1.5">
+                  {section.label}
+                </p>
+              )}
+              {section.items.map(({ key, label, icon: Icon }) => {
+                const active = activePanel === key;
+                const badge = badgeMap[key];
+                return (
+                  <button
+                    key={key}
+                    onClick={() => setActivePanel(key)}
+                    className={cn(
+                      "w-full flex items-center gap-3 px-4 py-2.5 transition-all relative group",
+                      active
+                        ? "text-white"
+                        : "text-white/40 hover:text-white/70",
+                    )}
+                    title={collapsed ? label : undefined}
+                  >
+                    {active && (
+                      <motion.div
+                        layoutId="activeNavBg"
+                        className="absolute inset-0 rounded-lg mx-2"
+                        style={{
+                          background: "rgba(255,255,255,0.06)",
+                          border: "1px solid rgba(255,255,255,0.08)",
+                        }}
+                        transition={{
+                          type: "spring",
+                          damping: 26,
+                          stiffness: 300,
+                        }}
+                      />
+                    )}
+                    <div className="relative z-10 shrink-0">
+                      <Icon
+                        className="w-4 h-4"
+                        style={{ color: active ? G.bright : "currentColor" }}
+                      />
+                      {collapsed && badge > 0 && (
+                        <div className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-red-500 flex items-center justify-center">
+                          <span className="text-[6px] font-black text-white">
+                            {badge > 9 ? "9+" : badge}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                    {!collapsed && (
+                      <div className="relative z-10 flex items-center justify-between flex-1 min-w-0">
+                        <span className="text-[11px] font-bold truncate">
+                          {label}
+                        </span>
+                        {badge > 0 && (
+                          <span
+                            className="text-[8px] font-black px-1.5 py-0.5 rounded-full shrink-0 ml-2"
+                            style={{
+                              background: "rgba(239,68,68,0.15)",
+                              color: "#f87171",
+                            }}
+                          >
+                            {badge}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+
+        {/* User */}
+        <div
+          className="p-3 border-t shrink-0"
+          style={{ borderColor: "rgba(255,255,255,0.05)" }}
+        >
+          {!collapsed ? (
+            <div className="flex items-center gap-2.5 px-2 py-2">
+              <div className="w-7 h-7 rounded-full bg-red-500/20 border border-red-500/30 flex items-center justify-center shrink-0">
+                <Shield className="w-3.5 h-3.5 text-red-400" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-[10px] font-bold text-white/60 truncate">
+                  {auth.currentUser?.email}
+                </p>
+                <p className="text-[8px] text-red-400 font-black uppercase tracking-widest">
+                  Sector Omega
+                </p>
+              </div>
+              <Link
+                to="/app"
+                className="text-white/20 hover:text-white/60 transition-colors"
+                title="Back to App"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+              </Link>
+            </div>
+          ) : (
+            <div className="flex justify-center">
+              <div className="w-7 h-7 rounded-full bg-red-500/20 border border-red-500/30 flex items-center justify-center">
+                <Shield className="w-3.5 h-3.5 text-red-400" />
+              </div>
+            </div>
+          )}
+        </div>
+      </motion.aside>
+    );
+  },
+);
+
+// ══════════════════════════════════════════════════════════════════════════════
+// STAT CARD
+// ══════════════════════════════════════════════════════════════════════════════
+const StatCard = memo(
+  ({ label, value, icon: Icon, color = T.primary, sub, trend }) => (
+    <div
+      className="rounded-2xl p-5 flex flex-col gap-3"
+      style={{
+        background: V.surface,
+        border: "1px solid rgba(255,255,255,0.05)",
+      }}
+    >
+      <div className="flex items-center justify-between">
+        <span
+          className="text-[9px] font-black uppercase tracking-[0.15em]"
+          style={{ color: T.dim }}
+        >
+          {label}
+        </span>
+        <Icon className="w-4 h-4" style={{ color }} />
+      </div>
+      <div>
+        <p className="text-3xl font-black font-mono" style={{ color }}>
+          {value ?? "—"}
+        </p>
+        {sub && (
+          <p className="text-[9px] mt-1" style={{ color: T.dim }}>
+            {sub}
+          </p>
         )}
-      >
-        <Icon className={cn("w-4 h-4", color)} />
       </div>
-    </div>
-    <div>
-      <div
-        className={cn("text-4xl font-black font-mono tracking-tight", color)}
-      >
-        {value}
-      </div>
-      {subtext && (
-        <p className="text-[9px] text-white/25 mt-1 font-medium">{subtext}</p>
+      {trend !== undefined && (
+        <div className="flex items-center gap-1">
+          <TrendingUp
+            className="w-3 h-3"
+            style={{ color: trend >= 0 ? "#4ade80" : "#f87171" }}
+          />
+          <span
+            className="text-[9px] font-bold"
+            style={{ color: trend >= 0 ? "#4ade80" : "#f87171" }}
+          >
+            {trend >= 0 ? "+" : ""}
+            {trend} this week
+          </span>
+        </div>
       )}
     </div>
-  </motion.div>
+  ),
 );
 
-const CustomPieTooltip = ({ active, payload, totalUsers }) => {
-  if (active && payload && payload.length) {
-    const d = payload[0];
-    return (
-      <div className="bg-[#0a0a0c] border border-white/[0.08] rounded-xl px-4 py-3 shadow-2xl backdrop-blur-xl">
-        <p className="text-[9px] font-black text-white/40 uppercase tracking-widest mb-1">
-          {d.name}
-        </p>
-        <p
-          className="text-2xl font-black font-mono"
-          style={{ color: d.payload.color }}
-        >
-          {d.value}
-        </p>
-        <p className="text-[9px] text-white/30 mt-0.5">
-          {totalUsers > 0
-            ? `${((d.value / totalUsers) * 100).toFixed(1)}% of all operators`
-            : "0% of all operators"}
-        </p>
-      </div>
-    );
-  }
-  return null;
-};
-
-const EmptyState = ({ icon: Icon, message }) => (
-  <div className="flex flex-col items-center justify-center py-8 text-center h-full">
-    <Icon className="w-7 h-7 text-white/10 mb-3" />
-    <p className="text-[10px] font-bold text-white/20 uppercase tracking-widest">
-      {message}
-    </p>
-  </div>
-);
-
-// --- Dropdowns for Modals ---
-const SearchableSelect = ({
-  options,
-  value,
-  onChange,
-  placeholder,
-  allowCustom = true,
-}) => {
-  const [isOpen, setIsOpen] = useState(false);
-  const [query, setQuery] = useState(value || "");
-  const [prevValue, setPrevValue] = useState(value); // Track previous value
-  const wrapperRef = useRef(null);
-
-  // Sync state during render instead of inside an effect
-  if (value !== prevValue) {
-    setPrevValue(value);
-    setQuery(value || "");
-  }
-  useEffect(() => {
-    const handler = (e) => {
-      if (wrapperRef.current && !wrapperRef.current.contains(e.target))
-        setIsOpen(false);
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, []);
-
-  const filtered = options.filter((o) =>
-    o.toLowerCase().includes(query.toLowerCase()),
-  );
-
+// ══════════════════════════════════════════════════════════════════════════════
+// OVERVIEW PANEL
+// ══════════════════════════════════════════════════════════════════════════════
+const OverviewPanel = memo(({ stats, recentUsers, refreshing }) => {
   return (
-    <div ref={wrapperRef} className="relative w-full">
-      <div className="flex items-center w-full bg-[#111] border border-white/[0.05] rounded-xl px-4 py-2 text-xs focus-within:border-fuchsia-500/50 transition-colors">
-        <input
-          type="text"
-          value={query}
-          onChange={(e) => {
-            setQuery(e.target.value);
-            setIsOpen(true);
-            if (allowCustom) onChange(e.target.value);
-          }}
-          onFocus={() => setIsOpen(true)}
-          placeholder={placeholder}
-          className="w-full bg-transparent border-none outline-none text-white placeholder-white/20"
+    <div className="space-y-6">
+      {/* Stats grid */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <StatCard
+          label="Total Operators"
+          value={stats.total}
+          icon={Users}
+          color={T.primary}
+          sub="All registered users"
+          trend={stats.newThisWeek}
         />
-        <ChevronDown className="w-4 h-4 text-white/30" />
+        <StatCard
+          label="Pro Tier"
+          value={stats.pro}
+          icon={Crown}
+          color={G.bright}
+          sub={`${stats.total > 0 ? ((stats.pro / stats.total) * 100).toFixed(1) : 0}% of network`}
+        />
+        <StatCard
+          label="Vault Pending"
+          value={stats.pendingVault}
+          icon={Clock}
+          color="#f59e0b"
+          sub="Assets awaiting review"
+        />
+        <StatCard
+          label="Open Tickets"
+          value={stats.openTickets}
+          icon={Ticket}
+          color="#38bdf8"
+          sub="Support requests"
+        />
       </div>
-      <AnimatePresence>
-        {isOpen && (
-          <motion.div
-            initial={{ opacity: 0, y: -5 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -5 }}
-            className="absolute top-[calc(100%+4px)] left-0 w-full bg-[#1a1a1a] border border-[#333] rounded-xl shadow-2xl z-50 max-h-48 overflow-y-auto custom-scrollbar"
+
+      {/* Activity breakdown */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        {/* Distribution */}
+        <div
+          className="rounded-2xl p-5"
+          style={{
+            background: V.surface,
+            border: "1px solid rgba(255,255,255,0.05)",
+          }}
+        >
+          <h3
+            className="text-[10px] font-black uppercase tracking-widest mb-4"
+            style={{ color: T.dim }}
           >
-            {filtered.map((opt) => (
-              <div
-                key={opt}
-                onClick={() => {
-                  onChange(opt);
-                  setIsOpen(false);
-                }}
-                className="px-4 py-2.5 text-xs hover:bg-[#222] cursor-pointer text-[#ccc] hover:text-white truncate"
-              >
-                {opt}
-              </div>
-            ))}
-            {filtered.length === 0 && allowCustom && query.trim() && (
-              <div
-                onClick={() => {
-                  onChange(query);
-                  setIsOpen(false);
-                }}
-                className="px-4 py-2.5 text-xs hover:bg-[#222] cursor-pointer text-emerald-400 font-bold border-t border-[#333]"
-              >
-                + Add "{query}"
-              </div>
-            )}
-          </motion.div>
-        )}
-      </AnimatePresence>
+            Tier Distribution
+          </h3>
+          <div className="space-y-3">
+            {[
+              {
+                label: "Essential",
+                value: stats.total - stats.pro,
+                color: "rgba(255,255,255,0.2)",
+              },
+              { label: "Pro", value: stats.pro, color: G.bright },
+            ].map(({ label, value, color }) => {
+              const pct = stats.total > 0 ? (value / stats.total) * 100 : 0;
+              return (
+                <div key={label}>
+                  <div className="flex justify-between mb-1.5">
+                    <span
+                      className="text-xs font-bold"
+                      style={{ color: T.secondary }}
+                    >
+                      {label}
+                    </span>
+                    <span
+                      className="text-xs font-black font-mono"
+                      style={{ color }}
+                    >
+                      {value}
+                    </span>
+                  </div>
+                  <div
+                    className="h-1.5 rounded-full overflow-hidden"
+                    style={{ background: "rgba(255,255,255,0.06)" }}
+                  >
+                    <motion.div
+                      className="h-full rounded-full"
+                      initial={{ width: 0 }}
+                      animate={{ width: `${pct}%` }}
+                      transition={{ duration: 1, ease: "easeOut" }}
+                      style={{ background: color }}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <div
+            className="mt-5 pt-4 border-t flex items-center justify-between"
+            style={{ borderColor: "rgba(255,255,255,0.05)" }}
+          >
+            <span className="text-[9px]" style={{ color: T.dim }}>
+              Total Network
+            </span>
+            <span
+              className="text-lg font-black font-mono"
+              style={{ color: T.primary }}
+            >
+              {stats.total}
+            </span>
+          </div>
+        </div>
+
+        {/* Recent users */}
+        <div
+          className="lg:col-span-2 rounded-2xl p-5"
+          style={{
+            background: V.surface,
+            border: "1px solid rgba(255,255,255,0.05)",
+          }}
+        >
+          <h3
+            className="text-[10px] font-black uppercase tracking-widest mb-4"
+            style={{ color: T.dim }}
+          >
+            Recent Registrations
+          </h3>
+          {refreshing ? (
+            <div className="space-y-2 animate-pulse">
+              {[1, 2, 3, 4].map((i) => (
+                <div
+                  key={i}
+                  className="h-12 rounded-xl"
+                  style={{ background: "rgba(255,255,255,0.03)" }}
+                />
+              ))}
+            </div>
+          ) : recentUsers.length === 0 ? (
+            <p className="text-xs text-center py-8" style={{ color: T.dim }}>
+              No recent registrations
+            </p>
+          ) : (
+            <div className="space-y-1.5">
+              {recentUsers.slice(0, 6).map((user) => {
+                const name =
+                  `${user.identity?.firstName || ""} ${user.identity?.lastName || ""}`.trim() ||
+                  user.identity?.username ||
+                  "Unknown";
+                return (
+                  <div
+                    key={user.id}
+                    className="flex items-center gap-3 p-2.5 rounded-xl hover:bg-white/[0.02] transition-colors"
+                  >
+                    <div
+                      className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-black shrink-0"
+                      style={{
+                        background: "rgba(255,255,255,0.06)",
+                        color: T.secondary,
+                      }}
+                    >
+                      {name.charAt(0).toUpperCase()}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p
+                        className="text-sm font-bold truncate"
+                        style={{ color: T.primary }}
+                      >
+                        {name}
+                      </p>
+                      <p
+                        className="text-[9px] font-mono truncate"
+                        style={{ color: T.dim }}
+                      >
+                        @{user.identity?.username} ·{" "}
+                        {user.identity?.domain || "—"}
+                      </p>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <p
+                        className={cn(
+                          "text-[8px] font-black uppercase tracking-widest",
+                          user.tier === "PRO"
+                            ? "text-amber-400"
+                            : "text-white/20",
+                        )}
+                      >
+                        {user.tier || "ESSENTIAL"}
+                      </p>
+                      <p
+                        className="text-[9px] font-mono"
+                        style={{ color: T.dim }}
+                      >
+                        {timeAgo(user.createdAt)}
+                      </p>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Quick action row */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        {[
+          {
+            label: "Connector Approvals",
+            value: stats.pendingConnectors,
+            color: "#a855f7",
+            icon: LinkIcon,
+          },
+          {
+            label: "Pending Reports",
+            value: stats.pendingReports,
+            color: "#f97316",
+            icon: Flag,
+          },
+          {
+            label: "YouTube Channels",
+            value: stats.pendingYT,
+            color: "#ef4444",
+            icon: Youtube,
+          },
+          {
+            label: "GitHub Repos",
+            value: stats.pendingGithub,
+            color: "#e6edf3",
+            icon: Github,
+          },
+        ].map(({ label, value, color, icon: Icon }) => (
+          <div
+            key={label}
+            className="rounded-xl p-4 flex items-center gap-3"
+            style={{
+              background: V.elevated,
+              border: "1px solid rgba(255,255,255,0.04)",
+            }}
+          >
+            <div
+              className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
+              style={{
+                background: `${color}15`,
+                border: `1px solid ${color}25`,
+              }}
+            >
+              <Icon className="w-4 h-4" style={{ color }} />
+            </div>
+            <div>
+              <p className="text-xl font-black font-mono" style={{ color }}>
+                {value ?? 0}
+              </p>
+              <p className="text-[9px]" style={{ color: T.dim }}>
+                {label}
+              </p>
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
-};
+});
 
-const MultiSelect = ({
-  options,
-  selected,
-  onChange,
-  placeholder,
-  allowCustom = true,
-}) => {
-  const [isOpen, setIsOpen] = useState(false);
-  const [query, setQuery] = useState("");
-  const wrapperRef = useRef(null);
+// ══════════════════════════════════════════════════════════════════════════════
+// USERS PANEL
+// ══════════════════════════════════════════════════════════════════════════════
+const UsersPanel = memo(() => {
+  const [searchQ, setSearchQ] = useState("");
+  const [results, setResults] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [deleting, setDeleting] = useState(null);
 
-  useEffect(() => {
-    const handler = (e) => {
-      if (wrapperRef.current && !wrapperRef.current.contains(e.target))
-        setIsOpen(false);
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, []);
-
-  const toggleOpt = (val) => {
-    if (selected.includes(val)) onChange(selected.filter((i) => i !== val));
-    else onChange([...selected, val]);
-    setQuery("");
+  const handleSearch = async () => {
+    if (!searchQ.trim()) return;
+    setLoading(true);
+    try {
+      const [byUsername, byEmail] = await Promise.all([
+        getDocs(
+          query(
+            collection(db, "users"),
+            where("identity.username", "==", searchQ.trim()),
+            limit(5),
+          ),
+        ),
+        getDocs(
+          query(
+            collection(db, "users"),
+            where("email", "==", searchQ.trim()),
+            limit(5),
+          ),
+        ),
+      ]);
+      const seen = new Set();
+      const combined = [...byUsername.docs, ...byEmail.docs].filter((d) => {
+        if (seen.has(d.id)) return false;
+        seen.add(d.id);
+        return true;
+      });
+      setResults(combined.map((d) => ({ id: d.id, ...d.data() })));
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const filtered = options.filter(
-    (o) =>
-      o.toLowerCase().includes(query.toLowerCase()) && !selected.includes(o),
-  );
+  const handleDelete = async (user) => {
+    const username = user.identity?.username || user.id;
+    if (
+      !window.confirm(
+        `PERMANENT DELETE: Wipe @${username} from Firestore? This cannot be undone.`,
+      )
+    )
+      return;
+    const typed = window.prompt(
+      `Type "${username}" to confirm permanent deletion:`,
+    );
+    if (typed !== username) {
+      alert("Username mismatch. Cancelled.");
+      return;
+    }
+    setDeleting(user.id);
+    try {
+      // Delete subcollections via known paths
+      const subcols = [
+        "execution_map",
+        "journal_entries",
+        "score_log",
+        "verification_requests",
+      ];
+      for (const col of subcols) {
+        const snap = await getDocs(collection(db, "users", user.id, col));
+        for (const d of snap.docs) await deleteDoc(d.ref);
+      }
+      await deleteDoc(doc(db, "users", user.id));
+      setResults((p) => p.filter((u) => u.id !== user.id));
+      alert(
+        `@${username} permanently deleted from Firestore. Remove from Firebase Auth manually or via Cloud Function.`,
+      );
+    } catch (e) {
+      alert("Delete failed: " + e.message);
+    } finally {
+      setDeleting(null);
+    }
+  };
+
+  const handleTierChange = async (userId, newTier) => {
+    await updateDoc(doc(db, "users", userId), { tier: newTier });
+    setResults((p) =>
+      p.map((u) => (u.id === userId ? { ...u, tier: newTier } : u)),
+    );
+  };
+
+  const handleScoreAdjust = async (userId, amount, reason) => {
+    const userRef = doc(db, "users", userId);
+    const snap = await getDoc(userRef);
+    if (!snap.exists()) return;
+    const current = snap.data().discotiveScore?.current || 0;
+    const newScore = Math.max(0, current + amount);
+    await updateDoc(userRef, {
+      "discotiveScore.current": newScore,
+      "discotiveScore.lastAmount": amount,
+      "discotiveScore.lastReason": reason || "Admin Adjustment",
+      "discotiveScore.lastUpdatedAt": new Date().toISOString(),
+    });
+    setResults((p) =>
+      p.map((u) =>
+        u.id === userId
+          ? { ...u, discotiveScore: { ...u.discotiveScore, current: newScore } }
+          : u,
+      ),
+    );
+  };
 
   return (
-    <div ref={wrapperRef} className="relative w-full">
-      <div
-        className="min-h-[40px] w-full bg-[#111] border border-white/[0.05] rounded-xl px-3 py-1.5 focus-within:border-fuchsia-500/50 transition-colors flex flex-wrap gap-2 items-center cursor-text"
-        onClick={() => setIsOpen(true)}
-      >
-        {selected.map((item) => (
-          <span
-            key={item}
-            className="px-2 py-1 bg-[#222] border border-[#333] rounded-md text-[10px] font-bold text-white flex items-center gap-1"
-          >
-            {item}{" "}
-            <X
-              className="w-3 h-3 cursor-pointer hover:text-red-400"
-              onClick={(e) => {
-                e.stopPropagation();
-                toggleOpt(item);
-              }}
-            />
-          </span>
-        ))}
-        <input
-          type="text"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          onFocus={() => setIsOpen(true)}
-          placeholder={selected.length === 0 ? placeholder : ""}
-          className="flex-1 min-w-[80px] bg-transparent border-none outline-none text-xs text-white placeholder-white/20 py-1"
-        />
+    <div className="space-y-5">
+      <div className="flex items-center gap-3">
+        <div className="relative flex-1">
+          <Search
+            className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4"
+            style={{ color: T.dim }}
+          />
+          <input
+            value={searchQ}
+            onChange={(e) => setSearchQ(e.target.value)}
+            onKeyDown={(e) => e.key === "Enter" && handleSearch()}
+            placeholder="Search by @username or email..."
+            className="w-full pl-10 pr-4 py-3 rounded-xl text-sm focus:outline-none transition-colors"
+            style={{
+              background: V.surface,
+              border: "1px solid rgba(255,255,255,0.08)",
+              color: T.primary,
+            }}
+          />
+        </div>
+        <button
+          onClick={handleSearch}
+          disabled={loading}
+          className="px-5 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-all"
+          style={{
+            background: G.dim,
+            border: `1px solid ${G.border}`,
+            color: G.bright,
+          }}
+        >
+          {loading ? (
+            <Loader2 className="w-4 h-4 animate-spin" />
+          ) : (
+            <Search className="w-4 h-4" />
+          )}
+          Find
+        </button>
       </div>
-      <AnimatePresence>
-        {isOpen && (
-          <motion.div
-            initial={{ opacity: 0, y: -5 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -5 }}
-            className="absolute top-[calc(100%+4px)] left-0 w-full bg-[#1a1a1a] border border-[#333] rounded-xl shadow-2xl z-50 max-h-48 overflow-y-auto custom-scrollbar"
-          >
-            {filtered.map((opt) => (
+
+      {results.length > 0 && (
+        <div className="space-y-3">
+          {results.map((user) => {
+            const name =
+              `${user.identity?.firstName || ""} ${user.identity?.lastName || ""}`.trim() ||
+              "Unknown";
+            const score = user.discotiveScore?.current || 0;
+            return (
               <div
-                key={opt}
-                onClick={() => toggleOpt(opt)}
-                className="px-4 py-2.5 text-xs hover:bg-[#222] cursor-pointer text-[#ccc] hover:text-white truncate"
+                key={user.id}
+                className="rounded-2xl p-5"
+                style={{
+                  background: V.surface,
+                  border: "1px solid rgba(255,255,255,0.06)",
+                }}
               >
-                {opt}
+                <div className="flex items-start justify-between gap-4 mb-4">
+                  <div className="flex items-center gap-3">
+                    <div
+                      className="w-11 h-11 rounded-xl flex items-center justify-center text-base font-black"
+                      style={{
+                        background: "rgba(255,255,255,0.06)",
+                        color: T.secondary,
+                      }}
+                    >
+                      {name.charAt(0).toUpperCase()}
+                    </div>
+                    <div>
+                      <p
+                        className="text-sm font-black"
+                        style={{ color: T.primary }}
+                      >
+                        {name}
+                      </p>
+                      <p
+                        className="text-[10px] font-mono"
+                        style={{ color: T.dim }}
+                      >
+                        @{user.identity?.username} · {user.id.slice(0, 12)}...
+                      </p>
+                      <p className="text-[10px]" style={{ color: T.dim }}>
+                        {user.identity?.domain || "—"} · Score:{" "}
+                        {score.toLocaleString()}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 flex-wrap justify-end">
+                    {/* Tier change */}
+                    <select
+                      value={user.tier || "ESSENTIAL"}
+                      onChange={(e) =>
+                        handleTierChange(user.id, e.target.value)
+                      }
+                      className="text-[9px] font-black uppercase tracking-widest rounded-lg px-2 py-1.5 border focus:outline-none"
+                      style={{
+                        background: V.elevated,
+                        border: "1px solid rgba(255,255,255,0.08)",
+                        color: user.tier === "PRO" ? G.bright : T.dim,
+                      }}
+                    >
+                      <option value="ESSENTIAL">Essential</option>
+                      <option value="PRO">Pro</option>
+                      <option value="ENTERPRISE">Enterprise</option>
+                    </select>
+                    {/* Delete */}
+                    <button
+                      onClick={() => handleDelete(user)}
+                      disabled={deleting === user.id}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all border"
+                      style={{
+                        background: "rgba(239,68,68,0.08)",
+                        border: "1px solid rgba(239,68,68,0.2)",
+                        color: "#f87171",
+                      }}
+                    >
+                      {deleting === user.id ? (
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                      ) : (
+                        <Trash2 className="w-3 h-3" />
+                      )}
+                      Delete
+                    </button>
+                  </div>
+                </div>
+                {/* Score adjust */}
+                <div
+                  className="flex items-center gap-2 flex-wrap pt-3 border-t"
+                  style={{ borderColor: "rgba(255,255,255,0.05)" }}
+                >
+                  <span
+                    className="text-[9px] font-black uppercase tracking-widest"
+                    style={{ color: T.dim }}
+                  >
+                    Score Adjustment:
+                  </span>
+                  {[
+                    { label: "+50", amount: 50, color: "#4ade80" },
+                    { label: "+100", amount: 100, color: "#4ade80" },
+                    { label: "-50", amount: -50, color: "#f87171" },
+                    { label: "-100", amount: -100, color: "#f87171" },
+                  ].map(({ label, amount, color }) => (
+                    <button
+                      key={label}
+                      onClick={() =>
+                        handleScoreAdjust(
+                          user.id,
+                          amount,
+                          `Admin Manual ${label}`,
+                        )
+                      }
+                      className="px-2.5 py-1 rounded-lg text-[9px] font-black transition-all border"
+                      style={{
+                        background: `${color}10`,
+                        border: `1px solid ${color}25`,
+                        color,
+                      }}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
               </div>
-            ))}
-            {filtered.length === 0 && allowCustom && query.trim() && (
-              <div
-                onClick={() => toggleOpt(query)}
-                className="px-4 py-2.5 text-xs hover:bg-[#222] cursor-pointer text-emerald-400 font-bold border-t border-[#333]"
-              >
-                + Add "{query}"
-              </div>
-            )}
-          </motion.div>
-        )}
-      </AnimatePresence>
+            );
+          })}
+        </div>
+      )}
+
+      {results.length === 0 && !loading && searchQ && (
+        <p className="text-center text-sm py-8" style={{ color: T.dim }}>
+          No users found for "{searchQ}"
+        </p>
+      )}
     </div>
   );
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
+// CONNECTOR APPROVALS PANEL
+// ══════════════════════════════════════════════════════════════════════════════
+const ConnectorPanel = memo(() => {
+  const [ytChannels, setYtChannels] = useState([]);
+  const [githubRepos, setGithubRepos] = useState([]);
+  const [appVerifs, setAppVerifs] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState("youtube");
+
+  useEffect(() => {
+    const fetch = async () => {
+      setLoading(true);
+      try {
+        // YouTube pending channels
+        const usersSnap = await getDocs(
+          query(collection(db, "users"), limit(100)),
+        );
+        const yt = [],
+          gh = [];
+        usersSnap.docs.forEach((d) => {
+          const data = d.data();
+          const ytC = data.connectors?.youtube;
+          if (ytC?.channelUrl && !ytC.verified) {
+            yt.push({
+              userId: d.id,
+              userName:
+                `${data.identity?.firstName || ""} ${data.identity?.lastName || ""}`.trim() ||
+                "Unknown",
+              userUsername: data.identity?.username || "unknown",
+              ...ytC,
+            });
+          }
+          // GitHub pending vault assets from github connector
+          (data.vault || [])
+            .filter(
+              (a) => a.connectorSource === "github" && a.status === "PENDING",
+            )
+            .forEach((a) => {
+              gh.push({
+                ...a,
+                userId: d.id,
+                userUsername: data.identity?.username || "unknown",
+              });
+            });
+        });
+        setYtChannels(yt);
+        setGithubRepos(gh);
+
+        // App verifications
+        try {
+          const avSnap = await getDocs(
+            query(
+              collection(db, "app_verifications"),
+              where("status", "==", "PENDING"),
+              limit(50),
+            ),
+          );
+          setAppVerifs(avSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
+        } catch {
+          setAppVerifs([]);
+        }
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetch();
+  }, []);
+
+  const approveYT = async (ch) => {
+    await updateDoc(doc(db, "users", ch.userId), {
+      "connectors.youtube.verified": true,
+      "connectors.youtube.verifiedAt": new Date().toISOString(),
+      "connectors.youtube.verifiedBy": auth.currentUser?.uid || "admin",
+    });
+    setYtChannels((p) => p.filter((c) => c.userId !== ch.userId));
+  };
+
+  const rejectYT = async (ch) => {
+    if (!window.confirm("Reject this YouTube channel?")) return;
+    await updateDoc(doc(db, "users", ch.userId), {
+      "connectors.youtube": null,
+    });
+    setYtChannels((p) => p.filter((c) => c.userId !== ch.userId));
+  };
+
+  const approveGithub = async (repo) => {
+    const userRef = doc(db, "users", repo.userId);
+    const snap = await getDoc(userRef);
+    if (!snap.exists()) return;
+    const vault = snap.data().vault || [];
+    const updated = vault.map((a) =>
+      a.id === repo.id
+        ? {
+            ...a,
+            status: "VERIFIED",
+            strength: "Medium",
+            verifiedAt: new Date().toISOString(),
+            verifiedBy: auth.currentUser?.uid || "admin",
+          }
+        : a,
+    );
+    await updateDoc(userRef, { vault: updated });
+    setGithubRepos((p) =>
+      p.filter((r) => !(r.id === repo.id && r.userId === repo.userId)),
+    );
+  };
+
+  const approveApp = async (v) => {
+    await updateDoc(doc(db, "app_verifications", v.id), {
+      status: "APPROVED",
+      reviewedAt: serverTimestamp(),
+    });
+    await updateDoc(doc(db, "users", v.userId), {
+      verifiedApps: arrayUnion({
+        appId: v.appId,
+        appName: v.appName,
+        appIconUrl: v.appIconUrl,
+        verifiedAt: new Date().toISOString(),
+      }),
+      [`pendingAppVerifications.${v.appId}`]: deleteField(),
+    });
+    setAppVerifs((p) => p.filter((a) => a.id !== v.id));
+  };
+
+  const tabs = [
+    {
+      key: "youtube",
+      label: "YouTube",
+      count: ytChannels.length,
+      icon: Youtube,
+    },
+    {
+      key: "github",
+      label: "GitHub Repos",
+      count: githubRepos.length,
+      icon: Github,
+    },
+    {
+      key: "apps",
+      label: "App Proficiency",
+      count: appVerifs.length,
+      icon: Monitor,
+    },
+  ];
+
+  return (
+    <div className="space-y-5">
+      <div className="flex gap-2 flex-wrap">
+        {tabs.map(({ key, label, count, icon: Icon }) => (
+          <button
+            key={key}
+            onClick={() => setActiveTab(key)}
+            className={cn(
+              "flex items-center gap-2 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all",
+              activeTab === key
+                ? "bg-white text-black border-white"
+                : "border-white/[0.06] text-white/40 hover:text-white",
+            )}
+          >
+            <Icon className="w-3.5 h-3.5" />
+            {label}
+            {count > 0 && (
+              <span className="font-mono opacity-70">({count})</span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      {loading ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-pulse">
+          {[1, 2, 3, 4].map((i) => (
+            <div
+              key={i}
+              className="h-40 rounded-2xl"
+              style={{ background: V.surface }}
+            />
+          ))}
+        </div>
+      ) : (
+        <>
+          {activeTab === "youtube" &&
+            (ytChannels.length === 0 ? (
+              <p className="text-center text-sm py-12" style={{ color: T.dim }}>
+                No pending YouTube channel approvals.
+              </p>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {ytChannels.map((ch) => (
+                  <div
+                    key={ch.userId}
+                    className="rounded-2xl p-5 space-y-3"
+                    style={{
+                      background: V.surface,
+                      border: "1px solid rgba(255,255,255,0.06)",
+                    }}
+                  >
+                    <div className="flex items-start gap-3">
+                      <div
+                        className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
+                        style={{
+                          background: "rgba(239,68,68,0.1)",
+                          border: "1px solid rgba(239,68,68,0.2)",
+                        }}
+                      >
+                        <Youtube className="w-4 h-4 text-red-400" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p
+                          className="text-sm font-black"
+                          style={{ color: T.primary }}
+                        >
+                          {ch.handle ? `@${ch.handle}` : "YouTube Channel"}
+                        </p>
+                        <p
+                          className="text-[10px] font-mono"
+                          style={{ color: T.dim }}
+                        >
+                          Submitted by @{ch.userUsername}
+                        </p>
+                      </div>
+                      <span className="text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded border text-amber-400 bg-amber-500/8 border-amber-500/20">
+                        Pending
+                      </span>
+                    </div>
+                    <a
+                      href={ch.channelUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="flex items-center gap-1.5 text-[10px] font-bold text-red-400 hover:underline truncate"
+                    >
+                      <ExternalLink className="w-3 h-3 shrink-0" />
+                      {ch.channelUrl}
+                    </a>
+                    {ch.description && (
+                      <p
+                        className="text-xs rounded-xl p-3"
+                        style={{ color: T.secondary, background: V.elevated }}
+                      >
+                        {ch.description}
+                      </p>
+                    )}
+                    <div
+                      className="flex gap-2 pt-1 border-t"
+                      style={{ borderColor: "rgba(255,255,255,0.05)" }}
+                    >
+                      <button
+                        onClick={() => approveYT(ch)}
+                        className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest border text-emerald-400 bg-emerald-500/10 border-emerald-500/20 hover:bg-emerald-500/15 transition-all"
+                      >
+                        <ThumbsUp className="w-3 h-3" /> Approve
+                      </button>
+                      <button
+                        onClick={() => rejectYT(ch)}
+                        className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest border text-red-400 bg-red-500/10 border-red-500/20 hover:bg-red-500/15 transition-all"
+                      >
+                        <ThumbsDown className="w-3 h-3" /> Reject
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ))}
+          {activeTab === "github" &&
+            (githubRepos.length === 0 ? (
+              <p className="text-center text-sm py-12" style={{ color: T.dim }}>
+                No pending GitHub repository approvals.
+              </p>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {githubRepos.map((repo) => (
+                  <div
+                    key={`${repo.userId}-${repo.id}`}
+                    className="rounded-2xl p-5 space-y-3"
+                    style={{
+                      background: V.surface,
+                      border: "1px solid rgba(255,255,255,0.06)",
+                    }}
+                  >
+                    <div className="flex items-start gap-3">
+                      <div
+                        className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
+                        style={{
+                          background: "#0d1117",
+                          border: "1px solid rgba(255,255,255,0.1)",
+                        }}
+                      >
+                        <Github className="w-4 h-4 text-white" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p
+                          className="text-sm font-black truncate"
+                          style={{ color: T.primary }}
+                        >
+                          {repo.title}
+                        </p>
+                        <p
+                          className="text-[10px] font-mono"
+                          style={{ color: T.dim }}
+                        >
+                          @{repo.userUsername} ·{" "}
+                          {repo.credentials?.language || "—"}
+                        </p>
+                      </div>
+                    </div>
+                    {repo.url && (
+                      <a
+                        href={repo.url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="flex items-center gap-1.5 text-[10px] font-bold text-sky-400 hover:underline truncate"
+                      >
+                        <ExternalLink className="w-3 h-3 shrink-0" />
+                        {repo.url}
+                      </a>
+                    )}
+                    <button
+                      onClick={() => approveGithub(repo)}
+                      className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest border text-emerald-400 bg-emerald-500/10 border-emerald-500/20 hover:bg-emerald-500/15 transition-all"
+                    >
+                      <Check className="w-3 h-3" /> Verify Repo (+25 pts)
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ))}
+          {activeTab === "apps" &&
+            (appVerifs.length === 0 ? (
+              <p className="text-center text-sm py-12" style={{ color: T.dim }}>
+                No pending app verifications.
+              </p>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {appVerifs.map((v) => (
+                  <div
+                    key={v.id}
+                    className="rounded-2xl p-5 space-y-3"
+                    style={{
+                      background: V.surface,
+                      border: "1px solid rgba(255,255,255,0.06)",
+                    }}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div
+                        className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0 overflow-hidden"
+                        style={{ background: V.elevated }}
+                      >
+                        {v.appIconUrl ? (
+                          <img
+                            src={v.appIconUrl}
+                            alt={v.appName}
+                            className="w-5 h-5 object-contain"
+                            onError={(e) => (e.target.style.display = "none")}
+                          />
+                        ) : (
+                          <Monitor className="w-4 h-4 text-violet-400" />
+                        )}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p
+                          className="text-sm font-black truncate"
+                          style={{ color: T.primary }}
+                        >
+                          {v.appName}
+                        </p>
+                        <p
+                          className="text-[10px] font-mono"
+                          style={{ color: T.dim }}
+                        >
+                          @{v.userUsername}
+                        </p>
+                      </div>
+                    </div>
+                    {v.profileUrl && (
+                      <a
+                        href={v.profileUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="flex items-center gap-1.5 text-[10px] font-bold text-amber-400 hover:underline truncate"
+                      >
+                        <ExternalLink className="w-3 h-3 shrink-0" />
+                        Profile: {v.profileUrl}
+                      </a>
+                    )}
+                    {v.proofUrl && (
+                      <a
+                        href={v.proofUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="flex items-center gap-1.5 text-[10px] font-bold text-sky-400 hover:underline truncate"
+                      >
+                        <ExternalLink className="w-3 h-3 shrink-0" />
+                        Proof: {v.proofUrl}
+                      </a>
+                    )}
+                    <button
+                      onClick={() => approveApp(v)}
+                      className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest border text-violet-400 bg-violet-500/10 border-violet-500/20 hover:bg-violet-500/15 transition-all"
+                    >
+                      <CheckCircle className="w-3 h-3" /> Approve (+25 pts)
+                    </button>
+                  </div>
+                ))}
+              </div>
+            ))}
+        </>
+      )}
+    </div>
+  );
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
+// SCORING ENGINE PANEL
+// ══════════════════════════════════════════════════════════════════════════════
+const SCORE_DEFAULTS = {
+  vaultVerifiedStrong: 30,
+  vaultVerifiedMedium: 20,
+  vaultVerifiedWeak: 10,
+  allianceForged: 15,
+  allianceRequestSent: 5,
+  taskCompleted: 5,
+  taskReverted: -15,
+  nodeCoreCompleted: 30,
+  nodeBranchCompleted: 15,
+  videoWatchFull: 10,
+  appVerified: 25,
+  githubRepoVerified: 25,
+  onboardingBonus: 50,
 };
 
-// ============================================================================
-// MAIN ADMIN DASHBOARD
-// ============================================================================
+const SCORE_LABELS = {
+  vaultVerifiedStrong: "Vault — Strong Asset Verified",
+  vaultVerifiedMedium: "Vault — Medium Asset Verified",
+  vaultVerifiedWeak: "Vault — Weak Asset Verified",
+  allianceForged: "Network — Alliance Forged",
+  allianceRequestSent: "Network — Request Sent (Daily Cap: 5)",
+  taskCompleted: "Execution — Task Completed",
+  taskReverted: "Execution — Task Reverted (Penalty)",
+  nodeCoreCompleted: "Execution — Core Node Verified",
+  nodeBranchCompleted: "Execution — Branch Node Verified",
+  videoWatchFull: "Learn — Video Watched (Full)",
+  appVerified: "Connector — App Proficiency Verified",
+  githubRepoVerified: "Connector — GitHub Repo Verified",
+  onboardingBonus: "One-Time — Onboarding Complete",
+};
 
-// ============================================================================
-// OPPORTUNITY FORM MODAL
-// ============================================================================
-const OPP_TYPES_LIST = [
-  "job",
-  "internship",
-  "freelance",
-  "hackathon",
-  "fellowship",
-  "mentorship",
-  "college_fest",
-  "competition",
-  "grant",
-  "workshop",
-  "open_source",
-];
-const WORK_MODES = ["Remote", "In-Person", "Hybrid", "Global"];
-
-const OppFormModal = ({ opp, onClose, onSaved }) => {
-  const [form, setForm] = useState({
-    title: opp?.title || "",
-    type: opp?.type || "job",
-    provider: opp?.provider || "",
-    providerLogo: opp?.providerLogo || "",
-    thumbnailUrl: opp?.thumbnailUrl || "",
-    description: opp?.description || "",
-    applyUrl: opp?.applyUrl || "",
-    workMode: opp?.workMode || "Remote",
-    payType: opp?.payType || "Paid",
-    location: opp?.location || "",
-    compensation: opp?.compensation || "",
-    experienceLevel: opp?.experienceLevel || "",
-    closingDate: opp?.closingDate || "",
-    domain: opp?.domain || "",
-    tags: (opp?.tags || []).join(", "),
-    domains: (opp?.domains || []).join(", "),
-    isActive: opp?.isActive ?? true,
-    featured: opp?.featured ?? false,
-    isVerified: opp?.isVerified ?? false,
-  });
+const ScoringPanel = memo(() => {
+  const [scores, setScores] = useState(SCORE_DEFAULTS);
   const [saving, setSaving] = useState(false);
-  const fld =
-    "w-full bg-[#111] border border-[#222] rounded-xl px-4 py-2.5 text-xs text-white placeholder-white/20 focus:outline-none focus:border-amber-500/40 transition-colors";
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    const loadConfig = async () => {
+      try {
+        const snap = await getDoc(doc(db, "system", "scoring_config"));
+        if (snap.exists()) setScores({ ...SCORE_DEFAULTS, ...snap.data() });
+      } catch {}
+    };
+    loadConfig();
+  }, []);
 
   const handleSave = async () => {
-    if (!form.title.trim() || !form.type) return;
     setSaving(true);
     try {
-      const payload = {
-        ...form,
-        tags: form.tags
-          .split(",")
-          .map((t) => t.trim())
-          .filter(Boolean),
-        domains: form.domains
-          .split(",")
-          .map((t) => t.trim())
-          .filter(Boolean),
+      await setDoc(doc(db, "system", "scoring_config"), {
+        ...scores,
         updatedAt: serverTimestamp(),
-      };
-      if (opp?.id) {
-        await updateDoc(doc(db, "opportunities", opp.id), payload);
-      } else {
-        await addDoc(collection(db, "opportunities"), {
-          ...payload,
-          createdAt: serverTimestamp(),
-        });
-      }
-      onSaved();
-    } catch (e) {
-      console.error(e);
+        updatedBy: auth.currentUser?.uid,
+      });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2500);
     } finally {
       setSaving(false);
     }
   };
 
-  return createPortal(
-    <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/85 backdrop-blur-sm">
-      <motion.div
-        initial={{ opacity: 0, scale: 0.96 }}
-        animate={{ opacity: 1, scale: 1 }}
-        className="w-full max-w-2xl max-h-[90vh] flex flex-col bg-[#0a0a0c] border border-white/[0.08] rounded-2xl shadow-2xl overflow-hidden"
-      >
-        <div className="flex items-center justify-between p-5 border-b border-white/[0.05] shrink-0">
-          <h3 className="text-sm font-black text-white">
-            {opp ? "Edit" : "Create"} Opportunity
-          </h3>
-          <button onClick={onClose} className="text-white/40 hover:text-white">
-            <X className="w-4 h-4" />
-          </button>
+  const groups = [
+    {
+      label: "Asset Vault",
+      keys: ["vaultVerifiedStrong", "vaultVerifiedMedium", "vaultVerifiedWeak"],
+    },
+    { label: "Network", keys: ["allianceForged", "allianceRequestSent"] },
+    {
+      label: "Execution Map",
+      keys: [
+        "taskCompleted",
+        "taskReverted",
+        "nodeCoreCompleted",
+        "nodeBranchCompleted",
+      ],
+    },
+    { label: "Learning", keys: ["videoWatchFull"] },
+    { label: "Connectors", keys: ["appVerified", "githubRepoVerified"] },
+    { label: "One-Time Bonuses", keys: ["onboardingBonus"] },
+  ];
+
+  return (
+    <div className="space-y-5">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-lg font-black" style={{ color: T.primary }}>
+            Scoring Engine Config
+          </h2>
+          <p className="text-xs mt-0.5" style={{ color: T.dim }}>
+            All point values. Changes persist immediately to Firestore. Daily
+            login points removed.
+          </p>
         </div>
-        <div className="flex-1 overflow-y-auto p-5 custom-scrollbar">
-          <div className="grid grid-cols-2 gap-3">
-            <div className="col-span-2">
-              <label className="block text-[9px] font-bold text-white/30 uppercase tracking-widest mb-1">
-                Title *
-              </label>
+        <button
+          onClick={handleSave}
+          disabled={saving}
+          className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-[11px] font-black uppercase tracking-widest transition-all"
+          style={{
+            background: saved ? "rgba(74,222,128,0.15)" : G.dim,
+            border: `1px solid ${saved ? "rgba(74,222,128,0.3)" : G.border}`,
+            color: saved ? "#4ade80" : G.bright,
+          }}
+        >
+          {saving ? (
+            <Loader2 className="w-4 h-4 animate-spin" />
+          ) : saved ? (
+            <Check className="w-4 h-4" />
+          ) : (
+            <Zap className="w-4 h-4" />
+          )}
+          {saving ? "Saving..." : saved ? "Saved!" : "Save Config"}
+        </button>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {groups.map(({ label, keys }) => (
+          <div
+            key={label}
+            className="rounded-2xl p-5"
+            style={{
+              background: V.surface,
+              border: "1px solid rgba(255,255,255,0.05)",
+            }}
+          >
+            <h3
+              className="text-[9px] font-black uppercase tracking-[0.15em] mb-4"
+              style={{ color: T.dim }}
+            >
+              {label}
+            </h3>
+            <div className="space-y-3">
+              {keys.map((key) => (
+                <div
+                  key={key}
+                  className="flex items-center justify-between gap-4"
+                >
+                  <span
+                    className="text-xs font-medium flex-1 min-w-0 truncate"
+                    style={{ color: T.secondary }}
+                  >
+                    {SCORE_LABELS[key]}
+                  </span>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      onClick={() =>
+                        setScores((p) => ({
+                          ...p,
+                          [key]: Math.max(
+                            scores[key] < 0 ? -500 : 0,
+                            p[key] - 5,
+                          ),
+                        }))
+                      }
+                      className="w-6 h-6 rounded-lg flex items-center justify-center text-xs font-black transition-all hover:bg-white/10"
+                      style={{ background: V.elevated, color: T.dim }}
+                    >
+                      −
+                    </button>
+                    <input
+                      type="number"
+                      value={scores[key] ?? 0}
+                      onChange={(e) =>
+                        setScores((p) => ({
+                          ...p,
+                          [key]: Number(e.target.value),
+                        }))
+                      }
+                      className="w-16 text-center text-sm font-black rounded-lg py-1 focus:outline-none"
+                      style={{
+                        background: V.elevated,
+                        border: `1px solid ${scores[key] < 0 ? "rgba(248,113,113,0.3)" : "rgba(255,255,255,0.08)"}`,
+                        color: scores[key] < 0 ? "#f87171" : G.bright,
+                      }}
+                    />
+                    <button
+                      onClick={() =>
+                        setScores((p) => ({ ...p, [key]: p[key] + 5 }))
+                      }
+                      className="w-6 h-6 rounded-lg flex items-center justify-center text-xs font-black transition-all hover:bg-white/10"
+                      style={{ background: V.elevated, color: T.dim }}
+                    >
+                      +
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
+// VAULT PANEL (Minimal, links to full page)
+// ══════════════════════════════════════════════════════════════════════════════
+const VaultPanel = memo(() => {
+  const [assets, setAssets] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState("PENDING");
+
+  useEffect(() => {
+    const fetch = async () => {
+      setLoading(true);
+      try {
+        const snap = await getDocs(query(collection(db, "users"), limit(80)));
+        const list = [];
+        snap.docs.forEach((d) => {
+          const data = d.data();
+          (data.vault || []).forEach((a) => {
+            list.push({
+              ...a,
+              userId: d.id,
+              userUsername: data.identity?.username || "unknown",
+              userName:
+                `${data.identity?.firstName || ""} ${data.identity?.lastName || ""}`.trim(),
+            });
+          });
+        });
+        setAssets(list);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetch();
+  }, []);
+
+  const handleMark = async (asset, strength) => {
+    const isVerified = strength !== "Fake";
+    const newStatus = isVerified ? "VERIFIED" : "REJECTED";
+    setAssets((p) =>
+      p.map((a) =>
+        a.id === asset.id && a.userId === asset.userId
+          ? { ...a, status: newStatus, strength: isVerified ? strength : null }
+          : a,
+      ),
+    );
+    const userRef = doc(db, "users", asset.userId);
+    const snap = await getDoc(userRef);
+    if (!snap.exists()) return;
+    const vault = snap.data().vault || [];
+    const updated = vault.map((v) =>
+      v.id === asset.id
+        ? {
+            ...v,
+            status: newStatus,
+            strength: isVerified ? strength : null,
+            verifiedAt: new Date().toISOString(),
+            verifiedBy: auth.currentUser?.uid || "admin",
+          }
+        : v,
+    );
+    await updateDoc(userRef, { vault: updated });
+  };
+
+  const filtered = assets.filter((a) => {
+    if (filter === "PENDING") return !a.status || a.status === "PENDING";
+    if (filter === "VERIFIED") return a.status === "VERIFIED";
+    if (filter === "REPORTED") return a.status === "REPORTED";
+    return true;
+  });
+
+  return (
+    <div className="space-y-5">
+      <div className="flex items-center gap-2 flex-wrap">
+        {["PENDING", "VERIFIED", "REPORTED", "ALL"].map((f) => {
+          const count = assets.filter((a) =>
+            f === "ALL"
+              ? true
+              : f === "PENDING"
+                ? !a.status || a.status === "PENDING"
+                : a.status === f,
+          ).length;
+          return (
+            <button
+              key={f}
+              onClick={() => setFilter(f)}
+              className={cn(
+                "px-3.5 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all",
+                filter === f
+                  ? "bg-white text-black border-white"
+                  : "border-white/[0.06] text-white/40 hover:text-white",
+              )}
+            >
+              {f} <span className="font-mono opacity-60 ml-1">({count})</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {loading ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 animate-pulse">
+          {[1, 2, 3, 4].map((i) => (
+            <div
+              key={i}
+              className="h-40 rounded-2xl"
+              style={{ background: V.surface }}
+            />
+          ))}
+        </div>
+      ) : filtered.length === 0 ? (
+        <p className="text-center text-sm py-12" style={{ color: T.dim }}>
+          No assets match filter.
+        </p>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {filtered.slice(0, 20).map((asset) => {
+            const statusColor =
+              {
+                VERIFIED: "#4ade80",
+                PENDING: "#f59e0b",
+                REPORTED: "#f87171",
+                REJECTED: "rgba(255,255,255,0.2)",
+              }[asset.status] || "#f59e0b";
+            return (
+              <div
+                key={`${asset.userId}-${asset.id}`}
+                className="rounded-2xl p-4 space-y-3"
+                style={{
+                  background: V.surface,
+                  border: "1px solid rgba(255,255,255,0.05)",
+                }}
+              >
+                <div className="flex items-start gap-3">
+                  <div
+                    className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0"
+                    style={{
+                      background: `${statusColor}15`,
+                      border: `1px solid ${statusColor}25`,
+                    }}
+                  >
+                    <Award
+                      className="w-3.5 h-3.5"
+                      style={{ color: statusColor }}
+                    />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p
+                      className="text-sm font-black truncate"
+                      style={{ color: T.primary }}
+                    >
+                      {asset.title || "Untitled"}
+                    </p>
+                    <p
+                      className="text-[10px] font-mono"
+                      style={{ color: T.dim }}
+                    >
+                      @{asset.userUsername} · {asset.category || "—"} ·{" "}
+                      {timeAgo(asset.uploadedAt)}
+                    </p>
+                  </div>
+                  <span
+                    className="text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded border shrink-0"
+                    style={{
+                      color: statusColor,
+                      background: `${statusColor}12`,
+                      borderColor: `${statusColor}25`,
+                    }}
+                  >
+                    {asset.status || "PENDING"}
+                  </span>
+                </div>
+                {asset.url && (
+                  <a
+                    href={asset.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex items-center gap-1.5 text-[10px] font-bold text-sky-400 hover:underline truncate"
+                  >
+                    <ExternalLink className="w-3 h-3 shrink-0" />
+                    {asset.url}
+                  </a>
+                )}
+                {(!asset.status || asset.status === "PENDING") && (
+                  <div
+                    className="flex gap-1.5 pt-1 border-t"
+                    style={{ borderColor: "rgba(255,255,255,0.05)" }}
+                  >
+                    {["Strong", "Medium", "Weak", "Fake"].map((s) => {
+                      const c = {
+                        Strong: "#4ade80",
+                        Medium: G.bright,
+                        Weak: "#f97316",
+                        Fake: "#f87171",
+                      }[s];
+                      return (
+                        <button
+                          key={s}
+                          onClick={() => handleMark(asset, s)}
+                          className="flex-1 py-1.5 rounded-lg text-[8px] font-black uppercase tracking-widest border transition-all"
+                          style={{
+                            color: c,
+                            background: `${c}10`,
+                            borderColor: `${c}20`,
+                          }}
+                        >
+                          {s}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
+// LEARN DATABASE PANEL
+// ══════════════════════════════════════════════════════════════════════════════
+const LearnPanel = memo(() => {
+  const [tab, setTab] = useState("certs");
+  const [certs, setCerts] = useState([]);
+  const [videos, setVideos] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [addingVideo, setAddingVideo] = useState(false);
+  const [addingCert, setAddingCert] = useState(false);
+  const [videoForm, setVideoForm] = useState({ title: "", url: "" });
+  const [certForm, setCertForm] = useState({
+    title: "",
+    link: "",
+    provider: "",
+    strength: "Medium",
+  });
+
+  useEffect(() => {
+    const fetch = async () => {
+      setLoading(true);
+      try {
+        const [cs, vs] = await Promise.all([
+          getDocs(
+            query(
+              collection(db, "discotive_certificates"),
+              orderBy("createdAt", "desc"),
+              limit(50),
+            ),
+          ),
+          getDocs(
+            query(
+              collection(db, "discotive_videos"),
+              orderBy("createdAt", "desc"),
+              limit(50),
+            ),
+          ),
+        ]);
+        setCerts(cs.docs.map((d) => ({ id: d.id, ...d.data() })));
+        setVideos(vs.docs.map((d) => ({ id: d.id, ...d.data() })));
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetch();
+  }, []);
+
+  const addVideo = async () => {
+    if (!videoForm.title.trim() || !videoForm.url.trim()) return;
+    const suffix = Math.floor(100000 + Math.random() * 900000);
+    const ytId =
+      videoForm.url.match(
+        /(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/))([\w-]{11})/i,
+      )?.[1] || videoForm.url;
+    const ref = await addDoc(collection(db, "discotive_videos"), {
+      title: videoForm.title,
+      youtubeId: ytId,
+      thumbnailUrl: `https://img.youtube.com/vi/${ytId}/maxresdefault.jpg`,
+      discotiveLearnId: `discotive_video_${suffix}`,
+      createdAt: serverTimestamp(),
+      createdBy: auth.currentUser?.email,
+      category: "educational",
+      scoreReward: 10,
+    });
+    setVideos((p) => [
+      {
+        id: ref.id,
+        title: videoForm.title,
+        youtubeId: ytId,
+        discotiveLearnId: `discotive_video_${suffix}`,
+      },
+      ...p,
+    ]);
+    setVideoForm({ title: "", url: "" });
+    setAddingVideo(false);
+  };
+
+  const addCert = async () => {
+    if (!certForm.title.trim() || !certForm.link.trim()) return;
+    const suffix = Math.floor(100000 + Math.random() * 900000);
+    const ref = await addDoc(collection(db, "discotive_certificates"), {
+      ...certForm,
+      discotiveLearnId: `discotive_certificate_${suffix}`,
+      createdAt: serverTimestamp(),
+      createdBy: auth.currentUser?.email,
+      scoreReward:
+        certForm.strength === "Strong"
+          ? 30
+          : certForm.strength === "Medium"
+            ? 20
+            : 10,
+    });
+    setCerts((p) => [
+      {
+        id: ref.id,
+        ...certForm,
+        discotiveLearnId: `discotive_certificate_${suffix}`,
+      },
+      ...p,
+    ]);
+    setCertForm({ title: "", link: "", provider: "", strength: "Medium" });
+    setAddingCert(false);
+  };
+
+  const deleteResource = async (id, col) => {
+    if (!window.confirm("Permanently delete this resource?")) return;
+    await deleteDoc(doc(db, col, id));
+    if (col === "discotive_certificates")
+      setCerts((p) => p.filter((c) => c.id !== id));
+    else setVideos((p) => p.filter((v) => v.id !== id));
+  };
+
+  const inputCls =
+    "w-full px-4 py-2.5 rounded-xl text-sm focus:outline-none transition-colors placeholder-white/20";
+  const inputStyle = {
+    background: V.elevated,
+    border: "1px solid rgba(255,255,255,0.08)",
+    color: T.primary,
+  };
+
+  return (
+    <div className="space-y-5">
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div className="flex gap-2">
+          {[
+            { key: "certs", label: "Certificates", count: certs.length },
+            { key: "videos", label: "Videos", count: videos.length },
+          ].map(({ key, label, count }) => (
+            <button
+              key={key}
+              onClick={() => setTab(key)}
+              className={cn(
+                "px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all",
+                tab === key
+                  ? "bg-white text-black border-white"
+                  : "border-white/[0.06] text-white/40 hover:text-white",
+              )}
+            >
+              {label}{" "}
+              <span className="font-mono opacity-60 ml-1">({count})</span>
+            </button>
+          ))}
+        </div>
+        <button
+          onClick={() =>
+            tab === "certs" ? setAddingCert(true) : setAddingVideo(true)
+          }
+          className="flex items-center gap-2 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all"
+          style={{
+            background: G.dim,
+            border: `1px solid ${G.border}`,
+            color: G.bright,
+          }}
+        >
+          <Plus className="w-3.5 h-3.5" /> Add{" "}
+          {tab === "certs" ? "Certificate" : "Video"}
+        </button>
+      </div>
+
+      {/* Quick Add Forms */}
+      <AnimatePresence>
+        {addingVideo && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            className="rounded-2xl p-5 space-y-3 overflow-hidden"
+            style={{
+              background: V.surface,
+              border: "1px solid rgba(255,255,255,0.06)",
+            }}
+          >
+            <h3 className="text-sm font-black" style={{ color: T.primary }}>
+              Add YouTube Video
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <input
+                value={videoForm.url}
+                onChange={(e) =>
+                  setVideoForm((p) => ({ ...p, url: e.target.value }))
+                }
+                placeholder="YouTube URL or ID"
+                className={inputCls}
+                style={inputStyle}
+              />
+              <input
+                value={videoForm.title}
+                onChange={(e) =>
+                  setVideoForm((p) => ({ ...p, title: e.target.value }))
+                }
+                placeholder="Video Title"
+                className={inputCls}
+                style={inputStyle}
+              />
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={addVideo}
+                className="px-5 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest"
+                style={{
+                  background: G.dim,
+                  border: `1px solid ${G.border}`,
+                  color: G.bright,
+                }}
+              >
+                Add Video
+              </button>
+              <button
+                onClick={() => setAddingVideo(false)}
+                className="px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest"
+                style={{ background: V.elevated, color: T.dim }}
+              >
+                Cancel
+              </button>
+            </div>
+          </motion.div>
+        )}
+        {addingCert && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            className="rounded-2xl p-5 space-y-3 overflow-hidden"
+            style={{
+              background: V.surface,
+              border: "1px solid rgba(255,255,255,0.06)",
+            }}
+          >
+            <h3 className="text-sm font-black" style={{ color: T.primary }}>
+              Add Certificate
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <input
+                value={certForm.title}
+                onChange={(e) =>
+                  setCertForm((p) => ({ ...p, title: e.target.value }))
+                }
+                placeholder="Certificate Title"
+                className={inputCls}
+                style={inputStyle}
+              />
+              <input
+                value={certForm.provider}
+                onChange={(e) =>
+                  setCertForm((p) => ({ ...p, provider: e.target.value }))
+                }
+                placeholder="Provider (e.g. Coursera)"
+                className={inputCls}
+                style={inputStyle}
+              />
+              <input
+                value={certForm.link}
+                onChange={(e) =>
+                  setCertForm((p) => ({ ...p, link: e.target.value }))
+                }
+                placeholder="Enrollment URL"
+                type="url"
+                className={inputCls}
+                style={inputStyle}
+              />
+              <select
+                value={certForm.strength}
+                onChange={(e) =>
+                  setCertForm((p) => ({ ...p, strength: e.target.value }))
+                }
+                className={cn(inputCls, "appearance-none")}
+                style={inputStyle}
+              >
+                <option value="Weak">Weak</option>
+                <option value="Medium">Medium</option>
+                <option value="Strong">Strong</option>
+              </select>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={addCert}
+                className="px-5 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest"
+                style={{
+                  background: G.dim,
+                  border: `1px solid ${G.border}`,
+                  color: G.bright,
+                }}
+              >
+                Add Certificate
+              </button>
+              <button
+                onClick={() => setAddingCert(false)}
+                className="px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest"
+                style={{ background: V.elevated, color: T.dim }}
+              >
+                Cancel
+              </button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {loading ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 animate-pulse">
+          {[1, 2, 3, 4, 5, 6].map((i) => (
+            <div
+              key={i}
+              className="h-28 rounded-2xl"
+              style={{ background: V.surface }}
+            />
+          ))}
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {(tab === "certs" ? certs : videos).map((item) => {
+            const isVideo = tab === "videos";
+            const ytId = item.youtubeId;
+            return (
+              <div
+                key={item.id}
+                className="group rounded-2xl overflow-hidden relative"
+                style={{
+                  background: V.surface,
+                  border: "1px solid rgba(255,255,255,0.05)",
+                }}
+              >
+                {isVideo && ytId && (
+                  <div className="relative" style={{ aspectRatio: "16/9" }}>
+                    <img
+                      src={`https://img.youtube.com/vi/${ytId}/mqdefault.jpg`}
+                      alt={item.title}
+                      className="w-full h-full object-cover opacity-70"
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-[#0F0F0F] via-transparent to-transparent" />
+                  </div>
+                )}
+                <div className="p-4">
+                  <div className="flex items-start justify-between gap-2 mb-1">
+                    <p
+                      className="text-xs font-bold line-clamp-2"
+                      style={{ color: T.primary }}
+                    >
+                      {item.title}
+                    </p>
+                    <button
+                      onClick={() =>
+                        deleteResource(
+                          item.id,
+                          isVideo
+                            ? "discotive_videos"
+                            : "discotive_certificates",
+                        )
+                      }
+                      className="w-6 h-6 rounded-lg flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all shrink-0"
+                      style={{
+                        background: "rgba(239,68,68,0.1)",
+                        color: "#f87171",
+                      }}
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  </div>
+                  {!isVideo && (
+                    <p className="text-[9px]" style={{ color: T.dim }}>
+                      {item.provider}
+                    </p>
+                  )}
+                  {item.discotiveLearnId && (
+                    <p
+                      className="text-[8px] font-mono mt-1"
+                      style={{ color: isVideo ? "#38bdf8" : "#f59e0b" }}
+                    >
+                      {item.discotiveLearnId}
+                    </p>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
+// OPPORTUNITIES PANEL
+// ══════════════════════════════════════════════════════════════════════════════
+const OpportunitiesPanel = memo(() => {
+  const [opps, setOpps] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showForm, setShowForm] = useState(false);
+  const [editItem, setEditItem] = useState(null);
+  const [form, setForm] = useState({
+    title: "",
+    type: "job",
+    provider: "",
+    applyUrl: "",
+    workMode: "Remote",
+    closingDate: "",
+    description: "",
+    isActive: true,
+  });
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    getDocs(
+      query(
+        collection(db, "opportunities"),
+        orderBy("createdAt", "desc"),
+        limit(50),
+      ),
+    )
+      .then((s) => setOpps(s.docs.map((d) => ({ id: d.id, ...d.data() }))))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const openEdit = (opp) => {
+    setEditItem(opp);
+    setForm({
+      title: opp.title || "",
+      type: opp.type || "job",
+      provider: opp.provider || "",
+      applyUrl: opp.applyUrl || "",
+      workMode: opp.workMode || "Remote",
+      closingDate: opp.closingDate || "",
+      description: opp.description || "",
+      isActive: opp.isActive ?? true,
+    });
+    setShowForm(true);
+  };
+  const openNew = () => {
+    setEditItem(null);
+    setForm({
+      title: "",
+      type: "job",
+      provider: "",
+      applyUrl: "",
+      workMode: "Remote",
+      closingDate: "",
+      description: "",
+      isActive: true,
+    });
+    setShowForm(true);
+  };
+
+  const handleSave = async () => {
+    if (!form.title.trim()) return;
+    setSaving(true);
+    try {
+      const payload = { ...form, updatedAt: serverTimestamp() };
+      if (editItem?.id) {
+        await updateDoc(doc(db, "opportunities", editItem.id), payload);
+        setOpps((p) =>
+          p.map((o) => (o.id === editItem.id ? { ...o, ...payload } : o)),
+        );
+      } else {
+        const ref = await addDoc(collection(db, "opportunities"), {
+          ...payload,
+          createdAt: serverTimestamp(),
+        });
+        setOpps((p) => [{ id: ref.id, ...payload }, ...p]);
+      }
+      setShowForm(false);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const deleteOpp = async (id) => {
+    if (!window.confirm("Delete this opportunity?")) return;
+    await deleteDoc(doc(db, "opportunities", id));
+    setOpps((p) => p.filter((o) => o.id !== id));
+  };
+
+  const inputCls =
+    "w-full px-4 py-2.5 rounded-xl text-sm focus:outline-none transition-colors";
+  const inputStyle = {
+    background: V.elevated,
+    border: "1px solid rgba(255,255,255,0.08)",
+    color: T.primary,
+  };
+
+  return (
+    <div className="space-y-5">
+      <div className="flex items-center justify-between">
+        <p className="text-xs font-bold" style={{ color: T.dim }}>
+          {opps.length} total opportunities
+        </p>
+        <button
+          onClick={openNew}
+          className="flex items-center gap-2 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all"
+          style={{
+            background: G.dim,
+            border: `1px solid ${G.border}`,
+            color: G.bright,
+          }}
+        >
+          <Plus className="w-3.5 h-3.5" /> New Opportunity
+        </button>
+      </div>
+
+      <AnimatePresence>
+        {showForm && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            className="rounded-2xl p-5 space-y-4 overflow-hidden"
+            style={{
+              background: V.surface,
+              border: "1px solid rgba(255,255,255,0.06)",
+            }}
+          >
+            <h3 className="text-sm font-black" style={{ color: T.primary }}>
+              {editItem ? "Edit" : "New"} Opportunity
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <input
                 value={form.title}
                 onChange={(e) =>
                   setForm((p) => ({ ...p, title: e.target.value }))
                 }
-                className={fld}
-                placeholder="e.g. Frontend Engineer Intern"
+                placeholder="Title *"
+                className={inputCls}
+                style={inputStyle}
               />
-            </div>
-            <div>
-              <label className="block text-[9px] font-bold text-white/30 uppercase tracking-widest mb-1">
-                Type
-              </label>
               <select
                 value={form.type}
                 onChange={(e) =>
                   setForm((p) => ({ ...p, type: e.target.value }))
                 }
-                className={cn(fld, "appearance-none")}
+                className={cn(inputCls, "appearance-none")}
+                style={inputStyle}
               >
-                {OPP_TYPES_LIST.map((t) => (
+                {[
+                  "job",
+                  "internship",
+                  "freelance",
+                  "hackathon",
+                  "fellowship",
+                  "competition",
+                  "grant",
+                ].map((t) => (
                   <option key={t} value={t}>
                     {t}
                   </option>
                 ))}
               </select>
-            </div>
-            <div>
-              <label className="block text-[9px] font-bold text-white/30 uppercase tracking-widest mb-1">
-                Work Mode
-              </label>
-              <select
-                value={form.workMode}
-                onChange={(e) =>
-                  setForm((p) => ({ ...p, workMode: e.target.value }))
-                }
-                className={cn(fld, "appearance-none")}
-              >
-                {WORK_MODES.map((m) => (
-                  <option key={m} value={m}>
-                    {m}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-[9px] font-bold text-white/30 uppercase tracking-widest mb-1">
-                Provider / Company
-              </label>
               <input
                 value={form.provider}
                 onChange={(e) =>
                   setForm((p) => ({ ...p, provider: e.target.value }))
                 }
-                className={fld}
-                placeholder="e.g. Google"
+                placeholder="Company/Provider"
+                className={inputCls}
+                style={inputStyle}
               />
-            </div>
-            <div>
-              <label className="block text-[9px] font-bold text-white/30 uppercase tracking-widest mb-1">
-                Pay Type
-              </label>
-              <select
-                value={form.payType}
-                onChange={(e) =>
-                  setForm((p) => ({ ...p, payType: e.target.value }))
-                }
-                className={cn(fld, "appearance-none")}
-              >
-                {["Paid", "Unpaid", "Equity", "Stipend", "Prize Money"].map(
-                  (p) => (
-                    <option key={p} value={p}>
-                      {p}
-                    </option>
-                  ),
-                )}
-              </select>
-            </div>
-            <div>
-              <label className="block text-[9px] font-bold text-white/30 uppercase tracking-widest mb-1">
-                Compensation / Stipend
-              </label>
               <input
-                value={form.compensation}
-                onChange={(e) =>
-                  setForm((p) => ({ ...p, compensation: e.target.value }))
-                }
-                className={fld}
-                placeholder="e.g. ₹15,000/month"
-              />
-            </div>
-            <div>
-              <label className="block text-[9px] font-bold text-white/30 uppercase tracking-widest mb-1">
-                Location
-              </label>
-              <input
-                value={form.location}
-                onChange={(e) =>
-                  setForm((p) => ({ ...p, location: e.target.value }))
-                }
-                className={fld}
-                placeholder="e.g. Bangalore, India"
-              />
-            </div>
-            <div>
-              <label className="block text-[9px] font-bold text-white/30 uppercase tracking-widest mb-1">
-                Closing Date
-              </label>
-              <input
-                type="date"
-                value={form.closingDate}
-                onChange={(e) =>
-                  setForm((p) => ({ ...p, closingDate: e.target.value }))
-                }
-                className={fld}
-              />
-            </div>
-            <div>
-              <label className="block text-[9px] font-bold text-white/30 uppercase tracking-widest mb-1">
-                Experience Level
-              </label>
-              <input
-                value={form.experienceLevel}
-                onChange={(e) =>
-                  setForm((p) => ({ ...p, experienceLevel: e.target.value }))
-                }
-                className={fld}
-                placeholder="e.g. Beginner, 0-1 years"
-              />
-            </div>
-            <div className="col-span-2">
-              <label className="block text-[9px] font-bold text-white/30 uppercase tracking-widest mb-1">
-                Apply URL
-              </label>
-              <input
-                type="url"
                 value={form.applyUrl}
                 onChange={(e) =>
                   setForm((p) => ({ ...p, applyUrl: e.target.value }))
                 }
-                className={fld}
-                placeholder="https://..."
-              />
-            </div>
-            <div className="col-span-2">
-              <label className="block text-[9px] font-bold text-white/30 uppercase tracking-widest mb-1">
-                Thumbnail URL
-              </label>
-              <input
+                placeholder="Apply URL"
                 type="url"
-                value={form.thumbnailUrl}
-                onChange={(e) =>
-                  setForm((p) => ({ ...p, thumbnailUrl: e.target.value }))
-                }
-                className={fld}
-                placeholder="https://..."
+                className={inputCls}
+                style={inputStyle}
               />
-            </div>
-            <div className="col-span-2">
-              <label className="block text-[9px] font-bold text-white/30 uppercase tracking-widest mb-1">
-                Description
-              </label>
-              <textarea
-                rows={3}
-                value={form.description}
+              <select
+                value={form.workMode}
                 onChange={(e) =>
-                  setForm((p) => ({ ...p, description: e.target.value }))
+                  setForm((p) => ({ ...p, workMode: e.target.value }))
                 }
-                className={cn(fld, "resize-none")}
-              />
-            </div>
-            <div className="col-span-2">
-              <label className="block text-[9px] font-bold text-white/30 uppercase tracking-widest mb-1">
-                Required Tags (comma-separated)
-              </label>
-              <input
-                value={form.tags}
-                onChange={(e) =>
-                  setForm((p) => ({ ...p, tags: e.target.value }))
-                }
-                className={fld}
-                placeholder="React, Figma, Python"
-              />
-            </div>
-            <div className="col-span-2">
-              <label className="block text-[9px] font-bold text-white/30 uppercase tracking-widest mb-1">
-                Domains (comma-separated)
-              </label>
-              <input
-                value={form.domains}
-                onChange={(e) =>
-                  setForm((p) => ({ ...p, domains: e.target.value }))
-                }
-                className={fld}
-                placeholder="Engineering & Tech, Design & Creative"
-              />
-            </div>
-            <div className="flex items-center gap-3">
-              <label className="text-xs text-white/50">Active</label>
-              <button
-                onClick={() =>
-                  setForm((p) => ({ ...p, isActive: !p.isActive }))
-                }
-                className={cn(
-                  "w-10 h-5 rounded-full transition-all relative",
-                  form.isActive ? "bg-emerald-500" : "bg-[#333]",
-                )}
+                className={cn(inputCls, "appearance-none")}
+                style={inputStyle}
               >
-                <span
-                  className={cn(
-                    "absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform",
-                    form.isActive ? "left-5" : "left-0.5",
-                  )}
-                />
+                {["Remote", "In-Person", "Hybrid", "Global"].map((m) => (
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
+                ))}
+              </select>
+              <input
+                value={form.closingDate}
+                onChange={(e) =>
+                  setForm((p) => ({ ...p, closingDate: e.target.value }))
+                }
+                type="date"
+                className={inputCls}
+                style={inputStyle}
+              />
+            </div>
+            <textarea
+              rows={2}
+              value={form.description}
+              onChange={(e) =>
+                setForm((p) => ({ ...p, description: e.target.value }))
+              }
+              placeholder="Description"
+              className={cn(inputCls, "resize-none")}
+              style={inputStyle}
+            />
+            <div className="flex gap-2">
+              <button
+                onClick={handleSave}
+                disabled={saving}
+                className="flex items-center gap-2 px-5 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest"
+                style={{
+                  background: G.dim,
+                  border: `1px solid ${G.border}`,
+                  color: G.bright,
+                }}
+              >
+                {saving ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Check className="w-3.5 h-3.5" />
+                )}{" "}
+                Save
+              </button>
+              <button
+                onClick={() => setShowForm(false)}
+                className="px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest"
+                style={{ background: V.elevated, color: T.dim }}
+              >
+                Cancel
               </button>
             </div>
-            <div className="flex items-center gap-3">
-              <label className="text-xs text-white/50">Featured</label>
-              <button
-                onClick={() =>
-                  setForm((p) => ({ ...p, featured: !p.featured }))
-                }
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {loading ? (
+        <div className="space-y-2 animate-pulse">
+          {[1, 2, 3].map((i) => (
+            <div
+              key={i}
+              className="h-16 rounded-xl"
+              style={{ background: V.surface }}
+            />
+          ))}
+        </div>
+      ) : opps.length === 0 ? (
+        <p className="text-center text-sm py-8" style={{ color: T.dim }}>
+          No opportunities posted yet.
+        </p>
+      ) : (
+        <div className="space-y-2">
+          {opps.map((opp) => (
+            <div
+              key={opp.id}
+              className="flex items-center gap-3 p-4 rounded-xl group transition-colors hover:bg-white/[0.01]"
+              style={{
+                background: V.surface,
+                border: "1px solid rgba(255,255,255,0.04)",
+              }}
+            >
+              <div
                 className={cn(
-                  "w-10 h-5 rounded-full transition-all relative",
-                  form.featured ? "bg-amber-500" : "bg-[#333]",
+                  "w-2 h-2 rounded-full shrink-0",
+                  opp.isActive ? "bg-emerald-400" : "bg-white/20",
                 )}
-              >
-                <span
-                  className={cn(
-                    "absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform",
-                    form.featured ? "left-5" : "left-0.5",
-                  )}
-                />
-              </button>
+              />
+              <div className="flex-1 min-w-0">
+                <p
+                  className="text-sm font-bold truncate"
+                  style={{ color: T.primary }}
+                >
+                  {opp.title}
+                </p>
+                <p className="text-[10px]" style={{ color: T.dim }}>
+                  {opp.provider} · {opp.type} · {opp.workMode}
+                </p>
+              </div>
+              <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                <button
+                  onClick={() => openEdit(opp)}
+                  className="w-7 h-7 rounded-lg flex items-center justify-center hover:bg-white/10 transition-colors"
+                  style={{ color: T.dim }}
+                >
+                  <Pencil className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  onClick={() => deleteOpp(opp.id)}
+                  className="w-7 h-7 rounded-lg flex items-center justify-center transition-colors"
+                  style={{
+                    background: "rgba(239,68,68,0.08)",
+                    color: "#f87171",
+                  }}
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
             </div>
-          </div>
+          ))}
         </div>
-        <div className="p-4 border-t border-white/[0.05] shrink-0">
-          <button
-            onClick={handleSave}
-            disabled={saving || !form.title.trim()}
-            className="w-full py-3 bg-amber-500 hover:bg-amber-400 disabled:opacity-40 text-black font-black text-[10px] uppercase tracking-widest rounded-xl flex items-center justify-center gap-2"
-          >
-            {saving ? (
-              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-            ) : (
-              <Check className="w-3.5 h-3.5" />
-            )}{" "}
-            {opp ? "Update" : "Publish"} Opportunity
-          </button>
-        </div>
-      </motion.div>
-    </div>,
-    document.body,
+      )}
+    </div>
   );
-};
+});
 
+// ══════════════════════════════════════════════════════════════════════════════
+// TICKETS PANEL
+// ══════════════════════════════════════════════════════════════════════════════
+const TicketsPanel = memo(() => {
+  const [tickets, setTickets] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState("open");
+  const [expanded, setExpanded] = useState(null);
+
+  useEffect(() => {
+    getDocs(
+      query(
+        collection(db, "support_tickets"),
+        orderBy("createdAt", "desc"),
+        limit(100),
+      ),
+    )
+      .then((s) => setTickets(s.docs.map((d) => ({ id: d.id, ...d.data() }))))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const toggle = async (ticket) => {
+    const newStatus = ticket.status === "open" ? "closed" : "open";
+    await updateDoc(doc(db, "support_tickets", ticket.id), {
+      status: newStatus,
+      updatedAt: serverTimestamp(),
+    });
+    setTickets((p) =>
+      p.map((t) => (t.id === ticket.id ? { ...t, status: newStatus } : t)),
+    );
+  };
+
+  const filtered = tickets.filter((t) =>
+    filter === "all" ? true : t.status === filter,
+  );
+
+  return (
+    <div className="space-y-4">
+      <div className="flex gap-2">
+        {[
+          { k: "open", l: "Open" },
+          { k: "closed", l: "Closed" },
+          { k: "all", l: "All" },
+        ].map(({ k, l }) => {
+          const count = tickets.filter((t) =>
+            k === "all" ? true : t.status === k,
+          ).length;
+          return (
+            <button
+              key={k}
+              onClick={() => setFilter(k)}
+              className={cn(
+                "px-3.5 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all",
+                filter === k
+                  ? "bg-white text-black border-white"
+                  : "border-white/[0.06] text-white/40 hover:text-white",
+              )}
+            >
+              {l} <span className="font-mono opacity-60 ml-1">({count})</span>
+            </button>
+          );
+        })}
+      </div>
+      {loading ? (
+        <div className="space-y-2 animate-pulse">
+          {[1, 2, 3, 4].map((i) => (
+            <div
+              key={i}
+              className="h-20 rounded-xl"
+              style={{ background: V.surface }}
+            />
+          ))}
+        </div>
+      ) : filtered.length === 0 ? (
+        <p className="text-center text-sm py-8" style={{ color: T.dim }}>
+          No tickets found.
+        </p>
+      ) : (
+        <div className="space-y-2">
+          {filtered.map((t) => (
+            <div
+              key={t.id}
+              className="rounded-xl overflow-hidden"
+              style={{
+                background: V.surface,
+                border: "1px solid rgba(255,255,255,0.05)",
+              }}
+            >
+              <div
+                className="flex items-center gap-3 p-4 cursor-pointer hover:bg-white/[0.01] transition-colors"
+                onClick={() => setExpanded(expanded === t.id ? null : t.id)}
+              >
+                <div
+                  className={cn(
+                    "w-2 h-2 rounded-full shrink-0",
+                    t.status === "open" ? "bg-emerald-400" : "bg-white/20",
+                  )}
+                />
+                <div className="flex-1 min-w-0">
+                  <p
+                    className="text-sm font-bold truncate"
+                    style={{ color: T.primary }}
+                  >
+                    {t.subject || "No subject"}
+                  </p>
+                  <p className="text-[10px]" style={{ color: T.dim }}>
+                    {t.category} · {timeAgo(t.createdAt)}
+                  </p>
+                </div>
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    toggle(t);
+                  }}
+                  className="text-[9px] font-black uppercase tracking-widest px-2.5 py-1 rounded-lg border transition-all"
+                  style={{
+                    color: t.status === "open" ? "#f87171" : "#4ade80",
+                    background:
+                      t.status === "open"
+                        ? "rgba(248,113,113,0.08)"
+                        : "rgba(74,222,128,0.08)",
+                    borderColor:
+                      t.status === "open"
+                        ? "rgba(248,113,113,0.2)"
+                        : "rgba(74,222,128,0.2)",
+                  }}
+                >
+                  {t.status === "open" ? "Close" : "Reopen"}
+                </button>
+                <ChevronDown
+                  className={cn(
+                    "w-4 h-4 transition-transform shrink-0",
+                    expanded === t.id && "rotate-180",
+                  )}
+                  style={{ color: T.dim }}
+                />
+              </div>
+              {expanded === t.id && (
+                <div
+                  className="px-4 pb-4 pt-0 border-t"
+                  style={{ borderColor: "rgba(255,255,255,0.05)" }}
+                >
+                  <p
+                    className="text-sm leading-relaxed mt-3"
+                    style={{ color: T.secondary }}
+                  >
+                    {t.message}
+                  </p>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
+// REPORTS PANEL
+// ══════════════════════════════════════════════════════════════════════════════
+const ReportsPanel = memo(() => {
+  const [reports, setReports] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState("pending");
+
+  useEffect(() => {
+    getDocs(
+      query(
+        collection(db, "reports"),
+        orderBy("createdAt", "desc"),
+        limit(100),
+      ),
+    )
+      .then((s) => setReports(s.docs.map((d) => ({ id: d.id, ...d.data() }))))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const updateStatus = async (id, status) => {
+    await updateDoc(doc(db, "reports", id), {
+      status,
+      updatedAt: serverTimestamp(),
+    });
+    setReports((p) => p.map((r) => (r.id === id ? { ...r, status } : r)));
+  };
+
+  const filtered = reports.filter((r) =>
+    filter === "all" ? true : r.status === filter,
+  );
+
+  return (
+    <div className="space-y-4">
+      <div className="flex gap-2 flex-wrap">
+        {["pending", "reviewed", "resolved", "dismissed", "all"].map((f) => {
+          const count = reports.filter((r) =>
+            f === "all" ? true : r.status === f,
+          ).length;
+          return (
+            <button
+              key={f}
+              onClick={() => setFilter(f)}
+              className={cn(
+                "px-3.5 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all",
+                filter === f
+                  ? "bg-white text-black border-white"
+                  : "border-white/[0.06] text-white/40 hover:text-white",
+              )}
+            >
+              {f} <span className="font-mono opacity-60 ml-1">({count})</span>
+            </button>
+          );
+        })}
+      </div>
+      {loading ? (
+        <div className="space-y-2 animate-pulse">
+          {[1, 2, 3].map((i) => (
+            <div
+              key={i}
+              className="h-20 rounded-xl"
+              style={{ background: V.surface }}
+            />
+          ))}
+        </div>
+      ) : filtered.length === 0 ? (
+        <p className="text-center text-sm py-8" style={{ color: T.dim }}>
+          No reports found.
+        </p>
+      ) : (
+        <div className="space-y-2">
+          {filtered.map((r) => (
+            <div
+              key={r.id}
+              className="rounded-xl p-4 space-y-3"
+              style={{
+                background: V.surface,
+                border: "1px solid rgba(255,255,255,0.05)",
+              }}
+            >
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="w-4 h-4 text-orange-400 shrink-0 mt-0.5" />
+                <div className="flex-1 min-w-0">
+                  <p
+                    className="text-sm font-bold truncate"
+                    style={{ color: T.primary }}
+                  >
+                    {r.reason}
+                  </p>
+                  <p className="text-[10px]" style={{ color: T.dim }}>
+                    {r.targetType} · @{r.reporterUsername || "anon"} ·{" "}
+                    {timeAgo(r.createdAt)}
+                  </p>
+                </div>
+                <span
+                  className="text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded"
+                  style={{
+                    background: "rgba(249,115,22,0.1)",
+                    color: "#f97316",
+                  }}
+                >
+                  {r.status}
+                </span>
+              </div>
+              {r.description && (
+                <p className="text-xs" style={{ color: T.secondary }}>
+                  {r.description}
+                </p>
+              )}
+              <div className="flex gap-2 flex-wrap">
+                {["reviewed", "resolved", "dismissed"].map((action) => (
+                  <button
+                    key={action}
+                    onClick={() => updateStatus(r.id, action)}
+                    disabled={r.status === action}
+                    className="px-2.5 py-1 rounded-lg text-[8px] font-black uppercase tracking-widest border transition-all disabled:opacity-30"
+                    style={{
+                      color:
+                        action === "resolved"
+                          ? "#4ade80"
+                          : action === "dismissed"
+                            ? T.dim
+                            : "#38bdf8",
+                      background: `${action === "resolved" ? "rgba(74,222,128,0.1)" : action === "dismissed" ? "rgba(255,255,255,0.04)" : "rgba(56,189,248,0.1)"}`,
+                      borderColor:
+                        action === "resolved"
+                          ? "rgba(74,222,128,0.2)"
+                          : action === "dismissed"
+                            ? "rgba(255,255,255,0.08)"
+                            : "rgba(56,189,248,0.2)",
+                    }}
+                  >
+                    {action}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
+// FEEDBACK PANEL
+// ══════════════════════════════════════════════════════════════════════════════
+const FeedbackViewPanel = memo(() => {
+  const [feedbacks, setFeedbacks] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [expanded, setExpanded] = useState(null);
+
+  useEffect(() => {
+    getDocs(collection(db, "feedback"))
+      .then((s) => setFeedbacks(s.docs.map((d) => ({ id: d.id, ...d.data() }))))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const totalRating = feedbacks.reduce((s, f) => s + (f.rating || 0), 0);
+  const avgRating =
+    feedbacks.length > 0 ? (totalRating / feedbacks.length).toFixed(1) : "—";
+
+  const recCounts = { game_changer: 0, powerful: 0, average: 0, a_drag: 0 };
+  feedbacks.forEach((f) => {
+    if (f.recommendation && recCounts[f.recommendation] !== undefined)
+      recCounts[f.recommendation]++;
+  });
+
+  return (
+    <div className="space-y-5">
+      {/* Stats */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <StatCard
+          label="Total Responses"
+          value={feedbacks.length}
+          icon={MessageSquare}
+          color={T.primary}
+        />
+        <StatCard
+          label="Avg Rating"
+          value={`${avgRating} ★`}
+          icon={Star}
+          color="#f59e0b"
+        />
+        <StatCard
+          label="Game-Changers"
+          value={recCounts.game_changer}
+          icon={Flame}
+          color="#a855f7"
+        />
+        <StatCard
+          label="A Drag"
+          value={recCounts.a_drag}
+          icon={AlertTriangle}
+          color="#f87171"
+        />
+      </div>
+
+      {loading ? (
+        <div className="space-y-2 animate-pulse">
+          {[1, 2, 3].map((i) => (
+            <div
+              key={i}
+              className="h-16 rounded-xl"
+              style={{ background: V.surface }}
+            />
+          ))}
+        </div>
+      ) : feedbacks.length === 0 ? (
+        <p className="text-center text-sm py-8" style={{ color: T.dim }}>
+          No feedback yet.
+        </p>
+      ) : (
+        <div className="space-y-2">
+          {feedbacks.map((f) => {
+            const recColor =
+              {
+                game_changer: "#a855f7",
+                powerful: "#4ade80",
+                average: "#f59e0b",
+                a_drag: "#f87171",
+              }[f.recommendation] || T.dim;
+            return (
+              <div
+                key={f.id}
+                className="rounded-xl overflow-hidden"
+                style={{
+                  background: V.surface,
+                  border: "1px solid rgba(255,255,255,0.05)",
+                }}
+              >
+                <div
+                  className="flex items-center gap-3 p-4 cursor-pointer hover:bg-white/[0.01] transition-colors"
+                  onClick={() => setExpanded(expanded === f.id ? null : f.id)}
+                >
+                  <div className="flex items-center gap-0.5 shrink-0">
+                    {[1, 2, 3, 4, 5].map((s) => (
+                      <Star
+                        key={s}
+                        className="w-3 h-3"
+                        style={{
+                          color:
+                            f.rating >= s ? "#f59e0b" : "rgba(255,255,255,0.1)",
+                          fill: f.rating >= s ? "#f59e0b" : "none",
+                        }}
+                      />
+                    ))}
+                  </div>
+                  <span
+                    className="text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded"
+                    style={{ color: recColor, background: `${recColor}15` }}
+                  >
+                    {f.recommendation?.replace("_", " ")}
+                  </span>
+                  <span
+                    className="text-[10px] font-mono flex-1 truncate"
+                    style={{ color: T.dim }}
+                  >
+                    {f.uid?.slice(0, 16)}...
+                  </span>
+                  <ChevronDown
+                    className={cn(
+                      "w-4 h-4 transition-transform shrink-0",
+                      expanded === f.id && "rotate-180",
+                    )}
+                    style={{ color: T.dim }}
+                  />
+                </div>
+                {expanded === f.id && f.comments && (
+                  <div
+                    className="px-4 pb-4 border-t"
+                    style={{ borderColor: "rgba(255,255,255,0.05)" }}
+                  >
+                    <p
+                      className="text-sm leading-relaxed mt-3"
+                      style={{ color: T.secondary }}
+                    >
+                      {f.comments}
+                    </p>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
+// MAIN ADMIN DASHBOARD
+// ══════════════════════════════════════════════════════════════════════════════
 const AdminDashboard = () => {
-  const navigate = useNavigate();
-
-  // — Data State —
+  const [activePanel, setActivePanel] = useState("overview");
+  const [collapsed, setCollapsed] = useState(false);
   const [stats, setStats] = useState({
     total: 0,
     pro: 0,
     essential: 0,
     newThisWeek: 0,
+    pendingVault: 0,
+    openTickets: 0,
+    pendingReports: 0,
+    pendingConnectors: 0,
+    pendingYT: 0,
+    pendingGithub: 0,
   });
-  const [pendingVault, setPendingVault] = useState([]);
-  const [reportedVault, setReportedVault] = useState([]);
-  const [tickets, setTickets] = useState([]);
-  const [reports, setReports] = useState([]);
-  const [activeBounties, setActiveBounties] = useState([]);
   const [recentUsers, setRecentUsers] = useState([]);
-  const [learnVideos, setLearnVideos] = useState([]);
-  const [learnCerts, setLearnCerts] = useState([]);
-
-  // — UI State —
-  const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [lastRefresh, setLastRefresh] = useState(null);
-  const [error, setError] = useState(null);
+  const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
-  // — Learn Explorer State —
-  const [activeLearnTab, setActiveLearnTab] = useState("youtube");
-  const [isAddVideoOpen, setIsAddVideoOpen] = useState(false);
-  const [isAddCertOpen, setIsAddCertOpen] = useState(false);
-  // — App Verifications State —
-  const [appVerifications, setAppVerifications] = useState([]);
-  const [appCatalog, setAppCatalog] = useState([]);
+  const PANEL_TITLES = {
+    overview: "Command Center",
+    users: "User Management",
+    vault: "Vault Verification",
+    connectors: "Connector Approvals",
+    scoring: "Scoring Engine",
+    learn: "Learn Database",
+    opportunities: "Opportunities",
+    tickets: "Support Tickets",
+    reports: "User Reports",
+    feedback: "Platform Feedback",
+  };
 
-  // — Learn Suggestions State —
-  const [learnSuggestions, setLearnSuggestions] = useState([]);
-  const [reviewingSuggestion, setReviewingSuggestion] = useState(null);
-  const [suggestionAction, setSuggestionAction] = useState({});
-
-  // — Opportunities State —
-  const [opportunities, setOpportunities] = useState([]);
-  const [oppFormOpen, setOppFormOpen] = useState(false);
-  const [oppEditItem, setOppEditItem] = useState(null);
-
-  // — User Management State —
-  const [userManagementOpen, setUserManagementOpen] = useState(false);
-  const [userSearchQ, setUserSearchQ] = useState("");
-  const [managedUsers, setManagedUsers] = useState([]);
-  const [userSearchLoading, setUserSearchLoading] = useState(false);
-  const [deletingUser, setDeletingUser] = useState(null);
-
-  // ── DATA FETCHER ──────────────────────────────────────────────────────────
-  const fetchAllData = useCallback(async () => {
-    setError(null);
+  const fetchStats = useCallback(async () => {
+    setRefreshing(true);
     try {
-      const weekAgo = new Date();
-      weekAgo.setDate(weekAgo.getDate() - 7);
-      const weekAgoIso = weekAgo.toISOString();
-
       const [totalSnap, proSnap] = await Promise.all([
         getCountFromServer(query(collection(db, "users"))),
         getCountFromServer(
           query(collection(db, "users"), where("tier", "==", "PRO")),
         ),
       ]);
-
-      let weeklyNewCount = 0;
-      try {
-        const weekSnap = await getCountFromServer(
-          query(collection(db, "users"), where("createdAt", ">=", weekAgoIso)),
-        );
-        weeklyNewCount = weekSnap.data().count;
-      } catch (_) {}
-
       const total = totalSnap.data().count;
       const pro = proSnap.data().count;
-      const essential = total - pro;
-      setStats({ total, pro, essential, newThisWeek: weeklyNewCount });
 
-      const vaultBatch = await getDocs(
-        query(collection(db, "users"), limit(50)),
-      );
-      const pending = [];
-      const reported = [];
-      vaultBatch.docs.forEach((userDoc) => {
-        const data = userDoc.data();
-        const vault = data.vault || [];
-        vault.forEach((asset) => {
-          const enriched = {
-            ...asset,
-            userId: userDoc.id,
-            userName:
-              `${data.identity?.firstName || ""} ${data.identity?.lastName || ""}`.trim() ||
-              "Unknown",
-            userUsername: data.identity?.username || "unknown",
-          };
-          if (asset.status === "PENDING" || !asset.status)
-            pending.push(enriched);
-          if (asset.status === "REPORTED") reported.push(enriched);
-        });
-      });
-      setPendingVault(pending);
-      setReportedVault(reported);
-
+      let newThisWeek = 0;
       try {
-        const tkSnap = await getDocs(
+        const weekAgo = new Date();
+        weekAgo.setDate(weekAgo.getDate() - 7);
+        const ws = await getCountFromServer(
+          query(
+            collection(db, "users"),
+            where("createdAt", ">=", weekAgo.toISOString()),
+          ),
+        );
+        newThisWeek = ws.data().count;
+      } catch {}
+
+      // Count pending vault, YT, github
+      const usersSnap = await getDocs(
+        query(collection(db, "users"), limit(100)),
+      );
+      let pendingVault = 0,
+        pendingYT = 0,
+        pendingGithub = 0;
+      usersSnap.docs.forEach((d) => {
+        const data = d.data();
+        (data.vault || []).forEach((a) => {
+          if (!a.status || a.status === "PENDING") {
+            pendingVault++;
+            if (a.connectorSource === "github") pendingGithub++;
+          }
+        });
+        if (
+          data.connectors?.youtube?.channelUrl &&
+          !data.connectors?.youtube?.verified
+        )
+          pendingYT++;
+      });
+
+      let openTickets = 0,
+        pendingReports = 0,
+        pendingAppVerifs = 0;
+      try {
+        const ts = await getCountFromServer(
           query(
             collection(db, "support_tickets"),
-            orderBy("createdAt", "desc"),
-            limit(5),
+            where("status", "==", "open"),
           ),
         );
-        setTickets(tkSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
-      } catch (_) {
-        setTickets([]);
-      }
-
+        openTickets = ts.data().count;
+      } catch {}
       try {
-        const rpSnap = await getDocs(
+        const rs = await getCountFromServer(
+          query(collection(db, "reports"), where("status", "==", "pending")),
+        );
+        pendingReports = rs.data().count;
+      } catch {}
+      try {
+        const as = await getCountFromServer(
           query(
-            collection(db, "reports"),
-            orderBy("createdAt", "desc"),
-            limit(5),
+            collection(db, "app_verifications"),
+            where("status", "==", "PENDING"),
           ),
         );
-        setReports(rpSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
-      } catch (_) {
-        setReports([]);
-      }
+        pendingAppVerifs = as.data().count;
+      } catch {}
+
+      setStats({
+        total,
+        pro,
+        essential: total - pro,
+        newThisWeek,
+        pendingVault,
+        openTickets,
+        pendingReports,
+        pendingConnectors: pendingYT + pendingGithub + pendingAppVerifs,
+        pendingYT,
+        pendingGithub,
+      });
 
       try {
-        const bountySnap = await getDocs(
-          query(
-            collection(db, "bounty_escrow"),
-            where("status", "==", "LOCKED"),
-            limit(20),
-          ),
-        );
-        setActiveBounties(
-          bountySnap.docs.map((d) => ({ id: d.id, ...d.data() })),
-        );
-      } catch (_) {
-        setActiveBounties([]);
-      }
-
-      try {
-        const ruSnap = await getDocs(
+        const ru = await getDocs(
           query(
             collection(db, "users"),
             orderBy("createdAt", "desc"),
             limit(8),
           ),
         );
-        setRecentUsers(ruSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
-      } catch (_) {
-        const ruSnap = await getDocs(query(collection(db, "users"), limit(8)));
-        setRecentUsers(ruSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
-      }
-
-      // Fetch Learn Explorer Data
-      try {
-        const vidSnap = await getDocs(
-          query(collection(db, "discotive_videos"), limit(20)),
-        );
-        setLearnVideos(vidSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
-      } catch (_) {
-        setLearnVideos([]);
-      }
-
-      try {
-        const certSnap = await getDocs(
-          query(collection(db, "discotive_certificates"), limit(20)),
-        );
-        setLearnCerts(certSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
-      } catch (_) {
-        setLearnCerts([]);
-      }
-
-      // App verifications
-      try {
-        const avSnap = await getDocs(
-          query(
-            collection(db, "app_verifications"),
-            where("status", "==", "PENDING"),
-            orderBy("submittedAt", "desc"),
-            limit(30),
-          ),
-        );
-        setAppVerifications(
-          avSnap.docs.map((d) => ({ id: d.id, ...d.data() })),
-        );
-      } catch (_) {
-        setAppVerifications([]);
-      }
-
-      // App catalog
-      try {
-        const acSnap = await getDocs(
-          query(collection(db, "app_catalog"), limit(100)),
-        );
-        setAppCatalog(acSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
-      } catch (_) {
-        setAppCatalog([]);
-      }
-
-      // Learn Suggestions
-      try {
-        const lsSnap = await getDocs(
-          query(
-            collection(db, "learn_suggestions"),
-            where("status", "==", "PENDING"),
-            orderBy("createdAt", "desc"),
-            limit(30),
-          ),
-        );
-        setLearnSuggestions(
-          lsSnap.docs.map((d) => ({ id: d.id, ...d.data() })),
-        );
-      } catch (_) {
-        setLearnSuggestions([]);
-      }
-
-      // Opportunities
-      try {
-        const oppSnap = await getDocs(
-          query(
-            collection(db, "opportunities"),
-            orderBy("createdAt", "desc"),
-            limit(50),
-          ),
-        );
-        setOpportunities(oppSnap.docs.map((d) => ({ id: d.id, ...d.data() })));
-      } catch (_) {
-        setOpportunities([]);
-      }
+        setRecentUsers(ru.docs.map((d) => ({ id: d.id, ...d.data() })));
+      } catch {}
 
       setLastRefresh(new Date());
-    } catch (err) {
-      console.error("[AdminDashboard] Fetch failed:", err);
-      setError("Failed to load dashboard data. Check Firestore permissions.");
+    } finally {
+      setRefreshing(false);
     }
   }, []);
 
   useEffect(() => {
-    const init = async () => {
-      setLoading(true);
-      await fetchAllData();
-      setLoading(false);
-    };
-    init();
-  }, [fetchAllData]);
+    fetchStats();
+  }, [fetchStats]);
 
-  const handleRefresh = async () => {
-    setRefreshing(true);
-    await fetchAllData();
-    setRefreshing(false);
-  };
-  const pieData = [
-    { name: "Essential", value: stats.essential, color: "#2a2a2a" },
-    { name: "Pro", value: stats.pro, color: "#f59e0b" },
-  ];
-
-  const handleUserSearch = async () => {
-    if (!userSearchQ.trim()) return;
-    setUserSearchLoading(true);
-    try {
-      const byUsername = await getDocs(
-        query(
-          collection(db, "users"),
-          where("identity.username", "==", userSearchQ.trim()),
-          limit(5),
-        ),
-      );
-      const byEmail = await getDocs(
-        query(
-          collection(db, "users"),
-          where("identity.email", "==", userSearchQ.trim()),
-          limit(5),
-        ),
-      );
-      const combined = [...byUsername.docs, ...byEmail.docs];
-      const seen = new Set();
-      const deduped = combined.filter((d) => {
-        if (seen.has(d.id)) return false;
-        seen.add(d.id);
-        return true;
-      });
-      setManagedUsers(deduped.map((d) => ({ id: d.id, ...d.data() })));
-    } catch (e) {
-      setManagedUsers([]);
-    } finally {
-      setUserSearchLoading(false);
+  const renderPanel = () => {
+    switch (activePanel) {
+      case "overview":
+        return (
+          <OverviewPanel
+            stats={stats}
+            recentUsers={recentUsers}
+            refreshing={refreshing}
+          />
+        );
+      case "users":
+        return <UsersPanel />;
+      case "vault":
+        return <VaultPanel />;
+      case "connectors":
+        return <ConnectorPanel />;
+      case "scoring":
+        return <ScoringPanel />;
+      case "learn":
+        return <LearnPanel />;
+      case "opportunities":
+        return <OpportunitiesPanel />;
+      case "tickets":
+        return <TicketsPanel />;
+      case "reports":
+        return <ReportsPanel />;
+      case "feedback":
+        return <FeedbackViewPanel />;
+      default:
+        return null;
     }
   };
 
-  const handleHardDeleteUser = async (userId, username) => {
-    if (
-      !window.confirm(
-        `PERMANENT DELETE: This will wipe @${username}'s entire Discotive account from Firestore. This cannot be undone. Type the username to confirm in the next prompt.`,
-      )
-    )
-      return;
-    const typed = window.prompt(
-      `Type "${username}" to permanently delete this account:`,
-    );
-    if (typed !== username) {
-      alert("Username mismatch. Deletion cancelled.");
-      return;
-    }
-    setDeletingUser(userId);
-    try {
-      // Delete Firestore document (subcollections must be handled separately or via Cloud Function in production)
-      await deleteDoc(doc(db, "users", userId));
-      setManagedUsers((prev) => prev.filter((u) => u.id !== userId));
-      alert(
-        `@${username} has been permanently deleted from Firestore. Note: Firebase Auth record must be deleted via Firebase Console or a Cloud Function.`,
-      );
-    } catch (e) {
-      console.error("[Admin] Hard delete failed:", e);
-      alert("Delete failed: " + e.message);
-    } finally {
-      setDeletingUser(null);
-    }
-  };
-
-  const handleSuggestionApprove = async (suggestion) => {
-    try {
-      await updateDoc(doc(db, "learn_suggestions", suggestion.id), {
-        status: "APPROVED",
-        reviewedAt: serverTimestamp(),
-        reviewedBy: auth.currentUser?.email,
-      });
-      setLearnSuggestions((prev) => prev.filter((s) => s.id !== suggestion.id));
-    } catch (e) {
-      console.error(e);
-    }
-  };
-
-  const handleSuggestionReject = async (id) => {
-    try {
-      await updateDoc(doc(db, "learn_suggestions", id), {
-        status: "REJECTED",
-        reviewedAt: serverTimestamp(),
-      });
-      setLearnSuggestions((prev) => prev.filter((s) => s.id !== id));
-    } catch (e) {
-      console.error(e);
-    }
-  };
-
-  const handleDeleteResource = async (collectionName, docId) => {
-    if (
-      !window.confirm(
-        "Are you sure you want to permanently delete this resource?",
-      )
-    )
-      return;
-    try {
-      await deleteDoc(doc(db, collectionName, docId));
-      handleRefresh();
-    } catch (err) {
-      console.error(`[AdminDashboard] Deletion failed:`, err);
-      setError("Failed to delete resource. Check Firestore permissions.");
-    }
-  };
-
-  // ============================================================================
-  // MODALS COMPONENTS
-  // ============================================================================
-
-  const AddVideoModal = () => {
-    const [form, setForm] = useState({ title: "", url: "" });
-    const [isSubmitting, setIsSubmitting] = useState(false);
-
-    const handleUrlChange = async (e) => {
-      const url = e.target.value;
-      setForm((p) => ({ ...p, url }));
-      if (url.includes("youtube.com") || url.includes("youtu.be")) {
-        try {
-          const res = await fetch(
-            `https://noembed.com/embed?dataType=json&url=${url}`,
-          );
-          const data = await res.json();
-          if (data.title) setForm((p) => ({ ...p, title: data.title }));
-        } catch (err) {
-          console.error("Could not fetch YouTube title");
-        }
-      }
-    };
-
-    const handleSubmit = async (e) => {
-      e.preventDefault();
-      setIsSubmitting(true);
-      try {
-        const suffix = Math.floor(100000 + Math.random() * 900000);
-        await addDoc(collection(db, "discotive_videos"), {
-          title: form.title,
-          url: form.url,
-          type: "video",
-          learnId: `discotive_video_${suffix}`,
-          createdAt: serverTimestamp(),
-        });
-        setIsAddVideoOpen(false);
-        handleRefresh();
-      } catch (err) {
-        console.error(err);
-      }
-      setIsSubmitting(false);
-    };
-
-    if (!isAddVideoOpen) return null;
-    return createPortal(
-      <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-        <motion.div
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
-          className="w-full max-w-md bg-[#0a0a0c] border border-white/[0.08] rounded-2xl p-6 shadow-2xl"
-        >
-          <div className="flex items-center justify-between mb-6">
-            <h3 className="text-sm font-black text-white">Add YouTube Video</h3>
-            <button
-              onClick={() => setIsAddVideoOpen(false)}
-              className="text-white/40 hover:text-white"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label className="text-[10px] font-bold text-white/40 uppercase tracking-widest block mb-1.5">
-                Video Link (YouTube) *
-              </label>
-              <input
-                required
-                value={form.url}
-                onChange={handleUrlChange}
-                placeholder="Paste YouTube URL here..."
-                className="w-full bg-[#111] border border-white/[0.05] rounded-xl px-4 py-2.5 text-xs text-white placeholder-white/20 focus:outline-none focus:border-sky-500/50"
-              />
-            </div>
-            <div>
-              <label className="text-[10px] font-bold text-white/40 uppercase tracking-widest block mb-1.5">
-                Video Name *
-              </label>
-              <input
-                required
-                value={form.title}
-                onChange={(e) => setForm({ ...form, title: e.target.value })}
-                placeholder="Extracted automatically..."
-                className="w-full bg-[#111] border border-white/[0.05] rounded-xl px-4 py-2.5 text-xs text-white placeholder-white/20 focus:outline-none focus:border-sky-500/50"
-              />
-            </div>
-            <button
-              disabled={isSubmitting}
-              type="submit"
-              className="w-full py-3 bg-sky-500 text-black text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-sky-400 disabled:opacity-50 transition-colors"
-            >
-              {isSubmitting ? "Deploying..." : "Inject to Video DB"}
-            </button>
-          </form>
-        </motion.div>
-      </div>,
-      document.body,
-    );
-  };
-
-  const AddCertificateModal = () => {
-    const [form, setForm] = useState({
-      title: "",
-      link: "",
-      provider: "",
-      strength: "",
-      tags: [],
-      topic: [],
-      domain: [],
-      niche: [],
-      target: "",
-      cost: "",
-      resources: [""],
-      description: "",
-      notes: "",
-    });
-    const [isSubmitting, setIsSubmitting] = useState(false);
-
-    const handleSubmit = async (e) => {
-      e.preventDefault();
-      setIsSubmitting(true);
-      try {
-        const suffix = Math.floor(100000 + Math.random() * 900000);
-        const payload = {
-          ...form,
-          resources: form.resources.filter((r) => r.trim() !== ""),
-          learnId: `discotive_certificate_${suffix}`,
-          createdAt: serverTimestamp(),
-        };
-        await addDoc(collection(db, "discotive_certificates"), payload);
-        setIsAddCertOpen(false);
-        handleRefresh();
-      } catch (err) {
-        console.error(err);
-      }
-      setIsSubmitting(false);
-    };
-
-    if (!isAddCertOpen) return null;
-    return createPortal(
-      <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
-        <motion.div
-          initial={{ opacity: 0, scale: 0.95 }}
-          animate={{ opacity: 1, scale: 1 }}
-          className="w-full max-w-2xl max-h-[90vh] flex flex-col bg-[#0a0a0c] border border-white/[0.08] rounded-2xl shadow-2xl overflow-hidden"
-        >
-          <div className="flex items-center justify-between p-6 border-b border-white/[0.05] shrink-0">
-            <h3 className="text-sm font-black text-white">
-              Add Certificate Blueprint
-            </h3>
-            <button
-              onClick={() => setIsAddCertOpen(false)}
-              className="text-white/40 hover:text-white"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-          <div className="flex-1 overflow-y-auto p-6 custom-scrollbar">
-            <form id="certForm" onSubmit={handleSubmit} className="space-y-5">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="text-[10px] font-bold text-white/40 uppercase tracking-widest block mb-1.5">
-                    Certificate Name *
-                  </label>
-                  <input
-                    required
-                    value={form.title}
-                    onChange={(e) =>
-                      setForm({ ...form, title: e.target.value })
-                    }
-                    className="w-full bg-[#111] border border-white/[0.05] rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-amber-500/50"
-                  />
-                </div>
-                <div>
-                  <label className="text-[10px] font-bold text-white/40 uppercase tracking-widest block mb-1.5">
-                    Link *
-                  </label>
-                  <input
-                    required
-                    type="url"
-                    value={form.link}
-                    onChange={(e) => setForm({ ...form, link: e.target.value })}
-                    className="w-full bg-[#111] border border-white/[0.05] rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-amber-500/50"
-                  />
-                </div>
-                <div>
-                  <label className="text-[10px] font-bold text-white/40 uppercase tracking-widest block mb-1.5">
-                    Provider Institution *
-                  </label>
-                  <input
-                    required
-                    value={form.provider}
-                    onChange={(e) =>
-                      setForm({ ...form, provider: e.target.value })
-                    }
-                    className="w-full bg-[#111] border border-white/[0.05] rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-amber-500/50"
-                  />
-                </div>
-                <div>
-                  <label className="text-[10px] font-bold text-white/40 uppercase tracking-widest block mb-1.5">
-                    Strength *
-                  </label>
-                  <select
-                    required
-                    value={form.strength}
-                    onChange={(e) =>
-                      setForm({ ...form, strength: e.target.value })
-                    }
-                    className="w-full bg-[#111] border border-white/[0.05] rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-amber-500/50"
-                  >
-                    <option value="" disabled>
-                      Select strength
-                    </option>
-                    <option value="Weak">Weak</option>
-                    <option value="Medium">Medium</option>
-                    <option value="Strong">Strong</option>
-                  </select>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="text-[10px] font-bold text-white/40 uppercase tracking-widest block mb-1.5">
-                    Tags
-                  </label>
-                  <MultiSelect
-                    options={RAW_SKILLS}
-                    selected={form.tags}
-                    onChange={(v) => setForm({ ...form, tags: v })}
-                    placeholder="Add tags..."
-                  />
-                </div>
-                <div>
-                  <label className="text-[10px] font-bold text-white/40 uppercase tracking-widest block mb-1.5">
-                    Topics
-                  </label>
-                  <MultiSelect
-                    options={RAW_SKILLS}
-                    selected={form.topic}
-                    onChange={(v) => setForm({ ...form, topic: v })}
-                    placeholder="Add topics..."
-                  />
-                </div>
-                <div>
-                  <label className="text-[10px] font-bold text-white/40 uppercase tracking-widest block mb-1.5">
-                    Domain
-                  </label>
-                  <MultiSelect
-                    options={MACRO_DOMAINS}
-                    selected={form.domain}
-                    onChange={(v) => setForm({ ...form, domain: v })}
-                    placeholder="Add domains..."
-                  />
-                </div>
-                <div>
-                  <label className="text-[10px] font-bold text-white/40 uppercase tracking-widest block mb-1.5">
-                    Niche
-                  </label>
-                  <MultiSelect
-                    options={MICRO_NICHES}
-                    selected={form.niche}
-                    onChange={(v) => setForm({ ...form, niche: v })}
-                    placeholder="Add niches..."
-                  />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="text-[10px] font-bold text-white/40 uppercase tracking-widest block mb-1.5">
-                    Target Audience
-                  </label>
-                  <select
-                    value={form.target}
-                    onChange={(e) =>
-                      setForm({ ...form, target: e.target.value })
-                    }
-                    className="w-full bg-[#111] border border-white/[0.05] rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-amber-500/50"
-                  >
-                    <option value="">Select target...</option>
-                    <option value="Students">Students</option>
-                    <option value="Professionals">Professionals</option>
-                    <option value="All">All</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="text-[10px] font-bold text-white/40 uppercase tracking-widest block mb-1.5">
-                    Cost Model
-                  </label>
-                  <select
-                    value={form.cost}
-                    onChange={(e) => setForm({ ...form, cost: e.target.value })}
-                    className="w-full bg-[#111] border border-white/[0.05] rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-amber-500/50"
-                  >
-                    <option value="">Select cost...</option>
-                    <option value="Free">Free</option>
-                    <option value="Paid">Paid</option>
-                  </select>
-                </div>
-              </div>
-
-              <div>
-                <label className="text-[10px] font-bold text-white/40 uppercase tracking-widest flex items-center justify-between mb-1.5">
-                  Resources
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setForm((p) => ({
-                        ...p,
-                        resources: [...p.resources, ""],
-                      }))
-                    }
-                    className="text-amber-500 hover:text-amber-400"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                  </button>
-                </label>
-                <div className="space-y-2">
-                  {form.resources.map((res, i) => (
-                    <div key={i} className="flex items-center gap-2">
-                      <input
-                        type="url"
-                        value={res}
-                        onChange={(e) => {
-                          const newRes = [...form.resources];
-                          newRes[i] = e.target.value;
-                          setForm({ ...form, resources: newRes });
-                        }}
-                        placeholder="https://"
-                        className="flex-1 bg-[#111] border border-white/[0.05] rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-amber-500/50"
-                      />
-                      {form.resources.length > 1 && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const newRes = form.resources.filter(
-                              (_, idx) => idx !== i,
-                            );
-                            setForm({ ...form, resources: newRes });
-                          }}
-                          className="p-2.5 rounded-xl bg-red-500/10 text-red-500 hover:bg-red-500/20"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <label className="text-[10px] font-bold text-white/40 uppercase tracking-widest">
-                    Description
-                  </label>
-                  <span
-                    className={cn(
-                      "text-[9px] font-mono",
-                      form.description.length > 950
-                        ? "text-amber-500"
-                        : "text-white/20",
-                    )}
-                  >
-                    {form.description.length}/1000
-                  </span>
-                </div>
-                <textarea
-                  maxLength={1000}
-                  rows={4}
-                  value={form.description}
-                  onChange={(e) =>
-                    setForm({ ...form, description: e.target.value })
-                  }
-                  className="w-full bg-[#111] border border-white/[0.05] rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-amber-500/50 resize-none"
-                />
-              </div>
-
-              <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <label className="text-[10px] font-bold text-white/40 uppercase tracking-widest">
-                    Notes
-                  </label>
-                  <span
-                    className={cn(
-                      "text-[9px] font-mono",
-                      form.notes.length > 180
-                        ? "text-amber-500"
-                        : "text-white/20",
-                    )}
-                  >
-                    {form.notes.length}/200
-                  </span>
-                </div>
-                <textarea
-                  maxLength={200}
-                  rows={2}
-                  value={form.notes}
-                  onChange={(e) => setForm({ ...form, notes: e.target.value })}
-                  className="w-full bg-[#111] border border-white/[0.05] rounded-xl px-4 py-2.5 text-xs text-white focus:outline-none focus:border-amber-500/50 resize-none"
-                />
-              </div>
-            </form>
-          </div>
-          <div className="p-6 border-t border-white/[0.05] shrink-0">
-            <button
-              form="certForm"
-              disabled={isSubmitting}
-              type="submit"
-              className="w-full py-3 bg-amber-500 text-black text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-amber-400 disabled:opacity-50 transition-colors"
-            >
-              {isSubmitting ? "Deploying..." : "Inject to Certificate DB"}
-            </button>
-          </div>
-        </motion.div>
-      </div>,
-      document.body,
-    );
-  };
-
-  // ── SKELETON ──────────────────────────────────────────────────────────────
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-[#000000] text-white flex items-center justify-center">
-        <div className="text-center space-y-3">
-          <div className="flex items-center justify-center gap-1.5">
-            {[0, 1, 2, 3, 4].map((i) => (
-              <motion.div
-                key={i}
-                animate={{ opacity: [0.2, 1, 0.2] }}
-                transition={{
-                  duration: 1.2,
-                  repeat: Infinity,
-                  delay: i * 0.15,
-                }}
-                className="w-1 h-5 bg-amber-500 rounded-full"
-              />
-            ))}
-          </div>
-          <p className="text-[10px] font-black text-white/30 uppercase tracking-[0.3em]">
-            Syncing platform telemetry...
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  // ── RENDER ─────────────────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-[#000000] text-white pb-32 font-sans selection:bg-amber-500/30">
-      <div className="fixed inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-[0.02] pointer-events-none z-0" />
+    <div
+      className="flex h-screen overflow-hidden"
+      style={{ background: V.bg, color: T.primary }}
+    >
+      {/* Desktop Sidebar */}
+      <div className="hidden md:flex">
+        <AdminSidebar
+          activePanel={activePanel}
+          setActivePanel={setActivePanel}
+          collapsed={collapsed}
+          setCollapsed={setCollapsed}
+          stats={stats}
+        />
+      </div>
 
-      <div className="max-w-[1600px] mx-auto p-4 md:p-8 relative z-10">
-        {/* ── HEADER ── */}
-        <motion.header
-          initial={{ opacity: 0, y: -10 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-8"
-        >
-          <div>
-            <div className="flex items-center gap-3 mb-3">
-              <div className="px-3 py-1.5 rounded-full bg-[#111] border border-amber-500/20 text-[9px] font-bold text-amber-500 uppercase tracking-widest flex items-center gap-1.5">
-                <div className="w-1.5 h-1.5 bg-amber-500 rounded-full animate-pulse" />{" "}
-                Sector Omega — Live
-              </div>
-              <div className="px-3 py-1.5 rounded-full bg-[#111] border border-[#222] text-[9px] font-bold text-white/30 uppercase tracking-widest">
-                {auth.currentUser?.email}
-              </div>
-            </div>
-            <h1 className="text-4xl md:text-5xl font-black tracking-tight text-white">
-              Admin Command Center
-            </h1>
-            <p className="text-white/30 text-sm mt-1 font-medium">
-              {lastRefresh
-                ? `Last synced ${timeAgo(lastRefresh.toISOString())}`
-                : "Syncing..."}
-            </p>
-          </div>
-
-          <div className="flex items-center gap-3">
-            <Link
-              to="/app"
-              className="flex items-center gap-2 px-4 py-2.5 bg-[#0a0a0c] border border-white/[0.05] rounded-xl text-xs font-bold text-white/60 hover:text-white transition-colors"
+      {/* Mobile Sidebar */}
+      <AnimatePresence>
+        {mobileSidebarOpen && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-[100] md:hidden"
+              style={{
+                background: "rgba(0,0,0,0.8)",
+                backdropFilter: "blur(8px)",
+              }}
+              onClick={() => setMobileSidebarOpen(false)}
+            />
+            <motion.div
+              initial={{ x: -280 }}
+              animate={{ x: 0 }}
+              exit={{ x: -280 }}
+              transition={{ type: "spring", damping: 28, stiffness: 300 }}
+              className="fixed left-0 top-0 bottom-0 z-[101] md:hidden w-[240px]"
+              style={{ background: V.depth }}
             >
-              <LayoutDashboard className="w-4 h-4" /> User Dashboard
-            </Link>
+              <AdminSidebar
+                activePanel={activePanel}
+                setActivePanel={(k) => {
+                  setActivePanel(k);
+                  setMobileSidebarOpen(false);
+                }}
+                collapsed={false}
+                setCollapsed={() => setMobileSidebarOpen(false)}
+                stats={stats}
+              />
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      {/* Main content */}
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        {/* Topbar */}
+        <div
+          className="h-16 flex items-center px-4 md:px-6 gap-4 border-b shrink-0"
+          style={{ background: V.depth, borderColor: "rgba(255,255,255,0.05)" }}
+        >
+          <button
+            className="md:hidden w-8 h-8 flex items-center justify-center"
+            onClick={() => setMobileSidebarOpen(true)}
+            style={{ color: T.dim }}
+          >
+            <Menu className="w-5 h-5" />
+          </button>
+          <div>
+            <h1 className="text-sm font-black" style={{ color: T.primary }}>
+              {PANEL_TITLES[activePanel]}
+            </h1>
+            {lastRefresh && (
+              <p className="text-[9px]" style={{ color: T.dim }}>
+                Synced {timeAgo(lastRefresh)}
+              </p>
+            )}
+          </div>
+          <div className="flex items-center gap-2 ml-auto">
+            <div
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[8px] font-black uppercase tracking-widest"
+              style={{
+                background: "rgba(239,68,68,0.1)",
+                border: "1px solid rgba(239,68,68,0.2)",
+                color: "#f87171",
+              }}
+            >
+              <div className="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse" />
+              SECTOR OMEGA
+            </div>
             <button
-              onClick={handleRefresh}
+              onClick={fetchStats}
               disabled={refreshing}
-              className="flex items-center gap-2 px-5 py-2.5 bg-[#0a0a0c] border border-white/[0.05] rounded-xl text-xs font-bold text-white/60 hover:text-white transition-all disabled:opacity-40"
+              className="w-8 h-8 rounded-lg flex items-center justify-center transition-all hover:bg-white/5"
+              style={{ color: T.dim }}
             >
               <RefreshCw
                 className={cn("w-4 h-4", refreshing && "animate-spin")}
-              />{" "}
-              {refreshing ? "Syncing..." : "Refresh"}
-            </button>
-          </div>
-        </motion.header>
-        {/* ── ERROR BANNER ── */}
-        <AnimatePresence>
-          {error && (
-            <motion.div
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: "auto" }}
-              exit={{ opacity: 0, height: 0 }}
-              className="mb-6 p-4 bg-red-500/8 border border-red-500/20 rounded-2xl flex items-center gap-3"
-            >
-              <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
-              <p className="text-sm font-bold text-red-400">{error}</p>
-            </motion.div>
-          )}
-        </AnimatePresence>
-        {/* ── STATS ROW ── */}
-        {refreshing ? (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6 animate-pulse">
-            {[1, 2, 3, 4].map((i) => (
-              <div
-                key={i}
-                className="h-[120px] bg-white/[0.02] rounded-[1.5rem]"
               />
-            ))}
-          </div>
-        ) : (
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-            <StatCard
-              label="Total Operators"
-              value={stats.total}
-              icon={Users}
-              color="text-white"
-              subtext="All registered users"
-              delay={0.05}
-            />
-            <StatCard
-              label="Pro Tier"
-              value={stats.pro}
-              icon={Crown}
-              color="text-amber-500"
-              subtext={`${stats.total > 0 ? ((stats.pro / stats.total) * 100).toFixed(1) : 0}% of all users`}
-              delay={0.1}
-            />
-            <StatCard
-              label="Essential Tier"
-              value={stats.essential}
-              icon={Zap}
-              color="text-sky-400"
-              subtext={`${stats.total > 0 ? ((stats.essential / stats.total) * 100).toFixed(1) : 0}% of all users`}
-              delay={0.15}
-            />
-            <StatCard
-              label="New This Week"
-              value={stats.newThisWeek}
-              icon={UserPlus}
-              color="text-emerald-400"
-              subtext="User growth (7 days)"
-              delay={0.2}
-            />
-          </div>
-        )}
-        {/* ── MAIN GRID: PIE CHART + ACTIVITY FEED ── */}
-        <div className="grid grid-cols-1 md:grid-cols-12 gap-4 mb-4">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.25 }}
-            className="col-span-1 md:col-span-5 bg-[#0a0a0c] border border-white/[0.05] rounded-[2rem] p-6 flex flex-col"
-          >
-            <h2 className="text-[10px] font-bold text-white/40 uppercase tracking-widest flex items-center gap-2 mb-6">
-              <Users className="w-4 h-4 text-amber-500" /> User Distribution
-            </h2>
-            {stats.total === 0 ? (
-              <EmptyState icon={Users} message="No users registered yet" />
-            ) : (
-              <>
-                <div className="relative flex-1 min-h-[260px]">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <PieChart>
-                      <Pie
-                        data={pieData}
-                        cx="50%"
-                        cy="50%"
-                        innerRadius={80}
-                        outerRadius={115}
-                        dataKey="value"
-                        strokeWidth={0}
-                        paddingAngle={3}
-                      >
-                        {pieData.map((entry, index) => (
-                          <Cell key={index} fill={entry.color} />
-                        ))}
-                      </Pie>
-                      <Tooltip
-                        content={<CustomPieTooltip totalUsers={stats.total} />}
-                      />
-                    </PieChart>
-                  </ResponsiveContainer>
-                  <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                    <div className="text-center">
-                      <div className="text-5xl font-black text-white font-mono leading-none">
-                        {stats.total}
-                      </div>
-                      <div className="text-[9px] font-bold text-white/30 uppercase tracking-widest mt-1.5">
-                        Total Operators
-                      </div>
-                    </div>
-                  </div>
-                </div>
-                <div className="flex items-center justify-center gap-8 mt-4 pt-4 border-t border-white/[0.04]">
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-3 h-3 rounded-full bg-amber-500 shadow-[0_0_8px_rgba(245,158,11,0.5)]" />
-                    <div>
-                      <p className="text-xs font-black text-white">
-                        {stats.pro}
-                      </p>
-                      <p className="text-[8px] font-bold text-white/30 uppercase tracking-widest">
-                        Pro
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-3 h-3 rounded-full bg-[#2a2a2a]" />
-                    <div>
-                      <p className="text-xs font-black text-white">
-                        {stats.essential}
-                      </p>
-                      <p className="text-[8px] font-bold text-white/30 uppercase tracking-widest">
-                        Essential
-                      </p>
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-2.5">
-                    <TrendingUp className="w-3 h-3 text-emerald-400" />
-                    <div>
-                      <p className="text-xs font-black text-emerald-400">
-                        +{stats.newThisWeek}
-                      </p>
-                      <p className="text-[8px] font-bold text-white/30 uppercase tracking-widest">
-                        This Week
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </>
-            )}
-          </motion.div>
-
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.3 }}
-            className="col-span-1 md:col-span-7 bg-[#0a0a0c] border border-white/[0.05] rounded-[2rem] p-6 flex flex-col"
-          >
-            <h2 className="text-[10px] font-bold text-white/40 uppercase tracking-widest flex items-center gap-2 mb-5">
-              <Activity className="w-4 h-4 text-sky-400" /> Recent Operator
-              Registrations
-            </h2>
-            {recentUsers.length === 0 ? (
-              <EmptyState icon={Users} message="No recent signups" />
-            ) : (
-              <div className="space-y-2 flex-1 overflow-y-auto custom-scrollbar pr-1">
-                {recentUsers.map((user, i) => {
-                  const name =
-                    `${user.identity?.firstName || ""} ${user.identity?.lastName || ""}`.trim() ||
-                    user.identity?.username ||
-                    "Unknown";
-                  const username =
-                    user.identity?.username || user.id.slice(0, 8);
-                  const tier = user.tier || "ESSENTIAL";
-                  const domain =
-                    user.identity?.domain ||
-                    user.vision?.passion ||
-                    "Uncategorized";
-                  return (
-                    <motion.div
-                      key={user.id}
-                      initial={{ opacity: 0, x: -10 }}
-                      animate={{ opacity: 1, x: 0 }}
-                      transition={{ delay: 0.3 + i * 0.04 }}
-                      className="flex items-center gap-3 p-3 bg-white/[0.02] border border-white/[0.03] rounded-xl hover:bg-white/[0.04] transition-colors group"
-                    >
-                      <div className="w-9 h-9 rounded-xl bg-[#111] border border-white/[0.06] flex items-center justify-center text-sm font-black text-white/60 shrink-0">
-                        {name.charAt(0).toUpperCase() || "?"}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2">
-                          <p className="text-sm font-bold text-white truncate">
-                            {name}
-                          </p>
-                          {tier === "PRO" && (
-                            <Crown className="w-3 h-3 text-amber-500 shrink-0" />
-                          )}
-                        </div>
-                        <p className="text-[10px] text-white/30 font-mono truncate">
-                          @{username} · {domain}
-                        </p>
-                      </div>
-                      <div className="text-right shrink-0">
-                        <p className="text-[9px] font-bold text-white/20 uppercase tracking-widest">
-                          {timeAgo(user.createdAt)}
-                        </p>
-                        <p
-                          className={cn(
-                            "text-[8px] font-black uppercase tracking-widest mt-0.5",
-                            tier === "PRO" ? "text-amber-500" : "text-white/20",
-                          )}
-                        >
-                          {tier}
-                        </p>
-                      </div>
-                    </motion.div>
-                  );
-                })}
-              </div>
-            )}
-          </motion.div>
-        </div>
-        {/* ── VAULT VERIFICATION WIDGET ── */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.35 }}
-          className="bg-[#0a0a0c] border border-white/[0.05] rounded-[2rem] p-6 mb-4"
-        >
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="text-[10px] font-bold text-white/40 uppercase tracking-widest flex items-center gap-2">
-              <Database className="w-4 h-4 text-emerald-500" /> Vault Operations
-              Center
-            </h2>
+            </button>
             <Link
-              to="/app/admin/users/verifyvault"
-              className="flex items-center gap-1.5 px-4 py-2 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-emerald-500/15 transition-all"
+              to="/app"
+              className="w-8 h-8 rounded-lg flex items-center justify-center hover:bg-white/5 transition-all"
+              style={{ color: T.dim }}
             >
-              Open Full Vault Manager <ArrowUpRight className="w-3.5 h-3.5" />
+              <LogOut className="w-4 h-4" />
             </Link>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div className="bg-amber-500/[0.03] border border-amber-500/10 rounded-2xl p-5">
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-2">
-                  <Clock className="w-4 h-4 text-amber-500" />
-                  <span className="text-sm font-black text-white">
-                    Pending Verification
-                  </span>
-                </div>
-                <span className="text-3xl font-black text-amber-500 font-mono">
-                  {pendingVault.length}
-                  {pendingVault.length >= 50 && (
-                    <span className="text-[10px] text-amber-500/50 ml-1">
-                      +
-                    </span>
-                  )}
-                </span>
-              </div>
-              {pendingVault.length === 0 ? (
-                <EmptyState
-                  icon={ShieldCheck}
-                  message="All assets verified — queue clear"
-                />
-              ) : (
-                <div className="space-y-2">
-                  {pendingVault.slice(0, 4).map((asset) => (
-                    <div
-                      key={`${asset.userId}-${asset.id}`}
-                      className="flex items-center gap-2.5 p-2.5 bg-white/[0.02] border border-white/[0.04] rounded-xl"
-                    >
-                      <div className="w-7 h-7 rounded-lg bg-amber-500/10 border border-amber-500/20 flex items-center justify-center text-amber-500 shrink-0">
-                        {getAssetCategoryIcon(asset.category)}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-[11px] font-bold text-white truncate">
-                          {asset.title || "Untitled Asset"}
-                        </p>
-                        <p className="text-[9px] text-white/30 font-mono truncate">
-                          @{asset.userUsername} · {asset.category || "Unknown"}
-                        </p>
-                      </div>
-                      <p className="text-[9px] text-white/20 shrink-0">
-                        {timeAgo(asset.uploadedAt)}
-                      </p>
-                    </div>
-                  ))}
-                  {pendingVault.length > 4 && (
-                    <Link
-                      to="/app/admin/users/verifyvault"
-                      className="block text-center text-[9px] font-black text-amber-500/60 hover:text-amber-500 transition-colors pt-1 uppercase tracking-widest"
-                    >
-                      +{pendingVault.length - 4} more pending →
-                    </Link>
-                  )}
-                </div>
-              )}
-            </div>
-            <div className="bg-red-500/[0.03] border border-red-500/10 rounded-2xl p-5">
-              <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-2">
-                  <ShieldAlert className="w-4 h-4 text-red-400" />
-                  <span className="text-sm font-black text-white">
-                    Reported Assets
-                  </span>
-                </div>
-                <span className="text-3xl font-black text-red-400 font-mono">
-                  {reportedVault.length}
-                  {reportedVault.length >= 50 && (
-                    <span className="text-[10px] text-red-400/50 ml-1">+</span>
-                  )}
-                </span>
-              </div>
-              {reportedVault.length === 0 ? (
-                <EmptyState
-                  icon={ShieldCheck}
-                  message="No reported assets — platform clean"
-                />
-              ) : (
-                <div className="space-y-2">
-                  {reportedVault.slice(0, 4).map((asset) => (
-                    <div
-                      key={`${asset.userId}-${asset.id}`}
-                      className="flex items-center gap-2.5 p-2.5 bg-white/[0.02] border border-red-500/10 rounded-xl"
-                    >
-                      <div className="w-7 h-7 rounded-lg bg-red-500/10 border border-red-500/20 flex items-center justify-center text-red-400 shrink-0">
-                        {getAssetCategoryIcon(asset.category)}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-[11px] font-bold text-white truncate">
-                          {asset.title || "Untitled Asset"}
-                        </p>
-                        <p className="text-[9px] text-white/30 font-mono truncate">
-                          @{asset.userUsername} · {asset.category || "Unknown"}
-                        </p>
-                      </div>
-                      <div className="shrink-0 px-2 py-0.5 bg-red-500/10 border border-red-500/20 rounded text-[8px] font-black text-red-400 uppercase">
-                        Reported
-                      </div>
-                    </div>
-                  ))}
-                  {reportedVault.length > 4 && (
-                    <Link
-                      to="/app/admin/users/verifyvault?filter=REPORTED"
-                      className="block text-center text-[9px] font-black text-red-400/60 hover:text-red-400 transition-colors pt-1 uppercase tracking-widest"
-                    >
-                      +{reportedVault.length - 4} more reported →
-                    </Link>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-        </motion.div>
-        {/* ── APP VERIFICATIONS WIDGET ── */}
-        <AppProficiencyWidget
-          appVerifications={appVerifications}
-          setAppVerifications={setAppVerifications}
-          handleRefresh={handleRefresh}
-        />
+        </div>
 
-        {/* ── HORIZONTAL LEARN ENGINE EXPLORER WIDGET ── */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.55 }}
-          className="bg-[#0a0a0c] border border-white/[0.05] rounded-[2rem] flex flex-col mb-6 overflow-hidden h-[500px]"
-        >
-          {/* Widget Header */}
-          <div className="h-16 flex items-center px-6 justify-between border-b border-white/[0.05] bg-[#0a0a0c]/50 backdrop-blur-xl shrink-0">
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-xl bg-[#111] border border-white/[0.05] flex items-center justify-center">
-                <Database className="w-4 h-4 text-fuchsia-400" />
-              </div>
-              <div>
-                <h3 className="text-sm font-black text-white tracking-tight">
-                  Learn Engine DB
-                </h3>
-                <p className="text-[9px] font-bold text-fuchsia-400 uppercase tracking-widest">
-                  Manage Global Resources
-                </p>
-              </div>
-            </div>
-            <button
-              onClick={() =>
-                activeLearnTab === "youtube"
-                  ? setIsAddVideoOpen(true)
-                  : setIsAddCertOpen(true)
-              }
-              className="flex items-center gap-2 px-4 py-2 bg-fuchsia-500 hover:bg-fuchsia-400 text-black text-[10px] font-black uppercase tracking-widest rounded-xl transition-all"
-            >
-              <PlusCircle className="w-3.5 h-3.5" />
-              Add {activeLearnTab === "youtube" ? "Video" : "Certificate"}
-            </button>
-          </div>
-
-          <div className="flex flex-1 overflow-hidden">
-            {/* Sidebar */}
-            <div className="w-48 bg-[#0a0a0c] border-r border-white/[0.05] p-4 flex flex-col gap-4 overflow-y-auto">
-              <div>
-                <p className="text-[9px] font-black text-white/30 uppercase tracking-widest px-2 mb-2">
-                  Sources
-                </p>
-                <div className="space-y-1">
-                  <button
-                    onClick={() => setActiveLearnTab("youtube")}
-                    className={cn(
-                      "w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all",
-                      activeLearnTab === "youtube"
-                        ? "bg-[#111] border border-white/[0.08] text-white shadow-lg"
-                        : "text-white/40 hover:bg-white/[0.02] hover:text-white",
-                    )}
-                  >
-                    <VideoIcon
-                      className={cn(
-                        "w-4 h-4",
-                        activeLearnTab === "youtube"
-                          ? "text-sky-400"
-                          : "text-white/40",
-                      )}
-                    />
-                    YouTube DB
-                  </button>
-                  <button
-                    onClick={() => setActiveLearnTab("certificates")}
-                    className={cn(
-                      "w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-xs font-bold transition-all",
-                      activeLearnTab === "certificates"
-                        ? "bg-[#111] border border-white/[0.08] text-white shadow-lg"
-                        : "text-white/40 hover:bg-white/[0.02] hover:text-white",
-                    )}
-                  >
-                    <Award
-                      className={cn(
-                        "w-4 h-4",
-                        activeLearnTab === "certificates"
-                          ? "text-amber-400"
-                          : "text-white/40",
-                      )}
-                    />
-                    Certificates DB
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {/* Content Area */}
-            <div className="flex-1 bg-[#050505] p-6 overflow-y-auto custom-scrollbar">
-              {activeLearnTab === "youtube" && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                  {learnVideos.length === 0 ? (
-                    <EmptyState
-                      icon={VideoIcon}
-                      message="No videos deployed yet"
-                    />
-                  ) : (
-                    learnVideos.map((v) => (
-                      <div
-                        key={v.id}
-                        className="flex flex-col gap-3 p-3 rounded-2xl bg-[#0a0a0c] border border-white/[0.05] hover:border-white/20 transition-all relative group"
-                      >
-                        <button
-                          onClick={() =>
-                            handleDeleteResource("discotive_videos", v.id)
-                          }
-                          className="absolute top-5 right-5 z-20 p-2 bg-red-500/90 hover:bg-red-500 text-white rounded-lg opacity-0 group-hover:opacity-100 transition-all shadow-xl backdrop-blur-md"
-                          title="Delete Video"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                        <div className="w-full aspect-video bg-[#000] rounded-xl overflow-hidden relative border border-white/[0.05]">
-                          <img
-                            src={
-                              v.thumbnailUrl ||
-                              `https://img.youtube.com/vi/${extractYouTubeId(v.url || v.youtubeId)}/maxresdefault.jpg`
-                            }
-                            className="w-full h-full object-cover"
-                            alt={v.title}
-                          />
-                        </div>
-                        <div>
-                          <span className="text-xs font-bold text-white line-clamp-2 leading-tight">
-                            {v.title}
-                          </span>
-                          <span className="text-[9px] text-sky-400 font-mono mt-1 block truncate">
-                            ID: {v.learnId}
-                          </span>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-              )}
-
-              {activeLearnTab === "certificates" && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                  {learnCerts.length === 0 ? (
-                    <EmptyState
-                      icon={Award}
-                      message="No certificates deployed yet"
-                    />
-                  ) : (
-                    learnCerts.map((cert) => (
-                      <div
-                        key={cert.id}
-                        className="flex flex-col gap-3 p-4 rounded-2xl bg-[#0a0a0c] border border-white/[0.05] hover:border-white/20 transition-all relative group"
-                      >
-                        <button
-                          onClick={() =>
-                            handleDeleteResource(
-                              "discotive_certificates",
-                              cert.id,
-                            )
-                          }
-                          className="absolute top-4 right-4 z-10 p-2 bg-red-500/10 hover:bg-red-500/20 text-red-500 rounded-lg opacity-0 group-hover:opacity-100 transition-all"
-                          title="Delete Certificate"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                        <div className="flex items-start gap-3 pr-8">
-                          <div className="w-10 h-10 rounded-xl bg-[#111] border border-white/[0.05] flex items-center justify-center shrink-0">
-                            <Award className="w-5 h-5 text-amber-400" />
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <h4
-                              className="text-xs font-bold text-white truncate"
-                              title={cert.title}
-                            >
-                              {cert.title}
-                            </h4>
-                            <p className="text-[10px] text-white/50 truncate mt-0.5">
-                              {cert.provider}
-                            </p>
-                            <div className="mt-1.5 flex items-center gap-1 text-[8px] font-mono text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded w-fit border border-amber-500/20">
-                              ID: {cert.learnId}
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-        </motion.div>
-        {/* ── BOTTOM ROW ── */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <EfficiencyMeterWidget />
-
-          {/* TICKETS CARD */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.45 }}
-            className="bg-[#0a0a0c] border border-white/[0.05] rounded-[2rem] p-6 flex flex-col"
-          >
-            <div className="flex items-center justify-between mb-5">
-              <h2 className="text-[10px] font-bold text-white/40 uppercase tracking-widest flex items-center gap-2">
-                <Ticket className="w-4 h-4 text-sky-400" /> Support Tickets
-              </h2>
-              {/* ← ADD THIS REDIRECT BUTTON */}
-              <Link
-                to="/app/admin/tickets"
-                className="flex items-center gap-1.5 text-[9px] font-black text-sky-400/60 hover:text-sky-400 uppercase tracking-widest transition-colors"
+        {/* Panel content */}
+        <div className="flex-1 overflow-y-auto custom-scrollbar">
+          <div className="max-w-6xl mx-auto p-4 md:p-6 lg:p-8">
+            <AnimatePresence mode="wait">
+              <motion.div
+                key={activePanel}
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -8 }}
+                transition={{ duration: 0.2 }}
               >
-                Manage All <ArrowUpRight className="w-3 h-3" />
-              </Link>
-            </div>
-
-            {/* ← ADD SKELETON WHEN REFRESHING */}
-            {refreshing ? (
-              <div className="space-y-2 animate-pulse">
-                {[1, 2, 3].map((i) => (
-                  <div key={i} className="h-16 bg-white/[0.02] rounded-xl" />
-                ))}
-              </div>
-            ) : tickets.length === 0 ? (
-              <EmptyState icon={Ticket} message="No open support tickets" />
-            ) : (
-              <div className="space-y-2 flex-1">
-                {tickets.map((ticket) => (
-                  <div
-                    key={ticket.id}
-                    className="p-3 bg-white/[0.02] border border-white/[0.03] rounded-xl"
-                  >
-                    <div className="flex items-center justify-between mb-1">
-                      <p className="text-[11px] font-bold text-white truncate">
-                        {ticket.subject || "No subject"}
-                      </p>
-                      <span
-                        className={cn(
-                          "text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded ml-2 shrink-0",
-                          ticket.status === "open"
-                            ? "bg-emerald-500/10 text-emerald-400"
-                            : "bg-white/5 text-white/30",
-                        )}
-                      >
-                        {ticket.status || "open"}
-                      </span>
-                    </div>
-                    <p className="text-[10px] text-white/40 mt-0.5 line-clamp-1">
-                      {ticket.message || "No message"}
-                    </p>
-                    <div className="flex items-center justify-between mt-2">
-                      <span className="text-[8px] text-white/20 uppercase tracking-widest">
-                        {ticket.category || "—"}
-                      </span>
-                      <span className="text-[8px] text-white/20">
-                        {timeAgo(ticket.createdAt)}
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </motion.div>
-
-          {/* REPORTS CARD — same pattern */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.5 }}
-            className="bg-[#0a0a0c] border border-white/[0.05] rounded-[2rem] p-6 flex flex-col"
-          >
-            <div className="flex items-center justify-between mb-5">
-              <h2 className="text-[10px] font-bold text-white/40 uppercase tracking-widest flex items-center gap-2">
-                <AlertTriangle className="w-4 h-4 text-orange-400" /> User
-                Reports
-              </h2>
-              {/* ← ADD THIS REDIRECT BUTTON */}
-              <Link
-                to="/app/admin/reports"
-                className="flex items-center gap-1.5 text-[9px] font-black text-orange-400/60 hover:text-orange-400 uppercase tracking-widest transition-colors"
-              >
-                Manage All <ArrowUpRight className="w-3 h-3" />
-              </Link>
-            </div>
-
-            {refreshing ? (
-              <div className="space-y-2 animate-pulse">
-                {[1, 2, 3].map((i) => (
-                  <div key={i} className="h-16 bg-white/[0.02] rounded-xl" />
-                ))}
-              </div>
-            ) : reports.length === 0 ? (
-              <EmptyState icon={Shield} message="No user reports on file" />
-            ) : (
-              <div className="space-y-2 flex-1">
-                {reports.map((report) => (
-                  <div
-                    key={report.id}
-                    className="p-3 bg-white/[0.02] border border-white/[0.03] rounded-xl"
-                  >
-                    <p className="text-[11px] font-bold text-white truncate">
-                      {report.reason || "No reason"}
-                    </p>
-                    <p className="text-[10px] text-white/40 mt-0.5 line-clamp-1">
-                      {report.description || "No description"}
-                    </p>
-                    <div className="flex items-center justify-between mt-2">
-                      <span className="text-[8px] font-bold text-orange-400/60 uppercase tracking-widest">
-                        {report.targetType || "user"}
-                      </span>
-                      <span className="text-[8px] text-white/20">
-                        {timeAgo(report.createdAt)}
-                      </span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </motion.div>
+                {renderPanel()}
+              </motion.div>
+            </AnimatePresence>
+          </div>
         </div>
       </div>
-
-      {/* ── USER MANAGEMENT WIDGET ── */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.6 }}
-        className="bg-[#0a0a0c] border border-white/[0.05] rounded-[2rem] p-6 mb-4"
-      >
-        <div className="flex items-center justify-between mb-5">
-          <h2 className="text-[10px] font-bold text-white/40 uppercase tracking-widest flex items-center gap-2">
-            <Users className="w-4 h-4 text-red-400" /> User Management
-          </h2>
-          <span className="text-[9px] text-red-400/60 uppercase tracking-widest font-bold">
-            ⚠ Destructive Actions
-          </span>
-        </div>
-        <div className="flex gap-2 mb-4">
-          <input
-            type="text"
-            value={userSearchQ}
-            onChange={(e) => setUserSearchQ(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && handleUserSearch()}
-            placeholder="Search by @username or email..."
-            className="flex-1 bg-[#111] border border-[#222] rounded-xl px-4 py-2.5 text-xs text-white placeholder-white/20 focus:outline-none focus:border-red-500/30 transition-colors"
-          />
-          <button
-            onClick={handleUserSearch}
-            disabled={userSearchLoading}
-            className="px-5 py-2.5 bg-red-500/10 border border-red-500/20 text-red-400 font-black text-[10px] uppercase tracking-widest rounded-xl hover:bg-red-500/15 disabled:opacity-40 flex items-center gap-2"
-          >
-            {userSearchLoading ? (
-              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-            ) : (
-              <Search className="w-3.5 h-3.5" />
-            )}{" "}
-            Find
-          </button>
-        </div>
-        {managedUsers.length > 0 && (
-          <div className="space-y-2">
-            {managedUsers.map((user) => {
-              const name =
-                `${user.identity?.firstName || ""} ${user.identity?.lastName || ""}`.trim() ||
-                user.identity?.username ||
-                "Unknown";
-              return (
-                <div
-                  key={user.id}
-                  className="flex items-center gap-3 p-3.5 bg-[#050505] border border-[#1a1a1a] rounded-xl"
-                >
-                  <div className="w-9 h-9 rounded-xl bg-[#111] border border-[#222] flex items-center justify-center text-sm font-black text-white/50 shrink-0">
-                    {name.charAt(0)}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-bold text-white truncate">
-                      {name}
-                    </p>
-                    <p className="text-[10px] text-white/30 font-mono">
-                      @{user.identity?.username} · {user.tier || "ESSENTIAL"} ·
-                      Score: {user.discotiveScore?.current || 0}
-                    </p>
-                  </div>
-                  <button
-                    onClick={() =>
-                      handleHardDeleteUser(
-                        user.id,
-                        user.identity?.username || user.id,
-                      )
-                    }
-                    disabled={deletingUser === user.id}
-                    className="flex items-center gap-1.5 px-3 py-2 bg-red-500/10 border border-red-500/25 text-red-400 text-[10px] font-black rounded-xl hover:bg-red-500/20 disabled:opacity-40 transition-all uppercase tracking-widest"
-                  >
-                    {deletingUser === user.id ? (
-                      <RefreshCw className="w-3 h-3 animate-spin" />
-                    ) : (
-                      <Trash2 className="w-3 h-3" />
-                    )}{" "}
-                    Delete
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        )}
-        {managedUsers.length === 0 && userSearchQ && !userSearchLoading && (
-          <p className="text-center text-xs text-white/20 py-4">
-            No users found for "{userSearchQ}"
-          </p>
-        )}
-      </motion.div>
-
-      {/* ── LEARN SUGGESTIONS WIDGET ── */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.65 }}
-        className="bg-[#0a0a0c] border border-white/[0.05] rounded-[2rem] p-6 mb-4"
-      >
-        <div className="flex items-center justify-between mb-5">
-          <h2 className="text-[10px] font-bold text-white/40 uppercase tracking-widest flex items-center gap-2">
-            <Database className="w-4 h-4 text-violet-400" /> Learn Suggestions
-            {learnSuggestions.length > 0 && (
-              <span className="w-5 h-5 rounded-full bg-violet-500 text-white text-[8px] font-black flex items-center justify-center">
-                {learnSuggestions.length}
-              </span>
-            )}
-          </h2>
-        </div>
-        {learnSuggestions.length === 0 ? (
-          <p className="text-center text-xs text-white/20 py-6">
-            No pending suggestions.
-          </p>
-        ) : (
-          <div className="space-y-3">
-            {learnSuggestions.map((s) => (
-              <div
-                key={s.id}
-                className="flex flex-col sm:flex-row sm:items-center gap-3 p-4 bg-[#050505] border border-white/[0.04] rounded-xl"
-              >
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1">
-                    <span
-                      className={cn(
-                        "text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded border",
-                        s.type === "cert"
-                          ? "bg-amber-500/10 border-amber-500/20 text-amber-400"
-                          : s.type === "podcast"
-                            ? "bg-violet-500/10 border-violet-500/20 text-violet-400"
-                            : "bg-sky-500/10 border-sky-500/20 text-sky-400",
-                      )}
-                    >
-                      {s.type}
-                    </span>
-                    <p className="text-xs font-bold text-white truncate">
-                      {s.title}
-                    </p>
-                  </div>
-                  <a
-                    href={s.url}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-[10px] text-sky-400 hover:underline font-mono truncate block"
-                  >
-                    {s.url}
-                  </a>
-                  {s.provider && (
-                    <p className="text-[10px] text-white/30 mt-0.5">
-                      {s.provider}
-                    </p>
-                  )}
-                  {s.notes && (
-                    <p className="text-[10px] text-white/20 italic mt-0.5">
-                      "{s.notes}"
-                    </p>
-                  )}
-                  <p className="text-[9px] text-white/20 mt-1">
-                    Suggested by @{s.submittedByUsername}
-                  </p>
-                </div>
-                <div className="flex gap-2 shrink-0">
-                  <button
-                    onClick={() => handleSuggestionApprove(s)}
-                    className="px-3 py-2 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[9px] font-black rounded-xl hover:bg-emerald-500/20 transition-all uppercase tracking-widest flex items-center gap-1.5"
-                  >
-                    <Check className="w-3 h-3" /> Approve
-                  </button>
-                  <button
-                    onClick={() => handleSuggestionReject(s.id)}
-                    className="px-3 py-2 bg-red-500/10 border border-red-500/20 text-red-400 text-[9px] font-black rounded-xl hover:bg-red-500/20 transition-all uppercase tracking-widest flex items-center gap-1.5"
-                  >
-                    <X className="w-3 h-3" /> Reject
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </motion.div>
-
-      {/* ── OPPORTUNITY MANAGEMENT WIDGET ── */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.7 }}
-        className="bg-[#0a0a0c] border border-white/[0.05] rounded-[2rem] p-6 mb-6"
-      >
-        <div className="flex items-center justify-between mb-5">
-          <h2 className="text-[10px] font-bold text-white/40 uppercase tracking-widest flex items-center gap-2">
-            <Zap className="w-4 h-4 text-amber-400" /> Opportunity Management
-            <span className="text-white/30 font-normal normal-case tracking-normal text-[10px]">
-              ({opportunities.length} total)
-            </span>
-          </h2>
-          <button
-            onClick={() => {
-              setOppEditItem(null);
-              setOppFormOpen(true);
-            }}
-            className="flex items-center gap-2 px-4 py-2 bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-amber-500/15 transition-all"
-          >
-            <PlusCircle className="w-3.5 h-3.5" /> New Opportunity
-          </button>
-        </div>
-        {opportunities.length === 0 ? (
-          <p className="text-center text-xs text-white/20 py-6">
-            No opportunities posted yet.
-          </p>
-        ) : (
-          <div className="space-y-2 max-h-[400px] overflow-y-auto custom-scrollbar pr-1">
-            {opportunities.map((opp) => (
-              <div
-                key={opp.id}
-                className="flex items-center gap-3 p-3.5 bg-[#050505] border border-white/[0.04] rounded-xl group"
-              >
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-0.5">
-                    <span className="text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/20 text-amber-400">
-                      {opp.type || "job"}
-                    </span>
-                    <p className="text-xs font-bold text-white truncate">
-                      {opp.title}
-                    </p>
-                  </div>
-                  <p className="text-[10px] text-white/30">
-                    {opp.provider}{" "}
-                    {opp.closingDate &&
-                      `· Closes ${new Date(opp.closingDate).toLocaleDateString()}`}
-                  </p>
-                </div>
-                <div className="flex items-center gap-2 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <button
-                    onClick={() => {
-                      setOppEditItem(opp);
-                      setOppFormOpen(true);
-                    }}
-                    className="p-1.5 bg-white/[0.04] border border-white/[0.06] rounded-lg hover:bg-white/10 transition-colors"
-                  >
-                    <Pencil className="w-3.5 h-3.5 text-[#888]" />
-                  </button>
-                  <button
-                    onClick={async () => {
-                      if (!window.confirm("Delete this opportunity?")) return;
-                      await handleDeleteResource("opportunities", opp.id);
-                      setOpportunities((prev) =>
-                        prev.filter((o) => o.id !== opp.id),
-                      );
-                    }}
-                    className="p-1.5 bg-red-500/10 border border-red-500/20 rounded-lg hover:bg-red-500/20 transition-colors"
-                  >
-                    <Trash2 className="w-3.5 h-3.5 text-red-400" />
-                  </button>
-                  <div
-                    className={cn(
-                      "w-2 h-2 rounded-full shrink-0",
-                      opp.isActive ? "bg-emerald-500" : "bg-[#333]",
-                    )}
-                    title={opp.isActive ? "Active" : "Inactive"}
-                  />
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </motion.div>
-
-      {/* Render Modals */}
-      <AddVideoModal />
-      <AddCertificateModal />
-      {oppFormOpen &&
-        createPortal(
-          <OppFormModal
-            opp={oppEditItem}
-            onClose={() => {
-              setOppFormOpen(false);
-              setOppEditItem(null);
-            }}
-            onSaved={() => {
-              setOppFormOpen(false);
-              setOppEditItem(null);
-              handleRefresh();
-            }}
-          />,
-          document.body,
-        )}
     </div>
   );
 };

@@ -33,6 +33,14 @@ service cloud.firestore {
       allow write: if false;
     }
 
+     // =========================================================================
+    // SYSTEM CONFIG (Admin write only, auth read)
+    // =========================================================================
+    match /system/{configId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+
     // =========================================================================
     // 1. EMAIL VERIFICATIONS
     // =========================================================================
