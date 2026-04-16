@@ -1,7 +1,18 @@
 /**
- * @fileoverview Discotive OS — Private Command Center v8
- * @description The operator's personal career intelligence dashboard.
- * Redesigned for addiction, density, and professional excellence.
+ * @fileoverview Discotive OS — Operator Dossier v9.0
+ * @description The cinematic career identity page. LinkedIn killer.
+ *
+ * ARCHITECTURE:
+ * — PC: Asymmetric sticky layout. Right column = locked Identity Pillar.
+ *        Left column = scrolling Proof Ledger (vault, skills, network, telemetry).
+ * — Mobile: Single-column cinematic narrative flow with bottom sheet modals.
+ *
+ * DESIGN PHILOSOPHY:
+ * — Zero bento cards. Continuous narrative. Vast negative space.
+ * — Proof of Work > Self-declaration. Every claim is verified.
+ * — Focus-dimming micro-interactions on vault asset hover.
+ * — Frosted-glass empty states. Never a broken screen.
+ * — PRO tier = irresistible status symbol with premium borders & analytics.
  */
 
 import React, {
@@ -12,9 +23,12 @@ import React, {
   useCallback,
 } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { ProfileHeader } from "../components/profile/ProfileHeader";
-import { TelemetryEngine } from "../components/profile/TelemetryEngine";
-import { motion, AnimatePresence } from "framer-motion";
+import {
+  motion,
+  AnimatePresence,
+  useScroll,
+  useTransform,
+} from "framer-motion";
 import {
   AreaChart,
   Area,
@@ -26,13 +40,11 @@ import {
   Tooltip as ReTooltip,
   XAxis,
   YAxis,
-  CartesianGrid,
 } from "recharts";
 import {
   doc,
   getDoc,
   updateDoc,
-  addDoc,
   collection,
   getDocs,
   query,
@@ -44,14 +56,13 @@ import {
 import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import { db, auth, storage } from "../firebase";
 import { useUserData, useOnboardingGate } from "../hooks/useUserData";
+import { useScoreHistory } from "../hooks/useDashboardData";
 import { cn } from "../lib/cn";
 import {
   Activity,
   Award,
-  BookOpen,
   Camera,
   Check,
-  ChevronLeft,
   ChevronRight,
   Clock,
   Code2,
@@ -72,9 +83,7 @@ import {
   Loader2,
   MapPin,
   Monitor,
-  Palette,
   Plus,
-  Search,
   Share2,
   ShieldCheck,
   Star,
@@ -89,13 +98,358 @@ import {
   ArrowUpRight,
   Briefcase,
   Sparkles,
-  Crosshair,
   Lock,
-  Terminal,
   X,
+  Download,
+  LinkIcon,
   MessageSquare,
+  Crosshair,
+  Terminal,
+  BarChart3,
+  AlignLeft,
+  Search,
 } from "lucide-react";
 
+// ─── Score formatter ──────────────────────────────────────────────────────────
+const fmtScore = (n) =>
+  n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n ?? 0);
+
+const calcVSS = (vault = []) => {
+  const verified = vault.filter((a) => a.status === "VERIFIED");
+  if (!verified.length) return 0;
+  const pts = verified.reduce(
+    (s, a) =>
+      s + (a.strength === "Strong" ? 30 : a.strength === "Medium" ? 20 : 10),
+    0,
+  );
+  return Math.min(Math.round((pts / (verified.length * 30)) * 100), 100);
+};
+
+const getLevel = (score) => Math.min(Math.floor((score ?? 0) / 1000) + 1, 10);
+
+// ─── Toast system ─────────────────────────────────────────────────────────────
+const useToast = () => {
+  const [toast, setToast] = useState(null);
+  const show = useCallback((msg, type = "grey") => {
+    setToast({ msg, type });
+    setTimeout(() => setToast(null), 3000);
+  }, []);
+  return { toast, showToast: show };
+};
+
+// ─── Vault Asset Card ─────────────────────────────────────────────────────────
+const ASSET_TYPE_CONFIG = {
+  Certificate: {
+    icon: Award,
+    color: "#BFA264",
+    bg: "rgba(191,162,100,0.10)",
+    label: "Certificate",
+  },
+  Project: {
+    icon: Code2,
+    color: "#8b5cf6",
+    bg: "rgba(139,92,246,0.10)",
+    label: "Project",
+  },
+  Resume: {
+    icon: FileText,
+    color: "#38bdf8",
+    bg: "rgba(56,189,248,0.10)",
+    label: "Resume",
+  },
+  Video: {
+    icon: Video,
+    color: "#ef4444",
+    bg: "rgba(239,68,68,0.10)",
+    label: "Video",
+  },
+  default: {
+    icon: Database,
+    color: "#6b7280",
+    bg: "rgba(107,114,128,0.10)",
+    label: "Asset",
+  },
+};
+
+const VaultAssetCard = ({ asset, isFocused, onFocus, onBlur }) => {
+  const cfg = ASSET_TYPE_CONFIG[asset?.category] || ASSET_TYPE_CONFIG.default;
+  const Icon = cfg.icon;
+  const isVerified = asset?.status === "VERIFIED";
+  const isPending = asset?.status === "PENDING";
+
+  return (
+    <motion.div
+      onMouseEnter={onFocus}
+      onMouseLeave={onBlur}
+      onFocus={onFocus}
+      onBlur={onBlur}
+      animate={{
+        opacity: isFocused === false ? 0.3 : 1,
+        scale: isFocused === true ? 1.01 : 1,
+      }}
+      transition={{ duration: 0.2 }}
+      className={cn(
+        "relative group rounded-[1.5rem] border transition-all duration-300 overflow-hidden cursor-default",
+        isVerified
+          ? "bg-[#0a0a0a] border-[rgba(255,255,255,0.06)] hover:border-[rgba(191,162,100,0.30)]"
+          : "bg-[#080808] border-[rgba(255,255,255,0.04)]",
+      )}
+    >
+      {/* Ambient glow on verified */}
+      {isVerified && (
+        <div
+          className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none"
+          style={{
+            background: `radial-gradient(ellipse at 30% 50%, ${cfg.color}08 0%, transparent 70%)`,
+          }}
+        />
+      )}
+
+      <div className="p-4 flex items-start gap-4">
+        {/* Icon */}
+        <div
+          className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0 border"
+          style={{ background: cfg.bg, borderColor: `${cfg.color}25` }}
+        >
+          <Icon className="w-5 h-5" style={{ color: cfg.color }} />
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 mb-1 flex-wrap">
+            <p className="text-[11px] font-black text-white/50 uppercase tracking-widest">
+              {cfg.label}
+            </p>
+            {isVerified && (
+              <div className="flex items-center gap-1 px-1.5 py-0.5 bg-emerald-500/10 border border-emerald-500/20 rounded-full">
+                <ShieldCheck className="w-2.5 h-2.5 text-emerald-400" />
+                <span className="text-[7px] font-black text-emerald-400 uppercase tracking-widest">
+                  Verified
+                </span>
+              </div>
+            )}
+            {isPending && (
+              <div className="flex items-center gap-1 px-1.5 py-0.5 bg-amber-500/10 border border-amber-500/20 rounded-full">
+                <Clock className="w-2.5 h-2.5 text-amber-400" />
+                <span className="text-[7px] font-black text-amber-400 uppercase tracking-widest">
+                  Pending
+                </span>
+              </div>
+            )}
+          </div>
+          <p className="text-sm font-bold text-[#F5F0E8] truncate mb-0.5">
+            {asset?.title || asset?.name || "Untitled"}
+          </p>
+          {asset?.credentials?.issuer && (
+            <p className="text-[10px] text-white/30">
+              {asset.credentials.issuer}
+            </p>
+          )}
+          {asset?.scoreYield > 0 && (
+            <div className="flex items-center gap-1 mt-1.5">
+              <Zap className="w-2.5 h-2.5 text-[#BFA264]" />
+              <span className="text-[9px] font-black text-[#BFA264]">
+                +{asset.scoreYield} pts
+              </span>
+            </div>
+          )}
+        </div>
+
+        {/* External link */}
+        {asset?.url && (
+          <a
+            href={asset.url}
+            target="_blank"
+            rel="noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            className="w-7 h-7 rounded-lg flex items-center justify-center border border-white/[0.07] bg-white/[0.03] hover:bg-white/[0.08] text-white/25 hover:text-white transition-all shrink-0"
+          >
+            <ExternalLink className="w-3 h-3" />
+          </a>
+        )}
+      </div>
+
+      {/* Strength bar (verified only) */}
+      {isVerified && asset?.strength && (
+        <div className="px-4 pb-3">
+          <div className="h-0.5 w-full bg-white/[0.04] rounded-full overflow-hidden">
+            <div
+              className="h-full rounded-full transition-all"
+              style={{
+                width:
+                  asset.strength === "Strong"
+                    ? "100%"
+                    : asset.strength === "Medium"
+                      ? "66%"
+                      : "33%",
+                background:
+                  asset.strength === "Strong"
+                    ? "#4ADE80"
+                    : asset.strength === "Medium"
+                      ? "#BFA264"
+                      : "#F87171",
+              }}
+            />
+          </div>
+          <div className="flex items-center justify-between mt-1">
+            <span className="text-[7px] text-white/20 uppercase tracking-widest">
+              Signal Strength
+            </span>
+            <span
+              className="text-[7px] font-black uppercase tracking-widest"
+              style={{
+                color:
+                  asset.strength === "Strong"
+                    ? "#4ADE80"
+                    : asset.strength === "Medium"
+                      ? "#BFA264"
+                      : "#F87171",
+              }}
+            >
+              {asset.strength}
+            </span>
+          </div>
+        </div>
+      )}
+    </motion.div>
+  );
+};
+
+// ─── Empty state (frosted glass) ──────────────────────────────────────────────
+const EmptyState = ({ icon: Icon, title, subtitle, action, onAction }) => (
+  <div className="relative rounded-[2rem] border border-dashed border-white/[0.06] p-8 flex flex-col items-center text-center overflow-hidden">
+    <div className="absolute inset-0 bg-gradient-to-b from-white/[0.01] to-transparent pointer-events-none" />
+    <div className="w-14 h-14 rounded-[1.25rem] bg-white/[0.03] border border-white/[0.06] flex items-center justify-center mb-4 backdrop-blur-sm">
+      <Icon className="w-6 h-6 text-white/15" />
+    </div>
+    <p className="text-sm font-black text-white/25 mb-1">{title}</p>
+    <p className="text-[11px] text-white/15 leading-relaxed max-w-[200px]">
+      {subtitle}
+    </p>
+    {action && (
+      <button
+        onClick={onAction}
+        className="mt-4 flex items-center gap-1.5 px-4 py-2 bg-[#BFA264]/10 border border-[#BFA264]/20 rounded-xl text-[9px] font-black text-[#BFA264] uppercase tracking-widest hover:bg-[#BFA264]/15 transition-all"
+      >
+        <Plus className="w-3 h-3" /> {action}
+      </button>
+    )}
+  </div>
+);
+
+// ─── Score sparkline tooltip ──────────────────────────────────────────────────
+const ScoreTooltip = ({ active, payload, label }) => {
+  if (!active || !payload?.length) return null;
+  return (
+    <div className="bg-[#0a0a0a] border border-[#BFA264]/20 rounded-xl px-3 py-2 shadow-2xl pointer-events-none">
+      <p className="text-[8px] text-white/30 uppercase tracking-widest">
+        {label}
+      </p>
+      <p className="text-base font-black text-white font-mono">
+        {(payload[0].value ?? 0).toLocaleString()}
+      </p>
+    </div>
+  );
+};
+
+// ─── Alliance Force mini-card ─────────────────────────────────────────────────
+const AllianceForceCard = ({ allies = [] }) => {
+  if (!allies.length) return null;
+  const topAllies = allies.slice(0, 5);
+  return (
+    <div className="flex items-center gap-2">
+      <div className="flex -space-x-2">
+        {topAllies.map((ally, i) => (
+          <div
+            key={i}
+            className="w-7 h-7 rounded-full bg-[#111] border-2 border-[#030303] flex items-center justify-center text-[9px] font-black text-[#BFA264] overflow-hidden"
+            style={{ zIndex: topAllies.length - i }}
+          >
+            {ally?.avatarUrl ? (
+              <img
+                src={ally.avatarUrl}
+                alt=""
+                className="w-full h-full object-cover"
+              />
+            ) : (
+              (ally?.name || ally?.username || "A").charAt(0).toUpperCase()
+            )}
+          </div>
+        ))}
+      </div>
+      <span className="text-[10px] font-bold text-white/30">
+        {allies.length} {allies.length === 1 ? "Ally" : "Allies"}
+      </span>
+    </div>
+  );
+};
+
+// ─── PRO gate overlay ─────────────────────────────────────────────────────────
+const ProGate = ({ feature }) => (
+  <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-[#030303]/80 backdrop-blur-sm rounded-[2rem] z-10">
+    <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center justify-center">
+      <Crown className="w-5 h-5 text-amber-400" />
+    </div>
+    <div className="text-center">
+      <p className="text-xs font-black text-white mb-0.5">{feature}</p>
+      <p className="text-[9px] text-white/30">Requires Pro Clearance</p>
+    </div>
+    <Link
+      to="/premium"
+      className="px-4 py-2 bg-amber-500 text-black text-[9px] font-black rounded-xl uppercase tracking-widest hover:bg-amber-400 transition-all"
+    >
+      Upgrade
+    </Link>
+  </div>
+);
+
+// ─── Section label ────────────────────────────────────────────────────────────
+const SLabel = ({
+  children,
+  icon: Icon,
+  iconColor = "text-[#BFA264]",
+  className,
+}) => (
+  <div className={cn("flex items-center gap-2 mb-5", className)}>
+    {Icon && <Icon className={cn("w-3.5 h-3.5 shrink-0", iconColor)} />}
+    <span className="text-[9px] font-black text-white/25 uppercase tracking-[0.2em]">
+      {children}
+    </span>
+    <div className="flex-1 h-px bg-white/[0.04]" />
+  </div>
+);
+
+// ─── Link chip ────────────────────────────────────────────────────────────────
+const LINK_CONFIGS = {
+  linkedin: { icon: Linkedin, label: "LinkedIn", color: "#0A66C2" },
+  github: { icon: Github, label: "GitHub", color: "#c9d1d9" },
+  twitter: { icon: Twitter, label: "X / Twitter", color: "#1DA1F2" },
+  youtube: { icon: Youtube, label: "YouTube", color: "#FF0000" },
+  instagram: { icon: Instagram, label: "Instagram", color: "#E1306C" },
+  website: { icon: Globe, label: "Website", color: "#BFA264" },
+};
+
+const LinkChip = ({ type, url }) => {
+  const cfg = LINK_CONFIGS[type] || LINK_CONFIGS.website;
+  const Icon = cfg.icon;
+  if (!url) return null;
+  return (
+    <a
+      href={url.startsWith("http") ? url : `https://${url}`}
+      target="_blank"
+      rel="noreferrer"
+      className="flex items-center gap-2 px-3 py-2 bg-white/[0.03] border border-white/[0.06] rounded-xl hover:bg-white/[0.07] hover:border-white/[0.12] transition-all group"
+    >
+      <Icon className="w-3.5 h-3.5 shrink-0" style={{ color: cfg.color }} />
+      <span className="text-[10px] font-bold text-white/50 group-hover:text-white/80 transition-colors">
+        {cfg.label}
+      </span>
+      <ExternalLink className="w-2.5 h-2.5 text-white/15 group-hover:text-white/40 transition-colors ml-auto" />
+    </a>
+  );
+};
+
+// ─── Inline bio editor ────────────────────────────────────────────────────────
 const InlineBioEdit = ({ userData, uid, onSaved }) => {
   const [editing, setEditing] = useState(false);
   const [bio, setBio] = useState(
@@ -112,2014 +466,1591 @@ const InlineBioEdit = ({ userData, uid, onSaved }) => {
     if (!uid) return;
     setSaving(true);
     try {
-      const { updateDoc, doc } = await import("firebase/firestore");
-      const { db } = await import("../firebase");
       await updateDoc(doc(db, "users", uid), {
         "footprint.bio": bio.trim(),
         "professional.bio": bio.trim(),
       });
       await onSaved?.();
       setEditing(false);
-    } catch {}
+    } catch (e) {
+      console.error(e);
+    }
     setSaving(false);
   };
 
-  return (
-    <div className="bg-[#0a0a0a] border border-[#1a1a1a] rounded-[2rem] p-5 group relative">
-      <div className="flex items-center justify-between mb-3">
-        <span className="text-[9px] font-black text-white/30 uppercase tracking-[0.2em] flex items-center gap-2">
-          <Terminal className="w-3.5 h-3.5 text-white/35" />
-          Bio
-        </span>
-        {!editing && (
-          <button
-            onClick={() => setEditing(true)}
-            className="opacity-0 group-hover:opacity-100 text-[9px] font-black text-[#BFA264]/50 hover:text-[#BFA264] uppercase tracking-widest transition-all flex items-center gap-1"
-          >
-            <Edit3 className="w-3 h-3" />
-            Edit
-          </button>
-        )}
-      </div>
-      {editing ? (
-        <div className="space-y-2">
-          <textarea
-            ref={taRef}
-            value={bio}
-            onChange={(e) => setBio(e.target.value.slice(0, 300))}
-            className="w-full bg-[#050505] border border-[#BFA264]/30 rounded-xl px-4 py-3 text-sm text-white focus:outline-none resize-none min-h-[80px]"
-            placeholder="2–3 sentences about what you build…"
-          />
-          <div className="flex items-center justify-between">
-            <span className="text-[9px] text-white/20">{bio.length}/300</span>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setEditing(false)}
-                className="px-3 py-1.5 text-[10px] font-black text-white/40 hover:text-white transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={save}
-                disabled={saving}
-                className="px-4 py-1.5 bg-[#BFA264] text-black text-[10px] font-black rounded-xl hover:bg-[#D4AF78] disabled:opacity-50 transition-all flex items-center gap-1.5"
-              >
-                {saving ? (
-                  <Loader2 className="w-3 h-3 animate-spin" />
-                ) : (
-                  <Check className="w-3 h-3" />
-                )}
-                Save
-              </button>
-            </div>
+  if (editing)
+    return (
+      <div className="space-y-2">
+        <textarea
+          ref={taRef}
+          value={bio}
+          onChange={(e) => setBio(e.target.value.slice(0, 300))}
+          className="w-full bg-[#050505] border border-[#BFA264]/30 focus:border-[#BFA264]/60 rounded-xl px-4 py-3 text-sm text-white focus:outline-none resize-none min-h-[80px] transition-colors"
+          placeholder="2–3 sentences about what you build and who you serve…"
+        />
+        <div className="flex items-center justify-between">
+          <span className="text-[9px] text-white/20 font-mono">
+            {bio.length}/300
+          </span>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setEditing(false)}
+              className="px-3 py-1.5 text-[10px] font-black text-white/40 hover:text-white transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={save}
+              disabled={saving}
+              className="px-4 py-1.5 bg-[#BFA264] text-black text-[10px] font-black rounded-xl hover:bg-[#D4AF78] disabled:opacity-50 transition-all flex items-center gap-1.5"
+            >
+              {saving ? (
+                <Loader2 className="w-3 h-3 animate-spin" />
+              ) : (
+                <Check className="w-3 h-3" />
+              )}{" "}
+              Save
+            </button>
           </div>
         </div>
-      ) : (
+      </div>
+    );
+
+  return (
+    <div className="group relative">
+      {bio ? (
         <p
-          className="text-sm text-[#777] leading-relaxed cursor-text"
+          className="text-sm text-white/50 leading-relaxed cursor-text"
           onClick={() => setEditing(true)}
         >
-          {bio || (
-            <span className="text-[#333] italic">Click to add a bio…</span>
-          )}
+          {bio}
         </p>
+      ) : (
+        <button
+          onClick={() => setEditing(true)}
+          className="w-full flex items-center gap-2 py-4 border border-dashed border-white/[0.07] rounded-xl text-[10px] font-bold text-white/20 hover:text-white/40 hover:border-white/[0.12] transition-all justify-center"
+        >
+          <Plus className="w-3.5 h-3.5" /> Add your operator bio
+        </button>
+      )}
+      {bio && (
+        <button
+          onClick={() => setEditing(true)}
+          className="absolute top-0 right-0 opacity-0 group-hover:opacity-100 flex items-center gap-1 text-[8px] font-black text-[#BFA264]/50 hover:text-[#BFA264] uppercase tracking-widest transition-all"
+        >
+          <Edit3 className="w-2.5 h-2.5" /> Edit
+        </button>
       )}
     </div>
   );
 };
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-const fmtScore = (n) => (n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n));
-
-const toDateStr = (d) => {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
-};
-
-/** Vault Strength Score: weighted average of verified asset strengths → 0-100 */
-const calcVSS = (vault = []) => {
-  const verified = vault.filter((a) => a.status === "VERIFIED");
-  if (!verified.length) return 0;
-  const pts = verified.reduce((s, a) => {
-    if (a.strength === "Strong") return s + 30;
-    if (a.strength === "Medium") return s + 20;
-    return s + 10; // Weak or null
-  }, 0);
-  return Math.min(Math.round((pts / (verified.length * 30)) * 100), 100);
-};
-
-/** Execution velocity: pts gained last 7d vs prior 7d */
-const calcVelocity = (dailyScores = {}) => {
-  const today = new Date();
-  let last7 = 0,
-    prior7 = 0;
-  const dates = Object.keys(dailyScores).sort();
-  if (dates.length < 2) return { delta: 0, pct: 0 };
-  const latestScore = dailyScores[dates[dates.length - 1]] || 0;
-  const score7dAgo = (() => {
-    const d7 = new Date(today);
-    d7.setDate(d7.getDate() - 7);
-    const key = toDateStr(d7);
-    const older = dates.filter((d) => d <= key);
-    return older.length ? dailyScores[older[older.length - 1]] || 0 : 0;
-  })();
-  const score14dAgo = (() => {
-    const d14 = new Date(today);
-    d14.setDate(d14.getDate() - 14);
-    const key = toDateStr(d14);
-    const older = dates.filter((d) => d <= key);
-    return older.length ? dailyScores[older[older.length - 1]] || 0 : 0;
-  })();
-  last7 = latestScore - score7dAgo;
-  prior7 = score7dAgo - score14dAgo;
-  const pct = prior7 > 0 ? Math.round(((last7 - prior7) / prior7) * 100) : 0;
-  return { delta: last7, pct };
-};
-
-// ─── Sub-components ────────────────────────────────────────────────────────────
-
-const ScoreTooltip = ({ active, payload, label }) => {
-  if (!active || !payload?.length) return null;
-  return (
-    <div className="bg-[#0a0a0a] border border-[#BFA264]/25 rounded-xl px-3 py-2.5 shadow-2xl pointer-events-none">
-      <p className="text-[9px] text-white/30 uppercase tracking-widest mb-0.5">
-        {label}
-      </p>
-      <p className="text-lg font-black text-white font-mono">
-        {payload[0].value?.toLocaleString()}
-      </p>
-    </div>
-  );
-};
-
-const StatCard = ({
-  icon: Icon,
-  color,
-  bg,
-  border,
-  label,
-  value,
-  sub,
-  onClick,
-}) => (
-  <motion.div
-    whileTap={{ scale: 0.97 }}
-    onClick={onClick}
-    className={cn(
-      "flex flex-col gap-2 p-4 rounded-2xl border transition-all",
-      bg,
-      border,
-      onClick && "cursor-pointer hover:brightness-110",
-    )}
-  >
-    <div
-      className={cn(
-        "w-8 h-8 rounded-xl flex items-center justify-center",
-        bg,
-        border,
-        "border",
-      )}
-    >
-      <Icon className={cn("w-4 h-4", color)} />
-    </div>
-    <div>
-      <p className={cn("text-2xl font-black font-mono leading-none", color)}>
-        {value}
-      </p>
-      <p className="text-[9px] font-bold text-white/25 uppercase tracking-widest mt-1">
-        {label}
-      </p>
-      {sub && <p className="text-[9px] text-white/15 mt-0.5">{sub}</p>}
-    </div>
-  </motion.div>
-);
-
-const SLabel = ({ icon: Icon, iconColor, children }) => (
-  <h3 className="text-[9px] font-black text-white/35 uppercase tracking-[0.2em] flex items-center gap-2 mb-4">
-    {Icon && <Icon className={cn("w-3.5 h-3.5 shrink-0", iconColor)} />}
-    {children}
-  </h3>
-);
-
-// ─── Animated Heatmap Pill ────────────────────────────────────────────────────
-const HeatPill = ({ active, dateStr }) => {
-  const [show, setShow] = useState(false);
-  const label = dateStr
-    ? new Date(dateStr + "T12:00:00").toLocaleDateString("en-US", {
-        weekday: "short",
-        month: "short",
-        day: "numeric",
-      })
-    : "";
-  return (
-    <div
-      className="relative flex-1 min-w-0"
-      onMouseEnter={() => setShow(true)}
-      onMouseLeave={() => setShow(false)}
-    >
-      <div
-        className={cn(
-          "w-full h-8 rounded-md border transition-all duration-200",
-          active
-            ? "bg-[#BFA264] border-[#D4AF78] shadow-[0_0_8px_rgba(191,162,100,0.5)]"
-            : "bg-white/[0.03] border-white/[0.04] hover:bg-white/[0.06]",
-        )}
-      />
-      <AnimatePresence>
-        {show && dateStr && (
-          <motion.div
-            initial={{ opacity: 0, y: 4 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0 }}
-            className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1.5 z-50 pointer-events-none"
-          >
-            <div className="bg-[#0a0a0a] border border-[#BFA264]/20 rounded-lg px-2 py-1 shadow-xl whitespace-nowrap">
-              <p className="text-[9px] font-bold text-[#BFA264]">{label}</p>
-              {active && <p className="text-[8px] text-white/30">Active</p>}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  );
-};
-
-// ─── Level XP Ring ─────────────────────────────────────────────────────────────
-const LevelRing = ({ score, size = 88 }) => {
-  const level = Math.min(Math.floor(score / 1000) + 1, 10);
-  const xp = score % 1000;
-  const pct = xp / 1000;
-  const r = (size - 8) / 2;
-  const circ = 2 * Math.PI * r;
-  return (
-    <div className="relative" style={{ width: size, height: size }}>
-      <svg width={size} height={size} className="-rotate-90">
-        <circle
-          cx={size / 2}
-          cy={size / 2}
-          r={r}
-          fill="none"
-          stroke="#0f0f0f"
-          strokeWidth={8}
-        />
-        <motion.circle
-          cx={size / 2}
-          cy={size / 2}
-          r={r}
-          fill="none"
-          stroke="#BFA264"
-          strokeWidth={8}
-          strokeDasharray={circ}
-          initial={{ strokeDashoffset: circ }}
-          animate={{ strokeDashoffset: circ - pct * circ }}
-          transition={{ duration: 1.2, ease: "easeOut" }}
-          strokeLinecap="round"
-          style={{ filter: "drop-shadow(0 0 6px rgba(191,162,100,0.6))" }}
-        />
-      </svg>
-      <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <span className="text-xl font-black text-white leading-none">
-          {level}
-        </span>
-        <span className="text-[7px] text-white/30 uppercase tracking-widest">
-          LVL
-        </span>
-      </div>
-    </div>
-  );
-};
-
-// ── App Stack Modal ────────────────────────────────────────────────────────────
-
-const AppStackModal = ({
-  isOpen,
-  onClose,
-  currentVerifiedApps = [],
-  onSubmit,
+// ═══════════════════════════════════════════════════════════════════════════════
+// IDENTITY PILLAR (sticky right column on PC)
+// ═══════════════════════════════════════════════════════════════════════════════
+const IdentityPillar = ({
+  userData,
+  uid,
+  score,
+  level,
+  isPro,
+  streak,
+  vss,
+  vault,
+  allies,
+  onAvatarUpload,
+  isUploadingAvatar,
+  onCopyLink,
+  copied,
+  refreshUserData,
+  showToast,
 }) => {
-  const [catalog, setCatalog] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState("All");
-  const [search, setSearch] = useState("");
-  const [selected, setSelected] = useState(null);
-  const [profileUrl, setProfileUrl] = useState("");
-  const [proofUrl, setProofUrl] = useState("");
-  const [profileError, setProfileError] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-
-  useEffect(() => {
-    setProfileUrl("");
-    setProofUrl("");
-    setProfileError("");
-  }, [selected]);
-
-  useEffect(() => {
-    // 1. Define the async function once
-    const fetchCatalog = async () => {
-      try {
-        const snap = await getDocs(collection(db, "app_catalog"));
-        setCatalog(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
-      } catch (e) {
-        console.error(e);
-      }
-      setLoading(false);
-    };
-
-    // 2. Call it if the condition is met
-    if (isOpen) {
-      fetchCatalog();
-    }
-  }, [isOpen]); // 3. Properly close the effect function and pass the dependency array here
-
-  const categories = ["All", ...new Set(catalog.map((a) => a.category))].sort();
-
-  const filtered = catalog.filter((a) => {
-    const catMatch = activeTab === "All" || a.category === activeTab;
-    const searchMatch =
-      !search || a.appName.toLowerCase().includes(search.toLowerCase());
-    const notAdded = !currentVerifiedApps.some((va) => va.appId === a.id);
-    return catMatch && searchMatch && notAdded;
-  });
-  const handleSubmit = async () => {
-    if (!selected) return;
-
-    // Validation
-    const parentUrl = selected.parentUrl?.trim();
-    if (!profileUrl.trim()) {
-      setProfileError("Profile URL is required.");
-      return;
-    }
-    const urlPattern = new RegExp(
-      `^https://(www\\.)?.*${parentUrl ? parentUrl.replace(/[-\\/\\^$*+?.()|[\\]{}]/g, "\\$&") : ""}.*`,
-      "i",
-    );
-    if (!urlPattern.test(profileUrl.trim())) {
-      setProfileError(
-        `Invalid URL. Must start with https:// and contain ${parentUrl || "the valid app link"}`,
-      );
-      return;
-    }
-
-    setProfileError("");
-    setSubmitting(true);
-    await onSubmit(
-      {
-        id: selected.id,
-        name: selected.appName,
-        category: selected.category,
-        iconUrl: selected.iconUrl,
-      },
-      profileUrl.trim(),
-      proofUrl.trim(),
-    );
-    setSubmitting(false);
-    setSelected(null);
-    setProfileUrl("");
-    setProofUrl("");
-    onClose();
-  };
-  if (!isOpen) return null;
-  return (
-    <motion.div
-      className="fixed inset-0 z-[900] flex items-end md:items-center md:justify-center pointer-events-none"
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-    >
-      {/* Shared Backdrop */}
-      <div
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm pointer-events-auto"
-        onClick={onClose}
-      />
-
-      {/* ── DESKTOP PC-FIRST EXPLORER WIDGET ── */}
-      <motion.div
-        initial={{ scale: 0.95, y: 10 }}
-        animate={{ scale: 1, y: 0 }}
-        className="hidden md:flex flex-col w-[960px] h-[540px] bg-[#0a0a0c]/80 backdrop-blur-2xl border border-[#BFA264]/20 rounded-2xl shadow-2xl overflow-hidden relative z-10 pointer-events-auto"
-      >
-        {/* Golden Mac Toolbar */}
-        <div className="h-12 bg-black/40 border-b border-[#BFA264]/10 flex items-center px-4 shrink-0 justify-between select-none">
-          <div className="flex gap-2 w-20">
-            <button
-              onClick={onClose}
-              className="w-3 h-3 rounded-full bg-[#BFA264]/40 hover:bg-[#BFA264] border border-[#BFA264]/50 transition-colors"
-            />
-            <div className="w-3 h-3 rounded-full bg-[#BFA264]/20 border border-[#BFA264]/30" />
-            <div className="w-3 h-3 rounded-full bg-[#BFA264]/20 border border-[#BFA264]/30" />
-          </div>
-          <div className="flex items-center text-[10px] font-mono text-[#BFA264]/60 tracking-widest uppercase">
-            Discotive <ChevronRight className="w-3 h-3 mx-1 opacity-50" /> OS{" "}
-            <ChevronRight className="w-3 h-3 mx-1 opacity-50" /> App Catalog
-          </div>
-          <div className="w-20 flex justify-end">
-            {/* Search Overlay */}
-            <div className="relative w-32 group">
-              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3 h-3 text-[#BFA264]/40 group-focus-within:text-[#BFA264]" />
-              <input
-                type="text"
-                placeholder="Search..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="w-full bg-black/20 border border-[#BFA264]/10 rounded-full pl-7 pr-3 py-1 text-[10px] text-white focus:outline-none focus:border-[#BFA264]/40 transition-colors"
-              />
-            </div>
-          </div>
-        </div>
-        {/* Body Explorer View */}
-        <div className="flex flex-1 overflow-hidden">
-          {/* Sidebar */}
-          <div className="w-48 bg-black/20 border-r border-[#BFA264]/10 p-3 overflow-y-auto shrink-0 custom-scrollbar">
-            <p className="text-[9px] font-black text-[#BFA264]/40 uppercase tracking-widest px-2 mb-2">
-              Categories
-            </p>
-            <div className="space-y-1">
-              {categories.map((cat) => (
-                <button
-                  key={cat}
-                  onClick={() => setActiveTab(cat)}
-                  className={cn(
-                    "w-full text-left px-3 py-2 rounded-lg text-[11px] font-bold transition-all",
-                    activeTab === cat
-                      ? "bg-[#BFA264]/15 text-[#BFA264] border border-[#BFA264]/20"
-                      : "text-white/40 hover:text-white hover:bg-white/5 border border-transparent",
-                  )}
-                >
-                  {cat}
-                </button>
-              ))}
-            </div>
-          </div>
-          {/* Main Grid View */}
-          <div className="flex-1 flex flex-col relative bg-transparent">
-            {loading ? (
-              <div className="flex-1 flex items-center justify-center">
-                <Loader2 className="w-6 h-6 text-[#BFA264]/30 animate-spin" />
-              </div>
-            ) : (
-              <div className="flex-1 overflow-y-auto p-6 custom-scrollbar grid grid-cols-5 gap-4 content-start">
-                {filtered.map((app) => (
-                  <button
-                    key={app.id}
-                    onClick={() =>
-                      setSelected(selected?.id === app.id ? null : app)
-                    }
-                    className={cn(
-                      "flex flex-col items-center gap-3 p-4 rounded-xl border transition-all relative group",
-                      selected?.id === app.id
-                        ? "bg-[#BFA264]/10 border-[#BFA264]/40 shadow-[0_0_20px_rgba(191,162,100,0.1)]"
-                        : "bg-white/5 border-white/5 hover:border-white/10 hover:bg-white/10",
-                    )}
-                  >
-                    <img
-                      src={app.iconUrl}
-                      alt={app.appName}
-                      className="w-10 h-10 object-contain drop-shadow-md"
-                      onError={(e) => (e.target.style.display = "none")}
-                    />
-                    <span className="text-[11px] font-bold text-white/80 truncate w-full text-center">
-                      {app.appName}
-                    </span>
-                  </button>
-                ))}
-                {filtered.length === 0 && (
-                  <div className="col-span-5 py-12 text-center text-[10px] text-white/20 uppercase tracking-widest font-bold">
-                    No apps found
-                  </div>
-                )}
-              </div>
-            )}
-            {/* Selection Footer */}
-            {selected && (
-              <div className="p-4 bg-[#0a0a0c]/90 border-t border-[#BFA264]/20 backdrop-blur-md flex flex-col gap-3 shrink-0">
-                <div className="flex flex-col sm:flex-row items-start sm:items-center gap-4">
-                  <div className="flex-1 w-full relative">
-                    <Link className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#BFA264]/50" />
-                    <input
-                      type="url"
-                      value={profileUrl}
-                      onChange={(e) => {
-                        setProfileUrl(e.target.value);
-                        setProfileError("");
-                      }}
-                      placeholder={`Profile URL (e.g. https://${selected.parentUrl || "..."}) *`}
-                      className={cn(
-                        "w-full bg-black/40 border rounded-xl pl-9 pr-4 py-2.5 text-xs text-white focus:outline-none transition-colors",
-                        profileError
-                          ? "border-rose-500/50 focus:border-rose-500"
-                          : "border-[#BFA264]/20 focus:border-[#BFA264]/50",
-                      )}
-                    />
-                  </div>
-                  <div className="flex-1 w-full relative">
-                    <Link className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#BFA264]/50" />
-                    <input
-                      type="url"
-                      value={proofUrl}
-                      onChange={(e) => setProofUrl(e.target.value)}
-                      placeholder="Proof-of-Work URL (Optional, Recommended)"
-                      className="w-full bg-black/40 border border-[#BFA264]/20 rounded-xl pl-9 pr-4 py-2.5 text-xs text-white focus:outline-none focus:border-[#BFA264]/50"
-                    />
-                  </div>
-                  <button
-                    onClick={handleSubmit}
-                    disabled={submitting}
-                    className="w-full sm:w-auto px-6 py-2.5 bg-[#BFA264] text-black text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-[#D4AF78] disabled:opacity-50 transition-colors flex items-center justify-center gap-2 shrink-0"
-                  >
-                    {submitting ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                    ) : (
-                      <>
-                        <Check className="w-4 h-4" /> Request
-                      </>
-                    )}
-                  </button>
-                </div>
-                {profileError && (
-                  <p className="text-[10px] font-bold text-rose-400 pl-1">
-                    {profileError}
-                  </p>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-      </motion.div>
-
-      {/* ── MOBILE NATIVE BOTTOM SHEET ── */}
-      <motion.div
-        initial={{ y: "100%" }}
-        animate={{ y: 0 }}
-        drag="y"
-        dragConstraints={{ top: 0 }}
-        onDragEnd={(e, info) => {
-          if (info.offset.y > 100) onClose();
-        }}
-        className="md:hidden w-full h-[85vh] bg-[#0a0a0c] border-t border-[#BFA264]/20 rounded-t-[2rem] flex flex-col relative z-10 pointer-events-auto overflow-hidden shadow-[0_-10px_40px_rgba(0,0,0,0.5)]"
-      >
-        <div className="w-full pt-3 pb-2 flex justify-center shrink-0">
-          <div className="w-12 h-1.5 bg-white/20 rounded-full" />
-        </div>
-        <div className="px-5 pb-3 border-b border-white/10 shrink-0 flex items-center justify-between">
-          <div>
-            <h3 className="text-sm font-black text-white">App Catalog</h3>
-            <p className="text-[10px] text-[#BFA264]">
-              Select to verify proficiency
-            </p>
-          </div>
-          <button
-            onClick={onClose}
-            className="w-8 h-8 bg-white/5 rounded-full flex items-center justify-center text-white/40 hover:bg-white/10"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-        <div className="p-4 shrink-0">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#BFA264]/40" />
-            <input
-              type="text"
-              placeholder="Search apps..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="w-full bg-[#111] border border-[#BFA264]/20 rounded-xl pl-9 pr-4 py-3 text-xs text-white focus:outline-none focus:border-[#BFA264]/50"
-            />
-          </div>
-        </div>
-        {/* Horizontal Mobile Tabs */}
-        <div className="px-4 pb-2 flex overflow-x-auto gap-2 no-scrollbar shrink-0">
-          {categories.map((cat) => (
-            <button
-              key={cat}
-              onClick={() => setActiveTab(cat)}
-              className={cn(
-                "px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest whitespace-nowrap transition-all border",
-                activeTab === cat
-                  ? "bg-[#BFA264]/20 text-[#BFA264] border-[#BFA264]/30"
-                  : "bg-white/5 text-white/40 border-transparent",
-              )}
-            >
-              {cat}
-            </button>
-          ))}
-        </div>
-        {/* Main Grid View */}
-        <div className="flex-1 overflow-y-auto p-4 grid grid-cols-3 gap-3 content-start">
-          {loading ? (
-            <div className="col-span-3 py-10 flex justify-center">
-              <Loader2 className="w-6 h-6 text-[#BFA264]/30 animate-spin" />
-            </div>
-          ) : (
-            filtered.map((app) => (
-              <button
-                key={app.id}
-                onClick={() =>
-                  setSelected(selected?.id === app.id ? null : app)
-                }
-                className={cn(
-                  "flex flex-col items-center gap-2 p-3 rounded-2xl border transition-all",
-                  selected?.id === app.id
-                    ? "bg-[#BFA264]/10 border-[#BFA264]/40 shadow-[0_0_15px_rgba(191,162,100,0.1)]"
-                    : "bg-[#111] border-white/5",
-                )}
-              >
-                <img
-                  src={app.iconUrl}
-                  alt={app.appName}
-                  className="w-8 h-8 object-contain drop-shadow-md"
-                  onError={(e) => (e.target.style.display = "none")}
-                />
-                <span className="text-[10px] font-bold text-white/80 text-center leading-tight line-clamp-1">
-                  {app.appName}
-                </span>
-              </button>
-            ))
-          )}
-        </div>
-        {selected && (
-          <div className="p-4 bg-[#0a0a0c] border-t border-[#BFA264]/20 pb-6 shrink-0 space-y-3">
-            <div>
-              <input
-                type="url"
-                value={profileUrl}
-                onChange={(e) => {
-                  setProfileUrl(e.target.value);
-                  setProfileError("");
-                }}
-                placeholder={`Profile URL (e.g. https://${selected.parentUrl || "..."}) *`}
-                className={cn(
-                  "w-full bg-[#111] border rounded-xl px-4 py-3 text-xs text-white focus:outline-none transition-colors",
-                  profileError
-                    ? "border-rose-500/50 focus:border-rose-500"
-                    : "border-[#BFA264]/20 focus:border-[#BFA264]/50",
-                )}
-              />
-              {profileError && (
-                <p className="text-[10px] font-bold text-rose-400 mt-1.5 pl-1">
-                  {profileError}
-                </p>
-              )}
-            </div>
-            <input
-              type="url"
-              value={proofUrl}
-              onChange={(e) => setProofUrl(e.target.value)}
-              placeholder="Proof-of-Work URL (Optional, Recommended)"
-              className="w-full bg-[#111] border border-[#BFA264]/20 rounded-xl px-4 py-3 text-xs text-white focus:outline-none focus:border-[#BFA264]/50"
-            />
-            <button
-              onClick={handleSubmit}
-              disabled={submitting}
-              className="w-full flex items-center justify-center gap-2 py-3.5 bg-[#BFA264] text-black text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-[#D4AF78] disabled:opacity-50"
-            >
-              {submitting ? (
-                <Loader2 className="w-4 h-4 animate-spin mx-auto" />
-              ) : (
-                <>
-                  <Check className="w-4 h-4" /> Submit {selected.appName}
-                </>
-              )}
-            </button>
-          </div>
-        )}
-      </motion.div>
-    </motion.div>
-  );
-};
-
-// ── Vault Strength Bar ────────────────────────────────────────────────────────
-const VSSBar = ({ score }) => (
-  <div>
-    <div className="flex items-center justify-between mb-1.5">
-      <span className="text-[9px] font-black text-white/30 uppercase tracking-widest">
-        Vault Strength
-      </span>
-      <span className="text-[9px] font-black text-[#BFA264] font-mono">
-        {score}%
-      </span>
-    </div>
-    <div className="h-1.5 bg-white/[0.04] rounded-full overflow-hidden">
-      <motion.div
-        initial={{ width: 0 }}
-        animate={{ width: `${score}%` }}
-        transition={{ duration: 1, ease: "easeOut", delay: 0.3 }}
-        className="h-full bg-gradient-to-r from-[#8B7240] to-[#D4AF78] rounded-full shadow-[0_0_8px_rgba(191,162,100,0.5)]"
-      />
-    </div>
-  </div>
-);
-
-// ════════════════════════════════════════════════════════════════════════════════
-// MAIN COMPONENT
-// ════════════════════════════════════════════════════════════════════════════════
-const Profile = () => {
-  const { userData, loading, refreshUserData } = useUserData();
-  const { requireOnboarding } = useOnboardingGate();
   const navigate = useNavigate();
-
-  const [viewDate, setViewDate] = useState(() => {
-    const d = new Date();
-    d.setDate(1);
-    return d;
-  });
-  const [chartTf, setChartTf] = useState("1M");
-  const [chartData, setChartData] = useState([]);
-  const [isChartLoading, setChartLoading] = useState(false);
-  const [copiedLink, setCopiedLink] = useState(false);
-  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
-  const [isExporting, setIsExporting] = useState(false);
-  const [toast, setToast] = useState(null);
-  const [showAppModal, setShowAppModal] = useState(false);
-  const toastRef = useRef(null);
-  const GRAD_ID = "profileGrad";
-
-  const showToast = useCallback((msg, type = "green") => {
-    if (toastRef.current) clearTimeout(toastRef.current);
-    setToast({ msg, type });
-    toastRef.current = setTimeout(() => setToast(null), 3000);
-  }, []);
-
-  useEffect(
-    () => () => {
-      if (toastRef.current) clearTimeout(toastRef.current);
-    },
-    [],
-  );
-
-  // ── Derived values ──────────────────────────────────────────────────────────
-  const score = userData?.discotiveScore?.current ?? 0;
-  const last24h = userData?.discotiveScore?.last24h ?? score;
-  const delta = score - last24h;
-  const level = Math.min(Math.floor(score / 1000) + 1, 10);
-  const streak = userData?.discotiveScore?.streak ?? 0;
-  const vault = useMemo(() => userData?.vault || [], [userData]);
-  const allies = userData?.allies || [];
-  const views = userData?.profileViews || 0;
-  const skills = userData?.skills?.alignedSkills || [];
-  const isPro = userData?.tier === "PRO" || userData?.tier === "ENTERPRISE";
-  const vss = useMemo(() => calcVSS(vault), [vault]);
-  const verifiedAppsData = useMemo(
-    () => userData?.verifiedApps || [],
-    [userData],
-  );
-  const velocity = useMemo(
-    () => calcVelocity(userData?.daily_scores || {}),
-    [userData],
-  );
-  const verifiedCount = vault.filter((a) => a.status === "VERIFIED").length;
-  const moatPct = vault.length
-    ? Math.round((verifiedCount / vault.length) * 100)
-    : 0;
-  const ptsToNext = 1000 - (score % 1000);
-
   const initials =
     `${userData?.identity?.firstName?.charAt(0) || ""}${userData?.identity?.lastName?.charAt(0) || ""}`.toUpperCase() ||
     "?";
-
-  // Chart data handled by TelemetryEngine component via useScoreHistory hook
-  const _buildChart_REMOVED = async () => {
-    if (!userData?.uid) return;
-    try {
-      let src = Object.keys(daily)
-        .map((d) => ({ date: d, score: daily[d] }))
-        .sort((a, b) => a.date.localeCompare(b.date));
-      if (chartTf === "1W") {
-        const cutoff = new Date();
-        cutoff.setDate(cutoff.getDate() - 7);
-        src = src.filter((e) => new Date(e.date) >= cutoff);
-      } else if (chartTf === "1M") {
-        const cutoff = new Date();
-        cutoff.setMonth(cutoff.getMonth() - 1);
-        src = src.filter((e) => new Date(e.date) >= cutoff);
-      }
-      if (src.length < 2) {
-        src = [
-          {
-            date: new Date(Date.now() - 7 * 86400000)
-              .toISOString()
-              .split("T")[0],
-            score: Math.max(0, score - 50),
-          },
-          { date: new Date().toISOString().split("T")[0], score },
-        ];
-      }
-      setChartData(
-        src.map((e) => ({
-          day: new Date(e.date).toLocaleDateString("en-US", {
-            month: "short",
-            day: "numeric",
-          }),
-          score: e.score,
-        })),
-      );
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setChartLoading(false);
-    }
-  };
-
-  // ── Heatmap ─────────────────────────────────────────────────────────────────
-  const activeDates = useMemo(() => {
-    const s = new Set();
-    (userData?.consistency_log || []).forEach((d) =>
-      s.add(String(d).split("T")[0]),
-    );
-    (userData?.login_history || []).forEach((d) =>
-      s.add(String(d).split("T")[0]),
-    );
-    const last = userData?.discotiveScore?.lastLoginDate;
-    if (last) s.add(String(last).split("T")[0]);
-    return s;
-  }, [userData]);
-
-  const heatmap = useMemo(() => {
-    const year = viewDate.getFullYear();
-    const month = viewDate.getMonth();
-    const days = new Date(year, month + 1, 0).getDate();
-    return Array.from({ length: days }, (_, i) => {
-      const d = new Date(year, month, i + 1);
-      const ms = String(d.getMonth() + 1).padStart(2, "0");
-      const ds = String(d.getDate()).padStart(2, "0");
-      const str = `${d.getFullYear()}-${ms}-${ds}`;
-      return { str, active: activeDates.has(str) };
-    });
-  }, [viewDate, activeDates]);
-
-  // ── Radar data ──────────────────────────────────────────────────────────────
-  const radarData = [
-    { metric: "Execution", score: Math.min((score / 5000) * 100, 100) },
-    { metric: "Skills", score: Math.min((skills.length / 10) * 100, 100) },
-    { metric: "Network", score: Math.min((allies.length / 20) * 100, 100) },
-    { metric: "Vault", score: vss },
-    { metric: "Reach", score: Math.min((views / 100) * 100, 100) },
-  ];
-
-  // ── Vault donut data ────────────────────────────────────────────────────────
-  const VAULT_COLORS = {
-    Certificate: "#BFA264",
-    Resume: "#10b981",
-    Project: "#8b5cf6",
-    Publication: "#06b6d4",
-    Employment: "#f97316",
-    Link: "#64748b",
-    Other: "#374151",
-  };
-  const vaultCats = vault.reduce((acc, a) => {
-    const c = a.category || "Other";
-    acc[c] = (acc[c] || 0) + 1;
-    return acc;
-  }, {});
-  const vaultSegs = Object.entries(vaultCats).map(([cat, count]) => ({
-    label: cat,
-    value: count,
-    color: VAULT_COLORS[cat] || "#444",
-  }));
-
-  // ── Avatar upload ──────────────────────────────────────────────────────────
-  const handleAvatarUpload = async (e) => {
-    if (!requireOnboarding("profile_avatar")) return;
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (file.size > 2 * 1024 * 1024) {
-      showToast("Image exceeds 2MB limit.", "red");
-      return;
-    }
-    setIsUploadingAvatar(true);
-    try {
-      const uid = auth.currentUser.uid;
-      const fileRef = ref(storage, `avatars/${uid}/${Date.now()}_${file.name}`);
-      await uploadBytes(fileRef, file);
-      const url = await getDownloadURL(fileRef);
-      await updateDoc(doc(db, "users", uid), { "identity.avatarUrl": url });
-      await refreshUserData?.();
-      showToast("Avatar updated.", "green");
-    } catch {
-      showToast("Upload failed.", "red");
-    } finally {
-      setIsUploadingAvatar(false);
-      e.target.value = null;
-    }
-  };
-
-  // ── Export DCI ─────────────────────────────────────────────────────────────
-  const handleExportDCI = async () => {
-    if (!requireOnboarding("profile_export")) return;
-    setIsExporting(true);
-    showToast("Compiling DCI...", "default");
-    try {
-      const [{ pdf }, { DCIExportTemplate }] = await Promise.all([
-        import("@react-pdf/renderer"),
-        import("../components/DCIExportTemplate"),
-      ]);
-      const el = React.createElement(DCIExportTemplate, {
-        data: {
-          firstName: userData.identity?.firstName || "Operator",
-          lastName: userData.identity?.lastName || "",
-          email: userData.email || auth.currentUser?.email || "",
-          domain: userData.identity?.domain || userData.vision?.passion || "—",
-          niche: userData.identity?.niche || "—",
-          rank: null,
-          score,
-          goal: userData.vision?.goal3Months || "",
-          endgame: userData.vision?.endgame || "",
-          institution: userData.baseline?.institution || "",
-          degree: userData.baseline?.degree || "",
-          major: userData.baseline?.major || "",
-          gradYear: userData.baseline?.gradYear || "",
-          streak,
-        },
-        level,
-        skills,
-        assetsCount: vault.length,
-        alliesCount: allies.length,
-      });
-      const blob = await pdf(el).toBlob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `${userData.identity?.firstName || "Operator"}_DCI.pdf`;
-      a.click();
-      URL.revokeObjectURL(url);
-      showToast("DCI exported.", "green");
-    } catch (err) {
-      console.error(err);
-      showToast("Export failed.", "red");
-    } finally {
-      setIsExporting(false);
-    }
-  };
-
-  const handleCopyLink = () => {
-    navigator.clipboard.writeText(
-      `https://discotive.in/@${userData?.identity?.username || ""}`,
-    );
-    setCopiedLink(true);
-    setTimeout(() => setCopiedLink(false), 2000);
-    showToast("Profile link copied!", "green");
-  };
-  const handleAppSubmit = async (app, profileUrl, proofUrl) => {
-    if (!auth.currentUser) return;
-    const uid = auth.currentUser.uid;
-    try {
-      await addDoc(collection(db, "app_verifications"), {
-        userId: uid,
-        userUsername: userData?.identity?.username || "",
-        userName:
-          `${userData?.identity?.firstName || ""} ${userData?.identity?.lastName || ""}`.trim(),
-        appId: app.id,
-        appName: app.name,
-        appIconUrl: app.iconUrl,
-        appCategory: app.category,
-        profileUrl: profileUrl || "",
-        proofUrl: proofUrl || "",
-        status: "PENDING",
-        submittedAt: serverTimestamp(),
-      });
-      await updateDoc(doc(db, "users", uid), {
-        [`pendingAppVerifications.${app.id}`]: {
-          appId: app.id,
-          appName: app.name,
-          appIconUrl: app.iconUrl,
-          profileUrl: profileUrl || "",
-          status: "PENDING",
-          submittedAt: new Date().toISOString(),
-        },
-      });
-      await refreshUserData?.();
-      showToast(`${app.name} submitted for verification!`, "green");
-    } catch (err) {
-      console.error(err);
-      showToast("Submission failed. Try again.", "red");
-    }
-  };
-
-  if (loading || !userData) {
-    return (
-      <div className="min-h-screen bg-[#030303] flex items-center justify-center">
-        <div className="flex gap-1.5">
-          {[0, 1, 2, 3].map((i) => (
-            <motion.div
-              key={i}
-              animate={{ scaleY: [0.4, 1, 0.4], opacity: [0.3, 1, 0.3] }}
-              transition={{ duration: 1.2, repeat: Infinity, delay: i * 0.12 }}
-              className="w-1 h-6 bg-[#BFA264] rounded-full origin-bottom"
-            />
-          ))}
-        </div>
-      </div>
-    );
-  }
-
-  const LINKS = [
-    { key: "github", label: "GitHub", icon: Github, color: "#fff" },
-    { key: "linkedin", label: "LinkedIn", icon: Linkedin, color: "#0a66c2" },
-    { key: "twitter", label: "X", icon: Twitter, color: "#1da1f2" },
-    { key: "youtube", label: "YouTube", icon: Youtube, color: "#ff0000" },
-    { key: "instagram", label: "Instagram", icon: Instagram, color: "#e1306c" },
-    { key: "website", label: "Site", icon: Globe, color: "#888" },
-  ];
-  const activeLinks = LINKS.filter((l) => userData?.links?.[l.key]);
-
-  const chartMin = chartData.length
-    ? Math.max(0, Math.min(...chartData.map((d) => d.score)) - 30)
-    : 0;
+  const fullName =
+    `${userData?.identity?.firstName || ""} ${userData?.identity?.lastName || ""}`.trim() ||
+    "Operator";
+  const xp = (score ?? 0) % 1000;
+  const levelPct = (xp / 1000) * 100;
 
   return (
-    <div className="bg-[#030303] min-h-screen text-white selection:bg-[#BFA264]/25 pb-28 relative overflow-x-hidden">
-      <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-[0.025] pointer-events-none z-0" />
+    <div className="flex flex-col gap-5">
+      {/* Hero card */}
+      <div
+        className={cn(
+          "relative rounded-[2rem] overflow-hidden border",
+          isPro
+            ? "border-[rgba(191,162,100,0.35)] shadow-[0_0_60px_rgba(191,162,100,0.08)]"
+            : "border-[rgba(255,255,255,0.07)]",
+        )}
+      >
+        {/* PRO shimmer top border */}
+        {isPro && (
+          <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-[#BFA264] to-transparent" />
+        )}
 
-      <div className="max-w-[1520px] mx-auto px-4 md:px-8 py-6 md:py-8 relative z-10 space-y-4">
-        {/* ── TOP BAR ─────────────────────────────────────────────────────── */}
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <p className="text-[9px] font-black text-white/25 uppercase tracking-[0.3em] mb-1">
-              Private Command Center
-            </p>
-            <h1 className="text-2xl md:text-3xl font-black tracking-tight">
-              Career Index
-            </h1>
-          </div>
-          <div className="flex items-center gap-2 flex-wrap">
-            <button
-              onClick={handleExportDCI}
-              disabled={isExporting}
+        {/* Background gradient */}
+        <div className="absolute inset-0 bg-gradient-to-b from-[#0F0F0F] to-[#090909]" />
+        <div className="absolute inset-0 bg-gradient-to-br from-[#BFA264]/[0.04] to-transparent pointer-events-none" />
+
+        <div className="relative z-10 p-6">
+          {/* Avatar + Upload */}
+          <div className="flex items-start justify-between mb-6">
+            <label
               className={cn(
-                "flex items-center gap-2 px-3.5 py-2 rounded-xl border text-[10px] font-black uppercase tracking-widest transition-all",
-                isExporting
-                  ? "bg-[#0a0a0a] border-[#1a1a1a] text-white/30 cursor-not-allowed"
-                  : "bg-[#BFA264]/8 border-[#BFA264]/25 text-[#BFA264] hover:bg-[#BFA264]/15",
+                "relative flex w-20 h-20 rounded-[1.5rem] items-center justify-center text-2xl font-black text-[#BFA264] cursor-pointer overflow-hidden transition-all group",
+                "bg-[#111] border-2",
+                isPro
+                  ? "border-[#BFA264]/60 shadow-[0_0_20px_rgba(191,162,100,0.15)]"
+                  : "border-[rgba(255,255,255,0.10)]",
+                isUploadingAvatar && "pointer-events-none opacity-60",
               )}
             >
-              {isExporting ? (
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                className="hidden"
+                onChange={onAvatarUpload}
+                disabled={isUploadingAvatar}
+              />
+              {userData?.identity?.avatarUrl ? (
+                <img
+                  src={userData.identity.avatarUrl}
+                  alt=""
+                  className="w-full h-full object-cover"
+                />
               ) : (
-                <FolderLock className="w-3.5 h-3.5" />
+                initials
               )}
-              {isExporting ? "Compiling…" : "Export DCI"}
-            </button>
-            <button
-              onClick={handleCopyLink}
-              className="flex items-center gap-2 px-3.5 py-2 bg-[#0a0a0a] border border-[#1a1a1a] hover:border-[#333] rounded-xl text-[10px] font-black text-[#666] hover:text-white transition-all uppercase tracking-widest"
-            >
-              {copiedLink ? (
-                <Check className="w-3.5 h-3.5 text-emerald-400" />
-              ) : (
-                <Share2 className="w-3.5 h-3.5" />
+              <div className="absolute inset-0 bg-black/70 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+                {isUploadingAvatar ? (
+                  <Loader2 className="w-5 h-5 text-[#BFA264] animate-spin" />
+                ) : (
+                  <Camera className="w-5 h-5 text-white" />
+                )}
+              </div>
+            </label>
+
+            <div className="flex flex-col items-end gap-2">
+              {isPro && (
+                <div className="flex items-center gap-1.5 px-2.5 py-1 bg-gradient-to-r from-[#8B7240]/20 to-[#D4AF78]/15 border border-[#BFA264]/35 rounded-full">
+                  <Crown className="w-3 h-3 text-[#D4AF78]" />
+                  <span className="text-[8px] font-black text-[#D4AF78] uppercase tracking-[0.2em]">
+                    Pro
+                  </span>
+                </div>
               )}
-              {copiedLink ? "Copied!" : "Share"}
-            </button>
+              <div className="flex items-center gap-1.5 px-2 py-1 bg-emerald-500/10 border border-emerald-500/20 rounded-full">
+                <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                <span className="text-[8px] font-black text-emerald-400 uppercase tracking-widest">
+                  Active
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Name + handle */}
+          <h1 className="text-2xl font-black text-[#F5F0E8] tracking-tight leading-tight mb-1">
+            {fullName}
+          </h1>
+          <p className="text-[11px] font-mono text-white/25 mb-3">
+            @{userData?.identity?.username || "—"}
+            {userData?.discotiveId && (
+              <span className="ml-2 text-[#BFA264]/40">
+                #{userData.discotiveId}
+              </span>
+            )}
+          </p>
+
+          {/* Domain + niche */}
+          <div className="flex flex-wrap items-center gap-2 mb-4">
+            {(userData?.identity?.domain || userData?.vision?.passion) && (
+              <span className="px-2.5 py-1 bg-[#BFA264]/8 border border-[#BFA264]/20 rounded-full text-[9px] font-bold text-[#D4AF78]">
+                {userData?.identity?.domain || userData?.vision?.passion}
+              </span>
+            )}
+            {(userData?.identity?.niche || userData?.vision?.niche) && (
+              <span className="px-2.5 py-1 bg-white/[0.04] border border-white/[0.07] rounded-full text-[9px] font-bold text-white/40">
+                {userData?.identity?.niche || userData?.vision?.niche}
+              </span>
+            )}
+          </div>
+
+          {/* Location */}
+          {(userData?.identity?.country || userData?.footprint?.location) && (
+            <div className="flex items-center gap-1.5 mb-5">
+              <MapPin className="w-3 h-3 text-white/20" />
+              <span className="text-[10px] text-white/30">
+                {userData?.footprint?.location || userData?.identity?.country}
+              </span>
+            </div>
+          )}
+
+          {/* Score — the crown jewel */}
+          <div className="bg-[#030303] border border-[rgba(191,162,100,0.15)] rounded-[1.5rem] p-4 mb-4">
+            <div className="flex items-end justify-between mb-1">
+              <div>
+                <p className="text-[8px] font-black text-white/20 uppercase tracking-[0.2em] mb-0.5">
+                  Discotive Score
+                </p>
+                <p className="text-4xl font-black text-[#D4AF78] font-mono leading-none tracking-tighter">
+                  {(score ?? 0).toLocaleString()}
+                </p>
+              </div>
+              <div className="text-right">
+                <p className="text-[8px] text-white/20 uppercase tracking-widest mb-0.5">
+                  Level
+                </p>
+                <p className="text-2xl font-black text-white/60 font-mono">
+                  {level}
+                </p>
+              </div>
+            </div>
+            {/* XP bar */}
+            <div className="mt-3">
+              <div className="w-full h-1 bg-white/[0.04] rounded-full overflow-hidden">
+                <motion.div
+                  initial={{ width: 0 }}
+                  animate={{ width: `${levelPct}%` }}
+                  transition={{ duration: 1.2, ease: "easeOut" }}
+                  className="h-full rounded-full"
+                  style={{
+                    background: "linear-gradient(90deg, #8B7240, #D4AF78)",
+                  }}
+                />
+              </div>
+              <div className="flex items-center justify-between mt-1">
+                <span className="text-[8px] text-white/15 font-mono">
+                  {(score % 1000).toLocaleString()} / 1000 XP
+                </span>
+                <span className="text-[8px] text-white/15">
+                  Lv {Math.min(level + 1, 10)}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Quick stats row */}
+          <div className="grid grid-cols-3 gap-2 mb-5">
+            {[
+              {
+                label: "Vault",
+                value: vault.filter((a) => a.status === "VERIFIED").length,
+                icon: FolderLock,
+                color: "text-emerald-400",
+              },
+              {
+                label: "Streak",
+                value: `${streak}d`,
+                icon: Flame,
+                color: "text-orange-400",
+              },
+              {
+                label: "Allies",
+                value: allies.length,
+                icon: Users,
+                color: "text-violet-400",
+              },
+            ].map(({ label, value, icon: Icon, color }) => (
+              <div
+                key={label}
+                className="bg-[#080808] border border-white/[0.05] rounded-xl p-2.5 text-center"
+              >
+                <Icon className={cn("w-3.5 h-3.5 mx-auto mb-1", color)} />
+                <p className="text-sm font-black text-white font-mono">
+                  {value}
+                </p>
+                <p className="text-[7px] text-white/20 uppercase tracking-widest">
+                  {label}
+                </p>
+              </div>
+            ))}
+          </div>
+
+          {/* Alliance force */}
+          {allies.length > 0 && (
+            <div className="mb-4 p-3 bg-[#080808] border border-white/[0.05] rounded-xl">
+              <p className="text-[8px] font-black text-white/20 uppercase tracking-widest mb-2">
+                Alliance Force
+              </p>
+              <AllianceForceCard allies={allies} />
+            </div>
+          )}
+
+          {/* VSS bar */}
+          {vss > 0 && (
+            <div className="mb-5">
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-[8px] font-black text-white/20 uppercase tracking-[0.2em]">
+                  Vault Signal Score
+                </span>
+                <span className="text-[9px] font-black text-[#BFA264] font-mono">
+                  {vss}%
+                </span>
+              </div>
+              <div className="h-1 bg-white/[0.04] rounded-full overflow-hidden">
+                <motion.div
+                  initial={{ width: 0 }}
+                  animate={{ width: `${vss}%` }}
+                  transition={{ duration: 1, ease: "easeOut", delay: 0.3 }}
+                  className="h-full rounded-full"
+                  style={{
+                    background:
+                      vss >= 75 ? "#4ADE80" : vss >= 50 ? "#BFA264" : "#F87171",
+                  }}
+                />
+              </div>
+            </div>
+          )}
+
+          {/* CTA buttons */}
+          <div className="flex flex-col gap-2.5">
             <Link
               to="/app/profile/edit"
-              className="flex items-center gap-2 px-4 py-2 bg-white text-black text-[10px] font-black rounded-xl hover:bg-[#ddd] transition-colors uppercase tracking-widest"
+              className="w-full flex items-center justify-center gap-2 py-3 bg-white text-black text-[10px] font-black rounded-xl hover:bg-[#e8e8e8] transition-colors uppercase tracking-widest"
             >
               <Edit3 className="w-3.5 h-3.5" /> Edit Profile
             </Link>
-          </div>
-        </div>
-
-        {/* ── HEADER (split component) ──────────────────────────────────── */}
-        <ProfileHeader
-          userData={userData}
-          onAvatarUpload={handleAvatarUpload}
-          isUploadingAvatar={isUploadingAvatar}
-          onExportDCI={handleExportDCI}
-          isExporting={isExporting}
-          onCopyLink={handleCopyLink}
-          copied={copiedLink}
-        />
-
-        {/* ── TELEMETRY ENGINE (split component) ────────────────────────── */}
-        <TelemetryEngine userData={userData} />
-
-        {/* ── LEGACY HERO IDENTITY CARD (retained for fallback) ─────────── */}
-        <motion.div className="hidden">
-          <div className="absolute inset-0 bg-gradient-to-br from-[#BFA264]/[0.04] to-transparent pointer-events-none" />
-          <div className="absolute top-0 right-0 w-64 h-64 bg-[#BFA264] opacity-[0.03] blur-3xl rounded-full pointer-events-none" />
-
-          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-5 relative z-10">
-            {/* Avatar upload */}
-            <div className="relative shrink-0 group">
-              <label
-                className={cn(
-                  "relative flex w-20 h-20 md:w-24 md:h-24 rounded-[1.5rem] bg-[#111] border items-center justify-center text-3xl font-black text-white shadow-xl overflow-hidden cursor-pointer transition-all",
-                  isUploadingAvatar
-                    ? "opacity-50 pointer-events-none border-[#222]"
-                    : "border-[#222] hover:border-[#BFA264]/50 hover:shadow-[0_0_20px_rgba(191,162,100,0.15)]",
-                )}
+            <div className="flex gap-2">
+              <button
+                onClick={onCopyLink}
+                className="flex-1 flex items-center justify-center gap-1.5 py-2.5 bg-white/[0.04] border border-white/[0.07] text-[10px] font-black text-white/40 hover:text-white rounded-xl transition-all uppercase tracking-widest"
               >
-                <input
-                  type="file"
-                  accept="image/jpeg,image/png,image/webp"
-                  className="hidden"
-                  onChange={handleAvatarUpload}
-                  disabled={isUploadingAvatar}
-                />
-                {userData.identity?.avatarUrl ? (
-                  <img
-                    src={userData.identity.avatarUrl}
-                    alt=""
-                    className="w-full h-full object-cover"
-                  />
+                {copied ? (
+                  <Check className="w-3 h-3 text-emerald-400" />
                 ) : (
-                  initials
+                  <Copy className="w-3 h-3" />
                 )}
-                <div className="absolute inset-0 bg-black/70 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
-                  {isUploadingAvatar ? (
-                    <Loader2 className="w-6 h-6 text-[#BFA264] animate-spin" />
-                  ) : (
-                    <Camera className="w-6 h-6 text-white" />
-                  )}
-                </div>
-              </label>
-              {isPro && (
-                <div className="absolute -top-2 -right-2 w-6 h-6 rounded-full bg-gradient-to-br from-amber-400 to-amber-600 border-2 border-[#030303] flex items-center justify-center z-10 pointer-events-none">
-                  <Crown className="w-3 h-3 text-black" />
-                </div>
-              )}
-            </div>
-
-            {/* Identity text */}
-            <div className="flex-1 min-w-0">
-              <div className="flex flex-wrap items-center gap-2.5 mb-1.5">
-                <h2 className="text-2xl md:text-3xl font-black tracking-tight">
-                  {userData.identity?.firstName} {userData.identity?.lastName}
-                </h2>
-                <span className="px-2.5 py-1 bg-[#111] border border-[#222] rounded-lg text-[10px] font-mono text-[#666]">
-                  @{userData.identity?.username || "—"}
-                </span>
-                <span className="flex items-center gap-1.5 px-2.5 py-1 bg-emerald-500/10 border border-emerald-500/20 rounded-lg text-[9px] font-black text-emerald-400 uppercase tracking-widest">
-                  <ShieldCheck className="w-2.5 h-2.5" /> Verified
-                </span>
-              </div>
-              <p className="text-sm text-[#666] mb-2.5">
-                {userData.identity?.domain ||
-                  userData.vision?.passion ||
-                  "Undeclared Domain"}
-                {(userData.identity?.niche || userData.vision?.niche) && (
-                  <span className="text-[#444]">
-                    {" "}
-                    · {userData.identity?.niche || userData.vision?.niche}
-                  </span>
-                )}
-              </p>
-              <div className="flex flex-wrap items-center gap-3 text-[10px] font-bold text-[#555] uppercase tracking-widest">
-                {(userData.footprint?.location ||
-                  userData.identity?.country) && (
-                  <span className="flex items-center gap-1.5">
-                    <MapPin className="w-3 h-3" />
-                    {userData.footprint?.location || userData.identity?.country}
-                  </span>
-                )}
-                <span className="flex items-center gap-1.5">
-                  <Star className="w-3 h-3 text-[#BFA264]/60" />
-                  Level {level}
-                </span>
-                <span className="flex items-center gap-1.5">
-                  <Hash className="w-3 h-3 text-violet-400/50" />#
-                  {userData.discotiveId || "—"}
-                </span>
-              </div>
-              {/* XP bar */}
-              <div className="flex items-center gap-3 mt-3">
-                <div className="flex-1 max-w-[220px] h-1.5 bg-white/[0.04] rounded-full overflow-hidden">
-                  <motion.div
-                    initial={{ width: 0 }}
-                    animate={{ width: `${((score % 1000) / 1000) * 100}%` }}
-                    transition={{ duration: 1.2, ease: "easeOut" }}
-                    className="h-full bg-gradient-to-r from-[#8B7240] to-[#D4AF78] rounded-full shadow-[0_0_8px_rgba(191,162,100,0.5)]"
-                  />
-                </div>
-                <span className="text-[9px] text-[#444] font-mono">
-                  {(score % 1000).toLocaleString()} / 1000 → Lv{" "}
-                  {Math.min(level + 1, 10)}
-                </span>
-              </div>
-            </div>
-
-            {/* Right: Level ring + quick actions */}
-            <div className="hidden md:flex flex-col items-end gap-3 shrink-0">
-              <LevelRing score={score} />
-              <div className="flex items-center gap-2">
-                <div className="text-right">
-                  <p className="text-[8px] text-white/20 uppercase tracking-widest">
-                    Next Level
-                  </p>
-                  <p className="text-xs font-black text-[#BFA264]/70 font-mono">
-                    +{ptsToNext.toLocaleString()} pts
-                  </p>
-                </div>
-              </div>
+                {copied ? "Copied" : "Share"}
+              </button>
+              <Link
+                to={`/@${userData?.identity?.username || ""}`}
+                className="flex-1 flex items-center justify-center gap-1.5 py-2.5 bg-[#BFA264]/10 border border-[#BFA264]/25 text-[10px] font-black text-[#BFA264] hover:bg-[#BFA264]/15 rounded-xl transition-all uppercase tracking-widest"
+              >
+                <Eye className="w-3 h-3" /> Public
+              </Link>
             </div>
           </div>
-        </motion.div>
-
-        {/* ── STATS STRIP ─────────────────────────────────────────────────── */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3">
-          <StatCard
-            icon={Zap}
-            color="text-[#BFA264]"
-            bg="bg-[#BFA264]/10"
-            border="border-[#BFA264]/15"
-            label="Score"
-            value={fmtScore(score)}
-            sub={
-              delta > 0
-                ? `+${delta} today`
-                : delta < 0
-                  ? `${delta} today`
-                  : "No change"
-            }
-          />
-          <StatCard
-            icon={Award}
-            color="text-[#BFA264]"
-            bg="bg-[#BFA264]/10"
-            border="border-[#BFA264]/15"
-            label="Level"
-            value={`Lv ${level}`}
-            sub={`${ptsToNext.toLocaleString()} to next`}
-          />
-          <StatCard
-            icon={Flame}
-            color="text-orange-400"
-            bg="bg-orange-500/10"
-            border="border-orange-500/15"
-            label="Streak"
-            value={`${streak}d`}
-            sub={streak >= 7 ? "🔥 On fire" : "Keep going"}
-          />
-          <StatCard
-            icon={FolderLock}
-            color="text-emerald-400"
-            bg="bg-emerald-500/10"
-            border="border-emerald-500/15"
-            label="Vault"
-            value={vault.length}
-            sub={`${verifiedCount} verified`}
-            onClick={() => navigate("/app/vault")}
-          />
-          <StatCard
-            icon={Users}
-            color="text-violet-400"
-            bg="bg-violet-500/10"
-            border="border-violet-500/15"
-            label="Allies"
-            value={allies.length}
-            sub="Network size"
-            onClick={() => navigate("/app/network")}
-          />
-          <StatCard
-            icon={Eye}
-            color="text-sky-400"
-            bg="bg-sky-500/10"
-            border="border-sky-500/15"
-            label="Views"
-            value={views}
-            sub="Total impressions"
-          />
         </div>
+      </div>
 
-        {/* ── VELOCITY BANNER ─────────────────────────────────────────────── */}
-        {velocity.delta !== 0 && (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: "auto" }}
-            className={cn(
-              "flex items-center gap-4 p-4 rounded-2xl border",
-              velocity.delta > 0
-                ? "bg-emerald-500/[0.05] border-emerald-500/20"
-                : "bg-rose-500/[0.05] border-rose-500/20",
-            )}
-          >
-            {velocity.delta > 0 ? (
-              <TrendingUp className="w-5 h-5 text-emerald-400 shrink-0" />
-            ) : (
-              <TrendingDown className="w-5 h-5 text-rose-400 shrink-0" />
-            )}
-            <div>
-              <p
-                className={cn(
-                  "text-sm font-black",
-                  velocity.delta > 0 ? "text-emerald-400" : "text-rose-400",
-                )}
-              >
-                {velocity.delta > 0 ? "+" : ""}
-                {velocity.delta.toLocaleString()} pts this week
-                {velocity.pct !== 0 && (
-                  <span className="ml-2 text-[10px] font-mono opacity-70">
-                    ({velocity.pct > 0 ? "+" : ""}
-                    {velocity.pct}% vs last week)
-                  </span>
-                )}
-              </p>
-              <p className="text-[10px] text-white/30 mt-0.5">
-                Execution velocity — keep the momentum going.
-              </p>
+      {/* Links */}
+      {(() => {
+        const links = userData?.links || userData?.footprint?.personal || {};
+        const activeLinkTypes = Object.entries(LINK_CONFIGS).filter(
+          ([key]) => links[key],
+        );
+        if (!activeLinkTypes.length) return null;
+        return (
+          <div className="rounded-[1.5rem] border border-white/[0.05] bg-[#0a0a0a] p-5">
+            <SLabel icon={LinkIcon} iconColor="text-sky-400">
+              Online Presence
+            </SLabel>
+            <div className="flex flex-col gap-2">
+              {activeLinkTypes.map(([key]) => (
+                <LinkChip key={key} type={key} url={links[key]} />
+              ))}
             </div>
-          </motion.div>
-        )}
+          </div>
+        );
+      })()}
+    </div>
+  );
+};
 
-        {/* ── MAIN GRID ────────────────────────────────────────────────────── */}
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-12 gap-4">
-          {/* SCORE TELEMETRY — xl:8 */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.05 }}
-            className="col-span-1 md:col-span-2 xl:col-span-8 bg-[#0a0a0a] border border-[#1a1a1a] rounded-[2rem] p-5 md:p-6 flex flex-col relative overflow-hidden min-h-[280px]"
-          >
-            <div className="flex flex-wrap items-start justify-between gap-4 mb-4">
+// ═══════════════════════════════════════════════════════════════════════════════
+// PROOF LEDGER (scrolling left column on PC)
+// ═══════════════════════════════════════════════════════════════════════════════
+const ProofLedger = ({
+  userData,
+  uid,
+  score,
+  isPro,
+  vault,
+  allies,
+  refreshUserData,
+  showToast,
+  navigate,
+}) => {
+  const [hoveredAssetIdx, setHoveredAssetIdx] = useState(null);
+  const { data: scoreHistory = [] } = useScoreHistory("1M");
+
+  const chartData = useMemo(() => {
+    return scoreHistory.map((e) => ({
+      day: new Date(e.date).toLocaleDateString("en-US", {
+        month: "short",
+        day: "numeric",
+      }),
+      score: e.score,
+    }));
+  }, [scoreHistory]);
+
+  const verifiedVault = useMemo(
+    () => vault.filter((a) => a.status === "VERIFIED"),
+    [vault],
+  );
+  const pendingVault = useMemo(
+    () => vault.filter((a) => a.status === "PENDING"),
+    [vault],
+  );
+  const allSkills = useMemo(
+    () =>
+      [
+        ...(userData?.skills?.alignedSkills || []),
+        ...(userData?.skills?.rawSkills || []),
+      ]
+        .filter((v, i, a) => a.indexOf(v) === i)
+        .slice(0, 20),
+    [userData],
+  );
+
+  const radarData = useMemo(
+    () => [
+      { metric: "Execution", score: Math.min((score / 5000) * 100, 100) },
+      { metric: "Skills", score: Math.min((allSkills.length / 10) * 100, 100) },
+      { metric: "Network", score: Math.min((allies.length / 20) * 100, 100) },
+      {
+        metric: "Vault",
+        score: Math.min((verifiedVault.length / 10) * 100, 100),
+      },
+      {
+        metric: "Reach",
+        score: Math.min(((userData?.profileViews || 0) / 100) * 100, 100),
+      },
+    ],
+    [score, allSkills, allies, verifiedVault, userData],
+  );
+
+  const chartMin = chartData.length
+    ? Math.max(0, Math.min(...chartData.map((d) => d.score)) - 50)
+    : 0;
+  const GRAD_ID = "ledgerGrad";
+
+  return (
+    <div className="flex flex-col gap-8">
+      {/* ── ABOUT SECTION ── */}
+      <motion.section
+        initial={{ opacity: 0, y: 16 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.05 }}
+      >
+        <SLabel icon={AlignLeft} iconColor="text-[#BFA264]">
+          About
+        </SLabel>
+        <InlineBioEdit
+          userData={userData}
+          uid={uid}
+          onSaved={refreshUserData}
+        />
+      </motion.section>
+
+      {/* ── SCORE TRAJECTORY ── */}
+      {chartData.length >= 3 && (
+        <motion.section
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.08 }}
+        >
+          <SLabel icon={Activity} iconColor="text-[#BFA264]">
+            Score Trajectory
+          </SLabel>
+          <div className="rounded-[2rem] border border-white/[0.05] bg-[#0a0a0a] overflow-hidden">
+            <div className="flex items-end justify-between px-6 pt-5 pb-3">
               <div>
-                <SLabel icon={Activity} iconColor="text-[#BFA264]">
-                  Score Trajectory
-                </SLabel>
-                <div className="flex items-end gap-3">
-                  <span className="text-4xl md:text-5xl font-black text-white font-mono tracking-tighter leading-none">
-                    {score.toLocaleString()}
-                  </span>
-                  {delta !== 0 && (
+                <p className="text-3xl font-black text-[#D4AF78] font-mono leading-none">
+                  {(score ?? 0).toLocaleString()}
+                </p>
+                <p className="text-[9px] text-white/20 uppercase tracking-widest mt-1">
+                  Discotive Score · 30d
+                </p>
+              </div>
+              {chartData.length >= 2 &&
+                (() => {
+                  const first = chartData[0]?.score ?? 0;
+                  const last = chartData[chartData.length - 1]?.score ?? 0;
+                  const delta = last - first;
+                  return (
                     <div
                       className={cn(
-                        "flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-black font-mono mb-1 border",
-                        delta > 0
+                        "flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-[10px] font-black font-mono border",
+                        delta >= 0
                           ? "bg-emerald-500/10 border-emerald-500/20 text-emerald-400"
                           : "bg-rose-500/10 border-rose-500/20 text-rose-400",
                       )}
                     >
-                      {delta > 0 ? (
+                      {delta >= 0 ? (
                         <TrendingUp className="w-3 h-3" />
                       ) : (
                         <TrendingDown className="w-3 h-3" />
                       )}
-                      {delta > 0 ? `+${delta}` : delta} today
+                      {delta >= 0 ? "+" : ""}
+                      {delta.toLocaleString()}
                     </div>
-                  )}
-                </div>
-              </div>
-              <div className="flex bg-[#050505] border border-[#1a1a1a] rounded-xl p-1 gap-0.5">
-                {["1W", "1M", "ALL"].map((t) => (
-                  <button
-                    key={t}
-                    onClick={() => setChartTf(t)}
-                    className={cn(
-                      "px-3 py-1.5 text-[9px] font-black uppercase tracking-widest rounded-lg transition-all",
-                      chartTf === t
-                        ? "bg-[#BFA264]/15 text-[#BFA264]"
-                        : "text-white/25 hover:text-white/60",
-                    )}
-                  >
-                    {t}
-                  </button>
-                ))}
-              </div>
+                  );
+                })()}
             </div>
-            <div className="flex-1 min-h-[140px]">
-              {isChartLoading ? (
-                <div className="h-full flex items-center justify-center">
-                  <Loader2 className="w-5 h-5 text-[#BFA264]/30 animate-spin" />
-                </div>
-              ) : chartData.length >= 2 ? (
-                <ResponsiveContainer width="100%" height="100%" minHeight={140}>
-                  <AreaChart
-                    data={chartData}
-                    margin={{ top: 4, right: 4, left: -32, bottom: 0 }}
-                  >
-                    <defs>
-                      <linearGradient id={GRAD_ID} x1="0" y1="0" x2="0" y2="1">
-                        <stop
-                          offset="0%"
-                          stopColor="#BFA264"
-                          stopOpacity={0.4}
-                        />
-                        <stop
-                          offset="100%"
-                          stopColor="#BFA264"
-                          stopOpacity={0}
-                        />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid
-                      strokeDasharray="2 4"
-                      stroke="rgba(255,255,255,0.03)"
-                      vertical={false}
-                    />
-                    <XAxis
-                      dataKey="day"
-                      hide={chartData.length > 14}
-                      tick={{
-                        fill: "rgba(255,255,255,0.2)",
-                        fontSize: 9,
-                        fontWeight: 700,
-                      }}
-                      axisLine={false}
-                      tickLine={false}
-                      dy={6}
-                    />
-                    <YAxis domain={[chartMin, "auto"]} hide />
-                    <ReTooltip
-                      content={<ScoreTooltip />}
-                      cursor={{
-                        stroke: "rgba(191,162,100,0.2)",
-                        strokeWidth: 1,
-                        strokeDasharray: "4 4",
-                      }}
-                    />
-                    <Area
-                      type="monotone"
-                      dataKey="score"
-                      stroke="#BFA264"
-                      strokeWidth={2.5}
-                      fill={`url(#${GRAD_ID})`}
-                      dot={false}
-                      activeDot={{
-                        r: 5,
-                        fill: "#BFA264",
-                        stroke: "#000",
-                        strokeWidth: 2,
-                      }}
-                      animationDuration={800}
-                    />
-                  </AreaChart>
-                </ResponsiveContainer>
-              ) : (
-                <div className="h-full flex items-center justify-center text-[10px] text-white/20">
-                  No history yet — start executing.
-                </div>
-              )}
-            </div>
-          </motion.div>
-
-          {/* OPERATOR RADAR — xl:4 */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.1 }}
-            className="col-span-1 xl:col-span-4 bg-[#0a0a0a] border border-[#1a1a1a] rounded-[2rem] p-5 md:p-6 flex flex-col"
-          >
-            <SLabel icon={Target} iconColor="text-[#BFA264]">
-              Operator Radar
-            </SLabel>
-            <div className="flex-1 min-h-[180px]">
-              <ResponsiveContainer width="100%" height="100%" minHeight={180}>
-                <RadarChart data={radarData}>
-                  <PolarGrid
-                    stroke="rgba(255,255,255,0.06)"
-                    strokeWidth={0.5}
-                  />
-                  <PolarAngleAxis
-                    dataKey="metric"
-                    tick={{
-                      fill: "rgba(255,255,255,0.3)",
-                      fontSize: 9,
-                      fontWeight: 700,
+            <div style={{ height: 120 }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart
+                  data={chartData}
+                  margin={{ top: 4, right: 0, left: 0, bottom: 0 }}
+                >
+                  <defs>
+                    <linearGradient id={GRAD_ID} x1="0" y1="0" x2="0" y2="1">
+                      <stop
+                        offset="0%"
+                        stopColor="#BFA264"
+                        stopOpacity={0.35}
+                      />
+                      <stop offset="100%" stopColor="#BFA264" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <YAxis domain={[chartMin, "auto"]} hide />
+                  <ReTooltip
+                    content={<ScoreTooltip />}
+                    cursor={{
+                      stroke: "rgba(191,162,100,0.15)",
+                      strokeWidth: 1,
+                      strokeDasharray: "4 4",
                     }}
                   />
-                  <Radar
+                  <Area
+                    type="monotone"
                     dataKey="score"
                     stroke="#BFA264"
                     strokeWidth={2}
-                    fill="#BFA264"
-                    fillOpacity={0.15}
-                    dot={{ r: 2.5, fill: "#BFA264", strokeWidth: 0 }}
-                    animationDuration={800}
+                    fill={`url(#${GRAD_ID})`}
+                    dot={false}
+                    activeDot={{
+                      r: 4,
+                      fill: "#BFA264",
+                      stroke: "#000",
+                      strokeWidth: 2,
+                    }}
                   />
-                </RadarChart>
+                </AreaChart>
               </ResponsiveContainer>
             </div>
-            <div className="space-y-1.5 pt-3 border-t border-white/[0.04] mt-2">
-              {radarData.map((d) => (
-                <div key={d.metric} className="flex items-center gap-2">
-                  <span className="text-[9px] text-white/25 font-bold w-16 shrink-0 uppercase tracking-widest">
-                    {d.metric}
-                  </span>
-                  <div className="flex-1 h-1 bg-white/[0.04] rounded-full overflow-hidden">
-                    <motion.div
-                      initial={{ width: 0 }}
-                      animate={{ width: `${d.score}%` }}
-                      transition={{ duration: 0.8, delay: 0.3 }}
-                      className="h-full bg-[#BFA264]/60 rounded-full"
-                    />
-                  </div>
-                  <span className="text-[9px] font-black font-mono text-white/30 w-7 text-right">
-                    {Math.round(d.score)}
-                  </span>
-                </div>
-              ))}
-            </div>
-          </motion.div>
+          </div>
+        </motion.section>
+      )}
 
-          {/* VAULT INTELLIGENCE — xl:4 */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.15 }}
-            className="col-span-1 xl:col-span-4 bg-[#0a0a0a] border border-[#1a1a1a] rounded-[2rem] p-5 md:p-6 flex flex-col"
+      {/* ── PROOF OF WORK — VAULT ASSETS ── */}
+      <motion.section
+        initial={{ opacity: 0, y: 16 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.1 }}
+      >
+        <div className="flex items-center gap-2 mb-5">
+          <FolderLock className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+          <span className="text-[9px] font-black text-white/25 uppercase tracking-[0.2em]">
+            Proof of Work · Asset Vault
+          </span>
+          <div className="flex-1 h-px bg-white/[0.04]" />
+          {verifiedVault.length > 0 && (
+            <span className="text-[8px] font-black text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full">
+              {verifiedVault.length} Verified
+            </span>
+          )}
+          <Link
+            to="/app/vault"
+            className="flex items-center gap-1 text-[9px] font-black text-[#BFA264]/40 hover:text-[#BFA264] uppercase tracking-widest transition-colors"
           >
-            <SLabel icon={FolderLock} iconColor="text-emerald-400">
-              Vault Intelligence
-            </SLabel>
-            {vault.length === 0 ? (
-              <div className="flex-1 flex flex-col items-center justify-center gap-2 text-center py-4">
-                <FolderLock className="w-8 h-8 text-white/10 mb-1" />
-                <p className="text-[10px] text-white/20">
-                  No assets. Add credentials.
-                </p>
-                <Link
-                  to="/app/vault"
-                  className="text-[9px] font-black text-emerald-400/60 hover:text-emerald-400 transition-colors uppercase tracking-widest"
-                >
-                  Open Vault →
-                </Link>
-              </div>
-            ) : (
-              <div className="flex-1 space-y-4">
-                <VSSBar score={vss} />
-                {/* Moat bar */}
-                <div>
-                  <div className="flex items-center justify-between mb-1.5">
-                    <span className="text-[9px] font-black text-white/30 uppercase tracking-widest">
-                      Verified Moat
-                    </span>
-                    <span className="text-[9px] font-black text-emerald-400 font-mono">
-                      {moatPct}%
-                    </span>
-                  </div>
-                  <div className="h-1.5 bg-white/[0.04] rounded-full overflow-hidden">
-                    <motion.div
-                      initial={{ width: 0 }}
-                      animate={{ width: `${moatPct}%` }}
-                      transition={{ duration: 1, ease: "easeOut", delay: 0.5 }}
-                      className="h-full bg-emerald-500/60 rounded-full"
-                    />
-                  </div>
-                </div>
-                {/* Category breakdown */}
-                <div className="space-y-1.5">
-                  {vaultSegs.slice(0, 5).map((seg) => (
-                    <div
-                      key={seg.label}
-                      className="flex items-center justify-between"
-                    >
-                      <div className="flex items-center gap-2">
-                        <div
-                          className="w-2 h-2 rounded-sm"
-                          style={{ background: seg.color }}
-                        />
-                        <span className="text-[10px] text-white/35 font-bold">
-                          {seg.label}
-                        </span>
-                      </div>
-                      <span className="text-[10px] font-black font-mono text-white/40">
-                        {seg.value}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-                <Link
-                  to="/app/vault"
-                  className="w-full flex items-center justify-center gap-1.5 py-2.5 bg-emerald-500/8 border border-emerald-500/15 rounded-xl text-[9px] font-black text-emerald-400 hover:bg-emerald-500/15 transition-all uppercase tracking-widest"
-                >
-                  Manage Vault <ArrowUpRight className="w-3 h-3" />
-                </Link>
-              </div>
-            )}
-          </motion.div>
+            View All <ArrowUpRight className="w-2.5 h-2.5" />
+          </Link>
+        </div>
 
-          {/* SKILLS — xl:4 */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.18 }}
-            className="col-span-1 xl:col-span-4 bg-[#0a0a0a] border border-[#1a1a1a] rounded-[2rem] p-5 md:p-6"
-          >
-            <SLabel icon={Zap} iconColor="text-[#BFA264]">
-              Skill Stack
-            </SLabel>
-            {skills.length > 0 ? (
-              <div className="flex flex-wrap gap-2">
-                {skills.map((s, i) => (
-                  <motion.span
-                    key={i}
-                    initial={{ opacity: 0, scale: 0.8 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    transition={{ delay: i * 0.04 }}
-                    className="px-3 py-1.5 bg-[#111] border border-[#1a1a1a] hover:border-[#BFA264]/25 rounded-xl text-[11px] font-bold text-[#ccc] cursor-default transition-colors"
-                  >
-                    {s}
-                  </motion.span>
-                ))}
-              </div>
-            ) : (
-              <div className="flex flex-col items-center justify-center py-6 text-center gap-2">
-                <Zap className="w-7 h-7 text-white/10" />
-                <p className="text-[10px] text-white/20">
-                  No skills. Add them in Profile Editor.
-                </p>
-                <Link
-                  to="/app/profile/edit"
-                  className="text-[9px] font-black text-[#BFA264]/50 hover:text-[#BFA264] transition-colors"
-                >
-                  Edit Profile →
-                </Link>
-              </div>
-            )}
-          </motion.div>
-
-          {/* CONSISTENCY HEATMAP — xl:8 */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.2 }}
-            className="col-span-1 md:col-span-2 xl:col-span-8 bg-[#0a0a0a] border border-[#1a1a1a] rounded-[2rem] p-5 md:p-6"
-          >
-            <div className="flex items-start justify-between mb-4">
-              <SLabel icon={Flame} iconColor="text-orange-400">
-                Consistency Engine
-              </SLabel>
-              <span className="text-2xl font-black text-white font-mono leading-none">
-                {streak}
-                <span className="text-sm text-white/25 font-sans ml-1">
-                  days
-                </span>
-              </span>
-            </div>
-            {/* Month nav */}
-            <div className="flex items-center justify-center gap-4 mb-4">
-              <button
-                onClick={() =>
-                  setViewDate(
-                    (p) => new Date(p.getFullYear(), p.getMonth() - 1, 1),
-                  )
+        {vault.length === 0 ? (
+          <EmptyState
+            icon={FolderLock}
+            title="No proof of work yet"
+            subtitle="Upload certificates, projects, and achievements to verify your execution."
+            action="Upload to Vault"
+            onAction={() => navigate("/app/vault")}
+          />
+        ) : (
+          <div className="flex flex-col gap-3">
+            {/* Verified assets first */}
+            {verifiedVault.slice(0, 6).map((asset, i) => (
+              <VaultAssetCard
+                key={asset.id || i}
+                asset={asset}
+                isFocused={
+                  hoveredAssetIdx === null
+                    ? null
+                    : hoveredAssetIdx === i
+                      ? true
+                      : false
                 }
-                className="w-6 h-6 bg-white/[0.03] border border-white/[0.05] rounded-md flex items-center justify-center text-white/40 hover:text-white hover:bg-white/[0.08] transition-all"
-              >
-                <ChevronLeft className="w-3.5 h-3.5" />
-              </button>
-              <span className="text-[10px] font-black uppercase tracking-widest text-white/50 w-24 text-center select-none">
-                {viewDate.toLocaleDateString("en-US", {
-                  month: "short",
-                  year: "numeric",
-                })}
-              </span>
-              <button
-                onClick={() =>
-                  setViewDate(
-                    (p) => new Date(p.getFullYear(), p.getMonth() + 1, 1),
-                  )
-                }
-                disabled={
-                  viewDate.getMonth() === new Date().getMonth() &&
-                  viewDate.getFullYear() === new Date().getFullYear()
-                }
-                className="w-6 h-6 bg-white/[0.03] border border-white/[0.05] rounded-md flex items-center justify-center text-white/40 hover:text-white hover:bg-white/[0.08] transition-all disabled:opacity-30 disabled:pointer-events-none"
-              >
-                <ChevronRight className="w-3.5 h-3.5" />
-              </button>
-            </div>
-            <div className="flex items-center gap-1 h-8">
-              {heatmap.map((day, i) => (
-                <HeatPill key={i} active={day.active} dateStr={day.str} />
-              ))}
-            </div>
-            {/* Streak milestones */}
-            <div className="grid grid-cols-3 gap-2 mt-4 pt-4 border-t border-white/[0.04]">
-              {[
-                { target: 7, icon: "⚡", label: "7-Day Lock", color: "amber" },
-                {
-                  target: 14,
-                  icon: "🔥",
-                  label: "14-Day Blaze",
-                  color: "orange",
-                },
-                { target: 30, icon: "💎", label: "30-Day Elite", color: "sky" },
-              ].map(({ target, icon, label, color }) => {
-                const hit = streak >= target;
-                return (
-                  <div
-                    key={target}
-                    className={cn(
-                      "flex flex-col items-center p-2.5 rounded-xl border text-center",
-                      hit
-                        ? color === "amber"
-                          ? "bg-[#BFA264]/10 border-[#BFA264]/25"
-                          : color === "orange"
-                            ? "bg-orange-500/10 border-orange-500/25"
-                            : "bg-sky-500/10 border-sky-500/25"
-                        : "bg-white/[0.02] border-white/[0.04]",
-                    )}
-                  >
-                    <span className="text-lg mb-1">{hit ? icon : "🔒"}</span>
-                    <span
-                      className={cn(
-                        "text-[8px] font-black uppercase tracking-widest",
-                        hit
-                          ? color === "amber"
-                            ? "text-[#BFA264]"
-                            : color === "orange"
-                              ? "text-orange-400"
-                              : "text-sky-400"
-                          : "text-white/15",
-                      )}
-                    >
-                      {label}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          </motion.div>
-
-          {/* BIO + ACADEMIC — xl:4 */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.22 }}
-            className="col-span-1 xl:col-span-4 space-y-4"
-          >
-            {/* Bio — inline edit */}
-            <InlineBioEdit
-              userData={userData}
-              uid={userData?.uid}
-              onSaved={refreshUserData}
-            />
-            {/* Academic */}
-            {userData.baseline?.institution && (
-              <div className="bg-[#0a0a0a] border border-[#1a1a1a] rounded-[2rem] p-5">
-                <SLabel icon={BookOpen} iconColor="text-sky-400">
-                  Academic
-                </SLabel>
-                <div className="flex gap-3">
-                  <div className="w-9 h-9 rounded-xl bg-sky-500/10 border border-sky-500/20 flex items-center justify-center shrink-0">
-                    <BookOpen className="w-4 h-4 text-sky-400" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-black text-white">
-                      {userData.baseline.institution}
-                    </p>
-                    <p className="text-[10px] text-[#666] mt-0.5">
-                      {userData.baseline.degree || ""}
-                      {userData.baseline.major
-                        ? ` · ${userData.baseline.major}`
-                        : ""}
-                    </p>
-                    {userData.baseline.gradYear && (
-                      <p className="text-[9px] font-black text-[#BFA264]/50 uppercase tracking-widest mt-1.5">
-                        Class of {userData.baseline.gradYear}
-                      </p>
-                    )}
-                  </div>
-                </div>
-              </div>
-            )}
-          </motion.div>
-
-          {/* DIGITAL FOOTPRINT — icon-only — xl:3 */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.24 }}
-            className="col-span-1 xl:col-span-3 bg-[#0a0a0a] border border-[#1a1a1a] rounded-[2rem] p-5 md:p-6"
-          >
-            <SLabel icon={Crosshair} iconColor="text-sky-400">
-              Digital Footprint
-            </SLabel>
-            <div className="flex flex-wrap gap-3">
-              {LINKS.map(({ key, icon: Icon, color }) => {
-                const val =
-                  userData.links?.[key] ||
-                  userData.footprint?.personal?.[key] ||
-                  "";
-                if (!val) return null;
-                const isWebsite = key === "website";
-                return (
-                  <a
-                    key={key}
-                    href={val}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="w-10 h-10 rounded-xl bg-[#0f0f0f] border border-[#1a1a1a] hover:border-white/20 flex items-center justify-center transition-all group hover:scale-105"
-                  >
-                    {isWebsite ? (
-                      <img
-                        src={`https://www.google.com/s2/favicons?domain=${val}&sz=32`}
-                        alt="site"
-                        className="w-5 h-5 rounded-sm"
-                        onError={(e) => {
-                          e.target.style.display = "none";
-                          e.target.nextSibling.style.display = "block";
-                        }}
-                      />
-                    ) : null}
-                    <Icon
-                      className={cn(
-                        "w-4 h-4 shrink-0",
-                        isWebsite ? "hidden" : "",
-                      )}
-                      style={{ color }}
-                    />
-                  </a>
-                );
-              })}
-            </div>
-            {LINKS.every(
-              ({ key }) =>
-                !(userData.links?.[key] || userData.footprint?.personal?.[key]),
-            ) && (
-              <p className="text-[10px] text-white/20 italic">
-                No links added yet.
-              </p>
-            )}
-            <Link
-              to="/app/settings?tab=connectors"
-              className="flex items-center gap-1.5 mt-3 text-[9px] font-black text-sky-400/40 hover:text-sky-400 transition-colors uppercase tracking-widest"
-            >
-              Manage Connectors <ArrowUpRight className="w-2.5 h-2.5" />
-            </Link>
-          </motion.div>
-
-          {/* BIO & EXPERIENCE — xl:5 */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.26 }}
-            className="col-span-1 xl:col-span-5 bg-[#0a0a0a] border border-[#1a1a1a] rounded-[2rem] p-5 md:p-6"
-          >
-            <SLabel icon={Briefcase} iconColor="text-[#BFA264]">
-              Professional Bio & Experience
-            </SLabel>
-            <div className="space-y-4">
-              <p className="text-sm text-[#888] leading-relaxed">
-                {userData.professional?.bio || userData.identity?.bio || (
-                  <span className="text-[#333] italic">
-                    No bio added. Edit your profile to add one.
-                  </span>
-                )}
-              </p>
-              {userData.professional?.workExperience?.role && (
-                <div className="flex items-center gap-3 p-3 bg-[#0f0f0f] border border-[#1a1a1a] rounded-xl">
-                  <div className="w-9 h-9 rounded-xl bg-[#BFA264]/10 border border-[#BFA264]/20 flex items-center justify-center shrink-0">
-                    <Briefcase className="w-4 h-4 text-[#BFA264]" />
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-xs font-black text-white truncate">
-                      {userData.professional.workExperience.role}
-                    </p>
-                    <p className="text-[10px] text-[#666] truncate">
-                      {userData.professional.workExperience.company || ""}
-                      {userData.professional.workExperience.type
-                        ? ` · ${userData.professional.workExperience.type}`
-                        : ""}
-                    </p>
-                  </div>
-                </div>
-              )}
+                onFocus={() => setHoveredAssetIdx(i)}
+                onBlur={() => setHoveredAssetIdx(null)}
+              />
+            ))}
+            {/* Pending assets (muted) */}
+            {pendingVault.slice(0, 2).map((asset, i) => (
+              <VaultAssetCard
+                key={`p-${asset.id || i}`}
+                asset={asset}
+                isFocused={null}
+                onFocus={() => {}}
+                onBlur={() => {}}
+              />
+            ))}
+            {vault.length > 8 && (
               <Link
-                to="/app/profile/edit"
-                className="flex items-center gap-1.5 text-[9px] font-black text-[#BFA264]/40 hover:text-[#BFA264] transition-colors uppercase tracking-widest"
+                to="/app/vault"
+                className="flex items-center justify-center gap-2 py-3 border border-dashed border-white/[0.06] rounded-2xl text-[9px] font-black text-white/20 hover:text-white/40 hover:border-white/[0.12] transition-all"
               >
-                Edit Experience <ArrowUpRight className="w-2.5 h-2.5" />
+                +{vault.length - 8} more assets in vault{" "}
+                <ArrowUpRight className="w-2.5 h-2.5" />
               </Link>
-            </div>
-          </motion.div>
-
-          {/* APP PROFICIENCY STACK — xl:4 */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.27 }}
-            className="col-span-1 xl:col-span-4 bg-[#0a0a0a] border border-[#1a1a1a] rounded-[2rem] p-5 md:p-6"
-          >
-            <div className="flex items-center justify-between mb-4">
-              <SLabel icon={Monitor} iconColor="text-violet-400">
-                App Proficiency
-              </SLabel>
-              <button
-                onClick={() => {
-                  if (!requireOnboarding("profile_app")) return;
-                  setShowAppModal(true);
-                }}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-violet-500/10 border border-violet-500/20 rounded-xl text-[9px] font-black text-violet-400 hover:bg-violet-500/15 transition-all uppercase tracking-widest"
-              >
-                <Plus className="w-3 h-3" /> Add App
-              </button>
-            </div>
-            {verifiedAppsData.length > 0 ||
-            Object.keys(userData?.pendingAppVerifications || {}).length > 0 ? (
-              <div className="flex flex-wrap gap-3">
-                {verifiedAppsData.map((app) => (
-                  <div
-                    key={app.appId}
-                    className="relative group"
-                    title={`${app.appName} — Verified`}
-                  >
-                    <div className="w-10 h-10 rounded-xl bg-[#0f0f0f] border border-emerald-500/30 overflow-hidden flex items-center justify-center hover:scale-105 transition-transform">
-                      <img
-                        src={app.appIconUrl}
-                        alt={app.appName}
-                        className="w-6 h-6 object-contain"
-                        onError={(e) => {
-                          e.target.style.display = "none";
-                        }}
-                      />
-                    </div>
-                    <div className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-emerald-500 rounded-full border-2 border-[#0a0a0a] flex items-center justify-center pointer-events-none">
-                      <Check className="w-2 h-2 text-black" strokeWidth={3} />
-                    </div>
-                  </div>
-                ))}
-                {Object.values(userData?.pendingAppVerifications || {}).map(
-                  (app) => (
-                    <div
-                      key={app.appId}
-                      className="relative group"
-                      title={`${app.appName} — Pending Verification`}
-                    >
-                      <div className="w-10 h-10 rounded-xl bg-[#0f0f0f] border border-white/[0.06] overflow-hidden flex items-center justify-center grayscale opacity-50">
-                        <img
-                          src={app.appIconUrl}
-                          alt={app.appName}
-                          className="w-6 h-6 object-contain"
-                          onError={(e) => {
-                            e.target.style.display = "none";
-                          }}
-                        />
-                      </div>
-                      <div className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-amber-500 rounded-full border-2 border-[#0a0a0a] flex items-center justify-center pointer-events-none">
-                        <Clock className="w-2 h-2 text-black" />
-                      </div>
-                    </div>
-                  ),
-                )}
-              </div>
-            ) : (
-              <div className="flex flex-col items-center justify-center py-6 text-center gap-2">
-                <Monitor className="w-7 h-7 text-white/10" />
-                <p className="text-[10px] text-white/20">No apps added yet.</p>
-              </div>
             )}
-          </motion.div>
+          </div>
+        )}
+      </motion.section>
 
-          {/* PUBLIC PROFILE CTA — xl:12 */}
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.28 }}
-            className="col-span-1 md:col-span-2 xl:col-span-12 bg-gradient-to-r from-[#BFA264]/[0.07] via-[#0a0a0a] to-[#0a0a0a] border border-[#BFA264]/20 rounded-[2rem] p-5 md:p-6 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-5 relative overflow-hidden"
+      {/* ── OPERATOR RADAR ── */}
+      <motion.section
+        initial={{ opacity: 0, y: 16 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.13 }}
+      >
+        <SLabel icon={Target} iconColor="text-[#BFA264]">
+          Operator Radar
+        </SLabel>
+        <div className="rounded-[2rem] border border-white/[0.05] bg-[#0a0a0a] p-5 grid grid-cols-1 sm:grid-cols-2 gap-6 items-center">
+          <div style={{ height: 200 }}>
+            <ResponsiveContainer width="100%" height="100%">
+              <RadarChart data={radarData}>
+                <PolarGrid stroke="rgba(255,255,255,0.05)" strokeWidth={0.5} />
+                <PolarAngleAxis
+                  dataKey="metric"
+                  tick={{
+                    fill: "rgba(255,255,255,0.25)",
+                    fontSize: 9,
+                    fontWeight: 700,
+                  }}
+                />
+                <Radar
+                  dataKey="score"
+                  stroke="#BFA264"
+                  strokeWidth={2}
+                  fill="#BFA264"
+                  fillOpacity={0.12}
+                  dot={{ r: 2.5, fill: "#BFA264", strokeWidth: 0 }}
+                  animationDuration={800}
+                />
+              </RadarChart>
+            </ResponsiveContainer>
+          </div>
+          <div className="space-y-2.5">
+            {radarData.map((d) => (
+              <div key={d.metric} className="flex items-center gap-3">
+                <span className="text-[9px] text-white/25 font-bold w-16 uppercase tracking-widest shrink-0">
+                  {d.metric}
+                </span>
+                <div className="flex-1 h-1 bg-white/[0.04] rounded-full overflow-hidden">
+                  <motion.div
+                    initial={{ width: 0 }}
+                    animate={{ width: `${d.score}%` }}
+                    transition={{ duration: 0.8, delay: 0.3 }}
+                    className="h-full rounded-full bg-[#BFA264]/60"
+                  />
+                </div>
+                <span className="text-[9px] font-black font-mono text-white/30 w-7 text-right">
+                  {Math.round(d.score)}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </motion.section>
+
+      {/* ── SKILLS & CAPABILITIES ── */}
+      {allSkills.length > 0 && (
+        <motion.section
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.15 }}
+        >
+          <SLabel icon={Zap} iconColor="text-amber-400">
+            Skills & Capabilities
+          </SLabel>
+          <div className="flex flex-wrap gap-2">
+            {allSkills.map((skill, i) => (
+              <span
+                key={i}
+                className="px-3 py-1.5 bg-[#0a0a0a] border border-white/[0.07] rounded-full text-[10px] font-bold text-white/50 hover:border-[#BFA264]/30 hover:text-white/80 transition-all cursor-default"
+              >
+                {skill}
+              </span>
+            ))}
+            <Link
+              to="/app/profile/edit"
+              className="px-3 py-1.5 border border-dashed border-white/[0.07] rounded-full text-[10px] font-bold text-white/20 hover:text-white/40 hover:border-white/[0.12] transition-all flex items-center gap-1.5"
+            >
+              <Plus className="w-2.5 h-2.5" /> Add Skills
+            </Link>
+          </div>
+        </motion.section>
+      )}
+
+      {/* ── PROFESSIONAL BACKGROUND ── */}
+      <motion.section
+        initial={{ opacity: 0, y: 16 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.17 }}
+      >
+        <SLabel icon={Briefcase} iconColor="text-[#BFA264]">
+          Professional Background
+        </SLabel>
+
+        <div className="space-y-3">
+          {/* Work experience */}
+          {userData?.professional?.workExperience?.role ? (
+            <div className="group flex items-center gap-4 p-4 bg-[#0a0a0a] border border-white/[0.05] hover:border-[#BFA264]/20 rounded-[1.5rem] transition-all">
+              <div className="w-10 h-10 rounded-xl bg-[#BFA264]/10 border border-[#BFA264]/20 flex items-center justify-center shrink-0">
+                <Briefcase className="w-4.5 h-4.5 text-[#BFA264]" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-black text-white truncate">
+                  {userData.professional.workExperience.role}
+                </p>
+                <p className="text-[10px] text-white/35 truncate">
+                  {userData.professional.workExperience.company || ""}
+                  {userData.professional.workExperience.type
+                    ? ` · ${userData.professional.workExperience.type}`
+                    : ""}
+                </p>
+              </div>
+              <ShieldCheck className="w-4 h-4 text-white/10 shrink-0" />
+            </div>
+          ) : null}
+
+          {/* Education */}
+          {userData?.baseline?.institution ? (
+            <div className="flex items-center gap-4 p-4 bg-[#0a0a0a] border border-white/[0.05] hover:border-violet-500/20 rounded-[1.5rem] transition-all">
+              <div className="w-10 h-10 rounded-xl bg-violet-500/10 border border-violet-500/20 flex items-center justify-center shrink-0">
+                <Award className="w-4.5 h-4.5 text-violet-400" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-black text-white truncate">
+                  {userData.baseline.institution}
+                </p>
+                <p className="text-[10px] text-white/35 truncate">
+                  {userData.baseline.course || ""}
+                  {userData.baseline.graduationYear
+                    ? ` · ${userData.baseline.graduationYear}`
+                    : ""}
+                </p>
+              </div>
+            </div>
+          ) : null}
+
+          {/* If nothing, show empty state */}
+          {!userData?.professional?.workExperience?.role &&
+            !userData?.baseline?.institution && (
+              <EmptyState
+                icon={Briefcase}
+                title="No experience added"
+                subtitle="Add your work history and education to build credibility."
+                action="Add Experience"
+                onAction={() => navigate("/app/profile/edit")}
+              />
+            )}
+
+          <Link
+            to="/app/profile/edit"
+            className="flex items-center gap-1.5 text-[9px] font-black text-[#BFA264]/30 hover:text-[#BFA264] uppercase tracking-widest transition-colors"
           >
-            <div className="absolute top-0 left-0 w-48 h-full bg-gradient-to-r from-[#BFA264]/5 to-transparent pointer-events-none" />
-            <div className="relative z-10">
-              <p className="text-[9px] font-black text-white/25 uppercase tracking-widest mb-1">
+            <Edit3 className="w-2.5 h-2.5" /> Edit Experience
+          </Link>
+        </div>
+      </motion.section>
+
+      {/* ── PRO: ADVANCED ANALYTICS ── */}
+      <motion.section
+        initial={{ opacity: 0, y: 16 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.19 }}
+      >
+        <SLabel icon={BarChart3} iconColor="text-sky-400">
+          Advanced Analytics
+        </SLabel>
+        <div className="relative rounded-[2rem] border border-white/[0.05] bg-[#0a0a0a] p-5 overflow-hidden">
+          {/* Blurred preview content */}
+          <div
+            className={cn(
+              !isPro && "blur-[3px] pointer-events-none select-none",
+            )}
+          >
+            <div className="grid grid-cols-2 gap-3">
+              {[
+                {
+                  label: "Profile Views (30d)",
+                  value: (userData?.profileViews || 0).toLocaleString(),
+                  icon: Eye,
+                  color: "text-sky-400",
+                },
+                {
+                  label: "Search Appearances",
+                  value: "—",
+                  icon: Search,
+                  color: "text-violet-400",
+                },
+                {
+                  label: "Score Percentile",
+                  value: userData?.precomputed?.globalPercentile
+                    ? `Top ${userData.precomputed.globalPercentile}%`
+                    : "—",
+                  icon: BarChart3,
+                  color: "text-[#BFA264]",
+                },
+                {
+                  label: "Global Rank",
+                  value: userData?.precomputed?.globalRank
+                    ? `#${userData.precomputed.globalRank}`
+                    : "—",
+                  icon: Target,
+                  color: "text-emerald-400",
+                },
+              ].map(({ label, value, icon: Icon, color }) => (
+                <div
+                  key={label}
+                  className="p-3 bg-[#080808] border border-white/[0.04] rounded-xl"
+                >
+                  <Icon className={cn("w-4 h-4 mb-2", color)} />
+                  <p className="text-lg font-black text-white font-mono leading-none mb-1">
+                    {value}
+                  </p>
+                  <p className="text-[8px] text-white/25 uppercase tracking-widest leading-tight">
+                    {label}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+          {!isPro && <ProGate feature="Advanced Analytics" />}
+        </div>
+      </motion.section>
+
+      {/* ── PUBLIC PROFILE CTA ── */}
+      <motion.section
+        initial={{ opacity: 0, y: 16 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.21 }}
+      >
+        <div className="rounded-[2rem] bg-gradient-to-r from-[#BFA264]/[0.08] via-transparent to-transparent border border-[#BFA264]/20 p-6 relative overflow-hidden">
+          <div className="absolute top-0 left-0 w-40 h-full bg-gradient-to-r from-[#BFA264]/5 to-transparent pointer-events-none" />
+          <div className="relative z-10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+            <div>
+              <p className="text-[8px] font-black text-white/20 uppercase tracking-[0.2em] mb-1">
                 Your Live Resume
               </p>
-              <h3 className="text-lg font-black text-white">Public Profile</h3>
-              <p className="text-xs text-[#555] mt-1">
+              <h3 className="text-lg font-black text-white">
+                Public Operator Profile
+              </h3>
+              <p className="text-[10px] text-white/30 mt-0.5">
                 discotive.in/@
-                <span className="text-[#BFA264]/70">
-                  {userData.identity?.username || "handle"}
+                <span className="text-[#BFA264]/60">
+                  {userData?.identity?.username || "handle"}
                 </span>{" "}
-                — visible to recruiters worldwide.
+                — visible to the world.
               </p>
             </div>
-            <div className="flex items-center gap-3 relative z-10">
+            <Link
+              to={`/@${userData?.identity?.username || ""}`}
+              className="flex items-center gap-2 px-5 py-2.5 bg-white text-black text-[10px] font-black rounded-xl hover:bg-[#ddd] transition-colors uppercase tracking-widest whitespace-nowrap"
+            >
+              View Public Profile <ArrowUpRight className="w-3.5 h-3.5" />
+            </Link>
+          </div>
+        </div>
+      </motion.section>
+    </div>
+  );
+};
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// MOBILE LAYOUT — Single column cinematic narrative
+// ═══════════════════════════════════════════════════════════════════════════════
+const MobileProfile = ({
+  userData,
+  uid,
+  score,
+  level,
+  isPro,
+  streak,
+  vss,
+  vault,
+  allies,
+  onAvatarUpload,
+  isUploadingAvatar,
+  onCopyLink,
+  copied,
+  refreshUserData,
+  showToast,
+  navigate,
+}) => {
+  const [tab, setTab] = useState("about");
+  const initials =
+    `${userData?.identity?.firstName?.charAt(0) || ""}${userData?.identity?.lastName?.charAt(0) || ""}`.toUpperCase() ||
+    "?";
+  const fullName =
+    `${userData?.identity?.firstName || ""} ${userData?.identity?.lastName || ""}`.trim() ||
+    "Operator";
+  const xp = (score ?? 0) % 1000;
+  const levelPct = (xp / 1000) * 100;
+  const allSkills = [
+    ...(userData?.skills?.alignedSkills || []),
+    ...(userData?.skills?.rawSkills || []),
+  ]
+    .filter((v, i, a) => a.indexOf(v) === i)
+    .slice(0, 20);
+  const verifiedVault = vault.filter((a) => a.status === "VERIFIED");
+  const [hoveredAssetIdx, setHoveredAssetIdx] = useState(null);
+
+  const TABS = [
+    { id: "about", label: "About", icon: AlignLeft },
+    { id: "vault", label: "Vault", icon: FolderLock },
+    { id: "skills", label: "Skills", icon: Zap },
+    { id: "analytics", label: "Stats", icon: BarChart3 },
+  ];
+
+  return (
+    <div className="flex flex-col gap-0">
+      {/* ── Mobile Hero Banner ── */}
+      <div
+        className={cn(
+          "relative mx-0 rounded-none overflow-hidden border-b",
+          isPro ? "border-[#BFA264]/20" : "border-white/[0.06]",
+        )}
+      >
+        {isPro && (
+          <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-[#BFA264] to-transparent" />
+        )}
+        <div className="absolute inset-0 bg-gradient-to-b from-[#0F0F0F] via-[#090909] to-[#030303]" />
+        <div className="absolute inset-0 bg-gradient-to-b from-[#BFA264]/[0.03] to-transparent" />
+
+        <div className="relative z-10 px-5 pt-6 pb-5">
+          {/* Top: avatar + actions */}
+          <div className="flex items-start justify-between mb-5">
+            <label
+              className={cn(
+                "relative w-20 h-20 rounded-[1.5rem] flex items-center justify-center text-2xl font-black text-[#BFA264] cursor-pointer overflow-hidden transition-all",
+                "bg-[#111] border-2",
+                isPro ? "border-[#BFA264]/60" : "border-white/10",
+                isUploadingAvatar && "pointer-events-none opacity-60",
+              )}
+            >
+              <input
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                className="hidden"
+                onChange={onAvatarUpload}
+                disabled={isUploadingAvatar}
+              />
+              {userData?.identity?.avatarUrl ? (
+                <img
+                  src={userData.identity.avatarUrl}
+                  alt=""
+                  className="w-full h-full object-cover"
+                />
+              ) : (
+                initials
+              )}
+              <div className="absolute inset-0 bg-black/60 opacity-0 active:opacity-100 flex items-center justify-center">
+                {isUploadingAvatar ? (
+                  <Loader2 className="w-5 h-5 text-[#BFA264] animate-spin" />
+                ) : (
+                  <Camera className="w-5 h-5 text-white" />
+                )}
+              </div>
+            </label>
+            <div className="flex flex-col items-end gap-2">
+              {isPro && (
+                <div className="flex items-center gap-1.5 px-2.5 py-1 bg-gradient-to-r from-[#8B7240]/20 to-[#D4AF78]/15 border border-[#BFA264]/35 rounded-full">
+                  <Crown className="w-3 h-3 text-[#D4AF78]" />
+                  <span className="text-[8px] font-black text-[#D4AF78] uppercase tracking-[0.2em]">
+                    Pro
+                  </span>
+                </div>
+              )}
               <button
-                onClick={handleCopyLink}
-                className="flex items-center gap-2 px-4 py-2.5 bg-white/[0.04] border border-white/[0.08] text-[10px] font-black text-[#888] rounded-xl hover:text-white hover:bg-white/10 transition-all uppercase tracking-widest"
+                onClick={onCopyLink}
+                className="flex items-center gap-1.5 px-3 py-2 bg-white/[0.06] border border-white/[0.10] text-[9px] font-black text-white/50 rounded-xl uppercase tracking-widest active:bg-white/[0.10] transition-all min-h-[44px]"
               >
-                {copiedLink ? (
+                {copied ? (
                   <Check className="w-3.5 h-3.5 text-emerald-400" />
                 ) : (
-                  <Copy className="w-3.5 h-3.5" />
+                  <Share2 className="w-3.5 h-3.5" />
                 )}
-                Copy Link
+                {copied ? "Copied" : "Share"}
               </button>
-              <Link
-                to={`/@${userData.identity?.username || ""}`}
-                className="flex items-center gap-2 px-5 py-2.5 bg-white text-black text-[10px] font-black rounded-xl hover:bg-[#ddd] transition-colors uppercase tracking-widest"
-              >
-                View Public Profile <ArrowUpRight className="w-3.5 h-3.5" />
-              </Link>
             </div>
-          </motion.div>
+          </div>
+
+          {/* Name */}
+          <h1 className="text-2xl font-black text-[#F5F0E8] tracking-tight leading-tight mb-0.5">
+            {fullName}
+          </h1>
+          <p className="text-[11px] font-mono text-white/25 mb-3">
+            @{userData?.identity?.username || "—"}
+          </p>
+
+          {/* Domain tags */}
+          <div className="flex flex-wrap items-center gap-2 mb-4">
+            {(userData?.identity?.domain || userData?.vision?.passion) && (
+              <span className="px-2.5 py-1 bg-[#BFA264]/8 border border-[#BFA264]/20 rounded-full text-[9px] font-bold text-[#D4AF78]">
+                {userData?.identity?.domain || userData?.vision?.passion}
+              </span>
+            )}
+            {userData?.identity?.country && (
+              <span className="flex items-center gap-1 text-[9px] text-white/25">
+                <MapPin className="w-2.5 h-2.5" />
+                {userData.identity.country}
+              </span>
+            )}
+          </div>
+
+          {/* Score pill */}
+          <div className="flex items-center gap-3 p-3 bg-[#030303] border border-[#BFA264]/15 rounded-[1.25rem] mb-4">
+            <div>
+              <p className="text-[8px] text-white/20 uppercase tracking-widest">
+                Score
+              </p>
+              <p className="text-2xl font-black text-[#D4AF78] font-mono leading-none">
+                {(score ?? 0).toLocaleString()}
+              </p>
+            </div>
+            <div className="flex-1">
+              <div className="h-1 bg-white/[0.04] rounded-full overflow-hidden mb-1">
+                <motion.div
+                  initial={{ width: 0 }}
+                  animate={{ width: `${levelPct}%` }}
+                  transition={{ duration: 1.2, ease: "easeOut" }}
+                  className="h-full rounded-full"
+                  style={{
+                    background: "linear-gradient(90deg, #8B7240, #D4AF78)",
+                  }}
+                />
+              </div>
+              <p className="text-[8px] text-white/20 text-right">
+                {xp} / 1000 XP · Lv {level}
+              </p>
+            </div>
+            <div className="text-right shrink-0">
+              <p className="text-[8px] text-white/20 uppercase tracking-widest">
+                Level
+              </p>
+              <p className="text-xl font-black text-white/50 font-mono">
+                {level}
+              </p>
+            </div>
+          </div>
+
+          {/* Quick stats */}
+          <div className="grid grid-cols-3 gap-2 mb-4">
+            {[
+              {
+                label: "Verified",
+                value: verifiedVault.length,
+                icon: FolderLock,
+                color: "text-emerald-400",
+              },
+              {
+                label: "Streak",
+                value: `${streak}d`,
+                icon: Flame,
+                color: "text-orange-400",
+              },
+              {
+                label: "Allies",
+                value: allies.length,
+                icon: Users,
+                color: "text-violet-400",
+              },
+            ].map(({ label, value, icon: Icon, color }) => (
+              <div
+                key={label}
+                className="bg-[#080808] border border-white/[0.05] rounded-xl p-2.5 text-center"
+              >
+                <Icon className={cn("w-3.5 h-3.5 mx-auto mb-1", color)} />
+                <p className="text-sm font-black text-white font-mono">
+                  {value}
+                </p>
+                <p className="text-[7px] text-white/20 uppercase tracking-widest">
+                  {label}
+                </p>
+              </div>
+            ))}
+          </div>
+
+          {/* Action buttons */}
+          <div className="flex gap-2.5">
+            <Link
+              to="/app/profile/edit"
+              className="flex-1 flex items-center justify-center gap-1.5 py-3 bg-white text-black text-[10px] font-black rounded-xl transition-colors uppercase tracking-widest min-h-[44px]"
+            >
+              <Edit3 className="w-3.5 h-3.5" /> Edit Profile
+            </Link>
+            <Link
+              to={`/@${userData?.identity?.username || ""}`}
+              className="flex-1 flex items-center justify-center gap-1.5 py-3 bg-[#BFA264]/10 border border-[#BFA264]/25 text-[10px] font-black text-[#BFA264] rounded-xl transition-all uppercase tracking-widest min-h-[44px]"
+            >
+              <Eye className="w-3.5 h-3.5" /> View Public
+            </Link>
+          </div>
         </div>
       </div>
 
-      {/* App Stack Modal */}
-      <AnimatePresence>
-        {showAppModal && (
-          <AppStackModal
-            isOpen={showAppModal}
-            onClose={() => setShowAppModal(false)}
-            currentVerifiedApps={verifiedAppsData}
-            onSubmit={handleAppSubmit}
-          />
-        )}
-      </AnimatePresence>
+      {/* ── Tab Navigation ── */}
+      <div className="sticky top-0 z-30 bg-[#030303]/90 backdrop-blur-xl border-b border-white/[0.05] px-4 py-2">
+        <div className="flex gap-1 overflow-x-auto hide-scrollbar">
+          {TABS.map(({ id, label, icon: Icon }) => (
+            <button
+              key={id}
+              onClick={() => setTab(id)}
+              className={cn(
+                "flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest whitespace-nowrap transition-all min-h-[44px] shrink-0",
+                tab === id
+                  ? "bg-[#BFA264]/15 border border-[#BFA264]/30 text-[#D4AF78]"
+                  : "text-white/30 border border-transparent hover:text-white/60",
+              )}
+            >
+              <Icon className="w-3.5 h-3.5" />
+              <span className="hidden xs:block">{label}</span>
+            </button>
+          ))}
+        </div>
+      </div>
 
-      {/* Toast */}
+      {/* ── Tab Content ── */}
+      <div className="px-4 py-5 space-y-6">
+        <AnimatePresence mode="wait">
+          {tab === "about" && (
+            <motion.div
+              key="about"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              className="space-y-5"
+            >
+              <div>
+                <SLabel icon={AlignLeft} iconColor="text-[#BFA264]">
+                  Bio
+                </SLabel>
+                <InlineBioEdit
+                  userData={userData}
+                  uid={uid}
+                  onSaved={refreshUserData}
+                />
+              </div>
+              <div>
+                <SLabel icon={Briefcase} iconColor="text-[#BFA264]">
+                  Background
+                </SLabel>
+                <div className="space-y-2.5">
+                  {userData?.professional?.workExperience?.role && (
+                    <div className="flex items-center gap-3 p-4 bg-[#0a0a0a] border border-white/[0.05] rounded-[1.5rem]">
+                      <div className="w-10 h-10 rounded-xl bg-[#BFA264]/10 border border-[#BFA264]/20 flex items-center justify-center shrink-0">
+                        <Briefcase className="w-4 h-4 text-[#BFA264]" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-sm font-black text-white truncate">
+                          {userData.professional.workExperience.role}
+                        </p>
+                        <p className="text-[10px] text-white/35">
+                          {userData.professional.workExperience.company || ""}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                  {userData?.baseline?.institution && (
+                    <div className="flex items-center gap-3 p-4 bg-[#0a0a0a] border border-white/[0.05] rounded-[1.5rem]">
+                      <div className="w-10 h-10 rounded-xl bg-violet-500/10 border border-violet-500/20 flex items-center justify-center shrink-0">
+                        <Award className="w-4 h-4 text-violet-400" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-sm font-black text-white truncate">
+                          {userData.baseline.institution}
+                        </p>
+                        <p className="text-[10px] text-white/35">
+                          {userData.baseline.course || ""}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                  {!userData?.professional?.workExperience?.role &&
+                    !userData?.baseline?.institution && (
+                      <EmptyState
+                        icon={Briefcase}
+                        title="No background added"
+                        subtitle="Add experience to build your operator dossier."
+                        action="Add Now"
+                        onAction={() => navigate("/app/profile/edit")}
+                      />
+                    )}
+                </div>
+              </div>
+              {/* Links */}
+              {(() => {
+                const links =
+                  userData?.links || userData?.footprint?.personal || {};
+                const active = Object.entries(LINK_CONFIGS).filter(
+                  ([key]) => links[key],
+                );
+                if (!active.length) return null;
+                return (
+                  <div>
+                    <SLabel icon={LinkIcon} iconColor="text-sky-400">
+                      Online Presence
+                    </SLabel>
+                    <div className="flex flex-col gap-2">
+                      {active.map(([key]) => (
+                        <LinkChip key={key} type={key} url={links[key]} />
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
+            </motion.div>
+          )}
+
+          {tab === "vault" && (
+            <motion.div
+              key="vault"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+            >
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <FolderLock className="w-3.5 h-3.5 text-emerald-400" />
+                  <span className="text-[9px] font-black text-white/25 uppercase tracking-[0.2em]">
+                    Proof of Work
+                  </span>
+                </div>
+                {verifiedVault.length > 0 && (
+                  <span className="text-[8px] font-black text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full">
+                    {verifiedVault.length} Verified
+                  </span>
+                )}
+              </div>
+              {vault.length === 0 ? (
+                <EmptyState
+                  icon={FolderLock}
+                  title="No proof of work yet"
+                  subtitle="Upload achievements to verify your execution on-chain."
+                  action="Upload to Vault"
+                  onAction={() => navigate("/app/vault")}
+                />
+              ) : (
+                <div className="space-y-3">
+                  {vault.slice(0, 10).map((asset, i) => (
+                    <VaultAssetCard
+                      key={asset.id || i}
+                      asset={asset}
+                      isFocused={null}
+                      onFocus={() => {}}
+                      onBlur={() => {}}
+                    />
+                  ))}
+                  {vault.length > 10 && (
+                    <Link
+                      to="/app/vault"
+                      className="flex items-center justify-center gap-2 py-3 border border-dashed border-white/[0.06] rounded-2xl text-[9px] font-black text-white/20 hover:text-white/40 transition-all"
+                    >
+                      +{vault.length - 10} more in vault{" "}
+                      <ArrowUpRight className="w-2.5 h-2.5" />
+                    </Link>
+                  )}
+                </div>
+              )}
+            </motion.div>
+          )}
+
+          {tab === "skills" && (
+            <motion.div
+              key="skills"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+            >
+              <SLabel icon={Zap} iconColor="text-amber-400">
+                Skills & Capabilities
+              </SLabel>
+              {allSkills.length === 0 ? (
+                <EmptyState
+                  icon={Zap}
+                  title="No skills added"
+                  subtitle="Add your technical stack and capabilities."
+                  action="Add Skills"
+                  onAction={() => navigate("/app/profile/edit")}
+                />
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  {allSkills.map((skill, i) => (
+                    <span
+                      key={i}
+                      className="px-3 py-2 bg-[#0a0a0a] border border-white/[0.07] rounded-full text-[10px] font-bold text-white/50 min-h-[44px] flex items-center"
+                    >
+                      {skill}
+                    </span>
+                  ))}
+                </div>
+              )}
+              {/* Radar */}
+              <div className="mt-5 rounded-[2rem] border border-white/[0.05] bg-[#0a0a0a] p-4">
+                <p className="text-[8px] font-black text-white/20 uppercase tracking-[0.2em] mb-3">
+                  Operator Vector
+                </p>
+                <div style={{ height: 180 }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <RadarChart data={radarData}>
+                      <PolarGrid stroke="rgba(255,255,255,0.05)" />
+                      <PolarAngleAxis
+                        dataKey="metric"
+                        tick={{
+                          fill: "rgba(255,255,255,0.25)",
+                          fontSize: 8,
+                          fontWeight: 700,
+                        }}
+                      />
+                      <Radar
+                        dataKey="score"
+                        stroke="#BFA264"
+                        strokeWidth={2}
+                        fill="#BFA264"
+                        fillOpacity={0.12}
+                        animationDuration={800}
+                      />
+                    </RadarChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            </motion.div>
+          )}
+
+          {tab === "analytics" && (
+            <motion.div
+              key="analytics"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+            >
+              <SLabel icon={BarChart3} iconColor="text-sky-400">
+                Analytics
+              </SLabel>
+              <div className="relative rounded-[2rem] border border-white/[0.05] bg-[#0a0a0a] p-5 overflow-hidden">
+                <div
+                  className={cn(
+                    !isPro && "blur-[3px] pointer-events-none select-none",
+                  )}
+                >
+                  <div className="grid grid-cols-2 gap-3">
+                    {[
+                      {
+                        label: "Profile Views",
+                        value: (userData?.profileViews || 0).toLocaleString(),
+                        icon: Eye,
+                        color: "text-sky-400",
+                      },
+                      {
+                        label: "Score Percentile",
+                        value: userData?.precomputed?.globalPercentile
+                          ? `Top ${userData.precomputed.globalPercentile}%`
+                          : "—",
+                        icon: BarChart3,
+                        color: "text-[#BFA264]",
+                      },
+                      {
+                        label: "Global Rank",
+                        value: userData?.precomputed?.globalRank
+                          ? `#${userData.precomputed.globalRank}`
+                          : "—",
+                        icon: Target,
+                        color: "text-emerald-400",
+                      },
+                      {
+                        label: "Verified Assets",
+                        value: verifiedVault.length,
+                        icon: ShieldCheck,
+                        color: "text-violet-400",
+                      },
+                    ].map(({ label, value, icon: Icon, color }) => (
+                      <div
+                        key={label}
+                        className="p-3 bg-[#080808] border border-white/[0.04] rounded-xl"
+                      >
+                        <Icon className={cn("w-4 h-4 mb-2", color)} />
+                        <p className="text-lg font-black text-white font-mono leading-none mb-1">
+                          {value}
+                        </p>
+                        <p className="text-[8px] text-white/25 uppercase tracking-widest leading-tight">
+                          {label}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                {!isPro && <ProGate feature="Analytics Unlocked at Pro" />}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+    </div>
+  );
+};
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// MAIN PROFILE PAGE
+// ═══════════════════════════════════════════════════════════════════════════════
+const Profile = () => {
+  const navigate = useNavigate();
+  const { userData, loading, patchLocalData, refreshUserData } = useUserData();
+  const { requireOnboarding } = useOnboardingGate();
+  const { toast, showToast } = useToast();
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
+
+  const uid = auth.currentUser?.uid;
+
+  // ── Derived data ──────────────────────────────────────────────────────────
+  const score = userData?.discotiveScore?.current ?? 0;
+  const level = getLevel(score);
+  const streak = userData?.discotiveScore?.streak ?? 0;
+  const isPro = userData?.tier === "PRO" || userData?.tier === "ENTERPRISE";
+  const vault = useMemo(() => userData?.vault || [], [userData]);
+  const vss = useMemo(() => calcVSS(vault), [vault]);
+  const allies = useMemo(() => userData?.allies || [], [userData]);
+
+  // ── Avatar upload ─────────────────────────────────────────────────────────
+  const handleAvatarUpload = useCallback(
+    async (e) => {
+      const file = e.target.files?.[0];
+      if (!file || !uid || !requireOnboarding("avatar")) return;
+      if (file.size > 2 * 1024 * 1024) {
+        showToast("Max 2MB for avatar", "red");
+        return;
+      }
+      setIsUploadingAvatar(true);
+      try {
+        const storageRef = ref(storage, `avatars/${uid}/${Date.now()}`);
+        await uploadBytes(storageRef, file);
+        const url = await getDownloadURL(storageRef);
+        await updateDoc(doc(db, "users", uid), { "identity.avatarUrl": url });
+        patchLocalData({ identity: { ...userData?.identity, avatarUrl: url } });
+        showToast("Avatar updated", "green");
+      } catch (err) {
+        showToast("Upload failed", "red");
+      } finally {
+        setIsUploadingAvatar(false);
+      }
+    },
+    [uid, userData, patchLocalData, requireOnboarding, showToast],
+  );
+
+  // ── Copy profile link ─────────────────────────────────────────────────────
+  const handleCopyLink = useCallback(() => {
+    const url = `${window.location.origin}/@${userData?.identity?.username || ""}`;
+    navigator.clipboard.writeText(url).then(() => {
+      setCopiedLink(true);
+      showToast("Profile link copied!", "green");
+      setTimeout(() => setCopiedLink(false), 2500);
+    });
+  }, [userData, showToast]);
+
+  // ── Loading state ─────────────────────────────────────────────────────────
+  if (loading)
+    return (
+      <div className="min-h-screen bg-[#030303] flex items-center justify-center">
+        <div className="flex flex-col items-center gap-4">
+          <motion.div
+            animate={{ rotate: 360 }}
+            transition={{ duration: 1.5, repeat: Infinity, ease: "linear" }}
+            className="w-10 h-10 border-2 border-[#BFA264]/30 border-t-[#BFA264] rounded-full"
+          />
+          <p className="text-[9px] font-black text-white/20 uppercase tracking-[0.3em]">
+            Loading Dossier
+          </p>
+        </div>
+      </div>
+    );
+
+  if (!userData)
+    return (
+      <div className="min-h-screen bg-[#030303] flex flex-col items-center justify-center gap-4 p-6">
+        <div className="w-16 h-16 rounded-[1.5rem] bg-white/[0.03] border border-white/[0.06] flex items-center justify-center">
+          <Users className="w-7 h-7 text-white/15" />
+        </div>
+        <p className="text-white/40 text-sm font-bold">
+          No operator data found.
+        </p>
+        <Link
+          to="/auth"
+          className="px-5 py-2.5 bg-[#BFA264] text-black text-[10px] font-black rounded-xl uppercase tracking-widest hover:bg-[#D4AF78] transition-all"
+        >
+          Authenticate
+        </Link>
+      </div>
+    );
+
+  const pillarProps = {
+    userData,
+    uid,
+    score,
+    level,
+    isPro,
+    streak,
+    vss,
+    vault,
+    allies,
+    onAvatarUpload: handleAvatarUpload,
+    isUploadingAvatar,
+    onCopyLink: handleCopyLink,
+    copied: copiedLink,
+    refreshUserData,
+    showToast,
+  };
+
+  const ledgerProps = {
+    userData,
+    uid,
+    score,
+    isPro,
+    vault,
+    allies,
+    refreshUserData,
+    showToast,
+    navigate,
+  };
+
+  return (
+    <div className="min-h-screen bg-[#030303]">
+      {/* ── PC Layout: Asymmetric sticky ── */}
+      <div className="hidden lg:grid lg:grid-cols-[1fr_380px] xl:grid-cols-[1fr_420px] gap-6 max-w-[1400px] mx-auto px-6 py-6">
+        {/* Left: Scrolling Proof Ledger */}
+        <div>
+          <ProofLedger {...ledgerProps} />
+        </div>
+        {/* Right: Sticky Identity Pillar */}
+        <div className="relative">
+          <div className="sticky top-6">
+            <IdentityPillar {...pillarProps} />
+          </div>
+        </div>
+      </div>
+
+      {/* ── Mobile Layout: Tab-based narrative ── */}
+      <div className="lg:hidden">
+        <MobileProfile {...pillarProps} navigate={navigate} />
+      </div>
+
+      {/* ── Toast ── */}
       <AnimatePresence>
         {toast && (
           <motion.div
@@ -2147,4 +2078,5 @@ const Profile = () => {
     </div>
   );
 };
+
 export default Profile;
