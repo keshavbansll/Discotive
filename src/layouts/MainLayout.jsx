@@ -724,6 +724,7 @@ const MainLayout = () => {
     if (touchStartRef.current < 40 && distance > 50) {
       setShowProfileMenu(true);
     }
+    d;
   };
 
   return (

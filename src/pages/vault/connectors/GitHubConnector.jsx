@@ -1,53 +1,60 @@
 /**
- * @fileoverview Discotive OS — GitHub Connector v2.0 (PRODUCTION)
+ * @fileoverview Discotive OS — GitHub Connector v3.0 "Cinematica"
  * @module Vault/Connectors/GitHub
  *
- * DATA FLOW:
- * 1. User enters GitHub username → calls public GitHub REST API (no OAuth, no token required)
- * 2. Repos, activity (events-based), and aggregated language stats fetched concurrently
- * 3. "Sync Repo" writes a vault asset (PENDING) for admin review pipeline
- * 4. Connected state persisted to Firestore: users/{uid}.connectors.github
- *
- * RATE LIMIT STRATEGY:
- * - GitHub unauthenticated: 60 req/hr per IP. We make 3 concurrent calls per connect.
- * - On 403/429: Surface a user-friendly cooldown message with retry guidance.
- * - On 404: Clear "user not found" error.
- *
- * SECURITY:
- * - No access tokens stored anywhere in this component or Firestore
- * - Vault write is client-side arrayUnion guarded by Firestore rules (owner-only)
+ * ARCHITECTURE:
+ * - GitHub public REST API (unauthenticated, 60 req/hr per IP)
+ * - Activity: /events/public (last ~90 events ≈ 30 days of commits)
+ * - Repo sync: writes vault asset (PENDING) → admin verifies → score awarded
+ * - Connected state persisted: users/{uid}.connectors.github
+ * - Mobile: bottom-sheet sync modal, horizontal scroll repos
+ * - Desktop: Netflix swimlane repos, cinematic hero card
  */
 
-import React, { useState, useEffect, useCallback, useMemo, memo } from "react";
+import React, {
+  useState,
+  useEffect,
+  useCallback,
+  useMemo,
+  memo,
+  useRef,
+} from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { createPortal } from "react-dom";
 import {
   Github,
   GitBranch,
   Star,
   GitFork,
-  Activity,
-  ChevronRight,
   ExternalLink,
   Loader2,
   AlertTriangle,
-  Upload,
   Check,
   X,
   Lock,
   Unlock,
-  BookOpen,
   BarChart2,
-  TrendingUp,
   RefreshCw,
-  Info,
+  Search,
+  Plus,
+  ShieldCheck,
+  Clock,
+  Upload,
+  ArrowUpRight,
+  Users,
+  BookOpen,
   Zap,
+  Activity,
+  ChevronRight,
+  Database,
+  Eye,
+  Calendar,
 } from "lucide-react";
 import { doc, updateDoc, arrayUnion } from "firebase/firestore";
-import { db, auth } from "../../../firebase";
+import { db } from "../../../firebase";
 import { useAuth } from "../../../contexts/AuthContext";
-import { GithubAuthProvider, linkWithPopup } from "firebase/auth";
 
-// ─── Design Tokens ────────────────────────────────────────────────────────────
+/* ─── Design Tokens (identical to Dashboard) ────────────────────────────── */
 const G = {
   base: "#BFA264",
   bright: "#D4AF78",
@@ -67,7 +74,13 @@ const T = {
   dim: "rgba(245,240,232,0.28)",
 };
 
-// ─── Language Color Registry ──────────────────────────────────────────────────
+const FADE_UP = (delay = 0) => ({
+  initial: { opacity: 0, y: 20 },
+  animate: { opacity: 1, y: 0 },
+  transition: { duration: 0.45, ease: [0.16, 1, 0.3, 1], delay },
+});
+
+/* ─── Language Color Registry ────────────────────────────────────────────── */
 const LANG_COLORS = {
   JavaScript: "#f1e05a",
   TypeScript: "#3178c6",
@@ -86,104 +99,50 @@ const LANG_COLORS = {
   Vue: "#41b883",
   Shell: "#89e051",
   SCSS: "#c6538c",
-  "Jupyter Notebook": "#DA5B0B",
   "C#": "#178600",
   PHP: "#4F5D95",
   R: "#198ce7",
-  Scala: "#c22d40",
-  Elixir: "#6e4a7e",
-  Haskell: "#5e5086",
   Lua: "#000080",
-  Clojure: "#db5855",
 };
 
-// ─── GitHub Commit Activity Heatmap ──────────────────────────────────────────
-const CommitHeatmap = memo(({ weeks = [] }) => {
-  if (!weeks.length) return null;
-  const flat = weeks.flatMap((w) => w.days || []);
-  const max = Math.max(...flat, 1);
-  const totalCommits = flat.reduce((s, d) => s + d, 0);
-
-  return (
-    <div>
-      <div className="flex items-center justify-between mb-3">
-        <p
-          className="text-[9px] font-black uppercase tracking-widest"
-          style={{ color: T.dim }}
-        >
-          Commit Activity — Last 52 Weeks
-        </p>
-        <span
-          className="text-[9px] font-mono font-bold"
-          style={{ color: G.base }}
-        >
-          {totalCommits.toLocaleString()} commits
-        </span>
-      </div>
-      <div
-        className="flex gap-[3px] overflow-hidden"
-        style={{ maxWidth: "100%" }}
-      >
-        {weeks.slice(-52).map((week, wi) => (
-          <div key={wi} className="flex flex-col gap-[3px]">
-            {(week.days || Array(7).fill(0)).map((count, di) => {
-              const intensity =
-                count === 0 ? 0 : Math.min(4, Math.ceil((count / max) * 4));
-              const bg = [
-                "rgba(255,255,255,0.04)",
-                "rgba(191,162,100,0.18)",
-                "rgba(191,162,100,0.38)",
-                "rgba(191,162,100,0.62)",
-                "#D4AF78",
-              ][intensity];
-              return (
-                <motion.div
-                  key={di}
-                  initial={{ opacity: 0, scale: 0.4 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  transition={{ delay: (wi * 7 + di) * 0.0008, duration: 0.2 }}
-                  title={`${count} commit${count !== 1 ? "s" : ""}`}
-                  className="rounded-[2px]"
-                  style={{ width: 9, height: 9, background: bg }}
-                />
-              );
-            })}
-          </div>
-        ))}
-      </div>
-      <div className="flex items-center justify-between mt-2">
-        <span className="text-[8px]" style={{ color: T.dim }}>
-          Less
-        </span>
-        <div className="flex gap-[3px]">
-          {[
-            "rgba(255,255,255,0.04)",
-            "rgba(191,162,100,0.18)",
-            "rgba(191,162,100,0.38)",
-            "rgba(191,162,100,0.62)",
-            "#D4AF78",
-          ].map((c, i) => (
-            <div
-              key={i}
-              className="rounded-[2px]"
-              style={{ width: 9, height: 9, background: c }}
-            />
-          ))}
-        </div>
-        <span className="text-[8px]" style={{ color: T.dim }}>
-          More
-        </span>
-      </div>
-    </div>
+/* ─── Helpers ────────────────────────────────────────────────────────────── */
+const timeAgo = (dateStr) => {
+  if (!dateStr) return "—";
+  const days = Math.floor(
+    (Date.now() - new Date(dateStr).getTime()) / 86400000,
   );
-});
+  if (days === 0) return "Today";
+  if (days === 1) return "Yesterday";
+  if (days < 30) return `${days}d ago`;
+  if (days < 365) return `${Math.floor(days / 30)}mo ago`;
+  return `${Math.floor(days / 365)}yr ago`;
+};
 
-// ─── Language Distribution Bar ────────────────────────────────────────────────
+const fmtNum = (n) =>
+  n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n || 0);
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   SUB-COMPONENTS
+══════════════════════════════════════════════════════════════════════════ */
+
+/* ─── Animated Skeleton ──────────────────────────────────────────────────── */
+const Shimmer = memo(({ className }) => (
+  <motion.div
+    animate={{ opacity: [0.3, 0.6, 0.3] }}
+    transition={{ duration: 1.6, repeat: Infinity, ease: "easeInOut" }}
+    className={`rounded-xl ${className}`}
+    style={{
+      background: `linear-gradient(90deg, ${V.surface}, ${V.elevated}, ${V.surface})`,
+    }}
+  />
+));
+
+/* ─── Language Bar ───────────────────────────────────────────────────────── */
 const LanguageBar = memo(({ languages }) => {
   const entries = Object.entries(languages || {});
   const total = entries.reduce((s, [, v]) => s + v, 0);
   if (!total) return null;
-  const sorted = entries.sort(([, a], [, b]) => b - a).slice(0, 8);
+  const sorted = entries.sort(([, a], [, b]) => b - a).slice(0, 7);
 
   return (
     <div>
@@ -191,315 +150,1000 @@ const LanguageBar = memo(({ languages }) => {
         className="text-[9px] font-black uppercase tracking-widest mb-3"
         style={{ color: T.dim }}
       >
-        Language Distribution
+        Language Arsenal
       </p>
-      <div className="flex rounded-full overflow-hidden h-2 mb-3">
+      <div className="flex rounded-full overflow-hidden h-1.5 mb-4 gap-px">
         {sorted.map(([lang, bytes]) => (
           <motion.div
             key={lang}
             initial={{ width: 0 }}
             animate={{ width: `${(bytes / total) * 100}%` }}
-            transition={{ duration: 0.9, ease: [0.16, 1, 0.3, 1] }}
+            transition={{ duration: 1, ease: [0.16, 1, 0.3, 1] }}
             style={{ background: LANG_COLORS[lang] || "#4a4a4a" }}
           />
         ))}
       </div>
-      <div className="grid grid-cols-2 gap-1.5">
+      <div className="grid grid-cols-2 gap-2">
         {sorted.map(([lang, bytes]) => (
-          <div key={lang} className="flex items-center gap-1.5">
+          <motion.div
+            key={lang}
+            whileHover={{ x: 4 }}
+            transition={{ duration: 0.15 }}
+            className="flex items-center gap-2"
+          >
             <div
               className="w-2 h-2 rounded-full shrink-0"
               style={{ background: LANG_COLORS[lang] || "#4a4a4a" }}
             />
             <span
-              className="text-[9px] font-bold truncate"
+              className="text-[10px] font-bold truncate"
               style={{ color: T.secondary }}
             >
               {lang}
             </span>
             <span
-              className="text-[8px] font-mono ml-auto"
+              className="text-[9px] font-mono ml-auto shrink-0"
               style={{ color: T.dim }}
             >
-              {((bytes / total) * 100).toFixed(1)}%
+              {((bytes / total) * 100).toFixed(0)}%
             </span>
-          </div>
+          </motion.div>
         ))}
       </div>
     </div>
   );
 });
 
-// ─── Stat Badge ───────────────────────────────────────────────────────────────
-const StatBadge = memo(({ icon: Icon, label, value, color }) => (
-  <div
-    className="flex flex-col items-center gap-1.5 p-3 rounded-xl border"
-    style={{ background: `${color}0A`, borderColor: `${color}20` }}
-  >
-    <Icon className="w-4 h-4" style={{ color }} />
-    <span
-      className="text-base font-black font-mono leading-none"
-      style={{ color }}
-    >
-      {typeof value === "number" ? value.toLocaleString() : value}
-    </span>
-    <span
-      className="text-[8px] font-bold uppercase tracking-widest text-center leading-tight"
-      style={{ color: T.dim }}
-    >
-      {label}
-    </span>
-  </div>
-));
+/* ─── Recent Activity Bars (30-day from events) ──────────────────────────── */
+const RecentActivityChart = memo(({ commitsByDay }) => {
+  const days = useMemo(() => {
+    const result = [];
+    const today = new Date();
+    for (let i = 29; i >= 0; i--) {
+      const d = new Date(today);
+      d.setDate(today.getDate() - i);
+      const key = d.toISOString().split("T")[0];
+      result.push({
+        key,
+        count: commitsByDay[key] || 0,
+        dayOfWeek: d.getDay(),
+      });
+    }
+    return result;
+  }, [commitsByDay]);
 
-// ─── Repository Card ──────────────────────────────────────────────────────────
+  const max = Math.max(...days.map((d) => d.count), 1);
+  const total = days.reduce((s, d) => s + d.count, 0);
+
+  if (total === 0) return null;
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-4">
+        <p
+          className="text-[9px] font-black uppercase tracking-widest"
+          style={{ color: T.dim }}
+        >
+          Last 30 Days
+        </p>
+        <span
+          className="text-[10px] font-black font-mono"
+          style={{ color: G.bright }}
+        >
+          {total} commits
+        </span>
+      </div>
+      <div className="flex items-end gap-[3px] h-10">
+        {days.map((day) => {
+          const pct = day.count === 0 ? 0 : Math.max(0.12, day.count / max);
+          const isWeekend = day.dayOfWeek === 0 || day.dayOfWeek === 6;
+          const bg =
+            day.count === 0
+              ? "rgba(255,255,255,0.04)"
+              : day.count >= max * 0.8
+                ? G.bright
+                : day.count >= max * 0.4
+                  ? "rgba(191,162,100,0.6)"
+                  : "rgba(191,162,100,0.3)";
+
+          return (
+            <motion.div
+              key={day.key}
+              initial={{ height: 0 }}
+              animate={{ height: `${pct * 100}%` }}
+              transition={{
+                delay: (30 - days.indexOf(day)) * 0.01,
+                duration: 0.4,
+                ease: "easeOut",
+              }}
+              title={`${day.key}: ${day.count} commit${day.count !== 1 ? "s" : ""}`}
+              className="flex-1 rounded-[2px] cursor-crosshair hover:brightness-125 transition-all"
+              style={{
+                background: bg,
+                minHeight: 2,
+                opacity: isWeekend ? 0.7 : 1,
+              }}
+            />
+          );
+        })}
+      </div>
+      <div className="flex justify-between mt-2">
+        <span className="text-[8px]" style={{ color: T.dim }}>
+          30 days ago
+        </span>
+        <span className="text-[8px]" style={{ color: T.dim }}>
+          Today
+        </span>
+      </div>
+    </div>
+  );
+});
+
+/* ─── Repository Post-Card ────────────────────────────────────────────────── */
 const RepoCard = memo(({ repo, onSync, synced, syncing }) => {
   const langColor = LANG_COLORS[repo.language] || "#4a4a4a";
-  const updatedAgo = (() => {
-    const days = Math.floor(
-      (Date.now() - new Date(repo.pushed_at).getTime()) / 86400000,
-    );
-    if (days === 0) return "Today";
-    if (days === 1) return "Yesterday";
-    if (days < 30) return `${days}d ago`;
-    if (days < 365) return `${Math.floor(days / 30)}mo ago`;
-    return `${Math.floor(days / 365)}yr ago`;
-  })();
+  const [isHovered, setIsHovered] = useState(false);
 
   return (
     <motion.div
       layout
-      initial={{ opacity: 0, y: 8 }}
+      initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
-      className="relative flex flex-col gap-3 p-4 rounded-[1.25rem] border transition-all group"
+      onHoverStart={() => setIsHovered(true)}
+      onHoverEnd={() => setIsHovered(false)}
+      whileHover={{ y: -4 }}
+      transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
+      className="relative flex flex-col gap-0 rounded-2xl overflow-hidden cursor-default shrink-0"
       style={{
-        background: synced ? "rgba(16,185,129,0.04)" : V.surface,
-        borderColor: synced ? "rgba(16,185,129,0.2)" : "rgba(255,255,255,0.06)",
+        width: 240,
+        background: synced ? "rgba(16,185,129,0.06)" : V.surface,
+        border: `1px solid ${
+          synced
+            ? "rgba(16,185,129,0.25)"
+            : isHovered
+              ? G.border
+              : "rgba(255,255,255,0.06)"
+        }`,
+        transition: "border-color 0.2s, background 0.2s",
+        scrollSnapAlign: "start",
       }}
     >
-      {/* Header */}
-      <div className="flex items-start justify-between gap-2">
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1">
-            {repo.private ? (
-              <Lock className="w-3 h-3 shrink-0" style={{ color: "#f59e0b" }} />
-            ) : (
-              <Unlock className="w-3 h-3 shrink-0" style={{ color: T.dim }} />
+      {/* Color accent top bar */}
+      <div
+        className="h-[3px] w-full"
+        style={{
+          background: synced
+            ? "linear-gradient(90deg,#10b981,#34d399)"
+            : `linear-gradient(90deg,${langColor}80,${langColor}20)`,
+        }}
+      />
+
+      {/* Glow effect */}
+      <AnimatePresence>
+        {isHovered && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute inset-0 pointer-events-none"
+            style={{
+              background: `radial-gradient(circle at 50% 0%, ${G.dimBg} 0%, transparent 60%)`,
+            }}
+          />
+        )}
+      </AnimatePresence>
+
+      <div className="p-4 flex flex-col gap-3 flex-1 relative z-10">
+        {/* Header */}
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-1.5 mb-1">
+              {repo.private ? (
+                <Lock
+                  className="w-3 h-3 shrink-0"
+                  style={{ color: "#f59e0b" }}
+                />
+              ) : (
+                <Unlock className="w-3 h-3 shrink-0" style={{ color: T.dim }} />
+              )}
+              <a
+                href={repo.html_url}
+                target="_blank"
+                rel="noreferrer"
+                className="text-sm font-black truncate hover:underline"
+                style={{ color: T.primary }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                {repo.name}
+              </a>
+            </div>
+            {repo.description && (
+              <p
+                className="text-[10px] leading-relaxed line-clamp-2"
+                style={{ color: T.secondary }}
+              >
+                {repo.description}
+              </p>
             )}
-            <a
-              href={repo.html_url}
-              target="_blank"
-              rel="noreferrer"
-              className="text-sm font-black truncate hover:underline"
-              style={{ color: T.primary }}
-              onClick={(e) => e.stopPropagation()}
-            >
-              {repo.name}
-            </a>
           </div>
-          {repo.description && (
-            <p
-              className="text-[10px] leading-relaxed line-clamp-2"
-              style={{ color: T.secondary }}
-            >
-              {repo.description}
-            </p>
+          <motion.a
+            whileHover={{ scale: 1.15 }}
+            href={repo.html_url}
+            target="_blank"
+            rel="noreferrer"
+            className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0"
+            style={{ background: "rgba(255,255,255,0.04)" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <ExternalLink className="w-3.5 h-3.5" style={{ color: T.dim }} />
+          </motion.a>
+        </div>
+
+        {/* Repo meta chips */}
+        <div className="flex items-center gap-2 flex-wrap">
+          {repo.language && (
+            <div className="flex items-center gap-1.5">
+              <div
+                className="w-2 h-2 rounded-full"
+                style={{ background: langColor }}
+              />
+              <span
+                className="text-[9px] font-bold"
+                style={{ color: T.secondary }}
+              >
+                {repo.language}
+              </span>
+            </div>
+          )}
+          {repo.stargazers_count > 0 && (
+            <div className="flex items-center gap-1">
+              <Star className="w-2.5 h-2.5" style={{ color: "#f59e0b" }} />
+              <span
+                className="text-[9px] font-mono font-bold"
+                style={{ color: T.secondary }}
+              >
+                {fmtNum(repo.stargazers_count)}
+              </span>
+            </div>
+          )}
+          {repo.forks_count > 0 && (
+            <div className="flex items-center gap-1">
+              <GitFork className="w-2.5 h-2.5" style={{ color: T.dim }} />
+              <span className="text-[9px] font-mono" style={{ color: T.dim }}>
+                {fmtNum(repo.forks_count)}
+              </span>
+            </div>
           )}
         </div>
-        <a
-          href={repo.html_url}
-          target="_blank"
-          rel="noreferrer"
-          className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
-          style={{ background: "rgba(255,255,255,0.04)" }}
-          onClick={(e) => e.stopPropagation()}
+
+        {/* Topics */}
+        {repo.topics?.length > 0 && (
+          <div className="flex flex-wrap gap-1">
+            {repo.topics.slice(0, 3).map((t) => (
+              <span
+                key={t}
+                className="text-[8px] font-bold px-1.5 py-0.5 rounded-md"
+                style={{
+                  background: G.dimBg,
+                  color: G.base,
+                  border: `1px solid ${G.border}`,
+                }}
+              >
+                {t}
+              </span>
+            ))}
+          </div>
+        )}
+
+        {/* Updated date */}
+        <p className="text-[9px] mt-auto" style={{ color: T.dim }}>
+          Updated {timeAgo(repo.pushed_at)}
+        </p>
+
+        {/* Sync CTA */}
+        <motion.button
+          whileHover={{ scale: synced ? 1 : 1.02 }}
+          whileTap={{ scale: 0.97 }}
+          onClick={() => !synced && !syncing && onSync(repo)}
+          disabled={synced || syncing}
+          className="flex items-center justify-center gap-2 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
+          style={
+            synced
+              ? {
+                  background: "rgba(16,185,129,0.12)",
+                  border: "1px solid rgba(16,185,129,0.25)",
+                  color: "#10b981",
+                  cursor: "default",
+                }
+              : {
+                  background: G.dimBg,
+                  border: `1px solid ${G.border}`,
+                  color: G.bright,
+                }
+          }
         >
-          <ExternalLink className="w-3.5 h-3.5" style={{ color: T.dim }} />
-        </a>
+          {syncing ? (
+            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+          ) : synced ? (
+            <>
+              <ShieldCheck className="w-3.5 h-3.5" /> Queued for Review
+            </>
+          ) : (
+            <>
+              <Upload className="w-3.5 h-3.5" /> Sync to Vault
+            </>
+          )}
+        </motion.button>
       </div>
-
-      {/* Stats */}
-      <div className="flex items-center gap-3 flex-wrap">
-        {repo.language && (
-          <div className="flex items-center gap-1.5">
-            <div
-              className="w-2.5 h-2.5 rounded-full"
-              style={{ background: langColor }}
-            />
-            <span
-              className="text-[9px] font-bold"
-              style={{ color: T.secondary }}
-            >
-              {repo.language}
-            </span>
-          </div>
-        )}
-        {repo.stargazers_count > 0 && (
-          <div className="flex items-center gap-1">
-            <Star className="w-3 h-3" style={{ color: "#f59e0b" }} />
-            <span
-              className="text-[9px] font-bold"
-              style={{ color: T.secondary }}
-            >
-              {repo.stargazers_count}
-            </span>
-          </div>
-        )}
-        {repo.forks_count > 0 && (
-          <div className="flex items-center gap-1">
-            <GitFork className="w-3 h-3" style={{ color: T.dim }} />
-            <span
-              className="text-[9px] font-bold"
-              style={{ color: T.secondary }}
-            >
-              {repo.forks_count}
-            </span>
-          </div>
-        )}
-        <span className="text-[8px] ml-auto font-mono" style={{ color: T.dim }}>
-          {updatedAgo}
-        </span>
-      </div>
-
-      {/* Topics */}
-      {repo.topics?.length > 0 && (
-        <div className="flex flex-wrap gap-1">
-          {repo.topics.slice(0, 4).map((t) => (
-            <span
-              key={t}
-              className="px-1.5 py-0.5 rounded-md text-[8px] font-bold"
-              style={{
-                background: "rgba(56,189,248,0.08)",
-                border: "1px solid rgba(56,189,248,0.15)",
-                color: "#38bdf8",
-              }}
-            >
-              {t}
-            </span>
-          ))}
-        </div>
-      )}
-
-      {/* Sync CTA */}
-      <motion.button
-        whileHover={{ scale: synced ? 1 : 1.02 }}
-        whileTap={{ scale: synced ? 1 : 0.97 }}
-        onClick={() => !synced && !syncing && onSync(repo)}
-        disabled={synced || syncing}
-        className="flex items-center justify-center gap-2 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
-        style={
-          synced
-            ? {
-                background: "rgba(16,185,129,0.12)",
-                border: "1px solid rgba(16,185,129,0.25)",
-                color: "#10b981",
-                cursor: "default",
-              }
-            : {
-                background: G.dimBg,
-                border: `1px solid ${G.border}`,
-                color: G.bright,
-              }
-        }
-      >
-        {syncing ? (
-          <Loader2 className="w-3.5 h-3.5 animate-spin" />
-        ) : synced ? (
-          <>
-            <Check className="w-3.5 h-3.5" /> Synced to Vault
-          </>
-        ) : (
-          <>
-            <Upload className="w-3.5 h-3.5" /> Sync to Vault
-          </>
-        )}
-      </motion.button>
     </motion.div>
   );
 });
 
-// ─── Loading Skeleton ─────────────────────────────────────────────────────────
-const ConnectorSkeleton = () => (
-  <div className="space-y-4 animate-pulse">
-    <div
-      className="h-24 rounded-[1.25rem]"
-      style={{ background: "rgba(255,255,255,0.03)" }}
-    />
-    <div className="grid grid-cols-4 gap-2">
-      {[...Array(4)].map((_, i) => (
+/* ─── Synced Vault Repo Row ───────────────────────────────────────────────── */
+const VaultRepoRow = memo(({ asset }) => {
+  const isVerified = asset.status === "VERIFIED";
+  const isStrong = asset.strength === "Strong";
+  const isMedium = asset.strength === "Medium";
+
+  const strengthColor = isStrong
+    ? "#10b981"
+    : isMedium
+      ? G.bright
+      : asset.strength === "Weak"
+        ? "#f97316"
+        : isVerified
+          ? "#10b981"
+          : "#f59e0b";
+
+  return (
+    <motion.div
+      layout
+      initial={{ opacity: 0, x: -12 }}
+      animate={{ opacity: 1, x: 0 }}
+      whileHover={{ x: 4 }}
+      transition={{ duration: 0.2 }}
+      className="flex items-center justify-between p-3.5 rounded-xl group"
+      style={{
+        background: isVerified
+          ? "rgba(16,185,129,0.04)"
+          : "rgba(255,255,255,0.02)",
+        border: `1px solid ${
+          isVerified ? "rgba(16,185,129,0.15)" : "rgba(255,255,255,0.04)"
+        }`,
+      }}
+    >
+      <div className="flex items-center gap-3">
         <div
-          key={i}
-          className="h-20 rounded-xl"
-          style={{ background: "rgba(255,255,255,0.03)" }}
+          className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0"
+          style={{
+            background: "#0d1117",
+            border: "1px solid rgba(255,255,255,0.08)",
+          }}
+        >
+          <Github className="w-4 h-4 text-white" />
+        </div>
+        <div>
+          <p className="text-[13px] font-black" style={{ color: T.primary }}>
+            {asset.title}
+          </p>
+          <div className="flex items-center gap-2 mt-0.5">
+            {asset.credentials?.language && (
+              <span className="text-[9px] font-mono" style={{ color: T.dim }}>
+                {asset.credentials.language}
+              </span>
+            )}
+            {asset.credentials?.stars > 0 && (
+              <>
+                <span style={{ color: T.dim }}>·</span>
+                <span
+                  className="text-[9px] font-mono flex items-center gap-0.5"
+                  style={{ color: "#f59e0b" }}
+                >
+                  <Star className="w-2.5 h-2.5" />
+                  {asset.credentials.stars}
+                </span>
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-2">
+        {asset.scoreYield > 0 && (
+          <span
+            className="text-[10px] font-black font-mono"
+            style={{ color: G.base }}
+          >
+            +{asset.scoreYield} pts
+          </span>
+        )}
+        <div
+          className="flex items-center gap-1.5 px-2.5 py-1 rounded-full"
+          style={{
+            background: `${strengthColor}15`,
+            border: `1px solid ${strengthColor}30`,
+          }}
+        >
+          {isVerified ? (
+            <ShieldCheck className="w-3 h-3" style={{ color: strengthColor }} />
+          ) : (
+            <Clock className="w-3 h-3" style={{ color: strengthColor }} />
+          )}
+          <span
+            className="text-[8px] font-black uppercase tracking-widest"
+            style={{ color: strengthColor }}
+          >
+            {isVerified ? asset.strength || "Verified" : "Pending Review"}
+          </span>
+        </div>
+      </div>
+    </motion.div>
+  );
+});
+
+/* ─── Profile Hero Card ───────────────────────────────────────────────────── */
+const ProfileHeroCard = memo(({ user, stats }) => (
+  <motion.div
+    {...FADE_UP(0)}
+    className="relative overflow-hidden rounded-2xl"
+    style={{
+      background: `linear-gradient(135deg, #0d1117 0%, ${V.depth} 60%, rgba(191,162,100,0.04) 100%)`,
+      border: "1px solid rgba(255,255,255,0.07)",
+    }}
+  >
+    {/* Decorative orb */}
+    <div
+      className="absolute -top-16 -right-16 w-48 h-48 rounded-full pointer-events-none"
+      style={{
+        background: `radial-gradient(circle, rgba(191,162,100,0.08) 0%, transparent 70%)`,
+      }}
+    />
+
+    <div className="relative z-10 p-5 flex items-center gap-5">
+      {/* Avatar */}
+      <motion.div whileHover={{ scale: 1.05 }} className="relative shrink-0">
+        <img
+          src={user.avatar_url}
+          alt={user.login}
+          className="w-16 h-16 rounded-2xl"
+          style={{ border: `2px solid ${G.border}` }}
         />
+        {user.hireable && (
+          <div
+            className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full flex items-center justify-center"
+            style={{ background: "#10b981", border: "2px solid #030303" }}
+          >
+            <div className="w-1.5 h-1.5 rounded-full bg-white" />
+          </div>
+        )}
+      </motion.div>
+
+      {/* Info */}
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2 mb-0.5">
+          <h2
+            className="text-lg font-black leading-tight truncate"
+            style={{ color: T.primary, fontFamily: "Montserrat, sans-serif" }}
+          >
+            {user.name || user.login}
+          </h2>
+          <a
+            href={user.html_url}
+            target="_blank"
+            rel="noreferrer"
+            className="shrink-0"
+          >
+            <ArrowUpRight className="w-3.5 h-3.5" style={{ color: G.base }} />
+          </a>
+        </div>
+        <p className="text-[11px] font-mono mb-2" style={{ color: T.dim }}>
+          @{user.login}
+        </p>
+        {user.bio && (
+          <p
+            className="text-[10px] leading-relaxed line-clamp-2"
+            style={{ color: T.secondary }}
+          >
+            {user.bio}
+          </p>
+        )}
+        {user.company && (
+          <div className="flex items-center gap-1 mt-1.5">
+            <BarChart2 className="w-3 h-3" style={{ color: G.base }} />
+            <span className="text-[10px]" style={{ color: T.dim }}>
+              {user.company}
+            </span>
+          </div>
+        )}
+      </div>
+    </div>
+
+    {/* Stat row */}
+    <div
+      className="grid grid-cols-4 border-t"
+      style={{ borderColor: "rgba(255,255,255,0.05)" }}
+    >
+      {[
+        { label: "Repos", value: fmtNum(user.public_repos), color: G.bright },
+        { label: "Stars", value: fmtNum(stats.totalStars), color: "#f59e0b" },
+        { label: "Following", value: fmtNum(user.following), color: "#38bdf8" },
+        {
+          label: "Gists",
+          value: fmtNum(user.public_gists || 0),
+          color: "#a855f7",
+        },
+      ].map(({ label, value, color }) => (
+        <div
+          key={label}
+          className="flex flex-col items-center py-3.5 gap-0.5"
+          style={{
+            borderRight: "1px solid rgba(255,255,255,0.04)",
+          }}
+        >
+          <span
+            className="text-base font-black font-mono leading-none"
+            style={{ color }}
+          >
+            {value}
+          </span>
+          <span
+            className="text-[8px] font-bold uppercase tracking-widest"
+            style={{ color: T.dim }}
+          >
+            {label}
+          </span>
+        </div>
       ))}
     </div>
-    <div
-      className="h-40 rounded-[1.25rem]"
-      style={{ background: "rgba(255,255,255,0.03)" }}
-    />
-    <div className="grid grid-cols-2 gap-3">
-      {[...Array(4)].map((_, i) => (
-        <div
-          key={i}
-          className="h-44 rounded-[1.25rem]"
-          style={{ background: "rgba(255,255,255,0.03)" }}
+  </motion.div>
+));
+
+/* ─── Sync Repo Modal (Command Palette) ──────────────────────────────────── */
+const SyncModal = memo(
+  ({ repos, syncedRepos, syncingRepoId, onSync, onClose }) => {
+    const [q, setQ] = useState("");
+    const inputRef = useRef(null);
+
+    useEffect(() => {
+      inputRef.current?.focus();
+    }, []);
+
+    const filtered = useMemo(
+      () => repos.filter((r) => r.name.toLowerCase().includes(q.toLowerCase())),
+      [repos, q],
+    );
+
+    return createPortal(
+      <div
+        className="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center sm:p-4"
+        onClick={onClose}
+      >
+        {/* Backdrop */}
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          className="absolute inset-0"
+          style={{
+            background: "rgba(0,0,0,0.85)",
+            backdropFilter: "blur(12px)",
+          }}
         />
-      ))}
-    </div>
-  </div>
+
+        {/* Modal */}
+        <motion.div
+          initial={{ opacity: 0, y: 40, scale: 0.97 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={{ opacity: 0, y: 20, scale: 0.97 }}
+          transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
+          onClick={(e) => e.stopPropagation()}
+          className="relative w-full sm:max-w-2xl flex flex-col overflow-hidden"
+          style={{
+            background: V.depth,
+            border: "1px solid rgba(255,255,255,0.1)",
+            borderRadius: "1.5rem 1.5rem 0 0",
+            maxHeight: "80vh",
+            // On sm+ screens, all rounded
+            ...(window.innerWidth >= 640 ? { borderRadius: "1.5rem" } : {}),
+            boxShadow: `0 -4px 60px rgba(0,0,0,0.7), 0 0 0 1px rgba(191,162,100,0.1)`,
+          }}
+        >
+          {/* Drag handle (mobile) */}
+          <div className="sm:hidden flex justify-center pt-3 pb-1">
+            <div
+              className="w-10 h-1 rounded-full"
+              style={{ background: "rgba(255,255,255,0.15)" }}
+            />
+          </div>
+
+          {/* Header */}
+          <div
+            className="flex items-center justify-between p-4 border-b"
+            style={{ borderColor: "rgba(255,255,255,0.07)" }}
+          >
+            <div className="flex items-center gap-3">
+              <div
+                className="w-8 h-8 rounded-xl flex items-center justify-center"
+                style={{ background: G.dimBg, border: `1px solid ${G.border}` }}
+              >
+                <Github className="w-4 h-4" style={{ color: G.bright }} />
+              </div>
+              <div>
+                <h3
+                  className="text-sm font-black"
+                  style={{
+                    color: T.primary,
+                    fontFamily: "Montserrat, sans-serif",
+                  }}
+                >
+                  Sync Repository
+                </h3>
+                <p
+                  className="text-[9px] font-bold uppercase tracking-widest"
+                  style={{ color: T.dim }}
+                >
+                  Select a repo to submit for verification
+                </p>
+              </div>
+            </div>
+            <motion.button
+              whileHover={{ scale: 1.1 }}
+              whileTap={{ scale: 0.9 }}
+              onClick={onClose}
+              className="w-8 h-8 rounded-full flex items-center justify-center"
+              style={{ background: "rgba(255,255,255,0.06)" }}
+            >
+              <X className="w-4 h-4" style={{ color: T.dim }} />
+            </motion.button>
+          </div>
+
+          {/* Search */}
+          <div
+            className="p-3 border-b"
+            style={{ borderColor: "rgba(255,255,255,0.05)" }}
+          >
+            <div className="relative">
+              <Search
+                className="absolute left-3.5 top-1/2 -translate-y-1/2 w-4 h-4"
+                style={{ color: T.dim }}
+              />
+              <input
+                ref={inputRef}
+                type="text"
+                placeholder="Search repositories..."
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                className="w-full pl-10 pr-4 py-2.5 rounded-xl text-sm focus:outline-none transition-colors"
+                style={{
+                  background: "rgba(255,255,255,0.04)",
+                  border: "1px solid rgba(255,255,255,0.07)",
+                  color: T.primary,
+                  caretColor: G.bright,
+                }}
+              />
+            </div>
+          </div>
+
+          {/* Repo list */}
+          <div className="flex-1 overflow-y-auto custom-scrollbar p-2">
+            {filtered.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-10 gap-3">
+                <Search className="w-8 h-8" style={{ color: T.dim }} />
+                <p className="text-xs font-black" style={{ color: T.dim }}>
+                  No repos match "{q}"
+                </p>
+              </div>
+            ) : (
+              filtered.map((repo) => {
+                const isSynced = syncedRepos.has(repo.id);
+                const isSyncing = syncingRepoId === repo.id;
+                const langColor = LANG_COLORS[repo.language] || "#4a4a4a";
+
+                return (
+                  <motion.div
+                    key={repo.id}
+                    whileHover={{
+                      background: isSynced
+                        ? "rgba(16,185,129,0.06)"
+                        : "rgba(255,255,255,0.04)",
+                    }}
+                    className="flex items-center justify-between px-3 py-3 rounded-xl transition-all group"
+                    style={{ cursor: isSynced ? "default" : "pointer" }}
+                    onClick={() => !isSynced && !isSyncing && onSync(repo)}
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      {/* Language dot */}
+                      <div
+                        className="w-2.5 h-2.5 rounded-full shrink-0"
+                        style={{ background: langColor }}
+                      />
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <p
+                            className="text-sm font-bold truncate"
+                            style={{ color: T.primary }}
+                          >
+                            {repo.name}
+                          </p>
+                          {repo.private && (
+                            <Lock
+                              className="w-3 h-3 shrink-0"
+                              style={{ color: "#f59e0b" }}
+                            />
+                          )}
+                        </div>
+                        <div
+                          className="flex items-center gap-2 text-[9px] font-mono mt-0.5"
+                          style={{ color: T.dim }}
+                        >
+                          <span>{repo.language || "Mixed"}</span>
+                          {repo.stargazers_count > 0 && (
+                            <>
+                              <span>·</span>
+                              <span className="flex items-center gap-0.5">
+                                <Star className="w-2.5 h-2.5" />{" "}
+                                {repo.stargazers_count}
+                              </span>
+                            </>
+                          )}
+                          <span>· {timeAgo(repo.pushed_at)}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <motion.div
+                      whileHover={{ scale: 1.05 }}
+                      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest shrink-0"
+                      style={
+                        isSynced
+                          ? {
+                              background: "rgba(16,185,129,0.1)",
+                              border: "1px solid rgba(16,185,129,0.2)",
+                              color: "#10b981",
+                            }
+                          : {
+                              background: G.dimBg,
+                              border: `1px solid ${G.border}`,
+                              color: G.bright,
+                            }
+                      }
+                    >
+                      {isSyncing ? (
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                      ) : isSynced ? (
+                        <>
+                          <Check className="w-3 h-3" /> Synced
+                        </>
+                      ) : (
+                        <>
+                          <Upload className="w-3 h-3" /> Submit
+                        </>
+                      )}
+                    </motion.div>
+                  </motion.div>
+                );
+              })
+            )}
+          </div>
+
+          {/* Footer */}
+          <div
+            className="flex items-center gap-2 p-3 border-t"
+            style={{ borderColor: "rgba(255,255,255,0.05)" }}
+          >
+            <AlertTriangle
+              className="w-3 h-3 shrink-0"
+              style={{ color: G.base }}
+            />
+            <p className="text-[9px]" style={{ color: T.dim }}>
+              Repos are submitted to admin review. Score is awarded after
+              verification.
+            </p>
+          </div>
+        </motion.div>
+      </div>,
+      document.body,
+    );
+  },
 );
 
-// ─── MAIN COMPONENT ───────────────────────────────────────────────────────────
+/* ─── Connection Form ────────────────────────────────────────────────────── */
+const ConnectForm = memo(({ onConnect, loading, error }) => {
+  const [val, setVal] = useState("");
+
+  return (
+    <motion.div
+      {...FADE_UP(0)}
+      className="flex flex-col items-center justify-center min-h-[60vh] px-4 text-center"
+    >
+      {/* Hero icon */}
+      <motion.div
+        animate={{ scale: [1, 1.04, 1] }}
+        transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
+        className="w-20 h-20 rounded-3xl flex items-center justify-center mb-6"
+        style={{
+          background: "linear-gradient(135deg, #0d1117, #161b22)",
+          border: "2px solid rgba(255,255,255,0.1)",
+          boxShadow: "0 0 40px rgba(0,0,0,0.6)",
+        }}
+      >
+        <Github className="w-10 h-10 text-white" />
+      </motion.div>
+
+      <h2
+        className="text-2xl font-black mb-2 leading-tight"
+        style={{
+          color: T.primary,
+          fontFamily: "Montserrat, sans-serif",
+          letterSpacing: "-0.03em",
+        }}
+      >
+        Connect GitHub
+      </h2>
+      <p
+        className="text-sm max-w-xs mb-8 leading-relaxed"
+        style={{ color: T.secondary }}
+      >
+        Sync your repositories to the Vault. Admin-verified repos earn Discotive
+        Score.
+      </p>
+
+      {/* Perks */}
+      <div className="grid grid-cols-3 gap-3 mb-8 w-full max-w-sm">
+        {[
+          { icon: Database, label: "Repo Portfolio", color: G.bright },
+          { icon: Zap, label: "Earn Score", color: "#f59e0b" },
+          { icon: Eye, label: "Public Profile", color: "#38bdf8" },
+        ].map(({ icon: Icon, label, color }) => (
+          <div
+            key={label}
+            className="flex flex-col items-center gap-2 py-3 rounded-xl"
+            style={{
+              background: `${color}08`,
+              border: `1px solid ${color}20`,
+            }}
+          >
+            <Icon className="w-4 h-4" style={{ color }} />
+            <span
+              className="text-[9px] font-black uppercase tracking-widest text-center leading-tight"
+              style={{ color: T.dim }}
+            >
+              {label}
+            </span>
+          </div>
+        ))}
+      </div>
+
+      {/* Input */}
+      <div className="w-full max-w-sm">
+        <div
+          className="flex items-center gap-0 rounded-xl overflow-hidden mb-3"
+          style={{
+            background: V.surface,
+            border: `1px solid ${error ? "rgba(248,113,113,0.4)" : "rgba(255,255,255,0.08)"}`,
+          }}
+        >
+          <div
+            className="px-3.5 py-3 shrink-0"
+            style={{ borderRight: "1px solid rgba(255,255,255,0.06)" }}
+          >
+            <Github className="w-4 h-4" style={{ color: T.dim }} />
+          </div>
+          <input
+            type="text"
+            placeholder="your-github-username"
+            value={val}
+            onChange={(e) => setVal(e.target.value)}
+            onKeyDown={(e) =>
+              e.key === "Enter" && val.trim() && onConnect(val.trim())
+            }
+            className="flex-1 px-3 py-3 text-sm bg-transparent focus:outline-none"
+            style={{ color: T.primary, caretColor: G.bright }}
+          />
+        </div>
+
+        <AnimatePresence>
+          {error && (
+            <motion.p
+              initial={{ opacity: 0, y: -4 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0 }}
+              className="text-[10px] mb-3 flex items-center gap-1.5"
+              style={{ color: "#f87171" }}
+            >
+              <AlertTriangle className="w-3 h-3 shrink-0" />
+              {error}
+            </motion.p>
+          )}
+        </AnimatePresence>
+
+        <motion.button
+          whileHover={{ scale: loading ? 1 : 1.02 }}
+          whileTap={{ scale: 0.98 }}
+          onClick={() => val.trim() && onConnect(val.trim())}
+          disabled={loading || !val.trim()}
+          className="w-full py-3 rounded-xl text-sm font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-all"
+          style={{
+            background: loading
+              ? "rgba(191,162,100,0.15)"
+              : `linear-gradient(135deg,${G.deep},${G.base})`,
+            color: loading ? G.dim : "#0a0a0a",
+            opacity: !val.trim() ? 0.5 : 1,
+          }}
+        >
+          {loading ? (
+            <>
+              <Loader2 className="w-4 h-4 animate-spin" />
+              Connecting...
+            </>
+          ) : (
+            <>
+              <Github className="w-4 h-4" />
+              Connect GitHub
+            </>
+          )}
+        </motion.button>
+      </div>
+    </motion.div>
+  );
+});
+
+/* ─── Swimlane Header ────────────────────────────────────────────────────── */
+const SwimlaneHeader = memo(({ icon: Icon, iconColor, label, cta, onCta }) => (
+  <div className="flex items-center justify-between mb-4 px-1">
+    <div className="flex items-center gap-2">
+      {Icon && <Icon style={{ color: iconColor, width: 13, height: 13 }} />}
+      <span
+        className="text-[9px] font-black uppercase tracking-[0.18em]"
+        style={{ color: T.dim }}
+      >
+        {label}
+      </span>
+    </div>
+    {onCta && (
+      <motion.button
+        whileHover={{ scale: 1.05 }}
+        onClick={onCta}
+        className="flex items-center gap-1 text-[9px] font-black uppercase tracking-widest"
+        style={{ color: G.base }}
+      >
+        {cta} <ChevronRight className="w-3 h-3" />
+      </motion.button>
+    )}
+  </div>
+));
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   MAIN COMPONENT
+══════════════════════════════════════════════════════════════════════════ */
 const GitHubConnector = ({ userData, onVaultAssetAdded, addToast }) => {
   const { currentUser } = useAuth();
   const uid = currentUser?.uid;
 
   const [phase, setPhase] = useState("idle"); // idle | fetching | connected | error
-  const [inputUsername, setInputUsername] = useState("");
   const [githubData, setGithubData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [syncedRepos, setSyncedRepos] = useState(new Set());
   const [syncingRepoId, setSyncingRepoId] = useState(null);
   const [activeTab, setActiveTab] = useState("overview");
-  const [rateLimitReset, setRateLimitReset] = useState(null);
+  const [isSyncModalOpen, setIsSyncModalOpen] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
-  // ── Restore persisted state ───────────────────────────────────────────────
-  useEffect(() => {
-    const existingUsername = userData?.connectors?.github?.username;
-    if (existingUsername && phase === "idle") {
-      setPhase("fetching");
-      fetchGitHubData(existingUsername);
-    }
-  }, [userData?.connectors?.github?.username]); // Reacts immediately when user data becomes available
+  /* ── Vault repos ─────────────────────────────────────────────────────── */
+  const vaultRepos = useMemo(
+    () => (userData?.vault || []).filter((a) => a.connectorSource === "github"),
+    [userData?.vault],
+  );
 
-  useEffect(() => {
-    if (userData?.vault?.length) {
-      const synced = new Set(
-        userData.vault
-          .filter((a) => a.connectorSource === "github" && a.connectorRepoId)
-          .map((a) => a.connectorRepoId),
-      );
-      setSyncedRepos(synced);
-    }
-  }, [userData?.vault]);
-
-  // ── GitHub API Fetch ──────────────────────────────────────────────────────
+  /* ── GitHub API Fetch ─────────────────────────────────────────────────── */
   const fetchGitHubData = useCallback(
-    async (username, token = null) => {
+    async (username) => {
       setLoading(true);
       setError(null);
 
       try {
-        const headers = {
-          Accept: "application/vnd.github.v3+json",
-        };
-
-        // Use OAuth token if provided to bump rate limit to 5000/hr
-        if (token) {
-          headers.Authorization = `token ${token}`;
-        }
+        const headers = { Accept: "application/vnd.github.v3+json" };
 
         const [userRes, reposRes, eventsRes] = await Promise.all([
           fetch(`https://api.github.com/users/${username}`, { headers }),
@@ -513,32 +1157,20 @@ const GitHubConnector = ({ userData, onVaultAssetAdded, addToast }) => {
           ),
         ]);
 
-        // Rate limit detection
         if (userRes.status === 403 || userRes.status === 429) {
           const resetHeader = userRes.headers.get("X-RateLimit-Reset");
-          if (resetHeader) {
-            const resetMs = parseInt(resetHeader) * 1000;
-            setRateLimitReset(resetMs);
-            const minutesLeft = Math.ceil((resetMs - Date.now()) / 60000);
-            throw new Error(
-              `GitHub API rate limit exceeded. Resets in ~${minutesLeft} minute${minutesLeft !== 1 ? "s" : ""}.`,
-            );
-          }
+          const minutesLeft = resetHeader
+            ? Math.ceil((parseInt(resetHeader) * 1000 - Date.now()) / 60000)
+            : 60;
           throw new Error(
-            "GitHub API rate limit exceeded. Please try again shortly.",
+            `Rate limit reached. Try again in ~${minutesLeft} min.`,
           );
         }
-
         if (userRes.status === 404) {
-          throw new Error(
-            `GitHub user "@${username}" not found. Check the username and try again.`,
-          );
+          throw new Error(`GitHub user "@${username}" not found.`);
         }
-
         if (!userRes.ok) {
-          throw new Error(
-            `GitHub API error (${userRes.status}). Please try again.`,
-          );
+          throw new Error(`GitHub API error (${userRes.status}).`);
         }
 
         const [user, repos, events] = await Promise.all([
@@ -547,764 +1179,620 @@ const GitHubConnector = ({ userData, onVaultAssetAdded, addToast }) => {
           eventsRes.ok ? eventsRes.json() : [],
         ]);
 
-        // Validate repos is actually an array (rate limit can return an object)
         const repoList = Array.isArray(repos) ? repos : [];
+        const eventList = Array.isArray(events) ? events : [];
 
-        // ── Aggregate language stats from all repos ──────────────────────────
+        /* ── Language stats ── */
         const languages = {};
-        repoList.forEach((repo) => {
-          if (repo.language && !repo.fork) {
-            languages[repo.language] =
-              (languages[repo.language] || 0) + (repo.size || 1);
+        repoList.forEach((r) => {
+          if (r.language && !r.fork) {
+            languages[r.language] =
+              (languages[r.language] || 0) + (r.size || 1);
           }
         });
 
-        // ── Build commit activity heatmap from events (52 weeks) ──────────────
-        // GitHub's /stats/commit_activity requires auth. We build from public events instead.
+        /* ── Commit activity: last 30 days from events ── */
+        const commitsByDay = {};
         const now = Date.now();
-        const ONE_YEAR_MS = 365 * 24 * 60 * 60 * 1000;
-        const commitDayMap = new Map(); // "YYYY-MM-DD" -> count
-
-        (Array.isArray(events) ? events : []).forEach((event) => {
-          if (event.type === "PushEvent" && event.payload?.commits) {
-            const date = event.created_at?.split("T")[0];
+        const THIRTY_DAYS = 30 * 24 * 60 * 60 * 1000;
+        let recentCommits = 0;
+        eventList.forEach((ev) => {
+          if (ev.type === "PushEvent" && ev.payload?.commits) {
+            const date = ev.created_at?.split("T")[0];
             if (date) {
-              const eventMs = new Date(date).getTime();
-              if (now - eventMs <= ONE_YEAR_MS) {
-                commitDayMap.set(
-                  date,
-                  (commitDayMap.get(date) || 0) + event.payload.commits.length,
-                );
+              const evMs = new Date(date).getTime();
+              if (now - evMs <= THIRTY_DAYS) {
+                const count = ev.payload.commits.length;
+                commitsByDay[date] = (commitsByDay[date] || 0) + count;
+                recentCommits += count;
               }
             }
           }
         });
 
-        // Build 52-week grid (Sun→Sat)
-        const weeks = [];
-        const startDate = new Date(now - ONE_YEAR_MS);
-        // Align to Sunday
-        startDate.setDate(startDate.getDate() - startDate.getDay());
-        for (let w = 0; w < 53; w++) {
-          const days = [];
-          for (let d = 0; d < 7; d++) {
-            const date = new Date(startDate.getTime() + (w * 7 + d) * 86400000);
-            const key = date.toISOString().split("T")[0];
-            days.push(commitDayMap.get(key) || 0);
-          }
-          weeks.push({ days });
-        }
+        /* ── Total stars ── */
+        const totalStars = repoList.reduce(
+          (s, r) => s + (r.stargazers_count || 0),
+          0,
+        );
 
-        setGithubData({ user, repos: repoList, activity: weeks, languages });
+        const data = {
+          user,
+          repos: repoList,
+          languages,
+          commitsByDay,
+          stats: { totalStars, recentCommits },
+        };
 
-        // Persist connection to Firestore
-        if (uid) {
-          await updateDoc(doc(db, "users", uid), {
-            "connectors.github": {
-              username: user.login,
-              displayName: user.name || user.login,
-              avatarUrl: user.avatar_url,
-              profileUrl: user.html_url,
-              connectedAt: new Date().toISOString(),
-              publicRepos: user.public_repos,
-              followers: user.followers,
-            },
-          });
-        }
-
+        setGithubData(data);
         setPhase("connected");
+
+        /* ── Persist to Firestore ── */
+        if (uid) {
+          const existingUsername = userData?.connectors?.github?.username;
+          if (existingUsername !== username) {
+            await updateDoc(doc(db, "users", uid), {
+              "connectors.github": {
+                username,
+                connectedAt: new Date().toISOString(),
+                publicRepos: user.public_repos,
+                followers: user.followers,
+                avatarUrl: user.avatar_url,
+              },
+            });
+          }
+        }
       } catch (err) {
-        console.error("[GitHubConnector] Fetch failed:", err);
-        setError(err.message || "Failed to connect to GitHub.");
+        setError(err.message || "Failed to fetch GitHub profile.");
         setPhase("error");
       } finally {
         setLoading(false);
+        setRefreshing(false);
       }
     },
-    [uid],
+    [uid, userData?.connectors?.github?.username],
   );
 
-  // ── Connect handler ───────────────────────────────────────────────────────
-  const handleConnect = useCallback(async () => {
-    setPhase("fetching");
-    setError(null);
-    try {
-      const provider = new GithubAuthProvider();
-      // provider.addScope('repo'); // Uncomment this if you want to request private repo access in the future
+  /* ── Restore persisted connection ─────────────────────────────────────── */
+  useEffect(() => {
+    const existing = userData?.connectors?.github?.username;
+    if (existing && phase === "idle") {
+      setPhase("fetching");
+      fetchGitHubData(existing);
+    }
+  }, [userData?.connectors?.github?.username, phase, fetchGitHubData]);
 
-      const result = await linkWithPopup(auth.currentUser, provider);
-      const credential = GithubAuthProvider.credentialFromResult(result);
-      const token = credential.accessToken;
-
-      // Extract the exact GitHub username securely from the OAuth response payload
-      const username =
-        result._tokenResponse?.screenName ||
-        result.user.reloadUserInfo?.providerUserInfo?.find(
-          (p) => p.providerId === "github.com",
-        )?.screenName;
-
-      if (!username) {
-        throw new Error(
-          "Could not extract GitHub username from authentication payload.",
-        );
+  /* ── Global Refresh Listener ──────────────────────────────────────────── */
+  useEffect(() => {
+    const onRefresh = () => {
+      const username = userData?.connectors?.github?.username;
+      if (username) {
+        setRefreshing(true);
+        fetchGitHubData(username);
       }
+    };
+    window.addEventListener("TRIGGER_CONNECTOR_REFRESH", onRefresh);
+    return () =>
+      window.removeEventListener("TRIGGER_CONNECTOR_REFRESH", onRefresh);
+  }, [userData?.connectors?.github?.username, fetchGitHubData]);
 
-      await fetchGitHubData(username, token);
-    } catch (err) {
-      console.error("[GitHub OAuth Error]", err);
-      if (err.code === "auth/credential-already-in-use") {
-        setError(
-          "This GitHub account is already linked to another Discotive profile.",
-        );
-      } else if (err.code === "auth/provider-already-linked") {
-        // Fallback: If already linked, grab the username from existing provider data
-        const profile = auth.currentUser.providerData.find(
-          (p) => p.providerId === "github.com",
-        );
-        if (profile?.uid) {
-          await fetchGitHubData(profile.uid);
-          return;
-        } else {
-          setError(
-            "GitHub is linked but user data is missing. Please contact support.",
-          );
-        }
-      } else if (err.code === "auth/popup-closed-by-user") {
-        setPhase("idle");
-        return;
-      } else {
-        setError(err.message || "Authentication failed.");
-      }
-      setPhase("error");
+  /* ── Hydrate synced set from vault ────────────────────────────────────── */
+  useEffect(() => {
+    if (userData?.vault?.length) {
+      const synced = new Set(
+        userData.vault
+          .filter((a) => a.connectorSource === "github" && a.connectorRepoId)
+          .map((a) => a.connectorRepoId),
+      );
+      setSyncedRepos(synced);
     }
-  }, [fetchGitHubData]);
+  }, [userData?.vault]);
 
-  // ── Disconnect handler ────────────────────────────────────────────────────
-  const handleDisconnect = useCallback(async () => {
-    if (!uid) return;
-    try {
-      await updateDoc(doc(db, "users", uid), { "connectors.github": null });
-      setPhase("idle");
-      setGithubData(null);
-      setInputUsername("");
-      setSyncedRepos(new Set());
-      setError(null);
-      addToast?.("GitHub disconnected.", "grey");
-    } catch (err) {
-      addToast?.("Disconnect failed. Try again.", "red");
-    }
-  }, [uid, addToast]);
-
-  // ── Refresh data ──────────────────────────────────────────────────────────
-  const handleRefresh = useCallback(() => {
-    if (githubData?.user?.login) {
-      fetchGitHubData(githubData.user.login);
-    }
-  }, [githubData, fetchGitHubData]);
-
-  // ── Sync repo → Vault ─────────────────────────────────────────────────────
+  /* ── Sync repo to vault ───────────────────────────────────────────────── */
   const handleSyncRepo = useCallback(
     async (repo) => {
-      if (!uid || syncedRepos.has(repo.id) || syncingRepoId) return;
+      if (!uid || syncedRepos.has(repo.id)) return;
+
       setSyncingRepoId(repo.id);
+      const assetId = `gh_${repo.id}_${Date.now()}`;
+
+      const asset = {
+        id: assetId,
+        category: "Project",
+        title: repo.name,
+        description:
+          repo.description || `${repo.language || "Code"} repository on GitHub`,
+        url: repo.html_url,
+        status: "PENDING",
+        connectorSource: "github",
+        connectorRepoId: repo.id,
+        uploadedAt: new Date().toISOString(),
+        credentials: {
+          language: repo.language || "Mixed",
+          stars: repo.stargazers_count,
+          forks: repo.forks_count,
+          visibility: repo.private ? "Private" : "Public",
+          lastPushed: repo.pushed_at,
+        },
+      };
+
       try {
-        const newAsset = {
-          id: `vault_github_${repo.id}_${Date.now()}`,
-          title: repo.full_name,
-          subtitle: repo.description || "",
-          category: "Project",
-          type: "github_repo",
-          url: repo.html_url,
-          isPublic: !repo.private,
-          pinned: false,
-          status: "PENDING",
-          strength: null,
-          scoreYield: 0,
-          connectorSource: "github",
-          connectorRepoId: repo.id,
-          credentials: {
-            repository: repo.html_url,
-            description: repo.description || "",
-            language: repo.language || "Mixed",
-            stars: repo.stargazers_count,
-            forks: repo.forks_count,
-            topics: repo.topics || [],
-            lastUpdated: repo.pushed_at?.split("T")[0] || "",
-            isForked: repo.fork,
-          },
-          uploadedAt: new Date().toISOString(),
-          uploadedBy: uid,
-          hash: `gh_${repo.id}`,
-          size: 0,
-        };
-
-        const currentVault = userData?.vault || [];
-
-        // Guard: don't duplicate
-        const alreadyExists = currentVault.some(
-          (a) => a.connectorRepoId === repo.id,
-        );
-        if (alreadyExists) {
-          setSyncedRepos((prev) => new Set([...prev, repo.id]));
-          setSyncingRepoId(null);
-          return;
-        }
-
-        const updatedVault = [...currentVault, newAsset];
         await updateDoc(doc(db, "users", uid), {
-          vault: updatedVault,
-          vault_count: updatedVault.length,
+          vault: arrayUnion(asset),
+          vault_count: (userData?.vault?.length || 0) + 1,
         });
-
         setSyncedRepos((prev) => new Set([...prev, repo.id]));
-        onVaultAssetAdded?.(newAsset, updatedVault);
-        addToast?.(
-          `"${repo.name}" synced to Vault — pending admin verification.`,
-          "green",
-        );
+        onVaultAssetAdded?.(asset);
+        addToast?.("Repository submitted for admin review!", "success");
+        setIsSyncModalOpen(false);
       } catch (err) {
-        console.error("[GitHubConnector] Sync failed:", err);
-        addToast?.("Sync failed. Check your connection and try again.", "red");
+        addToast?.("Sync failed. Try again.", "error");
+        console.error("[GitHubConnector] Sync error:", err);
       } finally {
         setSyncingRepoId(null);
       }
     },
-    [uid, userData, syncedRepos, syncingRepoId, onVaultAssetAdded, addToast],
+    [uid, syncedRepos, userData?.vault?.length, onVaultAssetAdded, addToast],
   );
 
-  // ── Derived stats ─────────────────────────────────────────────────────────
-  const stats = useMemo(() => {
-    if (!githubData) return null;
-    const { repos, activity } = githubData;
-    return {
-      totalStars: repos.reduce((s, r) => s + (r.stargazers_count || 0), 0),
-      totalForks: repos.reduce((s, r) => s + (r.forks_count || 0), 0),
-      publicRepos: repos.filter((r) => !r.fork).length,
-      totalCommits: activity.flatMap((w) => w.days).reduce((s, d) => s + d, 0),
-    };
-  }, [githubData]);
+  /* ── Refresh ──────────────────────────────────────────────────────────── */
+  const handleRefresh = useCallback(() => {
+    const username = userData?.connectors?.github?.username;
+    if (!username) return;
+    setRefreshing(true);
+    fetchGitHubData(username);
+  }, [userData?.connectors?.github?.username, fetchGitHubData]);
 
-  const tabs = useMemo(
-    () => [
-      { key: "overview", label: "Overview" },
-      { key: "repos", label: `Repos (${githubData?.repos?.length || 0})` },
-      { key: "activity", label: "Activity" },
-    ],
-    [githubData?.repos?.length],
-  );
+  /* ── Disconnect ───────────────────────────────────────────────────────── */
+  const handleDisconnect = useCallback(async () => {
+    if (
+      !uid ||
+      !window.confirm("Disconnect GitHub? Synced repos stay in your Vault.")
+    )
+      return;
+    try {
+      await updateDoc(doc(db, "users", uid), {
+        "connectors.github": null,
+      });
+      setGithubData(null);
+      setPhase("idle");
+      addToast?.("GitHub disconnected.");
+    } catch (err) {
+      addToast?.("Disconnect failed.");
+    }
+  }, [uid, addToast]);
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // RENDER: IDLE / ERROR STATE
-  // ─────────────────────────────────────────────────────────────────────────
-  if (phase === "idle" || phase === "error") {
+  /* ══════════════════════════════════════════════════════════════════════
+     RENDERS
+  ═══════════════════════════════════════════════════════════════════════ */
+
+  /* ── Connection form ─────────────────────────────────────────────────── */
+  if (phase === "idle" || (phase === "error" && !githubData)) {
     return (
-      <motion.div
-        initial={{ opacity: 0, y: 16 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="flex flex-col items-center justify-center min-h-[420px] text-center px-6"
-      >
-        <motion.div
-          className="w-20 h-20 rounded-[1.5rem] flex items-center justify-center mb-6"
-          style={{
-            background: "rgba(226,232,240,0.06)",
-            border: "1px solid rgba(226,232,240,0.12)",
-          }}
-          animate={{
-            boxShadow: [
-              "0 0 0px rgba(226,232,240,0)",
-              "0 0 30px rgba(226,232,240,0.08)",
-              "0 0 0px rgba(226,232,240,0)",
-            ],
-          }}
-          transition={{ duration: 2.5, repeat: Infinity }}
-        >
-          <Github className="w-10 h-10" style={{ color: "#e2e8f0" }} />
-        </motion.div>
-
-        <h2
-          className="text-2xl font-black mb-2"
-          style={{ fontFamily: "'Montserrat', sans-serif", color: T.primary }}
-        >
-          Connect GitHub
-        </h2>
-        <p
-          className="text-sm mb-8 max-w-sm leading-relaxed"
-          style={{ color: T.secondary }}
-        >
-          Import your repos, visualize your commit activity heatmap, and sync
-          projects directly to your Vault for admin verification.
-        </p>
-
-        <AnimatePresence>
-          {phase === "error" && error && (
-            <motion.div
-              initial={{ opacity: 0, y: -8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -8 }}
-              className="flex items-start gap-3 px-4 py-3 rounded-xl mb-6 w-full max-w-sm text-left"
-              style={{
-                background: "rgba(239,68,68,0.08)",
-                border: "1px solid rgba(239,68,68,0.2)",
-              }}
-            >
-              <AlertTriangle
-                className="w-4 h-4 shrink-0 mt-0.5"
-                style={{ color: "#f87171" }}
-              />
-              <p className="text-xs font-bold" style={{ color: "#f87171" }}>
-                {error}
-              </p>
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        <div className="w-full max-w-sm space-y-4">
-          <div className="flex items-center gap-3 p-4 rounded-xl bg-amber-500/10 border border-amber-500/20 text-left">
-            <AlertTriangle className="w-6 h-6 text-amber-400 shrink-0" />
-            <div>
-              <p className="text-xs font-black text-amber-400 uppercase tracking-widest mb-1">
-                Not Connected
-              </p>
-              <p className="text-[10px] text-amber-400/70 leading-relaxed">
-                You must authenticate via OAuth to verify ownership of your
-                repositories.
-              </p>
-            </div>
-          </div>
-          <motion.button
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.97 }}
-            onClick={handleConnect}
-            className="w-full py-3.5 rounded-xl font-black text-[11px] uppercase tracking-widest flex items-center justify-center gap-2 transition-all"
-            style={{
-              background: `linear-gradient(135deg, ${G.deep}, ${G.bright})`,
-              color: "#0a0a0a",
-              boxShadow: `0 0 20px rgba(191,162,100,0.2)`,
-            }}
-          >
-            <Github className="w-4 h-4" />
-            Connect Now
-          </motion.button>
-        </div>
-
-        <div className="flex items-center justify-center gap-1.5 mt-4">
-          <Lock className="w-3 h-3" style={{ color: "#10b981" }} />
-          <p className="text-[9px] font-bold" style={{ color: "#10b981" }}>
-            Secure OAuth connection. No passwords stored.
-          </p>
-        </div>
-      </motion.div>
+      <ConnectForm
+        onConnect={(username) => {
+          setPhase("fetching");
+          fetchGitHubData(username);
+        }}
+        loading={loading}
+        error={error}
+      />
     );
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // RENDER: LOADING STATE
-  // ─────────────────────────────────────────────────────────────────────────
-  if (phase === "fetching" || loading) {
+  /* ── Loading ─────────────────────────────────────────────────────────── */
+  if (phase === "fetching" && !githubData) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[420px] gap-5">
-        <motion.div
-          animate={{ rotate: 360 }}
-          transition={{ duration: 1.8, repeat: Infinity, ease: "linear" }}
-          className="w-12 h-12 rounded-full border-2"
-          style={{
-            borderColor: `${G.base} transparent transparent transparent`,
-          }}
-        />
-        <div className="text-center">
-          <p className="text-sm font-black" style={{ color: T.primary }}>
-            Connecting to GitHub...
-          </p>
-          <p className="text-[10px] mt-1" style={{ color: T.dim }}>
-            Fetching repos, events & language stats
-          </p>
+      <div className="space-y-5 p-1">
+        <Shimmer className="h-28 w-full" />
+        <div className="grid grid-cols-4 gap-3">
+          {[...Array(4)].map((_, i) => (
+            <Shimmer key={i} className="h-20" />
+          ))}
+        </div>
+        <Shimmer className="h-12 w-full" />
+        <div className="flex gap-4 overflow-hidden">
+          {[...Array(3)].map((_, i) => (
+            <Shimmer key={i} className="h-64 w-60 shrink-0" />
+          ))}
         </div>
       </div>
     );
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // RENDER: CONNECTED STATE
-  // ─────────────────────────────────────────────────────────────────────────
-  if (phase === "connected" && githubData && stats) {
-    const { user, repos, activity, languages } = githubData;
+  /* ── Connected ───────────────────────────────────────────────────────── */
+  const { user, repos, languages, commitsByDay, stats } = githubData;
 
-    return (
-      <motion.div
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        className="flex flex-col gap-0"
-      >
-        {/* Connected Profile Banner */}
+  const tabs = [
+    { key: "overview", label: "Overview", icon: Activity },
+    { key: "repos", label: `Repos (${repos.length})`, icon: BookOpen },
+  ];
+
+  return (
+    <div className="flex flex-col gap-6 pb-8">
+      {/* ── Hero Profile Card ── */}
+      <motion.div {...FADE_UP(0)}>
+        <ProfileHeroCard user={user} stats={stats} />
+      </motion.div>
+
+      {/* ── Tabs ── */}
+      <motion.div {...FADE_UP(0.05)}>
         <div
-          className="relative flex items-center gap-4 p-5 rounded-[1.25rem] mb-5 overflow-hidden"
+          className="flex p-1 rounded-xl gap-1"
           style={{
-            background: "rgba(226,232,240,0.04)",
-            border: "1px solid rgba(226,232,240,0.1)",
+            background: V.surface,
+            border: "1px solid rgba(255,255,255,0.06)",
           }}
         >
-          <div
-            className="absolute inset-0 pointer-events-none"
-            style={{
-              background:
-                "radial-gradient(ellipse at 0% 50%, rgba(226,232,240,0.04) 0%, transparent 60%)",
-            }}
-          />
-          <img
-            src={user.avatar_url}
-            alt={user.login}
-            className="w-14 h-14 rounded-full border-2 shrink-0 relative z-10"
-            style={{ borderColor: "rgba(226,232,240,0.2)" }}
-          />
-          <div className="flex-1 min-w-0 relative z-10">
-            <div className="flex items-center gap-2 mb-0.5 flex-wrap">
-              <h3 className="text-base font-black" style={{ color: T.primary }}>
-                {user.name || user.login}
-              </h3>
-              <div
-                className="flex items-center gap-1 px-2 py-0.5 rounded-full"
-                style={{
-                  background: "rgba(16,185,129,0.12)",
-                  border: "1px solid rgba(16,185,129,0.25)",
-                }}
-              >
-                <div
-                  className="w-1.5 h-1.5 rounded-full animate-pulse"
-                  style={{ background: "#10b981" }}
-                />
-                <span
-                  className="text-[8px] font-black uppercase tracking-widest"
-                  style={{ color: "#10b981" }}
-                >
-                  Connected
-                </span>
-              </div>
-            </div>
-            <p className="text-xs font-mono mb-1" style={{ color: T.dim }}>
-              @{user.login}
-            </p>
-            {user.bio && (
-              <p
-                className="text-[11px] line-clamp-1"
-                style={{ color: T.secondary }}
-              >
-                {user.bio}
-              </p>
-            )}
-          </div>
-          <div className="flex items-center gap-2 shrink-0 relative z-10">
-            <button
-              onClick={handleRefresh}
-              disabled={loading}
-              className="w-8 h-8 rounded-lg flex items-center justify-center transition-all hover:bg-white/5"
-              style={{
-                background: V.surface,
-                border: "1px solid rgba(255,255,255,0.06)",
-              }}
-              title="Refresh data"
+          {tabs.map(({ key, label, icon: Icon }) => (
+            <motion.button
+              key={key}
+              whileTap={{ scale: 0.97 }}
+              onClick={() => setActiveTab(key)}
+              className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all"
+              style={
+                activeTab === key
+                  ? {
+                      background: G.dimBg,
+                      color: G.bright,
+                      border: `1px solid ${G.border}`,
+                    }
+                  : {
+                      color: T.dim,
+                      border: "1px solid transparent",
+                    }
+              }
             >
-              <RefreshCw
-                className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`}
-                style={{ color: G.base }}
-              />
-            </button>
-            <a
-              href={user.html_url}
-              target="_blank"
-              rel="noreferrer"
-              className="w-8 h-8 rounded-lg flex items-center justify-center transition-all hover:bg-white/5"
-              style={{
-                background: V.surface,
-                border: "1px solid rgba(255,255,255,0.06)",
-              }}
-            >
-              <ExternalLink className="w-3.5 h-3.5" style={{ color: T.dim }} />
-            </a>
-            <button
-              onClick={handleDisconnect}
-              className="w-8 h-8 rounded-lg flex items-center justify-center transition-all hover:bg-red-500/10"
-              style={{
-                background: V.surface,
-                border: "1px solid rgba(255,255,255,0.06)",
-              }}
-              title="Disconnect GitHub"
-            >
-              <X className="w-3.5 h-3.5" style={{ color: "#f87171" }} />
-            </button>
-          </div>
-        </div>
-
-        {/* Stats Grid */}
-        <div className="grid grid-cols-4 gap-2 mb-5">
-          <StatBadge
-            icon={BookOpen}
-            label="Repos"
-            value={stats.publicRepos}
-            color="#e2e8f0"
-          />
-          <StatBadge
-            icon={Star}
-            label="Total Stars"
-            value={stats.totalStars}
-            color="#f59e0b"
-          />
-          <StatBadge
-            icon={GitFork}
-            label="Total Forks"
-            value={stats.totalForks}
-            color="#38bdf8"
-          />
-          <StatBadge
-            icon={Activity}
-            label="Commits (1yr)"
-            value={stats.totalCommits}
-            color="#10b981"
-          />
-        </div>
-
-        {/* Tabs */}
-        <div
-          className="flex gap-1 mb-5 p-1 rounded-xl"
-          style={{
-            background: V.depth,
-            border: "1px solid rgba(255,255,255,0.05)",
-          }}
-        >
-          {tabs.map((tab) => (
-            <button
-              key={tab.key}
-              onClick={() => setActiveTab(tab.key)}
-              className="flex-1 py-2 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all"
-              style={{
-                background:
-                  activeTab === tab.key
-                    ? "rgba(255,255,255,0.07)"
-                    : "transparent",
-                color: activeTab === tab.key ? T.primary : T.dim,
-                border:
-                  activeTab === tab.key
-                    ? "1px solid rgba(255,255,255,0.08)"
-                    : "1px solid transparent",
-              }}
-            >
-              {tab.label}
-            </button>
+              <Icon className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">{label}</span>
+              <span className="sm:hidden">
+                {key.charAt(0).toUpperCase() + key.slice(1)}
+              </span>
+            </motion.button>
           ))}
         </div>
+      </motion.div>
 
-        {/* Tab Content */}
-        <AnimatePresence mode="wait">
-          {activeTab === "overview" && (
-            <motion.div
-              key="overview"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="space-y-5"
-            >
-              <div
-                className="p-4 rounded-[1.25rem]"
+      {/* ── Header controls removed — Maintained by Global UI Hub ── */}
+
+      {/* ════════════════════════════════════════════
+          TAB CONTENT
+      ════════════════════════════════════════════ */}
+      <AnimatePresence mode="wait">
+        {/* ── OVERVIEW ── */}
+        {activeTab === "overview" && (
+          <motion.div
+            key="overview"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="space-y-5"
+          >
+            {/* Recent Activity */}
+            {Object.keys(commitsByDay).length > 0 && (
+              <motion.div
+                {...FADE_UP(0.1)}
+                className="p-5 rounded-2xl"
                 style={{
                   background: V.surface,
-                  border: "1px solid rgba(255,255,255,0.04)",
+                  border: "1px solid rgba(255,255,255,0.05)",
+                }}
+              >
+                <RecentActivityChart commitsByDay={commitsByDay} />
+              </motion.div>
+            )}
+
+            {/* Language distribution */}
+            {Object.keys(languages).length > 0 && (
+              <motion.div
+                {...FADE_UP(0.14)}
+                className="p-5 rounded-2xl"
+                style={{
+                  background: V.surface,
+                  border: "1px solid rgba(255,255,255,0.05)",
                 }}
               >
                 <LanguageBar languages={languages} />
-              </div>
-              <div
-                className="p-4 rounded-[1.25rem]"
-                style={{
-                  background: V.surface,
-                  border: "1px solid rgba(255,255,255,0.04)",
-                }}
-              >
-                <CommitHeatmap weeks={activity} />
-              </div>
-              <div>
-                <div className="flex items-center justify-between mb-3">
-                  <p
-                    className="text-[9px] font-black uppercase tracking-widest"
+              </motion.div>
+            )}
+
+            {/* Connected Repositories Cinematic Cards */}
+            <motion.div {...FADE_UP(0.17)}>
+              <div className="flex items-center justify-between mb-4 px-1">
+                <div className="flex items-center gap-2">
+                  <Database style={{ color: G.base, width: 13, height: 13 }} />
+                  <span
+                    className="text-[9px] font-black uppercase tracking-[0.18em]"
                     style={{ color: T.dim }}
                   >
-                    Top Repositories
-                  </p>
-                  <button
-                    onClick={() => setActiveTab("repos")}
-                    className="text-[9px] font-black uppercase tracking-widest flex items-center gap-1"
-                    style={{ color: G.base }}
-                  >
-                    View All <ChevronRight className="w-3 h-3" />
-                  </button>
+                    Connected Repositories
+                  </span>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  {repos.slice(0, 4).map((repo) => (
-                    <RepoCard
-                      key={repo.id}
-                      repo={repo}
-                      onSync={handleSyncRepo}
-                      synced={syncedRepos.has(repo.id)}
-                      syncing={syncingRepoId === repo.id}
-                    />
-                  ))}
+                <div className="relative group">
+                  <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    className="w-7 h-7 rounded-full flex items-center justify-center transition-all"
+                    style={{ background: "rgba(255,255,255,0.06)" }}
+                  >
+                    <Plus className="w-4 h-4 text-white" />
+                  </motion.button>
+                  <div
+                    className="absolute right-0 top-full mt-2 w-64 rounded-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-50 overflow-hidden shadow-2xl"
+                    style={{
+                      background: V.elevated,
+                      border: "1px solid rgba(255,255,255,0.1)",
+                    }}
+                  >
+                    <div className="max-h-64 overflow-y-auto custom-scrollbar p-1">
+                      {repos.map((repo) => {
+                        const isSynced = syncedRepos.has(repo.id);
+                        return (
+                          <div
+                            key={repo.id}
+                            className="flex items-center justify-between px-3 py-2.5 rounded-lg group/repo hover:bg-white/5 transition-colors"
+                          >
+                            <span className="text-xs font-bold truncate pr-2 text-white/80 group-hover/repo:text-white">
+                              {repo.name}
+                            </span>
+                            {!isSynced ? (
+                              <button
+                                onClick={() => handleSyncRepo(repo)}
+                                disabled={syncingRepoId === repo.id}
+                                className="opacity-0 group-hover/repo:opacity-100 px-2 py-1 rounded text-[8px] font-black uppercase tracking-widest transition-all shrink-0"
+                                style={{
+                                  background:
+                                    syncingRepoId === repo.id
+                                      ? "rgba(255,255,255,0.05)"
+                                      : "rgba(191,162,100,0.15)",
+                                  color:
+                                    syncingRepoId === repo.id
+                                      ? T.dim
+                                      : G.bright,
+                                }}
+                              >
+                                {syncingRepoId === repo.id
+                                  ? "Syncing..."
+                                  : "Submit"}
+                              </button>
+                            ) : (
+                              <Check className="w-3 h-3 text-[#10b981] shrink-0" />
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
                 </div>
               </div>
-            </motion.div>
-          )}
 
-          {activeTab === "repos" && (
-            <motion.div
-              key="repos"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-            >
-              {repos.length === 0 ? (
+              {vaultRepos.length === 0 ? (
                 <div
-                  className="flex flex-col items-center justify-center py-16 text-center"
-                  style={{
-                    border: "1px dashed rgba(255,255,255,0.06)",
-                    borderRadius: "1.25rem",
-                  }}
+                  className="py-8 text-center rounded-xl"
+                  style={{ border: "1px dashed rgba(255,255,255,0.1)" }}
                 >
-                  <BookOpen
-                    className="w-10 h-10 mb-3"
-                    style={{ color: "rgba(255,255,255,0.08)" }}
-                  />
-                  <p
-                    className="text-sm font-black"
-                    style={{ color: "rgba(255,255,255,0.2)" }}
-                  >
-                    No public repositories found.
+                  <p className="text-xs text-white/40">
+                    No connected repositories yet.
                   </p>
                 </div>
               ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  {repos.map((repo) => (
-                    <RepoCard
-                      key={repo.id}
-                      repo={repo}
-                      onSync={handleSyncRepo}
-                      synced={syncedRepos.has(repo.id)}
-                      syncing={syncingRepoId === repo.id}
-                    />
+                <div
+                  className="flex gap-4 overflow-x-auto hide-scrollbar pb-4 px-1"
+                  style={{
+                    scrollSnapType: "x mandatory",
+                    WebkitOverflowScrolling: "touch",
+                  }}
+                >
+                  {vaultRepos.map((asset, i) => (
+                    <motion.div
+                      key={asset.id}
+                      className="shrink-0 relative cursor-pointer group rounded-xl overflow-hidden flex flex-col justify-between p-4 transition-all"
+                      style={{
+                        width: 180,
+                        height: 240,
+                        scrollSnapAlign: "start",
+                        background: `linear-gradient(to bottom, ${V.depth} 0%, ${V.elevated} 100%)`,
+                        border: "1px solid rgba(255,255,255,0.06)",
+                      }}
+                      whileHover={{ y: -4, border: `1px solid ${G.border}` }}
+                    >
+                      <div className="absolute top-0 right-0 p-3 opacity-[0.06] group-hover:opacity-10 transition-opacity">
+                        <BookOpen size={90} style={{ color: G.base }} />
+                      </div>
+                      <div className="relative z-10">
+                        <div
+                          className="w-8 h-8 rounded-lg flex items-center justify-center mb-3"
+                          style={{ background: "rgba(255,255,255,0.05)" }}
+                        >
+                          <Github className="w-4 h-4 text-white" />
+                        </div>
+                        <h3 className="text-sm font-black leading-tight text-white line-clamp-2 mb-1">
+                          {asset.title}
+                        </h3>
+                        <p className="text-[10px] font-bold uppercase tracking-widest text-[#BFA264]/70">
+                          {asset.credentials?.language || "Repository"}
+                        </p>
+                      </div>
+                      <div className="relative z-10 flex items-center justify-between">
+                        <div className="flex items-center gap-1.5 text-[10px] font-black font-mono text-[#f59e0b]">
+                          <Star className="w-3 h-3" />{" "}
+                          {fmtNum(asset.credentials?.stars || 0)}
+                        </div>
+                        {asset.status === "VERIFIED" ? (
+                          <div className="flex items-center gap-1 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full">
+                            <Check className="w-2.5 h-2.5 text-emerald-400" />
+                            <span className="text-[8px] font-black uppercase tracking-widest text-emerald-400">
+                              Verified
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1 bg-amber-500/10 border border-amber-500/20 px-2 py-0.5 rounded-full">
+                            <Clock className="w-2.5 h-2.5 text-amber-400" />
+                            <span className="text-[8px] font-black uppercase tracking-widest text-amber-400">
+                              Review
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    </motion.div>
                   ))}
                 </div>
               )}
             </motion.div>
-          )}
-
-          {activeTab === "activity" && (
-            <motion.div
-              key="activity"
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="space-y-5"
-            >
-              <div
-                className="p-5 rounded-[1.25rem]"
-                style={{
-                  background: V.surface,
-                  border: "1px solid rgba(255,255,255,0.04)",
-                }}
-              >
-                <CommitHeatmap weeks={activity} />
-              </div>
-              <div
-                className="p-5 rounded-[1.25rem]"
-                style={{
-                  background: V.surface,
-                  border: "1px solid rgba(255,255,255,0.04)",
-                }}
-              >
-                <LanguageBar languages={languages} />
-              </div>
-              {/* Extra stats */}
-              <div className="grid grid-cols-3 gap-3">
-                {[
-                  {
-                    label: "Followers",
-                    value: user.followers,
-                    color: "#a855f7",
-                  },
-                  {
-                    label: "Following",
-                    value: user.following,
-                    color: "#38bdf8",
-                  },
-                  { label: "Gists", value: user.public_gists, color: G.base },
-                ].map(({ label, value, color }) => (
-                  <div
-                    key={label}
-                    className="p-4 rounded-xl flex flex-col items-center gap-1"
-                    style={{
-                      background: `${color}0A`,
-                      border: `1px solid ${color}20`,
-                    }}
-                  >
-                    <span
-                      className="text-xl font-black font-mono"
-                      style={{ color }}
-                    >
-                      {value?.toLocaleString() || 0}
-                    </span>
-                    <span
-                      className="text-[9px] font-bold uppercase tracking-widest"
-                      style={{ color: T.dim }}
-                    >
-                      {label}
-                    </span>
-                  </div>
-                ))}
-              </div>
-              {user.company && (
-                <div
-                  className="flex items-center gap-3 p-3 rounded-xl"
-                  style={{
-                    background: V.surface,
-                    border: "1px solid rgba(255,255,255,0.04)",
-                  }}
-                >
-                  <BarChart2
-                    className="w-4 h-4 shrink-0"
-                    style={{ color: G.base }}
-                  />
-                  <span
-                    className="text-xs font-bold"
-                    style={{ color: T.secondary }}
-                  >
-                    {user.company}
-                  </span>
-                </div>
-              )}
-            </motion.div>
-          )}
-        </AnimatePresence>
-
-        {/* Synced count footer */}
-        {syncedRepos.size > 0 && (
-          <div
-            className="flex items-center gap-2 mt-4 p-3 rounded-xl"
-            style={{
-              background: "rgba(16,185,129,0.06)",
-              border: "1px solid rgba(16,185,129,0.15)",
-            }}
-          >
-            <Zap className="w-3.5 h-3.5" style={{ color: "#10b981" }} />
-            <span
-              className="text-[10px] font-black uppercase tracking-widest"
-              style={{ color: "#10b981" }}
-            >
-              {syncedRepos.size} repo{syncedRepos.size !== 1 ? "s" : ""} synced
-              to Vault — awaiting admin verification
-            </span>
-          </div>
+          </motion.div>
         )}
-      </motion.div>
-    );
-  }
 
-  return null;
+        {/* ── REPOSITORIES ── */}
+        {activeTab === "repos" && (
+          <motion.div
+            key="repos"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+          >
+            {repos.length === 0 ? (
+              <div
+                className="flex flex-col items-center justify-center py-16 rounded-2xl"
+                style={{
+                  background: V.surface,
+                  border: "1px solid rgba(255,255,255,0.04)",
+                }}
+              >
+                <BookOpen className="w-10 h-10 mb-4" style={{ color: T.dim }} />
+                <p className="font-black" style={{ color: T.dim }}>
+                  No public repositories.
+                </p>
+              </div>
+            ) : (
+              <>
+                {/* Desktop: horizontal scroll swimlane */}
+                <div className="hidden md:block">
+                  <div
+                    className="overflow-x-auto hide-scrollbar -mx-1 px-1 pb-4"
+                    style={{ WebkitOverflowScrolling: "touch" }}
+                  >
+                    <div
+                      className="flex gap-4"
+                      style={{ scrollSnapType: "x mandatory" }}
+                    >
+                      {repos.map((repo, i) => (
+                        <motion.div
+                          key={repo.id}
+                          initial={{ opacity: 0, x: 20 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          transition={{ delay: i * 0.04, duration: 0.3 }}
+                        >
+                          <RepoCard
+                            repo={repo}
+                            onSync={handleSyncRepo}
+                            synced={syncedRepos.has(repo.id)}
+                            syncing={syncingRepoId === repo.id}
+                          />
+                        </motion.div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Mobile: vertical list */}
+                <div className="md:hidden space-y-3">
+                  {repos.map((repo, i) => {
+                    const langColor = LANG_COLORS[repo.language] || "#4a4a4a";
+                    const isSynced = syncedRepos.has(repo.id);
+                    const isSyncing = syncingRepoId === repo.id;
+
+                    return (
+                      <motion.div
+                        key={repo.id}
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: i * 0.04, duration: 0.3 }}
+                        className="flex items-center gap-3 p-3.5 rounded-2xl"
+                        style={{
+                          background: isSynced
+                            ? "rgba(16,185,129,0.04)"
+                            : V.surface,
+                          border: `1px solid ${isSynced ? "rgba(16,185,129,0.2)" : "rgba(255,255,255,0.05)"}`,
+                        }}
+                      >
+                        <div
+                          className="w-1 self-stretch rounded-full shrink-0"
+                          style={{ background: langColor }}
+                        />
+                        <div className="flex-1 min-w-0">
+                          <p
+                            className="text-[13px] font-black truncate"
+                            style={{ color: T.primary }}
+                          >
+                            {repo.name}
+                          </p>
+                          {repo.description && (
+                            <p
+                              className="text-[10px] line-clamp-1 mt-0.5"
+                              style={{ color: T.secondary }}
+                            >
+                              {repo.description}
+                            </p>
+                          )}
+                          <div
+                            className="flex items-center gap-2 mt-1 text-[9px] font-mono"
+                            style={{ color: T.dim }}
+                          >
+                            {repo.language && <span>{repo.language}</span>}
+                            {repo.stargazers_count > 0 && (
+                              <span className="flex items-center gap-0.5">
+                                <Star className="w-2.5 h-2.5 text-amber-500" />
+                                {repo.stargazers_count}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <motion.button
+                          whileTap={{ scale: 0.9 }}
+                          onClick={() =>
+                            !isSynced && !isSyncing && handleSyncRepo(repo)
+                          }
+                          disabled={isSynced || isSyncing}
+                          className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
+                          style={
+                            isSynced
+                              ? {
+                                  background: "rgba(16,185,129,0.1)",
+                                  border: "1px solid rgba(16,185,129,0.2)",
+                                }
+                              : {
+                                  background: G.dimBg,
+                                  border: `1px solid ${G.border}`,
+                                }
+                          }
+                        >
+                          {isSyncing ? (
+                            <Loader2
+                              className="w-3.5 h-3.5 animate-spin"
+                              style={{ color: G.bright }}
+                            />
+                          ) : isSynced ? (
+                            <Check className="w-3.5 h-3.5 text-emerald-400" />
+                          ) : (
+                            <Upload
+                              className="w-3.5 h-3.5"
+                              style={{ color: G.bright }}
+                            />
+                          )}
+                        </motion.button>
+                      </motion.div>
+                    );
+                  })}
+                </div>
+              </>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
 };
 
 export default GitHubConnector;

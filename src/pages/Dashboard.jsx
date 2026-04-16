@@ -2320,6 +2320,11 @@ const MobileDashboard = ({
         <CommandActions navigate={navigate} />
       </div>
 
+      {/* ── CONNECTED APPS ── */}
+      <div className="px-4 mb-5">
+        <ConnectedAppsStrip userData={userData} navigate={navigate} />
+      </div>
+
       {/* ── HERO DIRECTIVE (mobile compact) ── */}
       <div className="px-4 mb-5">
         <HeroDirective
@@ -2739,6 +2744,161 @@ const MobileDashboard = ({
   );
 };
 
+/* ─── Connected Apps Strip ───────────────────────────────────────────────── */
+const CONNECTOR_META = {
+  github: {
+    label: "GitHub",
+    color: "#e6edf3",
+    bg: "#0d1117",
+    border: "rgba(230,237,243,0.15)",
+    glow: "rgba(230,237,243,0.08)",
+    Icon: ({ ...p }) => (
+      <svg viewBox="0 0 24 24" fill="currentColor" {...p}>
+        <path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" />
+      </svg>
+    ),
+  },
+  youtube: {
+    label: "YouTube",
+    color: "#ff4e45",
+    bg: "#0f0000",
+    border: "rgba(255,78,69,0.2)",
+    glow: "rgba(255,78,69,0.08)",
+    Icon: ({ ...p }) => (
+      <svg viewBox="0 0 24 24" fill="currentColor" {...p}>
+        <path d="M23.498 6.186a3.016 3.016 0 00-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 00.502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 002.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 002.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z" />
+      </svg>
+    ),
+  },
+};
+
+const isConnected = (key, userData) => {
+  const c = userData?.connectors?.[key];
+  if (!c) return false;
+  if (key === "github") return !!c.username;
+  if (key === "youtube") return !!c.channelUrl;
+  return false;
+};
+
+const ConnectedAppsStrip = memo(({ userData, navigate }) => {
+  const connected = Object.entries(CONNECTOR_META).filter(([key]) =>
+    isConnected(key, userData),
+  );
+
+  if (connected.length === 0) return null;
+
+  return (
+    <div>
+      <SectionLabel icon={Zap} color={G.base}>
+        Connected Apps
+      </SectionLabel>
+      <div
+        className="flex gap-5 overflow-x-auto hide-scrollbar pt-2 pb-4 px-1"
+        style={{ WebkitOverflowScrolling: "touch" }}
+      >
+        {connected.map(([key, meta]) => {
+          const { Icon } = meta;
+          const connData = userData?.connectors?.[key];
+          const sub =
+            key === "github"
+              ? `@${connData?.username}`
+              : key === "youtube"
+                ? connData?.handle
+                  ? `@${connData.handle}`
+                  : "Connected"
+                : "Connected";
+
+          return (
+            <div
+              key={key}
+              className="flex flex-col items-center gap-2.5 shrink-0"
+            >
+              <motion.button
+                whileHover="hover"
+                whileTap="tap"
+                onClick={() => navigate(`/app/vault/connectors/${key}`)}
+                className="relative w-[68px] h-[68px] rounded-full flex items-center justify-center overflow-hidden shrink-0 group"
+                style={{
+                  background: meta.bg,
+                  border: `1px solid ${meta.border}`, // Sleek transparent app-specific border, no harsh gold.
+                  boxShadow: `0 4px 20px ${meta.glow}`,
+                }}
+                variants={{
+                  hover: { scale: 1.05 },
+                  tap: { scale: 0.95 },
+                }}
+              >
+                {/* Base App Logo */}
+                <motion.div
+                  className="absolute inset-0 flex items-center justify-center"
+                  variants={{
+                    hover: { opacity: 0, scale: 0.7, filter: "blur(4px)" },
+                  }}
+                  transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
+                >
+                  <Icon className="w-8 h-8" style={{ color: meta.color }} />
+                </motion.div>
+
+                {/* Animated Redirect Arrow */}
+                <motion.div
+                  className="absolute inset-0 flex items-center justify-center"
+                  initial={{ opacity: 0, scale: 0.5, y: 12, rotate: -15 }}
+                  variants={{
+                    hover: { opacity: 1, scale: 1, y: 0, rotate: 0 },
+                  }}
+                  transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
+                >
+                  <ArrowUpRight
+                    className="w-7 h-7"
+                    style={{ color: meta.color }}
+                  />
+                </motion.div>
+              </motion.button>
+
+              {/* Profile/Sub Text Data Underneath */}
+              <div className="flex flex-col items-center text-center">
+                <span
+                  className="text-[10px] font-black leading-tight"
+                  style={{ color: meta.color }}
+                >
+                  {meta.label}
+                </span>
+                <span
+                  className="text-[8px] font-mono mt-0.5 truncate max-w-[70px]"
+                  style={{ color: "rgba(255,255,255,0.4)" }}
+                >
+                  {sub}
+                </span>
+              </div>
+            </div>
+          );
+        })}
+
+        {/* Add more connector CTA (Story Aesthetic) */}
+        <div className="flex flex-col items-center gap-2.5 shrink-0">
+          <motion.button
+            whileHover={{ scale: 1.05, background: "rgba(255,255,255,0.06)" }}
+            whileTap={{ scale: 0.95 }}
+            onClick={() => navigate("/app/vault")}
+            className="w-[68px] h-[68px] rounded-full flex items-center justify-center shrink-0 transition-colors"
+            style={{
+              background: "rgba(255,255,255,0.02)",
+              border: "1px dashed rgba(255,255,255,0.15)",
+            }}
+          >
+            <Plus className="w-6 h-6" style={{ color: T.dim }} />
+          </motion.button>
+          <div className="flex flex-col items-center text-center mt-[1px]">
+            <span className="text-[9px] font-black uppercase tracking-widest text-white/40">
+              Add New
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+});
+
 /* ═══════════════════════════════════════════════════════════════════════════
    SKELETON
 ══════════════════════════════════════════════════════════════════════════ */
@@ -2969,6 +3129,14 @@ const Dashboard = () => {
                   marginBottom: 40,
                 }}
               />
+
+              {/* Connected Apps */}
+              <motion.section
+                {...FADE_UP(0.09)}
+                className="pb-8 pr-12 pl-8 md:pl-12"
+              >
+                <ConnectedAppsStrip userData={userData} navigate={navigate} />
+              </motion.section>
 
               {/* Opportunities */}
               <motion.section
