@@ -50,6 +50,7 @@ import {
   ArrowRight,
   Target,
   Star,
+  MoreHorizontal,
 } from "lucide-react";
 
 // ─── Design Tokens ────────────────────────────────────────────────────────────
@@ -134,235 +135,137 @@ const getNotificationIcon = (notif) => {
   return { Icon: Bell, color: G.base };
 };
 
-// ─── Delete Confirmation Modal ────────────────────────────────────────────────
-const DeleteConfirmModal = memo(({ onConfirm, onCancel }) => {
-  const [dontShow, setDontShow] = useState(false);
+// ─── Undo Snackbar Component ──────────────────────────────────────────────────
+const UndoSnackbar = memo(({ onUndo, onDismiss }) => {
+  useEffect(() => {
+    const timer = setTimeout(() => onDismiss(), 4500);
+    return () => clearTimeout(timer);
+  }, [onDismiss]);
 
   return (
     <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      className="fixed inset-0 z-[99999] flex items-center justify-center px-4"
-      style={{ background: "rgba(0,0,0,0.6)", backdropFilter: "blur(8px)" }}
-      onClick={onCancel}
+      initial={{ y: 80, opacity: 0 }}
+      animate={{ y: 0, opacity: 1 }}
+      exit={{ y: 80, opacity: 0 }}
+      transition={{ type: "spring", damping: 25, stiffness: 300 }}
+      className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[99999] flex items-center justify-between w-[90%] max-w-[340px] px-5 py-3.5 rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.5)]"
+      style={{
+        background: "#1A1A1A",
+        border: "1px solid rgba(255,255,255,0.08)",
+      }}
     >
-      <motion.div
-        initial={{ scale: 0.95, y: 10, opacity: 0 }}
-        animate={{ scale: 1, y: 0, opacity: 1 }}
-        exit={{ scale: 0.95, y: 10, opacity: 0 }}
-        transition={{ type: "spring", damping: 25, stiffness: 300 }}
-        className="w-full max-w-[320px] rounded-3xl overflow-hidden shadow-2xl relative"
-        style={{
-          background: "linear-gradient(145deg, #1A1A1A 0%, #0A0A0A 100%)",
-          border: "1px solid rgba(255,255,255,0.08)",
-          boxShadow: "0 25px 50px -12px rgba(0,0,0,0.5)",
-        }}
-        onClick={(e) => e.stopPropagation()}
+      <span className="text-[13px] font-medium text-white">Moved to Trash</span>
+      <button
+        onClick={onUndo}
+        className="text-[12px] font-black uppercase tracking-wider text-[#D4AF78] hover:text-white transition-colors"
       >
-        {/* Glossy top highlight */}
-        <div className="absolute top-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-white/10 to-transparent" />
-
-        <div className="p-6 flex flex-col items-center text-center">
-          <div
-            className="w-12 h-12 rounded-full flex items-center justify-center mb-4 relative"
-            style={{ background: "rgba(248,113,113,0.1)" }}
-          >
-            <div className="absolute inset-0 rounded-full border border-red-500/20 animate-ping opacity-50" />
-            <AlertTriangle className="w-5 h-5 text-red-500" />
-          </div>
-          <h3 className="text-lg font-black tracking-tight text-white mb-1.5">
-            Delete Notification
-          </h3>
-          <p className="text-xs text-[#888] leading-relaxed mb-5">
-            This action is irreversible. The notification will be permanently
-            cleared from your ledger.
-          </p>
-
-          <label className="flex items-center justify-center gap-2.5 cursor-pointer group w-full mb-6 bg-[#050505] p-3 rounded-xl border border-white/5 hover:border-white/10 transition-colors">
-            <div
-              className="w-4 h-4 rounded flex items-center justify-center flex-shrink-0 transition-all"
-              style={{
-                background: dontShow ? "#BFA264" : "rgba(255,255,255,0.05)",
-              }}
-            >
-              {dontShow && <CheckCircle2 className="w-3 h-3 text-black" />}
-            </div>
-            <span className="text-[11px] font-bold text-[#888] group-hover:text-[#ccc] transition-colors select-none">
-              Do not ask again
-            </span>
-          </label>
-
-          <div className="flex gap-2 w-full">
-            <button
-              onClick={onCancel}
-              className="flex-1 py-3 rounded-xl text-xs font-bold transition-all text-white/70 hover:text-white hover:bg-white/5"
-            >
-              Cancel
-            </button>
-            <button
-              onClick={() => onConfirm(dontShow)}
-              className="flex-1 py-3 rounded-xl text-xs font-black transition-all bg-red-500 hover:bg-red-400 text-white shadow-[0_0_15px_rgba(239,68,68,0.3)]"
-            >
-              Delete
-            </button>
-          </div>
-        </div>
-      </motion.div>
+        Undo
+      </button>
     </motion.div>
   );
 });
 
 // ─── Single Mobile Notification Row (Swipeable) ───────────────────────────────
-const SwipeableNotifRow = memo(
-  ({ notif, index, onDelete, onNavigate, isFirst }) => {
-    const x = useMotionValue(0);
-    const [isDragging, setIsDragging] = useState(false);
-    const [dismissed, setDismissed] = useState(false);
-    const rowRef = useRef(null);
+const SwipeableNotifRow = memo(({ notif, index, onDelete, onNavigate }) => {
+  const x = useMotionValue(0);
+  const [isDragging, setIsDragging] = useState(false);
+  const rowRef = useRef(null);
 
-    const deleteOpacity = useTransform(x, [-80, -40, 0], [1, 0.6, 0]);
-    const deleteScale = useTransform(x, [-80, -20, 0], [1, 0.8, 0.6]);
-    const leftDeleteOpacity = useTransform(x, [40, 80], [0.6, 1]);
-    const leftDeleteScale = useTransform(x, [0, 20, 80], [0.6, 0.8, 1]);
+  const { Icon, color } = getNotificationIcon(notif);
+  const route = getNotificationRoute(notif);
+  const timeStr =
+    notif.time || notif.createdAt
+      ? new Date(notif.createdAt || Date.now()).toLocaleTimeString([], {
+          hour: "2-digit",
+          minute: "2-digit",
+        })
+      : "Just now";
 
-    const { Icon, color } = getNotificationIcon(notif);
-    const route = getNotificationRoute(notif);
-    const timeStr =
-      notif.time || notif.createdAt
-        ? new Date(notif.createdAt || Date.now()).toLocaleTimeString([], {
-            hour: "2-digit",
-            minute: "2-digit",
-          })
-        : "Just now";
+  const handleDragEnd = useCallback(
+    (_, info) => {
+      setIsDragging(false);
+      const threshold = 80;
+      // Only allow deletion via right-to-left swipe (negative x)
+      if (info.offset.x < -threshold) {
+        onDelete(index);
+      }
+    },
+    [index, onDelete],
+  );
 
-    const handleDragEnd = useCallback(
-      (_, info) => {
-        setIsDragging(false);
-        const threshold = 90; // Optimized touch threshold
+  return (
+    <motion.div
+      layout
+      initial={{ opacity: 0, y: 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, height: 0, overflow: "hidden" }} // Ensures fluid layout collapse
+      transition={{ duration: 0.25, ease: [0.32, 0.72, 0, 1] }}
+      className="relative"
+      style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}
+    >
+      {/* Destructive Red Background Reveal Layer */}
+      <div className="absolute inset-0 bg-[#EF4444] flex items-center justify-end pr-6 pointer-events-none">
+        <Trash2 className="w-5 h-5 text-white" />
+      </div>
 
-        if (Math.abs(info.offset.x) > threshold && !dismissed) {
-          setDismissed(true);
-          // Wait briefly for the swipe animation to visually follow through
-          setTimeout(() => onDelete(index, isFirst), 150);
-        } else {
-          // Native iOS snap-back
-          x.set(0);
-        }
-      },
-      [index, isFirst, onDelete, x, dismissed],
-    );
-
-    return (
       <motion.div
-        layout
-        initial={{ opacity: 0, y: 10 }}
-        animate={{ opacity: 1, y: 0 }}
-        exit={{
-          opacity: 0,
-          height: 0,
-          overflow: "hidden",
-          borderBottom: "none",
-        }}
-        transition={{ duration: 0.2 }}
-        className="relative"
-        style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}
+        ref={rowRef}
+        drag="x"
+        dragConstraints={{ left: 0, right: 0 }}
+        dragElastic={{ left: 0.8, right: 0 }} // Snap elasticity explicitly designed for L-swipe
+        onDragStart={() => setIsDragging(true)}
+        onDragEnd={handleDragEnd}
+        whileDrag={{ cursor: "grabbing" }}
+        className="relative flex items-start gap-3 px-4 py-4 select-none z-10 w-full"
+        style={{ x, background: V.depth, cursor: "grab" }}
+        onClick={() => !isDragging && route && onNavigate(route)}
       >
-        {/* Right swipe — delete (left to right) */}
-        <motion.div
-          className="absolute inset-y-0 left-0 flex items-center pl-6 pointer-events-none"
-          style={{ opacity: leftDeleteOpacity, scale: leftDeleteScale }}
+        {/* Icon */}
+        <div
+          className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 mt-0.5"
+          style={{ background: `${color}15`, border: `1px solid ${color}25` }}
         >
-          <div className="flex items-center gap-2">
-            <Trash2 className="w-4 h-4" style={{ color: "#F87171" }} />
-            <span
-              className="text-[10px] font-black uppercase tracking-wider"
-              style={{ color: "#F87171" }}
-            >
-              Delete
-            </span>
-          </div>
-        </motion.div>
+          <Icon className="w-4 h-4" style={{ color }} />
+        </div>
 
-        {/* Left swipe — delete (right to left) */}
-        <motion.div
-          className="absolute inset-y-0 right-0 flex items-center pr-6 pointer-events-none"
-          style={{ opacity: deleteOpacity, scale: deleteScale }}
-        >
-          <div className="flex items-center gap-2">
-            <span
-              className="text-[10px] font-black uppercase tracking-wider"
-              style={{ color: "#F87171" }}
-            >
-              Delete
-            </span>
-            <Trash2 className="w-4 h-4" style={{ color: "#F87171" }} />
-          </div>
-        </motion.div>
-
-        <motion.div
-          ref={rowRef}
-          drag="x"
-          dragConstraints={{ left: 0, right: 0 }} // Hard constraints force spring snap-back
-          dragElastic={0.4}
-          onDragStart={() => setIsDragging(true)}
-          onDragEnd={handleDragEnd}
-          whileDrag={{ cursor: "grabbing" }}
-          className="relative flex items-start gap-3 px-4 py-4 select-none z-10"
-          style={{
-            x,
-            background: V.depth,
-            cursor: "grab",
-          }}
-          onClick={() => !isDragging && route && onNavigate(route)}
-        >
-          {/* Icon */}
-          <div
-            className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 mt-0.5"
-            style={{ background: `${color}15`, border: `1px solid ${color}25` }}
+        {/* Content */}
+        <div className="flex-1 min-w-0">
+          <p
+            className="text-xs leading-relaxed font-medium"
+            style={{ color: T.primary }}
           >
-            <Icon className="w-4 h-4" style={{ color }} />
-          </div>
-
-          {/* Content */}
-          <div className="flex-1 min-w-0">
-            <p
-              className="text-xs leading-relaxed font-medium"
-              style={{ color: T.primary }}
+            {notif.message}
+          </p>
+          <div className="flex items-center gap-2 mt-1.5">
+            <span
+              className="text-[10px] font-mono uppercase tracking-widest"
+              style={{ color: T.dim }}
             >
-              {notif.message}
-            </p>
-            <div className="flex items-center gap-2 mt-1.5">
-              <span
-                className="text-[10px] font-mono uppercase tracking-widest"
-                style={{ color: T.dim }}
+              {timeStr}
+            </span>
+            {route && (
+              <div
+                className="flex items-center gap-1"
+                style={{ color: G.base }}
               >
-                {timeStr}
-              </span>
-              {route && (
-                <div
-                  className="flex items-center gap-1"
-                  style={{ color: G.base }}
-                >
-                  <ArrowRight className="w-3 h-3" />
-                  <span className="text-[9px] font-black uppercase tracking-wider">
-                    View
-                  </span>
-                </div>
-              )}
-            </div>
+                <ArrowRight className="w-3 h-3" />
+                <span className="text-[9px] font-black uppercase tracking-wider">
+                  View
+                </span>
+              </div>
+            )}
           </div>
+        </div>
 
-          {/* Unread dot */}
-          <div
-            className="w-1.5 h-1.5 rounded-full flex-shrink-0 mt-2"
-            style={{ background: G.base, boxShadow: `0 0 6px ${G.base}` }}
-          />
-        </motion.div>
+        {/* Unread dot */}
+        <div
+          className="w-1.5 h-1.5 rounded-full flex-shrink-0 mt-2"
+          style={{ background: G.base, boxShadow: `0 0 6px ${G.base}` }}
+        />
       </motion.div>
-    );
-  },
-);
+    </motion.div>
+  );
+});
 
 // ─── Desktop Notification Row ─────────────────────────────────────────────────
 const DesktopNotifRow = memo(({ notif, index, onDelete, onNavigate }) => {
@@ -777,7 +680,7 @@ const MobileSheet = memo(
                   className="text-[9px] font-mono uppercase tracking-widest"
                   style={{ color: T.dim }}
                 >
-                  Swipe left or right to delete
+                  Swipe left to delete
                 </span>
                 <div
                   className="h-0.5 w-6 rounded-full"
@@ -855,14 +758,7 @@ export const NotificationBell = ({ userData, patchLocalData, db: dbProp }) => {
   const navigate = useNavigate();
   const [isOpen, setIsOpen] = useState(false);
   const [page, setPage] = useState(0);
-  const [deleteConfirmIdx, setDeleteConfirmIdx] = useState(null);
-  const [skipConfirm, setSkipConfirm] = useState(() => {
-    try {
-      return localStorage.getItem("discotive-notif-skip-confirm") === "true";
-    } catch {
-      return false;
-    }
-  });
+  const [snackbar, setSnackbar] = useState(null);
 
   const containerRef = useRef(null);
   const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
@@ -907,47 +803,35 @@ export const NotificationBell = ({ userData, patchLocalData, db: dbProp }) => {
     [navigate],
   );
 
-  // Hard delete from backend + local state
-  const commitDelete = useCallback(
-    async (idx) => {
+  const handleDelete = useCallback(
+    (idx) => {
       if (!userData?.uid) return;
+      const itemToDelete = notifications[idx];
       const updated = [...notifications];
       updated.splice(idx, 1);
+
+      // Optimistic Delete Update
       patchLocalData({ notifications: updated, hasUnreadNotifications: false });
-      try {
-        // Firestore write — uncomment and pass db prop in production
-        // await updateDoc(doc(db, "users", userData.uid), { notifications: updated });
-      } catch (err) {
-        console.error("[NotificationCenter] Delete failed:", err);
-      }
+      setSnackbar({ item: itemToDelete, index: idx });
+
+      // Future Firestore write:
+      // try { await updateDoc(doc(db, "users", userData.uid), { notifications: updated }); } catch {}
     },
     [notifications, userData?.uid, patchLocalData],
   );
 
-  const handleDelete = useCallback(
-    (idx, isFirstTime = false) => {
-      if (!skipConfirm && isFirstTime) {
-        setDeleteConfirmIdx(idx);
-        return;
-      }
-      commitDelete(idx);
-    },
-    [skipConfirm, commitDelete],
-  );
+  const handleUndo = useCallback(() => {
+    if (!snackbar || !userData?.uid) return;
+    const updated = [...notifications];
+    updated.splice(snackbar.index, 0, snackbar.item); // Restore at exact original index
 
-  const handleConfirmDelete = useCallback(
-    (dontShowAgain) => {
-      if (dontShowAgain) {
-        setSkipConfirm(true);
-        try {
-          localStorage.setItem("discotive-notif-skip-confirm", "true");
-        } catch {}
-      }
-      if (deleteConfirmIdx !== null) commitDelete(deleteConfirmIdx);
-      setDeleteConfirmIdx(null);
-    },
-    [deleteConfirmIdx, commitDelete],
-  );
+    // Optimistic Restore Update
+    patchLocalData({ notifications: updated });
+    setSnackbar(null);
+
+    // Future Firestore write:
+    // try { await updateDoc(doc(db, "users", userData.uid), { notifications: updated }); } catch {}
+  }, [notifications, snackbar, userData?.uid, patchLocalData]);
 
   const handleDeleteAll = useCallback(async () => {
     if (!userData?.uid) return;
@@ -1022,12 +906,13 @@ export const NotificationBell = ({ userData, patchLocalData, db: dbProp }) => {
 
       {/* Mobile Bottom Sheet logic completely removed. Intercepted above to route natively to standalone page. */}
 
-      {/* Delete Confirmation Modal */}
+      {/* Undo Snackbar Overlay */}
       <AnimatePresence>
-        {deleteConfirmIdx !== null && (
-          <DeleteConfirmModal
-            onConfirm={handleConfirmDelete}
-            onCancel={() => setDeleteConfirmIdx(null)}
+        {snackbar && (
+          <UndoSnackbar
+            item={snackbar.item}
+            onUndo={handleUndo}
+            onDismiss={() => setSnackbar(null)}
           />
         )}
       </AnimatePresence>
@@ -1039,14 +924,7 @@ export const NotificationBell = ({ userData, patchLocalData, db: dbProp }) => {
 export const NotificationPage = ({ userData, patchLocalData }) => {
   const navigate = useNavigate();
   const [page, setPage] = useState(0);
-  const [deleteConfirmIdx, setDeleteConfirmIdx] = useState(null);
-  const [skipConfirm, setSkipConfirm] = useState(() => {
-    try {
-      return localStorage.getItem("discotive-notif-skip-confirm") === "true";
-    } catch {
-      return false;
-    }
-  });
+  const [snackbar, setSnackbar] = useState(null);
 
   const notifications = useMemo(
     () => userData?.notifications || [],
@@ -1059,46 +937,42 @@ export const NotificationPage = ({ userData, patchLocalData }) => {
   );
   const isMobile = typeof window !== "undefined" && window.innerWidth < 768;
 
-  const commitDelete = useCallback(
-    async (idx) => {
+  const handleDelete = useCallback(
+    (idx) => {
       if (!userData?.uid) return;
+      const itemToDelete = notifications[idx];
       const updated = [...notifications];
       updated.splice(idx, 1);
+
       patchLocalData({ notifications: updated, hasUnreadNotifications: false });
-      // await updateDoc(doc(db, "users", userData.uid), { notifications: updated });
+      setSnackbar({ item: itemToDelete, index: idx });
     },
     [notifications, userData?.uid, patchLocalData],
   );
 
-  const handleDelete = useCallback(
-    (idx, isFirstTime = false) => {
-      if (!skipConfirm && isFirstTime) {
-        setDeleteConfirmIdx(idx);
-        return;
-      }
-      commitDelete(idx);
-    },
-    [skipConfirm, commitDelete],
-  );
+  const handleUndo = useCallback(() => {
+    if (!snackbar || !userData?.uid) return;
+    const updated = [...notifications];
+    updated.splice(snackbar.index, 0, snackbar.item);
 
-  const handleConfirmDelete = useCallback(
-    (dontShowAgain) => {
-      if (dontShowAgain) {
-        setSkipConfirm(true);
-        try {
-          localStorage.setItem("discotive-notif-skip-confirm", "true");
-        } catch {}
-      }
-      if (deleteConfirmIdx !== null) commitDelete(deleteConfirmIdx);
-      setDeleteConfirmIdx(null);
-    },
-    [deleteConfirmIdx, commitDelete],
-  );
+    patchLocalData({ notifications: updated });
+    setSnackbar(null);
+  }, [notifications, snackbar, userData?.uid, patchLocalData]);
+
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
 
   const handleDeleteAll = useCallback(async () => {
     if (!userData?.uid) return;
     patchLocalData({ notifications: [], hasUnreadNotifications: false });
+    setIsMenuOpen(false);
     // await updateDoc(doc(db, "users", userData.uid), { notifications: [], hasUnreadNotifications: false });
+  }, [userData?.uid, patchLocalData]);
+
+  const handleMarkAllRead = useCallback(async () => {
+    if (!userData?.uid) return;
+    patchLocalData({ hasUnreadNotifications: false });
+    setIsMenuOpen(false);
+    // await updateDoc(doc(db, "users", userData.uid), { hasUnreadNotifications: false });
   }, [userData?.uid, patchLocalData]);
 
   const handleNavigate = useCallback((route) => navigate(route), [navigate]);
@@ -1112,7 +986,7 @@ export const NotificationPage = ({ userData, patchLocalData }) => {
       <motion.div
         initial={{ opacity: 0, y: -12 }}
         animate={{ opacity: 1, y: 0 }}
-        className="flex items-center justify-between mb-8"
+        className="flex items-center justify-between mb-8 relative z-50"
       >
         <div>
           <div className="flex items-center gap-2 mb-1">
@@ -1131,22 +1005,86 @@ export const NotificationPage = ({ userData, patchLocalData }) => {
           </div>
           <p className="text-xs" style={{ color: T.dim }}>
             {notifications.length} total ·{" "}
-            {isMobile ? "Swipe to delete" : "Hover to delete"}
+            {isMobile ? "Swipe left to delete" : "Hover to delete"}
           </p>
         </div>
-        {notifications.length > 0 && (
+
+        <div className="flex items-center gap-2">
+          {/* 3-Dot Options Menu */}
+          <div className="relative">
+            <button
+              onClick={() => setIsMenuOpen(!isMenuOpen)}
+              className="p-2.5 rounded-xl transition-all hover:bg-white/5"
+              style={{
+                color: T.primary,
+                background: isMenuOpen
+                  ? "rgba(255,255,255,0.05)"
+                  : "transparent",
+              }}
+            >
+              <MoreHorizontal className="w-5 h-5" />
+            </button>
+
+            <AnimatePresence>
+              {isMenuOpen && (
+                <>
+                  <div
+                    className="fixed inset-0 z-[90]"
+                    onClick={() => setIsMenuOpen(false)}
+                  />
+                  <motion.div
+                    initial={{ opacity: 0, scale: 0.95, y: 10 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.95, y: 10 }}
+                    transition={{ duration: 0.15 }}
+                    className="absolute right-0 top-full mt-2 w-48 rounded-2xl overflow-hidden shadow-[0_20px_50px_rgba(0,0,0,0.8)] z-[100]"
+                    style={{
+                      background: V.elevated,
+                      border: "1px solid rgba(255,255,255,0.08)",
+                    }}
+                  >
+                    <button
+                      onClick={handleMarkAllRead}
+                      className="w-full flex items-center gap-3 px-4 py-3.5 text-[11px] font-bold transition-all hover:bg-white/5"
+                      style={{ color: T.primary }}
+                    >
+                      <CheckCircle2
+                        className="w-3.5 h-3.5"
+                        style={{ color: "#4ADE80" }}
+                      />{" "}
+                      Mark all as read
+                    </button>
+                    {notifications.length > 0 && (
+                      <button
+                        onClick={handleDeleteAll}
+                        className="w-full flex items-center gap-3 px-4 py-3.5 text-[11px] font-bold transition-all hover:bg-red-500/10"
+                        style={{
+                          color: "#F87171",
+                          borderTop: "1px solid rgba(255,255,255,0.04)",
+                        }}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" /> Delete all
+                      </button>
+                    )}
+                  </motion.div>
+                </>
+              )}
+            </AnimatePresence>
+          </div>
+
+          {/* Dynamic Close/Back Button */}
           <button
-            onClick={handleDeleteAll}
-            className="px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
+            onClick={() => navigate(-1)}
+            className="p-2.5 rounded-xl transition-all hover:bg-white/10"
             style={{
-              background: "rgba(248,113,113,0.08)",
-              border: "1px solid rgba(248,113,113,0.2)",
-              color: "#F87171",
+              color: T.primary,
+              background: "rgba(255,255,255,0.05)",
+              border: "1px solid rgba(255,255,255,0.08)",
             }}
           >
-            Clear All
+            <X className="w-5 h-5" />
           </button>
-        )}
+        </div>
       </motion.div>
 
       {/* Divider */}
@@ -1205,12 +1143,13 @@ export const NotificationPage = ({ userData, patchLocalData }) => {
         )}
       </div>
 
-      {/* Delete confirm */}
+      {/* Undo Snackbar Overlay */}
       <AnimatePresence>
-        {deleteConfirmIdx !== null && (
-          <DeleteConfirmModal
-            onConfirm={handleConfirmDelete}
-            onCancel={() => setDeleteConfirmIdx(null)}
+        {snackbar && (
+          <UndoSnackbar
+            item={snackbar.item}
+            onUndo={handleUndo}
+            onDismiss={() => setSnackbar(null)}
           />
         )}
       </AnimatePresence>
