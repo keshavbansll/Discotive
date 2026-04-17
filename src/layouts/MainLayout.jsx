@@ -66,6 +66,7 @@ import FeedbackModal from "../components/FeedbackModal";
 
 import SupportTicketModal from "../components/SupportTicketModal";
 import UserReportModal from "../components/UserReportModal";
+import { NotificationBell } from "../components/NotificationCenter";
 
 // --- NAVIGATION GROUPS ---
 
@@ -162,43 +163,9 @@ const MainLayout = () => {
 
   // Dropdown States
   const [showProfileMenu, setShowProfileMenu] = useState(false);
-  const [showNotifMenu, setShowNotifMenu] = useState(false);
   const [showLanguageMenu, setShowLanguageMenu] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
 
-  const handleToggleNotifMenu = async (e) => {
-    const hasUnread =
-      userData?.hasUnreadNotifications ?? userData?.notifications?.length > 0;
-
-    // Mobile: Direct routing bypass
-    if (window.innerWidth < 768) {
-      handleInstantNav("/app/notifications", e);
-      if (hasUnread && userData?.uid) {
-        patchLocalData({ hasUnreadNotifications: false });
-        try {
-          const userRef = doc(db, "users", userData.uid);
-          await updateDoc(userRef, { hasUnreadNotifications: false });
-        } catch (err) {
-          console.error("Failed to mark notifications as read:", err);
-        }
-      }
-      return;
-    }
-
-    // Desktop: Native dropdown
-    const willOpen = !showNotifMenu;
-    setShowNotifMenu(willOpen);
-
-    if (willOpen && userData?.uid && hasUnread) {
-      patchLocalData({ hasUnreadNotifications: false });
-      try {
-        const userRef = doc(db, "users", userData.uid);
-        await updateDoc(userRef, { hasUnreadNotifications: false });
-      } catch (err) {
-        console.error("Failed to mark notifications as read:", err);
-      }
-    }
-  };
   const [searchQuery, setSearchQuery] = useState("");
   const [isNavigating, setIsNavigating] = useState(false);
 
@@ -255,7 +222,6 @@ const MainLayout = () => {
   // ── CORE OS BOOT: Daily Consistency Check [DEPRECATED] ───────────────────
   // --- STRICT CLICK-OUTSIDE REFS ---
   const profileMenuRef = useRef(null);
-  const notifMenuRef = useRef(null);
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -267,56 +233,11 @@ const MainLayout = () => {
         setShowProfileMenu(false);
         setShowLanguageMenu(false); // Reset nested menu
       }
-      // Close notification menu if clicked outside
-      if (
-        notifMenuRef.current &&
-        !notifMenuRef.current.contains(event.target)
-      ) {
-        setShowNotifMenu(false);
-      }
     };
 
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
-
-  // --- NOTIFICATION HANDLERS ---
-  const handleDeleteNotification = async (index, e) => {
-    e.stopPropagation(); // Prevent the dropdown from closing
-    if (!userData?.uid) return;
-
-    // 1. Optimistic UI Update (Instant)
-    const newNotifs = [...(userData.notifications || [])];
-    newNotifs.splice(index, 1);
-    patchLocalData({ notifications: newNotifs });
-
-    // 2. Persist to Firestore
-    try {
-      const userRef = doc(db, "users", userData.uid);
-      await updateDoc(userRef, { notifications: newNotifs });
-    } catch (error) {
-      console.error("Failed to delete notification:", error);
-    }
-  };
-
-  const handleClearAllNotifications = async (e) => {
-    e.stopPropagation();
-    if (!userData?.uid) return;
-
-    // 1. Optimistic UI Update
-    patchLocalData({ notifications: [], hasUnreadNotifications: false });
-
-    // 2. Persist to Firestore
-    try {
-      const userRef = doc(db, "users", userData.uid);
-      await updateDoc(userRef, {
-        notifications: [],
-        hasUnreadNotifications: false,
-      });
-    } catch (error) {
-      console.error("Failed to clear notifications:", error);
-    }
-  };
 
   // MAANG-GRADE FIX: Pre-emptive Navigation State Override
   // React 18 holds Suspense transitions in the background by default, causing
@@ -974,128 +895,12 @@ const MainLayout = () => {
               )}
             </button>
 
-            {/* NOTIFICATIONS DROPDOWN */}
-            <div className="relative shrink-0" ref={notifMenuRef}>
-              <button
-                onClick={handleToggleNotifMenu}
-                className={cn(
-                  "p-2 md:p-2.5 rounded-full transition-all relative border active:scale-95 duration-150",
-                  showNotifMenu
-                    ? "bg-[rgba(191,162,100,0.15)] text-[#D4AF78] border-[rgba(191,162,100,0.3)] shadow-[0_0_15px_rgba(191,162,100,0.1)]"
-                    : "bg-[#0A0A0A] border-white/5 text-[#F5F0E8]/60 hover:text-[#D4AF78] hover:border-[rgba(191,162,100,0.2)]",
-                )}
-              >
-                <Bell className="w-4 h-4 md:w-5 md:h-5" />
-                {/* Only show the dot if there are unread notifications */}
-                {(userData?.hasUnreadNotifications ??
-                  userData?.notifications?.length > 0) && (
-                  <span className="absolute top-0 right-0 w-2.5 h-2.5 bg-[#EF4444] border-2 border-[#0A0A0A] rounded-full shadow-[0_0_8px_rgba(239,68,68,0.5)]" />
-                )}
-              </button>
-              {/* --- NOTIFICATIONS DROPDOWN CONTENT --- */}
-              <AnimatePresence>
-                {showNotifMenu && (
-                  <motion.div
-                    initial={{ opacity: 0, y: 10, scale: 0.95 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: 10, scale: 0.95 }}
-                    transition={{ duration: 0.15 }}
-                    className="absolute right-0 top-full mt-3 w-[320px] md:w-[380px] bg-[#0A0A0A] border border-white/5 rounded-2xl shadow-[0_30px_80px_rgba(0,0,0,0.95)] overflow-hidden z-[120] flex flex-col max-h-[80dvh]"
-                  >
-                    <div className="flex items-center justify-between p-4 border-b border-white/5 bg-[#0F0F0F] shrink-0">
-                      <h3 className="font-extrabold text-[#F5F0E8] text-sm md:text-base">
-                        Notifications
-                      </h3>
-                      <div className="flex items-center gap-2">
-                        {userData?.notifications?.length > 0 && (
-                          <button
-                            onClick={handleClearAllNotifications}
-                            className="text-[10px] font-bold text-[#F5F0E8]/40 hover:text-[#F87171] transition-colors uppercase tracking-widest px-2"
-                            title="Clear All"
-                          >
-                            Clear All
-                          </button>
-                        )}
-                        <button
-                          onClick={(e) =>
-                            handleInstantNav("/app/settings/notifications", e)
-                          }
-                          className="p-1.5 hover:bg-[rgba(191,162,100,0.08)] hover:text-[#D4AF78] text-[#F5F0E8]/40 rounded-lg transition-colors"
-                          title="Settings"
-                        >
-                          <Settings className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
-
-                    <div className="max-h-[350px] overflow-y-auto custom-scrollbar">
-                      {/* Empty State */}
-                      {!userData?.notifications ||
-                      userData.notifications.length === 0 ? (
-                        <div className="flex flex-col items-center justify-center py-12 px-6 text-center">
-                          <BellOff className="w-10 h-10 text-[#F5F0E8]/10 mb-4" />
-                          <p className="text-sm font-bold text-[#F5F0E8]/80 mb-1">
-                            You're all caught up
-                          </p>
-                          <p className="text-xs text-[#F5F0E8]/40 leading-relaxed">
-                            System alerts, alliance requests, and protocol
-                            updates will appear here.
-                          </p>
-                        </div>
-                      ) : (
-                        <div className="divide-y divide-white/5">
-                          {userData.notifications
-                            .slice(0, 10)
-                            .map((notif, i) => (
-                              <div
-                                key={i}
-                                className="p-4 hover:bg-[rgba(191,162,100,0.04)] transition-colors flex gap-3 relative group"
-                              >
-                                <div className="w-2 h-2 mt-1.5 rounded-full bg-[#BFA264] shrink-0 shadow-[0_0_8px_rgba(191,162,100,0.6)]" />
-                                <div className="flex-1 min-w-0 pr-6">
-                                  {/* Scrollable container for long messages */}
-                                  <div className="max-h-[80px] overflow-y-auto custom-scrollbar pr-2">
-                                    <p className="text-xs md:text-sm text-[#F5F0E8]/80 leading-relaxed whitespace-pre-wrap font-medium">
-                                      {notif.message}
-                                    </p>
-                                  </div>
-                                  <p className="text-[10px] text-[#F5F0E8]/40 font-mono mt-2 uppercase">
-                                    {notif.time || "Just now"}
-                                  </p>
-                                </div>
-
-                                {/* Hover Delete Button */}
-                                <button
-                                  onClick={(e) =>
-                                    handleDeleteNotification(i, e)
-                                  }
-                                  className="absolute right-3 top-3 p-1.5 text-[#F5F0E8]/40 hover:text-[#F87171] hover:bg-[#F87171]/10 rounded-md transition-all opacity-0 group-hover:opacity-100"
-                                  title="Delete notification"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                </button>
-                              </div>
-                            ))}
-                        </div>
-                      )}
-                    </div>
-
-                    {/* View All Notifications Button */}
-                    <div className="p-3 border-t border-white/5 bg-[#0F0F0F] shrink-0">
-                      <button
-                        onClick={(e) =>
-                          handleInstantNav("/app/notifications", e)
-                        }
-                        className="w-full py-2.5 bg-transparent hover:bg-white/[0.02] text-[#D4AF78] text-[10px] font-black uppercase tracking-widest rounded-xl transition-all flex items-center justify-center gap-2"
-                      >
-                        View All Notifications{" "}
-                        <ArrowRight className="w-3 h-3" />
-                      </button>
-                    </div>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
+            {/* NEW COMPONENT-BASED NOTIFICATION BELL */}
+            <NotificationBell
+              userData={userData}
+              patchLocalData={patchLocalData}
+              db={db}
+            />
           </div>
 
           {/* --- PROFILE DROPDOWN ENGINE (Mobile: Left, Desktop: Right) --- */}
@@ -1106,7 +911,6 @@ const MainLayout = () => {
             <button
               onClick={() => {
                 setShowProfileMenu(!showProfileMenu);
-                setShowNotifMenu(false);
                 setShowLanguageMenu(false);
               }}
               className={cn(

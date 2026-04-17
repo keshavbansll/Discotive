@@ -9,6 +9,7 @@ import {
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import { useEffect, useState } from "react";
 import { AnimatePresence } from "framer-motion";
+import { useUserData } from "./hooks/useUserData"; // <-- Inject this
 
 // ── EAGER IMPORTS (The Critical Path) ──
 // These MUST load immediately. Landing is the entry point. MainLayout is the shell.
@@ -40,6 +41,11 @@ const VerifyAsset = lazy(() => import("./pages/VerifyAsset"));
 const Contact = lazy(() => import("./pages/Contact"));
 const PrivacyPage = lazy(() => import("./pages/PrivacyPage"));
 const Learn = lazy(() => import("./pages/Learn"));
+const NotificationPageWrapper = lazy(() =>
+  import("./components/NotificationCenter").then((m) => ({
+    default: m.NotificationPage,
+  })),
+);
 
 // Stubbed/Coming Soon Modules
 const Opportunities = lazy(() => import("./pages/Opportunities"));
@@ -66,6 +72,17 @@ const PublicRoute = ({ children }) => {
   const { currentUser } = useAuth();
   if (currentUser) return <Navigate to="/app" replace />;
   return children;
+};
+
+// --- SMART WRAPPER FOR NOTIFICATIONS ---
+const NotificationRouteHandler = () => {
+  const { userData, patchLocalData } = useUserData();
+  return (
+    <NotificationPageWrapper
+      userData={userData}
+      patchLocalData={patchLocalData}
+    />
+  );
 };
 
 const RouteChunkLoader = () => (
@@ -281,6 +298,14 @@ function App() {
                   }
                 />
                 <Route path="opportunities" element={<Opportunities />} />
+                <Route
+                  path="notifications"
+                  element={
+                    <GhostAwareRoute>
+                      <NotificationRouteHandler />
+                    </GhostAwareRoute>
+                  }
+                />
                 <Route path="vault" element={<Vault />} />
                 <Route
                   path="vault/connectors/:connectorId"

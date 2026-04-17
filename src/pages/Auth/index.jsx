@@ -172,9 +172,7 @@ const GLOBAL_CSS = `
   --r-sm: 12px;
 }
 
-/* Strictly scoped reset to prevent main dashboard layout destruction */
-.ob-root, .ob-root * { box-sizing: border-box; }
-.ob-root p, .ob-root h1, .ob-root h2, .ob-root h3, .ob-root div, .ob-root span, .ob-root button, .ob-root input { margin: 0; padding: 0; }
+.ob-root * { box-sizing: border-box; margin: 0; padding: 0; }
 
 .ob-root {
   min-height: 100svh;
@@ -2795,10 +2793,18 @@ function StepExecution({ uid, onComplete }) {
 
   useEffect(() => {
     if (phase === "bonus") {
-      addToast("Initialization bonus: +50 pts", "green");
-      animScore(0, 50, 20);
-      const t = setTimeout(() => setPhase("done"), 2600);
-      return () => clearTimeout(t);
+      // Defer state updates to the next macro-task to prevent synchronous cascading renders
+      const initTimer = setTimeout(() => {
+        addToast("Initialization bonus: +50 pts", "green");
+        animScore(0, 50, 20);
+      }, 0);
+
+      const phaseTimer = setTimeout(() => setPhase("done"), 2600);
+
+      return () => {
+        clearTimeout(initTimer);
+        clearTimeout(phaseTimer);
+      };
     }
   }, [phase, animScore, addToast]);
 
@@ -3067,7 +3073,13 @@ export default function AuthOrchestrator() {
   const [localError, setLocalError] = useState("");
   const [showExecution, setShowExecution] = useState(false);
 
-  // CSS injected natively via React's Virtual DOM to guarantee synchronous cleanup
+  // Inject CSS
+  useEffect(() => {
+    const el = document.createElement("style");
+    el.textContent = GLOBAL_CSS;
+    document.head.appendChild(el);
+    return () => document.head.removeChild(el);
+  }, []);
 
   // Initialize from Landing Page payload
   useEffect(() => {
@@ -3097,13 +3109,15 @@ export default function AuthOrchestrator() {
     navigate,
   ]);
 
-  // Guard: if already authed + onboarded, redirect
+  // Global Auth Guard: Username is the absolute source of truth.
   useEffect(() => {
     const unsub = auth.onAuthStateChanged(async (user) => {
       if (!user) return;
       try {
         const snap = await getDoc(doc(db, "users", user.uid));
-        if (snap.exists() && snap.data()?.onboarding_status === "completed") {
+        const dbUsername = snap.data()?.identity?.username;
+        // If a valid username exists, bypass onboarding immediately.
+        if (snap.exists() && dbUsername && dbUsername.trim().length >= 3) {
           navigate("/app", { replace: true });
         }
       } catch {}
@@ -3125,30 +3139,36 @@ export default function AuthOrchestrator() {
       const nameParts = (user.displayName || "Operator").split(" ");
 
       const snap = await getDoc(doc(db, "users", user.uid));
-      if (snap.exists() && snap.data()?.onboarding_status === "completed") {
+      const dbData = snap.exists() ? snap.data() : null;
+      const existingUsername = dbData?.identity?.username;
+
+      // MAANG Standard Routing Guard: Explicitly verify username presence.
+      // If a valid username exists, bypass onboarding and launch the app.
+      if (existingUsername && existingUsername.trim().length >= 3) {
         navigate("/app", { replace: true });
         return;
       }
 
+      // Proceed to Step 2 (Identity). Pre-populate data but DO NOT bypass.
       store.setField("uid", user.uid);
       store.setField("isGoogleUser", true);
-      store.setField("email", user.email);
-      store.setField(
-        "firstName",
-        snap.data()?.identity?.firstName || nameParts[0],
-      );
+      store.setField("email", user.email || "");
+      store.setField("firstName", dbData?.identity?.firstName || nameParts[0]);
       store.setField(
         "lastName",
-        snap.data()?.identity?.lastName || nameParts.slice(1).join(" "),
+        dbData?.identity?.lastName || nameParts.slice(1).join(" "),
       );
       store.setField("avatarUrl", user.photoURL || "");
+
+      // Auto-generate a fallback username to prepopulate Step 2.
       store.setField(
         "username",
-        snap.data()?.identity?.username ||
-          user.email
-            .split("@")[0]
-            .toLowerCase()
-            .replace(/[^a-z0-9]/g, ""),
+        user.email
+          ? user.email
+              .split("@")[0]
+              .toLowerCase()
+              .replace(/[^a-z0-9]/g, "")
+          : "",
       );
 
       // Create ghost doc if new
@@ -3475,8 +3495,8 @@ export default function AuthOrchestrator() {
 
   return (
     <div className="ob-root">
-      <style dangerouslySetInnerHTML={{ __html: GLOBAL_CSS }} />
-            <LeftPanel stepIndex={leftIdx} onBack={handleGlobalBack} />
+      <LeftPanel stepIndex={leftIdx} onBack={handleGlobalBack} />
+
       <div className="ob-right" style={{ position: "relative" }}>
         <div
           style={{
@@ -3606,6 +3626,7 @@ export default function AuthOrchestrator() {
           </AnimatePresence>
         </div>
       </div>
+
       <AnimatePresence>
         {showExecution && (
           <StepExecution
