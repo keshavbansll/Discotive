@@ -79,6 +79,8 @@ import {
   Lock,
   Activity,
   Plus,
+  User,
+  Book,
 } from "lucide-react";
 import { cn } from "../lib/cn";
 
@@ -732,7 +734,12 @@ const SparklineChart = memo(({ tf, setTf, chartData, chartMin, scoreLogs }) => (
       </div>
     </div>
     <div className="w-full" style={{ height: 110, minHeight: 110 }}>
-      <ResponsiveContainer width="100%" height="100%">
+      <ResponsiveContainer
+        width="100%"
+        height="100%"
+        minWidth={1}
+        minHeight={1}
+      >
         <AreaChart
           data={chartData}
           margin={{ top: 10, bottom: 10, left: 0, right: 0 }}
@@ -1862,18 +1869,10 @@ const OpportunityRow = memo(({ opp, idx }) => (
 /* ─── Command Actions Strip ──────────────────────────────────────────────── */
 const CommandActions = memo(({ navigate }) => {
   const actions = [
-    { label: "Roadmap", icon: Map, href: "/app/agent", color: G.base },
-    { label: "Vault", icon: Database, href: "/app/vault", color: "#10b981" },
     {
-      label: "Arena",
-      icon: Trophy,
-      href: "/app/leaderboard",
-      color: "#f59e0b",
-    },
-    {
-      label: "Network",
-      icon: Network,
-      href: "/app/connective",
+      label: "Feed",
+      icon: Activity,
+      href: "/app/connective/feed",
       color: "#38bdf8",
     },
     {
@@ -1882,7 +1881,24 @@ const CommandActions = memo(({ navigate }) => {
       href: "/app/learn",
       color: "#8b5cf6",
     },
-    { label: "Settings", icon: Settings, href: "/app/settings", color: T.dim },
+    {
+      label: "Opps",
+      icon: Briefcase,
+      href: "/app/opportunities",
+      color: "#f59e0b",
+    },
+    {
+      label: "Profile",
+      icon: User,
+      href: "/app/profile",
+      color: "#10b981",
+    },
+    {
+      label: "Diary",
+      icon: Book,
+      href: "/app/diary",
+      color: G.base,
+    },
   ];
   return (
     <div
@@ -2052,6 +2068,59 @@ const ProfileStatsBar = memo(({ userData, score }) => {
         </motion.div>
       ))}
     </div>
+  );
+});
+
+/* ─── Latest Activity Status (Universal Connector) ───────────────────────── */
+const LatestActivityStatus = memo(({ log }) => {
+  if (!log) return null;
+  const isPositive = (log.change || 0) > 0;
+  const isNegative = (log.change || 0) < 0;
+  const color = isPositive ? "#4ADE80" : isNegative ? "#F87171" : T.secondary;
+  const sign = isPositive ? "+" : "";
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 4 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="flex items-center justify-between w-full"
+    >
+      <div className="flex items-center gap-2.5 min-w-0">
+        <div className="relative flex items-center justify-center shrink-0">
+          <div
+            className="w-1.5 h-1.5 rounded-full"
+            style={{ background: color }}
+          />
+          <div
+            className="absolute w-1.5 h-1.5 rounded-full animate-ping opacity-40"
+            style={{ background: color }}
+          />
+        </div>
+        <span
+          className="text-[9px] font-black uppercase tracking-[0.15em] shrink-0"
+          style={{ color: T.dim }}
+        >
+          Latest Activity
+        </span>
+        <span
+          className="text-[11px] font-medium truncate"
+          style={{ color: T.primary }}
+        >
+          {log.reason || "System Synchronization"}
+        </span>
+      </div>
+      {log.change !== 0 && log.change !== undefined && (
+        <div className="shrink-0 ml-3">
+          <span
+            className="text-[10px] font-black font-mono tracking-wide"
+            style={{ color }}
+          >
+            {sign}
+            {log.change} pts
+          </span>
+        </div>
+      )}
+    </motion.div>
   );
 });
 
@@ -2248,7 +2317,7 @@ const MobileDashboard = ({
       </div>
 
       {/* ── CHART (compact, full width) ── */}
-      <div className="px-4 mt-2 mb-4">
+      <div className="px-4 mt-2 mb-3">
         <div className="flex items-center justify-between mb-2 px-1">
           <span
             className="text-[9px] font-black uppercase tracking-widest"
@@ -2257,15 +2326,15 @@ const MobileDashboard = ({
             Score Velocity
           </span>
           <div className="flex gap-1 bg-[#111] p-0.5 rounded-lg border border-[#222]">
-            {["1W", "1M", "ALL"].map((t) => (
+            {["24H", "1W", "1M", "ALL"].map((t) => (
               <button
                 key={t}
                 onClick={() => setChartTf(t)}
                 className={cn(
                   "text-[8px] font-black uppercase px-2 py-1 rounded-md transition-all",
                   chartTf === t
-                    ? "bg-[#BFA264]/15 text-[#BFA264]"
-                    : "text-[#555]",
+                    ? "bg-[#BFA264]/15 text-[#BFA264] shadow-[0_0_8px_rgba(191,162,100,0.2)]"
+                    : "text-[#555] hover:text-[#888]",
                 )}
               >
                 {t}
@@ -2274,7 +2343,12 @@ const MobileDashboard = ({
           </div>
         </div>
         <div style={{ height: 72 }}>
-          <ResponsiveContainer width="100%" height="100%">
+          <ResponsiveContainer
+            width="100%"
+            height="100%"
+            minWidth={1}
+            minHeight={1}
+          >
             <AreaChart
               data={chartData}
               margin={{ top: 4, bottom: 4, left: 0, right: 0 }}
@@ -2307,6 +2381,11 @@ const MobileDashboard = ({
             </AreaChart>
           </ResponsiveContainer>
         </div>
+      </div>
+
+      {/* ── LATEST ACTIVITY (Minimalist Space Integration) ── */}
+      <div className="px-5 mb-5 mt-1">
+        <LatestActivityStatus log={scoreLogs?.[0]} />
       </div>
 
       {/* ── COMMAND ACTIONS ── */}
@@ -3120,6 +3199,16 @@ const Dashboard = () => {
                   Operator Stats
                 </SectionLabel>
                 <ProfileStatsBar userData={userData} score={score} />
+              </motion.section>
+
+              {/* Latest Activity Connector */}
+              <motion.section
+                {...FADE_UP(0.085)}
+                className="px-8 md:px-12 pb-8"
+              >
+                <div className="px-5 py-3 rounded-xl border border-white/[0.04] bg-white/[0.01]">
+                  <LatestActivityStatus log={scoreLogs?.[0]} />
+                </div>
               </motion.section>
 
               <div

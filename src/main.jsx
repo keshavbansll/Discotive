@@ -50,6 +50,28 @@ if (import.meta.env.VITE_SENTRY_DSN) {
   );
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// GLOBAL CONSOLE INTERCEPTORS (SILENCE LIBRARY NOISE)
+// ─────────────────────────────────────────────────────────────────────────────
+const rechartsWarningRegex =
+  /The width\(-?\d+\) and height\(-?\d+\) of chart should be greater than 0/;
+
+const originalConsoleError = console.error;
+console.error = (...args) => {
+  if (typeof args[0] === "string" && rechartsWarningRegex.test(args[0])) {
+    return; // Swallow the Recharts dimension warning
+  }
+  originalConsoleError(...args);
+};
+
+const originalConsoleWarn = console.warn;
+console.warn = (...args) => {
+  if (typeof args[0] === "string" && rechartsWarningRegex.test(args[0])) {
+    return; // Swallow the Recharts dimension warning
+  }
+  originalConsoleWarn(...args);
+};
+
 ReactDOM.createRoot(document.getElementById("root")).render(
   <React.StrictMode>
     <QueryClientProvider client={queryClient}>

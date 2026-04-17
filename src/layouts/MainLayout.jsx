@@ -84,7 +84,7 @@ const upperContentNavItems = [
   {
     icon: Users,
     label: "Connective",
-    path: "/app/connective",
+    path: "/app/connective/network",
     subItems: [
       { label: "Feed", path: "/app/connective/feed" },
       { label: "Network", path: "/app/connective/network" },
@@ -166,14 +166,14 @@ const MainLayout = () => {
   const [showLanguageMenu, setShowLanguageMenu] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
 
-  const handleToggleNotifMenu = async () => {
-    const willOpen = !showNotifMenu;
-    setShowNotifMenu(willOpen);
+  const handleToggleNotifMenu = async (e) => {
+    const hasUnread =
+      userData?.hasUnreadNotifications ?? userData?.notifications?.length > 0;
 
-    if (willOpen && userData?.uid) {
-      const hasUnread =
-        userData?.hasUnreadNotifications ?? userData?.notifications?.length > 0;
-      if (hasUnread) {
+    // Mobile: Direct routing bypass
+    if (window.innerWidth < 768) {
+      handleInstantNav("/app/notifications", e);
+      if (hasUnread && userData?.uid) {
         patchLocalData({ hasUnreadNotifications: false });
         try {
           const userRef = doc(db, "users", userData.uid);
@@ -181,6 +181,21 @@ const MainLayout = () => {
         } catch (err) {
           console.error("Failed to mark notifications as read:", err);
         }
+      }
+      return;
+    }
+
+    // Desktop: Native dropdown
+    const willOpen = !showNotifMenu;
+    setShowNotifMenu(willOpen);
+
+    if (willOpen && userData?.uid && hasUnread) {
+      patchLocalData({ hasUnreadNotifications: false });
+      try {
+        const userRef = doc(db, "users", userData.uid);
+        await updateDoc(userRef, { hasUnreadNotifications: false });
+      } catch (err) {
+        console.error("Failed to mark notifications as read:", err);
       }
     }
   };
@@ -1002,6 +1017,9 @@ const MainLayout = () => {
                           </button>
                         )}
                         <button
+                          onClick={(e) =>
+                            handleInstantNav("/app/settings/notifications", e)
+                          }
                           className="p-1.5 hover:bg-[rgba(191,162,100,0.08)] hover:text-[#D4AF78] text-[#F5F0E8]/40 rounded-lg transition-colors"
                           title="Settings"
                         >
@@ -1010,7 +1028,7 @@ const MainLayout = () => {
                       </div>
                     </div>
 
-                    <div className="flex-1 overflow-y-auto custom-scrollbar">
+                    <div className="max-h-[350px] overflow-y-auto custom-scrollbar">
                       {/* Empty State */}
                       {!userData?.notifications ||
                       userData.notifications.length === 0 ? (
@@ -1026,36 +1044,53 @@ const MainLayout = () => {
                         </div>
                       ) : (
                         <div className="divide-y divide-white/5">
-                          {userData.notifications.map((notif, i) => (
-                            <div
-                              key={i}
-                              className="p-4 hover:bg-[rgba(191,162,100,0.04)] transition-colors flex gap-3 relative group"
-                            >
-                              <div className="w-2 h-2 mt-1.5 rounded-full bg-[#BFA264] shrink-0 shadow-[0_0_8px_rgba(191,162,100,0.6)]" />
-                              <div className="flex-1 min-w-0 pr-6">
-                                {/* Scrollable container for long messages */}
-                                <div className="max-h-[80px] overflow-y-auto custom-scrollbar pr-2">
-                                  <p className="text-xs md:text-sm text-[#F5F0E8]/80 leading-relaxed whitespace-pre-wrap font-medium">
-                                    {notif.message}
+                          {userData.notifications
+                            .slice(0, 10)
+                            .map((notif, i) => (
+                              <div
+                                key={i}
+                                className="p-4 hover:bg-[rgba(191,162,100,0.04)] transition-colors flex gap-3 relative group"
+                              >
+                                <div className="w-2 h-2 mt-1.5 rounded-full bg-[#BFA264] shrink-0 shadow-[0_0_8px_rgba(191,162,100,0.6)]" />
+                                <div className="flex-1 min-w-0 pr-6">
+                                  {/* Scrollable container for long messages */}
+                                  <div className="max-h-[80px] overflow-y-auto custom-scrollbar pr-2">
+                                    <p className="text-xs md:text-sm text-[#F5F0E8]/80 leading-relaxed whitespace-pre-wrap font-medium">
+                                      {notif.message}
+                                    </p>
+                                  </div>
+                                  <p className="text-[10px] text-[#F5F0E8]/40 font-mono mt-2 uppercase">
+                                    {notif.time || "Just now"}
                                   </p>
                                 </div>
-                                <p className="text-[10px] text-[#F5F0E8]/40 font-mono mt-2 uppercase">
-                                  {notif.time || "Just now"}
-                                </p>
-                              </div>
 
-                              {/* Hover Delete Button */}
-                              <button
-                                onClick={(e) => handleDeleteNotification(i, e)}
-                                className="absolute right-3 top-3 p-1.5 text-[#F5F0E8]/40 hover:text-[#F87171] hover:bg-[#F87171]/10 rounded-md transition-all opacity-0 group-hover:opacity-100"
-                                title="Delete notification"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-                          ))}
+                                {/* Hover Delete Button */}
+                                <button
+                                  onClick={(e) =>
+                                    handleDeleteNotification(i, e)
+                                  }
+                                  className="absolute right-3 top-3 p-1.5 text-[#F5F0E8]/40 hover:text-[#F87171] hover:bg-[#F87171]/10 rounded-md transition-all opacity-0 group-hover:opacity-100"
+                                  title="Delete notification"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            ))}
                         </div>
                       )}
+                    </div>
+
+                    {/* View All Notifications Button */}
+                    <div className="p-3 border-t border-white/5 bg-[#0F0F0F] shrink-0">
+                      <button
+                        onClick={(e) =>
+                          handleInstantNav("/app/notifications", e)
+                        }
+                        className="w-full py-2.5 bg-transparent hover:bg-white/[0.02] text-[#D4AF78] text-[10px] font-black uppercase tracking-widest rounded-xl transition-all flex items-center justify-center gap-2"
+                      >
+                        View All Notifications{" "}
+                        <ArrowRight className="w-3 h-3" />
+                      </button>
                     </div>
                   </motion.div>
                 )}
@@ -1371,7 +1406,7 @@ const MainLayout = () => {
       <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-[#050505] border-t border-white/5 z-[100] flex items-center justify-around px-2 pb-[env(safe-area-inset-bottom)] pt-1 min-h-[calc(4rem+env(safe-area-inset-bottom))] shadow-[0_-10px_40px_rgba(0,0,0,0.6)]">
         {[
           { icon: LayoutDashboard, path: "/app", label: "Dashboard" },
-          { icon: Users, path: "/app/connective", label: "Connective" },
+          { icon: Users, path: "/app/connective/network", label: "Connective" },
           { icon: Trophy, path: "/app/leaderboard", label: "Arena" },
           { icon: FolderOpen, path: "/app/vault", label: "Vault" },
         ].map((item) => {
