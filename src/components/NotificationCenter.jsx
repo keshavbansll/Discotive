@@ -169,13 +169,14 @@ const UndoSnackbar = memo(({ onUndo, onDismiss }) => {
 const SwipeableNotifRow = memo(({ notif, index, onDelete, onNavigate }) => {
   const x = useMotionValue(0);
   const [isDragging, setIsDragging] = useState(false);
+  const [now] = useState(() => Date.now());
   const rowRef = useRef(null);
 
   const { Icon, color } = getNotificationIcon(notif);
   const route = getNotificationRoute(notif);
   const timeStr =
     notif.time || notif.createdAt
-      ? new Date(notif.createdAt || Date.now()).toLocaleTimeString([], {
+      ? new Date(notif.createdAt || now).toLocaleTimeString([], {
           hour: "2-digit",
           minute: "2-digit",
         })
@@ -777,7 +778,7 @@ export const NotificationBell = ({ userData, patchLocalData, db: dbProp }) => {
     patchLocalData({ hasUnreadNotifications: false });
     // NOTE: Pass your db instance as prop or import directly
     // updateDoc(doc(db, "users", userData.uid), { hasUnreadNotifications: false }).catch(() => {});
-  }, [isOpen]);
+  }, [isOpen, hasUnread, userData?.uid, patchLocalData]);
 
   // Close on outside click (desktop)
   useEffect(() => {
@@ -790,9 +791,10 @@ export const NotificationBell = ({ userData, patchLocalData, db: dbProp }) => {
     return () => document.removeEventListener("mousedown", handler);
   }, [isOpen, isMobile]);
 
-  // Reset page when notifications change
+  // Reset page when notifications change (Deferred to prevent cascading renders)
   useEffect(() => {
-    setPage(0);
+    const timer = setTimeout(() => setPage(0), 0);
+    return () => clearTimeout(timer);
   }, [notifications.length]);
 
   const handleNavigate = useCallback(

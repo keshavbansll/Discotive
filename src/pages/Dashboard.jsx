@@ -81,6 +81,7 @@ import {
   Plus,
   User,
   Book,
+  Newspaper,
 } from "lucide-react";
 import { cn } from "../lib/cn";
 
@@ -138,12 +139,11 @@ const useScoreLog = (uid) => {
 
 const useLearnPreview = (domain) => {
   const [items, setItems] = useState([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true); // Default to true
   const fetchedRef = useRef(false);
   useEffect(() => {
     if (fetchedRef.current) return;
     fetchedRef.current = true;
-    setLoading(true);
     const constraints = [limit(6)];
     if (domain) constraints.unshift(where("domains", "array-contains", domain));
     getDocs(query(collection(db, "discotive_videos"), ...constraints))
@@ -201,12 +201,11 @@ const useAlliances = (allyIds) => {
 
 const useTrackedRivals = (uid) => {
   const [rivals, setRivals] = useState([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true); // Default to true
   const fetchedRef = useRef(false);
   useEffect(() => {
     if (!uid || fetchedRef.current) return;
     fetchedRef.current = true;
-    setLoading(true);
     getDocs(
       query(
         collection(db, "competitors"),
@@ -315,8 +314,8 @@ const OrbitalRings = memo(({ score, lastScore = 0, size = 180 }) => {
   useEffect(() => {
     const diff = score - (lastScore || 0);
     if (diff === 0 || !lastScore) {
-      setDisplayScore(score);
-      return;
+      const timer = setTimeout(() => setDisplayScore(score), 0);
+      return () => clearTimeout(timer);
     }
     let start;
     const dur = 900;
@@ -332,21 +331,17 @@ const OrbitalRings = memo(({ score, lastScore = 0, size = 180 }) => {
 
   // Inner circle logic: 0-1000 points
   const innerPct = Math.min(100, (displayScore / 1000) * 100);
-  // Outer circle logic: fills after 1000 up to 2300 (1300 points span)
-  const outerPct = Math.max(
-    0,
-    Math.min(100, ((displayScore - 1000) / 1300) * 100),
-  );
 
   const arc = (r, pct) => {
     const circ = 2 * Math.PI * r;
-    return {
-      circ,
-      offset: circ - Math.max(0, Math.min(1, (100 - pct) / 100)) * circ,
-    };
+    const clampedPct = Math.max(0, Math.min(100, pct));
+    // SVG offset works in reverse: 0 offset = 100% visible.
+    const offset = circ * ((100 - clampedPct) / 100);
+    return { circ, offset };
   };
-  const outer = arc(outerR, outerPct);
+
   const inner = arc(innerR, innerPct);
+  const outerCirc = 2 * Math.PI * outerR;
 
   return (
     <div
@@ -354,14 +349,16 @@ const OrbitalRings = memo(({ score, lastScore = 0, size = 180 }) => {
       style={{ width: size, height: size }}
     >
       <svg width={size} height={size} className="-rotate-90" aria-hidden="true">
+        {/* Subtle Outer Track */}
         <circle
           cx={cx}
           cy={cy}
           r={outerR}
           fill="none"
-          stroke="rgba(255,255,255,0.05)"
+          stroke="rgba(255,255,255,0.02)"
           strokeWidth={stroke}
         />
+        {/* Inner Track */}
         <circle
           cx={cx}
           cy={cy}
@@ -370,6 +367,7 @@ const OrbitalRings = memo(({ score, lastScore = 0, size = 180 }) => {
           stroke="rgba(255,255,255,0.04)"
           strokeWidth={stroke}
         />
+        {/* Inner Fill (Score Engine) */}
         <circle
           cx={cx}
           cy={cy}
@@ -382,23 +380,22 @@ const OrbitalRings = memo(({ score, lastScore = 0, size = 180 }) => {
           style={{
             transition:
               "stroke-dashoffset 1.4s cubic-bezier(0.16,1,0.3,1) 0.4s",
-            strokeDashoffset: shouldReduce ? inner.offset : inner.offset,
+            strokeDashoffset: inner.offset,
           }}
         />
-        <circle
+        {/* Rotating Outer Directive Arc */}
+        <motion.circle
           cx={cx}
           cy={cy}
           r={outerR}
           fill="none"
-          stroke="rgba(245,240,232,0.45)"
+          stroke="rgba(191,162,100,0.15)"
           strokeWidth={stroke}
-          strokeDasharray={outer.circ}
+          strokeDasharray={`${outerCirc * 0.25} ${outerCirc * 0.75}`}
           strokeLinecap="round"
-          style={{
-            transition:
-              "stroke-dashoffset 1.4s cubic-bezier(0.16,1,0.3,1) 0.6s",
-            strokeDashoffset: shouldReduce ? outer.offset : outer.offset,
-          }}
+          animate={shouldReduce ? {} : { rotate: 360 }}
+          transition={{ repeat: Infinity, duration: 10, ease: "linear" }}
+          style={{ originX: "50%", originY: "50%" }}
         />
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center gap-0.5">
@@ -1073,11 +1070,14 @@ const StreakRiskBanner = memo(({ streak, lastLoginDate, createdAt }) => {
   const todayStr = new Date().toISOString().split("T")[0];
   const hasLoggedToday = lastLoginDate === todayStr;
 
+  // Lazily initialize the timestamp so it remains pure across renders
+  const [now] = useState(() => Date.now());
+
   const accountAgeDays = useMemo(() => {
     if (!createdAt) return 999;
     const ts = createdAt?.toDate ? createdAt.toDate() : new Date(createdAt);
-    return (Date.now() - ts.getTime()) / (1000 * 60 * 60 * 24);
-  }, [createdAt]);
+    return (now - ts.getTime()) / (1000 * 60 * 60 * 24);
+  }, [createdAt, now]);
 
   if (hasLoggedToday || streak === 0 || accountAgeDays < 3) return null;
 
@@ -1870,12 +1870,6 @@ const OpportunityRow = memo(({ opp, idx }) => (
 const CommandActions = memo(({ navigate }) => {
   const actions = [
     {
-      label: "Feed",
-      icon: Activity,
-      href: "/app/connective/feed",
-      color: "#38bdf8",
-    },
-    {
       label: "Learn",
       icon: GraduationCap,
       href: "/app/learn",
@@ -1888,6 +1882,13 @@ const CommandActions = memo(({ navigate }) => {
       color: "#f59e0b",
     },
     {
+      label: "CoLists",
+      icon: Newspaper,
+      href: "#",
+      color: "#38bdf8",
+      locked: true,
+    },
+    {
       label: "Profile",
       icon: User,
       href: "/app/profile",
@@ -1896,8 +1897,9 @@ const CommandActions = memo(({ navigate }) => {
     {
       label: "Diary",
       icon: Book,
-      href: "/app/diary",
+      href: "#",
       color: G.base,
+      locked: true,
     },
   ];
   return (
@@ -1909,14 +1911,17 @@ const CommandActions = memo(({ navigate }) => {
         const Icon = a.icon;
         return (
           <motion.button
-            key={a.href}
-            onClick={() => navigate(a.href)}
+            key={a.label}
+            onClick={() => !a.locked && navigate(a.href)}
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: i * 0.04 }}
-            whileHover={{ scale: 1.04 }}
-            whileTap={{ scale: 0.95 }}
-            className="shrink-0 flex flex-col items-center justify-center gap-1.5 rounded-2xl border transition-all"
+            whileHover={!a.locked ? { scale: 1.04 } : {}}
+            whileTap={!a.locked ? { scale: 0.95 } : {}}
+            className={cn(
+              "relative shrink-0 flex flex-col items-center justify-center gap-1.5 rounded-2xl border transition-all",
+              a.locked ? "opacity-60 cursor-not-allowed" : "",
+            )}
             style={{
               minWidth: 68,
               height: 68,
@@ -1924,6 +1929,11 @@ const CommandActions = memo(({ navigate }) => {
               borderColor: `${a.color}25`,
             }}
           >
+            {a.locked && (
+              <div className="absolute top-1.5 right-1.5 p-0.5 rounded-full bg-[#030303]/80 border border-white/10 backdrop-blur-md">
+                <Lock size={8} style={{ color: T.dim }} />
+              </div>
+            )}
             <Icon size={18} style={{ color: a.color }} />
             <span
               className="text-[9px] font-black uppercase tracking-widest"
