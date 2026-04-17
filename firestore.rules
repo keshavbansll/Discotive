@@ -142,7 +142,8 @@ service cloud.firestore {
           'profileViews', 'pendingAppVerifications', 'profileCompleteness',
           'deferredOnboarding', 'baseline', 'vault', 'vault_count',
           'connectors', 'connectedApps', 'login_history', 'dailyAllianceSent',
-          'journal_ledger', 'notifications', 'hasUnreadNotifications'
+          'journal_ledger', 'notifications', 'hasUnreadNotifications',
+          'pushTokens', 'meta'
         ]))
         ||
         // Pipeline B: One-Time OS Boot Sequence (Airtight Score Minting)

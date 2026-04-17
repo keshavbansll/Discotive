@@ -8,6 +8,7 @@ import {
   collection,
   query,
   where,
+  limit,
   getDocs,
   doc,
   updateDoc,
@@ -135,6 +136,72 @@ const MainLayout = () => {
 
   const [deferredPrompt, setDeferredPrompt] = useState(null);
   const [isInstallable, setIsInstallable] = useState(false);
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [searchTab, setSearchTab] = useState("users");
+  const [searchResults, setSearchResults] = useState([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const searchDropdownRef = useRef(null);
+
+  // --- CORE STATE & ROUTING (Initialized before effects to prevent TDZ) ---
+  const [showProfileMenu, setShowProfileMenu] = useState(false);
+  const [showLanguageMenu, setShowLanguageMenu] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [isNavigating, setIsNavigating] = useState(false);
+
+  const location = useLocation();
+  const navigate = useNavigate();
+  const { userData, loading, patchLocalData } = useUserData();
+
+  // Search debounce + Firestore query
+  useEffect(() => {
+    if (!searchQuery.trim() || searchQuery.length < 2) {
+      setSearchResults([]);
+      setIsSearchOpen(false);
+      return;
+    }
+    setIsSearchOpen(true);
+    if (searchTab !== "users") return;
+    setSearchLoading(true);
+    let active = true;
+    const timer = setTimeout(async () => {
+      try {
+        const q = query(
+          collection(db, "users"),
+          where("identity.username", ">=", searchQuery.toLowerCase()),
+          where(
+            "identity.username",
+            "<=",
+            searchQuery.toLowerCase() + "\uf8ff",
+          ),
+          limit(6),
+        );
+        const snap = await getDocs(q);
+        if (active)
+          setSearchResults(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+      } catch (_) {
+      } finally {
+        if (active) setSearchLoading(false);
+      }
+    }, 350);
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [searchQuery, searchTab]);
+
+  // Close search on outside click
+  useEffect(() => {
+    const handler = (e) => {
+      if (
+        searchDropdownRef.current &&
+        !searchDropdownRef.current.contains(e.target)
+      )
+        setIsSearchOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
 
   useEffect(() => {
     const handleBeforeInstallPrompt = (e) => {
@@ -160,18 +227,6 @@ const MainLayout = () => {
     }
     setDeferredPrompt(null);
   };
-
-  // Dropdown States
-  const [showProfileMenu, setShowProfileMenu] = useState(false);
-  const [showLanguageMenu, setShowLanguageMenu] = useState(false);
-  const [isAdmin, setIsAdmin] = useState(false);
-
-  const [searchQuery, setSearchQuery] = useState("");
-  const [isNavigating, setIsNavigating] = useState(false);
-
-  const location = useLocation();
-  const navigate = useNavigate();
-  const { userData, loading, patchLocalData } = useUserData();
 
   // Performant render-phase state update (avoids cascading renders)
   const [prevPath, setPrevPath] = useState(location.pathname);
@@ -658,7 +713,6 @@ const MainLayout = () => {
     if (touchStartRef.current < 40 && distance > 50) {
       setShowProfileMenu(true);
     }
-    d;
   };
 
   return (
@@ -823,12 +877,35 @@ const MainLayout = () => {
           </div>
         </div>
 
-        {/* Bottom Section (Settings & Toggle) */}
+        {/* Bottom Section */}
         <div className="p-3 border-t border-white/5 bg-[#0A0A0A] shrink-0 space-y-1">
+          {/* How it works? */}
+          <a
+            href="/about"
+            onClick={(e) => handleInstantNav("/about", e)}
+            className={cn(
+              "flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 group relative border border-transparent w-full",
+              "text-[#F5F0E8]/60 hover:bg-[rgba(191,162,100,0.04)] hover:text-[#E8D5A3] font-medium",
+            )}
+            title={!isSidebarOpen ? "How it works?" : undefined}
+          >
+            <HelpCircle className="w-5 h-5 shrink-0 text-[#F5F0E8]/40 group-hover:text-[#BFA264] transition-colors" />
+            <AnimatePresence>
+              {isSidebarOpen && (
+                <motion.span
+                  initial={{ opacity: 0, x: -6 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: -6 }}
+                  className="truncate text-sm tracking-wide flex-1"
+                >
+                  How it works?
+                </motion.span>
+              )}
+            </AnimatePresence>
+          </a>
           {bottomNavItems.map((item) => (
             <NavItem key={item.path} item={item} isCollapsed={!isSidebarOpen} />
           ))}
-          {/* PC Toggle Button removed to accommodate seamless hover-based expansion */}
         </div>
       </motion.aside>
 
@@ -838,27 +915,125 @@ const MainLayout = () => {
       <div className="flex-1 flex flex-col h-full min-w-0 relative z-10">
         {/* TOPBAR (Strict z-[90] to sit above pages but below dropdowns) */}
         <header className="safe-area-pt h-[calc(4rem+env(safe-area-inset-top))] md:h-[calc(5rem+env(safe-area-inset-top))] bg-[#0A0A0A]/90 backdrop-blur-xl border-b border-white/5 flex items-center gap-3 md:gap-5 px-4 md:px-8 shrink-0 sticky top-0 z-[90]">
-          {/* SEARCH BAR (Mobile: Center, Desktop: Left) */}
-          <div className="flex-1 w-full max-w-md relative order-2 md:order-1 bg-[rgba(191,162,100,0.04)] rounded-full md:rounded-xl overflow-hidden border border-[rgba(191,162,100,0.1)] focus-within:border-[rgba(191,162,100,0.4)] focus-within:shadow-[0_0_15px_rgba(191,162,100,0.1)] transition-all">
-            <div className="absolute inset-y-0 left-0 pl-3 md:pl-4 flex items-center pointer-events-none">
-              <Search className="w-4 h-4 text-[#D4AF78]/50" />
-            </div>
-            <input
-              type="text"
-              placeholder="Discover"
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              onKeyDown={handleSearch}
-              className="w-full bg-transparent border-none text-xs md:text-sm text-[#F5F0E8] placeholder-[#F5F0E8]/40 focus:outline-none pl-9 md:pl-10 pr-4 py-2.5 font-medium"
-            />
-            <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
-              <div className="hidden lg:flex items-center gap-1 px-2 py-1 rounded bg-black/20 border border-[rgba(191,162,100,0.15)]">
-                <Command className="w-3 h-3 text-[#D4AF78]/50" />
-                <span className="text-[10px] font-medium text-[#D4AF78]/50">
-                  K
-                </span>
+          {/* SEARCH BAR */}
+          <div
+            className="flex-1 w-full max-w-md relative order-2 md:order-1"
+            ref={searchDropdownRef}
+          >
+            <div className="relative bg-[rgba(191,162,100,0.04)] rounded-full md:rounded-xl overflow-hidden border border-[rgba(191,162,100,0.1)] focus-within:border-[rgba(191,162,100,0.4)] focus-within:shadow-[0_0_15px_rgba(191,162,100,0.1)] transition-all">
+              <div className="absolute inset-y-0 left-0 pl-3 md:pl-4 flex items-center pointer-events-none">
+                <Search className="w-4 h-4 text-[#D4AF78]/50" />
+              </div>
+              <input
+                type="text"
+                placeholder="Discover operators…"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                onKeyDown={handleSearch}
+                onFocus={() => searchQuery.length > 1 && setIsSearchOpen(true)}
+                className="w-full bg-transparent border-none text-xs md:text-sm text-[#F5F0E8] placeholder-[#F5F0E8]/40 focus:outline-none pl-9 md:pl-10 pr-4 py-2.5 font-medium"
+              />
+              <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
+                <div className="hidden lg:flex items-center gap-1 px-2 py-1 rounded bg-black/20 border border-[rgba(191,162,100,0.15)]">
+                  <Command className="w-3 h-3 text-[#D4AF78]/50" />
+                  <span className="text-[10px] font-medium text-[#D4AF78]/50">
+                    K
+                  </span>
+                </div>
               </div>
             </div>
+
+            {/* Search Dropdown */}
+            <AnimatePresence>
+              {isSearchOpen && searchQuery.length > 1 && (
+                <motion.div
+                  initial={{ opacity: 0, y: -6, scale: 0.97 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: -6, scale: 0.97 }}
+                  transition={{ duration: 0.14, ease: [0.16, 1, 0.3, 1] }}
+                  className="absolute top-[calc(100%+8px)] left-0 right-0 bg-[#0A0A0A] border border-[rgba(191,162,100,0.2)] rounded-2xl shadow-[0_24px_60px_rgba(0,0,0,0.9)] z-[9997] overflow-hidden"
+                >
+                  {/* Tabs */}
+                  <div className="flex px-4 pt-3 gap-1 border-b border-[rgba(255,255,255,0.05)]">
+                    {["users", "companies"].map((tab) => (
+                      <button
+                        key={tab}
+                        onClick={() => setSearchTab(tab)}
+                        className={cn(
+                          "pb-2.5 px-3 text-[10px] font-black uppercase tracking-widest border-b-2 transition-all",
+                          searchTab === tab
+                            ? "text-[#D4AF78] border-[#BFA264]"
+                            : "text-[rgba(245,240,232,0.25)] border-transparent hover:text-white",
+                        )}
+                      >
+                        {tab}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Results */}
+                  <div className="py-1.5 max-h-[280px] overflow-y-auto custom-scrollbar">
+                    {searchTab === "companies" ? (
+                      <div className="px-4 py-6 text-center">
+                        <p className="text-[11px] text-[rgba(245,240,232,0.20)] font-bold uppercase tracking-widest">
+                          Company search — coming soon
+                        </p>
+                      </div>
+                    ) : searchLoading ? (
+                      <div className="flex items-center justify-center py-6">
+                        <div className="w-4 h-4 border-2 border-[#BFA264]/20 border-t-[#BFA264] rounded-full animate-spin" />
+                      </div>
+                    ) : searchResults.length === 0 ? (
+                      <div className="px-4 py-6 text-center">
+                        <p className="text-[11px] text-[rgba(245,240,232,0.20)]">
+                          No operators found for &quot;{searchQuery}&quot;
+                        </p>
+                      </div>
+                    ) : (
+                      searchResults.map((user) => (
+                        <button
+                          key={user.id}
+                          onClick={() => {
+                            navigate(`/@${user.identity?.username}`);
+                            setIsSearchOpen(false);
+                            setSearchQuery("");
+                          }}
+                          className="w-full flex items-center gap-3 px-4 py-3 hover:bg-[rgba(255,255,255,0.03)] transition-colors text-left"
+                        >
+                          <div className="w-8 h-8 rounded-full bg-[#111] border border-[#BFA264]/30 flex items-center justify-center text-xs font-black text-[#BFA264] overflow-hidden shrink-0">
+                            {user.identity?.avatarUrl ? (
+                              <img
+                                src={user.identity.avatarUrl}
+                                alt=""
+                                className="w-full h-full object-cover"
+                              />
+                            ) : (
+                              user.identity?.firstName?.charAt(0) || "O"
+                            )}
+                          </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="text-[13px] font-bold text-[#F5F0E8] truncate">
+                              {user.identity?.firstName}{" "}
+                              {user.identity?.lastName}
+                            </p>
+                            <p className="text-[10px] text-[rgba(245,240,232,0.30)] font-mono">
+                              @{user.identity?.username} ·{" "}
+                              {user.identity?.domain || "General"}
+                            </p>
+                          </div>
+                          <span className="text-[9px] font-black text-[#BFA264]/60 font-mono shrink-0">
+                            {(
+                              user.discotiveScore?.current || 0
+                            ).toLocaleString()}{" "}
+                            pts
+                          </span>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
 
           {/* INSTALL APP (Desktop Only) */}

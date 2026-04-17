@@ -9,6 +9,10 @@ import {
   ReCaptchaEnterpriseProvider,
 } from "firebase/app-check";
 import { getFunctions } from "firebase/functions";
+import {
+  getMessaging,
+  isSupported as isMessagingSupported,
+} from "firebase/messaging";
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -54,5 +58,14 @@ export let analytics;
 isSupported().then((supported) => {
   if (supported) {
     analytics = getAnalytics(app);
+  }
+});
+
+export let messaging = null;
+isMessagingSupported().then((supported) => {
+  if (supported) {
+    try {
+      messaging = getMessaging(app);
+    } catch (_) {}
   }
 });

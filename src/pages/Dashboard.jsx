@@ -31,6 +31,10 @@ import { useScoreHistory, usePercentiles } from "../hooks/useDashboardData";
 import { useTelemetryStream } from "../hooks/useTelemetryStream";
 import TierGate from "../components/TierGate";
 import DailyExecutionLedger from "../components/DailyExecutionLedger";
+import OnboardingTutorial, {
+  TUTORIAL_KEY,
+} from "../components/OnboardingTutorial";
+import { usePushNotifications } from "../hooks/usePushNotifications";
 import ProfileCompletenessWidget from "../components/dashboard/ProfileCompletenessWidget";
 import {
   AreaChart,
@@ -635,6 +639,104 @@ const GlobalTicker = memo(({ events }) => {
   );
 });
 
+/* ─── Locked Mini Ring (Pro gate) ───────────────────────────────────────── */
+const LockedMiniRing = memo(({ label, color, size = 48, navigate }) => (
+  <motion.div
+    className="flex flex-col items-center gap-1.5 cursor-pointer group"
+    whileHover={{ scale: 1.06 }}
+    onClick={() => navigate?.("/premium")}
+    title="Upgrade to Pro"
+  >
+    <div className="relative" style={{ width: size, height: size }}>
+      <svg width={size} height={size} className="-rotate-90">
+        <circle
+          cx={size / 2}
+          cy={size / 2}
+          r={(size - 8) / 2}
+          fill="none"
+          stroke="rgba(255,255,255,0.04)"
+          strokeWidth={4}
+          strokeDasharray={`${Math.PI * (size - 8) * 0.25} ${Math.PI * (size - 8) * 0.75}`}
+          strokeLinecap="round"
+          style={{ filter: "blur(1px)" }}
+        />
+      </svg>
+      <div
+        className="absolute inset-0 flex flex-col items-center justify-center rounded-full"
+        style={{ background: "rgba(191,162,100,0.06)" }}
+      >
+        <Lock size={10} style={{ color: "rgba(191,162,100,0.4)" }} />
+      </div>
+    </div>
+    <p
+      className="text-[7px] font-bold uppercase tracking-widest text-center leading-tight max-w-[50px]"
+      style={{ color: "rgba(191,162,100,0.35)" }}
+    >
+      {label}
+    </p>
+  </motion.div>
+));
+
+/* ─── Consistency Badges ─────────────────────────────────────────────────── */
+const BADGE_DEFS = [
+  { days: 7, emoji: "🌅", label: "Week One" },
+  { days: 15, emoji: "⚡", label: "15 Days" },
+  { days: 30, emoji: "🔥", label: "Monthly" },
+  { days: 90, emoji: "💎", label: "90 Days" },
+  { days: 180, emoji: "👑", label: "6 Months" },
+  { days: 365, emoji: "🌟", label: "Annual" },
+];
+
+const ConsistencyBadges = memo(({ streak }) => (
+  <div>
+    <SectionLabel icon={Flame} color="#f97316">
+      Consistency Badges
+    </SectionLabel>
+    <div className="grid grid-cols-3 gap-2">
+      {BADGE_DEFS.map((b) => {
+        const earned = streak >= b.days;
+        return (
+          <motion.div
+            key={b.days}
+            whileHover={{ scale: 1.04 }}
+            className="flex flex-col items-center justify-center p-2.5 rounded-xl border text-center transition-all"
+            style={{
+              background: earned
+                ? "rgba(249,115,22,0.07)"
+                : "rgba(255,255,255,0.02)",
+              borderColor: earned
+                ? "rgba(249,115,22,0.22)"
+                : "rgba(255,255,255,0.04)",
+              opacity: earned ? 1 : 0.4,
+            }}
+            title={
+              earned
+                ? `Earned at ${b.days} day streak`
+                : `${b.days - streak} days to go`
+            }
+          >
+            <span className="text-lg leading-none mb-1">
+              {earned ? b.emoji : "🔒"}
+            </span>
+            <span
+              className="text-[7px] font-black uppercase tracking-widest"
+              style={{ color: earned ? "#f97316" : T.dim }}
+            >
+              {b.label}
+            </span>
+            <span
+              className="text-[7px] font-mono mt-0.5"
+              style={{ color: T.dim }}
+            >
+              {b.days}d
+            </span>
+          </motion.div>
+        );
+      })}
+    </div>
+  </div>
+));
+
 /* ─── HUD Metric Pill ────────────────────────────────────────────────────── */
 const HUDMetric = memo(({ label, value, sub, accent }) => (
   <motion.div
@@ -845,6 +947,7 @@ const HUDPanel = memo(
     chartData,
     chartMin,
     scoreLogs,
+    navigate,
   }) => {
     const percentiles = {
       global: globalPct,
@@ -918,16 +1021,57 @@ const HUDPanel = memo(
         >
           <SectionLabel icon={Compass} color={G.base}>
             Position Matrix
+            {!isPro && (
+              <span
+                className="ml-2 text-[8px] font-black px-1.5 py-0.5 rounded"
+                style={{
+                  background: "rgba(191,162,100,0.08)",
+                  color: "rgba(191,162,100,0.5)",
+                  border: "1px solid rgba(191,162,100,0.15)",
+                }}
+              >
+                Pro
+              </span>
+            )}
           </SectionLabel>
           <div className="flex items-center justify-between px-2">
             {[
-              { pct: percentiles.global, label: "Global", color: G.base },
-              { pct: percentiles.domain, label: "Domain", color: "#10b981" },
-              { pct: percentiles.niche, label: "Niche", color: "#38bdf8" },
-              { pct: percentiles.parallel, label: "Path", color: "#8b5cf6" },
-            ].map((m) => (
-              <MiniRadialRing key={m.label} {...m} />
-            ))}
+              {
+                pct: percentiles.global,
+                label: "Global",
+                color: G.base,
+                free: true,
+              },
+              {
+                pct: percentiles.domain,
+                label: "Domain",
+                color: "#10b981",
+                free: false,
+              },
+              {
+                pct: percentiles.niche,
+                label: "Niche",
+                color: "#38bdf8",
+                free: false,
+              },
+              {
+                pct: percentiles.parallel,
+                label: "Path",
+                color: "#8b5cf6",
+                free: false,
+              },
+            ].map((m) =>
+              m.free || isPro ? (
+                <MiniRadialRing key={m.label} {...m} />
+              ) : (
+                <LockedMiniRing
+                  key={m.label}
+                  label={m.label}
+                  color={m.color}
+                  navigate={navigate}
+                />
+              ),
+            )}
           </div>
         </motion.div>
 
@@ -1049,6 +1193,14 @@ const HUDPanel = memo(
               );
             })}
           </div>
+        </motion.div>
+
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, delay: 0.52 }}
+        >
+          <ConsistencyBadges streak={streak} />
         </motion.div>
 
         <div style={{ height: 1, background: "rgba(255,255,255,0.05)" }} />
@@ -2484,21 +2636,33 @@ const MobileDashboard = ({
         </SectionLabel>
         <div className="grid grid-cols-4 gap-2">
           {[
-            { pct: globalPct, label: "Global", color: G.base },
-            { pct: domainPct, label: "Domain", color: "#10b981" },
+            { pct: globalPct, label: "Global", color: G.base, free: true },
+            { pct: domainPct, label: "Domain", color: "#10b981", free: false },
             {
               pct: userData?.precomputed?.nichePercentile || 100,
               label: "Niche",
               color: "#38bdf8",
+              free: false,
             },
             {
               pct: userData?.precomputed?.parallelPercentile || 100,
               label: "Path",
               color: "#8b5cf6",
+              free: false,
             },
-          ].map((m) => (
-            <MiniRadialRing key={m.label} {...m} size={64} />
-          ))}
+          ].map((m) =>
+            m.free || isPro ? (
+              <MiniRadialRing key={m.label} {...m} size={64} />
+            ) : (
+              <LockedMiniRing
+                key={m.label}
+                label={m.label}
+                color={m.color}
+                size={64}
+                navigate={navigate}
+              />
+            ),
+          )}
         </div>
       </div>
 
@@ -2708,6 +2872,11 @@ const MobileDashboard = ({
             );
           })}
         </div>
+      </div>
+
+      {/* ── CONSISTENCY BADGES ── */}
+      <div className="px-4 mb-6">
+        <ConsistencyBadges streak={streak} />
       </div>
 
       {/* ── VAULT (horizontal scroll) ── */}
@@ -3094,6 +3263,19 @@ const Dashboard = () => {
   /* ── HUD toggle ── */
   const [isHudOpen, setIsHudOpen] = useState(true);
 
+  // Push notifications
+  usePushNotifications(userData?.uid);
+
+  // Tutorial gate — fires once per account, 1.2s delay for page to settle
+  const [showTutorial, setShowTutorial] = useState(false);
+  useEffect(() => {
+    if (!userData?.uid || userLoading) return;
+    const t = setTimeout(() => {
+      if (!localStorage.getItem(TUTORIAL_KEY)) setShowTutorial(true);
+    }, 1200);
+    return () => clearTimeout(t);
+  }, [userData?.uid, userLoading]);
+
   if (userLoading) return <DashboardSkeleton />;
 
   /* ── Shared props for both layouts ── */
@@ -3125,6 +3307,14 @@ const Dashboard = () => {
 
   return (
     <>
+      <AnimatePresence>
+        {showTutorial && (
+          <OnboardingTutorial
+            uid={userData?.uid}
+            onDismiss={() => setShowTutorial(false)}
+          />
+        )}
+      </AnimatePresence>
       <Helmet>
         <title>
           {userData
@@ -3555,6 +3745,7 @@ const Dashboard = () => {
                     chartData={chartData}
                     chartMin={chartMin}
                     scoreLogs={scoreLogs}
+                    navigate={navigate}
                   />
                 </div>
               </motion.aside>
