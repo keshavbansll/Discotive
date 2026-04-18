@@ -770,21 +770,7 @@ function LeftPanel({ stepIndex, onBack }) {
           }}
           onMouseOver={(e) => (e.currentTarget.style.opacity = 1)}
           onMouseOut={(e) => (e.currentTarget.style.opacity = 0.8)}
-        >
-          <svg
-            width={20}
-            height={20}
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            <line x1="19" y1="12" x2="5" y2="12" />
-            <polyline points="12 19 5 12 12 5" />
-          </svg>
-        </button>
+        ></button>
       </div>
 
       <div
@@ -3202,7 +3188,12 @@ export default function AuthOrchestrator() {
     setLocalLoading(true);
     clearErr();
     try {
-      await sendPasswordResetEmail(auth, email);
+      // MAANG Standard: Explicitly declare the return vector to guarantee URL parameter formatting
+      const actionCodeSettings = {
+        url: `${window.location.origin}/auth/action`,
+        handleCodeInApp: false,
+      };
+      await sendPasswordResetEmail(auth, email, actionCodeSettings);
       setResetMsg("Transmission sent. Check your inbox for the reset link.");
     } catch (err) {
       setErr(

@@ -33,8 +33,22 @@ const Spinner = ({ size = 16, color = "var(--gold-2)" }) => (
 export default function ResetPassword() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
-  const oobCode = searchParams.get("oobCode");
-  const mode = searchParams.get("mode");
+
+  // MAANG-Grade URL Parameter Extraction (Resilient against email client mangling/ATP scanners)
+  const extractParam = (key) => {
+    let val = searchParams.get(key);
+    if (val) return val;
+    const nativeParams = new URLSearchParams(window.location.search);
+    val = nativeParams.get(key);
+    if (val) return val;
+    const regex = new RegExp(`[?&]${key}=([^&]+)`);
+    const match = window.location.href.match(regex);
+    if (match) return decodeURIComponent(match[1]);
+    return null;
+  };
+
+  const oobCode = extractParam("oobCode");
+  const mode = extractParam("mode");
 
   const [status, setStatus] = useState("verifying"); // verifying, ready, loading, success, error
   const [errorMsg, setErrorMsg] = useState("");
@@ -42,12 +56,20 @@ export default function ResetPassword() {
   const [newPassword, setNewPassword] = useState("");
   const [showPw, setShowPw] = useState(false);
 
+  // Execution Guard to prevent React 18 Strict Mode double-firing API calls
+  const verificationAttempted = React.useRef(false);
+
   useEffect(() => {
     if (!oobCode || mode !== "resetPassword") {
       setStatus("error");
-      setErrorMsg("Invalid or missing security token.");
+      setErrorMsg(
+        "Invalid or missing security token. Ensure the full link was copied.",
+      );
       return;
     }
+
+    if (verificationAttempted.current) return;
+    verificationAttempted.current = true;
 
     verifyPasswordResetCode(auth, oobCode)
       .then((email) => {
@@ -56,7 +78,11 @@ export default function ResetPassword() {
       })
       .catch((err) => {
         setStatus("error");
-        setErrorMsg("This link has expired or has already been used.");
+        setErrorMsg(
+          err.code === "auth/invalid-action-code"
+            ? "This link has expired, was already used, or a newer link was requested."
+            : "Unable to verify security token. Please request a new link.",
+        );
       });
   }, [oobCode, mode]);
 
