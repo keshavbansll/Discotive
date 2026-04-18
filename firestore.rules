@@ -257,6 +257,19 @@ service cloud.firestore {
     }
 
     // =========================================================================
+    // 10.5 AGENDA — PRO/ENTERPRISE ONLY
+    // =========================================================================
+    match /users/{userId}/agenda/{entryId} {
+      allow read: if isOwner(userId) || isAuthenticated();
+      allow create, update: if isOwner(userId)
+        && get(/databases/$(database)/documents/users/$(userId)).data.tier in ["PRO","ENTERPRISE"]
+        && request.resource.data.keys().hasOnly(["richContent","content","visibility","template","attachedStats","sharedWith","tags","savedAt","createdAt"])
+        && (!("content" in request.resource.data) || request.resource.data.content.size() <= 3000);
+      allow delete: if isOwner(userId)
+        && get(/databases/$(database)/documents/users/$(userId)).data.tier in ["PRO","ENTERPRISE"];
+    }
+
+    // =========================================================================
     // 11. SCORE LOG
     // =========================================================================
     match /users/{userId}/score_log/{document=**} {

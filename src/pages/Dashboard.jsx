@@ -2047,11 +2047,10 @@ const CommandActions = memo(({ navigate }) => {
       color: "#10b981",
     },
     {
-      label: "Diary",
+      label: "Agenda",
       icon: Book,
-      href: "#",
+      href: "/app/agenda",
       color: G.base,
-      locked: true,
     },
   ];
   return (

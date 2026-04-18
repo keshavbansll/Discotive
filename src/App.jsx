@@ -26,6 +26,7 @@ import ComingSoon from "./components/ComingSoon";
 // These are chunked into separate files and downloaded ONLY when the route is hit.
 const Auth = lazy(() => import("./pages/Auth"));
 const ResetPassword = lazy(() => import("./pages/Auth/ResetPassword"));
+const Agenda = lazy(() => import("./pages/Agenda"));
 const Dashboard = lazy(() => import("./pages/Dashboard"));
 const Leaderboard = lazy(() => import("./pages/Leaderboard"));
 const Vault = lazy(() => import("./pages/vault/Vault"));
@@ -107,6 +108,9 @@ const RouteTitleManager = () => {
       switch (subPath) {
         case "":
           title = "Dashboard | Discotive";
+          break;
+        case "agenda":
+          title = "Discotive Agenda";
           break;
         case "leaderboard":
           title = "Global Arena | Discotive";
@@ -286,6 +290,14 @@ function App() {
                   </ProtectedRoute>
                 }
               >
+                <Route
+                  path="agenda"
+                  element={
+                    <ProtectedRoute>
+                      <Agenda />
+                    </ProtectedRoute>
+                  }
+                />
                 <Route index element={<Dashboard />} />
                 <Route
                   path="agent"

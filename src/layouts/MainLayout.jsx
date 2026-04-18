@@ -926,7 +926,7 @@ const MainLayout = () => {
               </div>
               <input
                 type="text"
-                placeholder="Discover operators…"
+                placeholder="Search"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 onKeyDown={handleSearch}
