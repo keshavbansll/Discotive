@@ -30,7 +30,6 @@ import { useUserData, useOnboardingGate } from "../hooks/useUserData";
 import { useScoreHistory, usePercentiles } from "../hooks/useDashboardData";
 import { useTelemetryStream } from "../hooks/useTelemetryStream";
 import TierGate from "../components/TierGate";
-import DailyExecutionLedger from "../components/DailyExecutionLedger";
 import OnboardingTutorial, {
   TUTORIAL_KEY,
 } from "../components/OnboardingTutorial";
@@ -2286,6 +2285,116 @@ const LatestActivityStatus = memo(({ log }) => {
   );
 });
 
+/* ─── Agenda Preview Widget ────────────────────────────────────────────── */
+const AgendaPreview = memo(({ userData, isPro, navigate }) => {
+  const [latestEntry, setLatestEntry] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!userData?.uid) return;
+    let isMounted = true;
+    const fetchLatest = async () => {
+      try {
+        const snap = await getDocs(
+          query(
+            collection(db, "users", userData.uid, "agenda"),
+            orderBy(documentId(), "desc"),
+            limit(1),
+          ),
+        );
+        if (!snap.empty && isMounted) {
+          setLatestEntry({ id: snap.docs[0].id, ...snap.docs[0].data() });
+        }
+      } catch (e) {
+        console.error("[AgendaPreview] fetch failed:", e);
+      } finally {
+        if (isMounted) setLoading(false);
+      }
+    };
+    fetchLatest();
+    return () => {
+      isMounted = false;
+    };
+  }, [userData?.uid]);
+
+  return (
+    <div
+      className="relative w-full group cursor-pointer"
+      onClick={() => navigate(isPro ? "/app/agenda" : "/premium")}
+    >
+      <div className="flex items-center justify-between mb-3 px-1">
+        <SectionLabel icon={Calendar} color={G.base}>
+          Agenda
+        </SectionLabel>
+        {!isPro && <Lock size={12} style={{ color: "#f59e0b" }} />}
+      </div>
+
+      <motion.div
+        whileHover={{ x: 6 }}
+        className="relative flex flex-col justify-center overflow-hidden transition-all duration-500 rounded-r-2xl"
+        style={{
+          minHeight: 100,
+          padding: "16px 20px",
+          background:
+            "linear-gradient(90deg, rgba(255,255,255,0.02) 0%, transparent 100%)",
+          borderLeft: `2px solid ${isPro ? G.bright : "rgba(255,255,255,0.1)"}`,
+        }}
+      >
+        {loading ? (
+          <div className="animate-pulse flex flex-col gap-2">
+            <div className="w-1/2 h-5 bg-white/5 rounded" />
+            <div className="w-1/3 h-3 bg-white/5 rounded" />
+          </div>
+        ) : latestEntry ? (
+          <>
+            <h3
+              className="font-display font-black text-2xl md:text-3xl text-white tracking-tight mb-2 truncate pr-10"
+              style={{ textShadow: "0 4px 20px rgba(0,0,0,0.5)" }}
+            >
+              {latestEntry.title || "Untitled Entry"}
+            </h3>
+            <div className="flex items-center gap-3">
+              <p
+                className="text-[10px] font-bold uppercase tracking-widest"
+                style={{ color: G.bright }}
+              >
+                {new Date(latestEntry.id + "T12:00:00").toLocaleDateString(
+                  "en-US",
+                  { month: "short", day: "numeric", year: "numeric" },
+                )}
+              </p>
+              <span className="w-1 h-1 rounded-full bg-white/20" />
+              <p
+                className="text-[9px] font-mono tracking-widest uppercase"
+                style={{ color: T.dim }}
+              >
+                {
+                  (latestEntry.content || "").split(/\s+/).filter(Boolean)
+                    .length
+                }{" "}
+                words
+              </p>
+            </div>
+          </>
+        ) : (
+          <>
+            <h3 className="font-display font-black text-xl md:text-2xl text-white/40 tracking-tight mb-2">
+              No entries logged.
+            </h3>
+            <p className="text-[9px] font-bold uppercase tracking-widest text-white/30">
+              Awaiting execution data.
+            </p>
+          </>
+        )}
+
+        <div className="absolute right-4 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 group-hover:translate-x-1 transition-all duration-300">
+          <ArrowRight size={18} style={{ color: isPro ? G.bright : T.dim }} />
+        </div>
+      </motion.div>
+    </div>
+  );
+});
+
 /* ═══════════════════════════════════════════════════════════════════════════
    MOBILE NATIVE DASHBOARD
    Completely independent layout — not stacked desktop
@@ -2988,15 +3097,9 @@ const MobileDashboard = ({
         <GlobalTicker events={telemetryEvents} />
       </div>
 
-      {/* ── JOURNAL (mobile) ── */}
+      {/* ── AGENDA PREVIEW (mobile) ── */}
       <div className="px-4 mb-6">
-        <TierGate
-          featureKey="canUseJournal"
-          fallbackType="blur"
-          upsellMessage="Daily Execution Ledger requires Pro clearance."
-        >
-          <DailyExecutionLedger userData={userData} isPro={isPro} compact />
-        </TierGate>
+        <AgendaPreview userData={userData} isPro={isPro} navigate={navigate} />
       </div>
     </div>
   );
@@ -3630,22 +3733,16 @@ const Dashboard = () => {
                 }}
               />
 
-              {/* Daily Execution Ledger */}
+              {/* Agenda Preview */}
               <motion.section
                 {...FADE_UP(0.28)}
                 className="pb-32 pr-12 pl-8 md:pl-12"
               >
-                <TierGate
-                  featureKey="canUseJournal"
-                  fallbackType="blur"
-                  upsellMessage="Daily Execution Ledger requires Pro clearance."
-                >
-                  <DailyExecutionLedger
-                    userData={userData}
-                    isPro={isPro}
-                    compact
-                  />
-                </TierGate>
+                <AgendaPreview
+                  userData={userData}
+                  isPro={isPro}
+                  navigate={navigate}
+                />
               </motion.section>
             </div>
           </main>
