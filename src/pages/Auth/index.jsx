@@ -23,6 +23,7 @@ import {
   signInWithPopup,
   GoogleAuthProvider,
   fetchSignInMethodsForEmail,
+  sendPasswordResetEmail,
 } from "firebase/auth";
 import {
   collection,
@@ -969,7 +970,15 @@ const STEP_VARIANTS = {
 // ─────────────────────────────────────────────────────────────────────────────
 // STEP 1A — LOGIN
 // ─────────────────────────────────────────────────────────────────────────────
-function StepLogin({ onSubmit, onOAuth, onSwitch, loading, error }) {
+function StepLogin({
+  onSubmit,
+  onOAuth,
+  onSwitch,
+  onResetPassword,
+  loading,
+  error,
+  resetMsg,
+}) {
   const store = useOnboardingStore();
   const [password, setPassword] = useState("");
   const [showPw, setShowPw] = useState(false);
@@ -1086,6 +1095,50 @@ function StepLogin({ onSubmit, onOAuth, onSwitch, loading, error }) {
             )}
           </button>
         </div>
+
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "flex-end",
+            marginTop: "-8px",
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => onResetPassword(store.email)}
+            disabled={loading}
+            style={{
+              background: "none",
+              border: "none",
+              color: "var(--gold-2)",
+              fontSize: 11,
+              fontWeight: 600,
+              cursor: loading ? "not-allowed" : "pointer",
+              fontFamily: "var(--font-body)",
+              padding: 0,
+              transition: "opacity 0.2s",
+            }}
+            onMouseOver={(e) =>
+              !loading && (e.currentTarget.style.opacity = 0.7)
+            }
+            onMouseOut={(e) => (e.currentTarget.style.opacity = 1)}
+          >
+            Forgot password?
+          </button>
+        </div>
+
+        {resetMsg && (
+          <p
+            style={{
+              fontSize: 12,
+              color: "#4ADE80",
+              margin: "4px 0 -4px",
+              fontFamily: "var(--font-body)",
+            }}
+          >
+            {resetMsg}
+          </p>
+        )}
 
         <button
           type="submit"
@@ -3071,6 +3124,7 @@ export default function AuthOrchestrator() {
   const store = useOnboardingStore();
   const [localLoading, setLocalLoading] = useState(false);
   const [localError, setLocalError] = useState("");
+  const [resetMsg, setResetMsg] = useState("");
   const [showExecution, setShowExecution] = useState(false);
 
   // Inject CSS
@@ -3125,8 +3179,41 @@ export default function AuthOrchestrator() {
     return unsub;
   }, [navigate]);
 
-  const setErr = (msg) => setLocalError(msg);
-  const clearErr = () => setLocalError("");
+  const setErr = (msg) => {
+    setLocalError(msg);
+    setResetMsg("");
+  };
+  const clearErr = () => {
+    setLocalError("");
+    setResetMsg("");
+  };
+
+  // ── HANDLER: Password Reset ──────────────────────────────────────────────
+  const handleResetPassword = async (email) => {
+    if (!email) {
+      setErr("Enter your email address above first to reset your password.");
+      return;
+    }
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      setErr("Please enter a valid email address.");
+      return;
+    }
+    setLocalLoading(true);
+    clearErr();
+    try {
+      await sendPasswordResetEmail(auth, email);
+      setResetMsg("Transmission sent. Check your inbox for the reset link.");
+    } catch (err) {
+      setErr(
+        err.code === "auth/user-not-found"
+          ? "No operator found with this identity."
+          : err.message.replace("Firebase: ", ""),
+      );
+    } finally {
+      setLocalLoading(false);
+    }
+  };
 
   // ── HANDLER: Google OAuth ────────────────────────────────────────────────
   const handleOAuth = async () => {
@@ -3552,9 +3639,11 @@ export default function AuthOrchestrator() {
                 key="login"
                 onOAuth={handleOAuth}
                 onSwitch={() => store.setStep("auth")}
+                onResetPassword={handleResetPassword}
                 onSubmit={handleLogin}
                 loading={localLoading}
                 error={localError}
+                resetMsg={resetMsg}
               />
             )}
             {store.step === "auth" && (

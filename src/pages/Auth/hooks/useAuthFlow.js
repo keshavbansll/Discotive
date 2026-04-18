@@ -17,6 +17,7 @@ import {
   signInWithEmailAndPassword,
   signInWithPopup,
   GoogleAuthProvider,
+  sendPasswordResetEmail,
 } from "firebase/auth";
 import { auth, db, functions } from "../../../firebase";
 import { httpsCallable } from "firebase/functions";
@@ -69,6 +70,7 @@ export default function useAuthFlow() {
   const [systemStatus, setSystemStatus] = useState({
     loading: false,
     error: "",
+    resetMsg: "",
     showSetupSequence: false,
   });
   const [profileData, dispatch] = useReducer(profileReducer, initialProfile);
@@ -169,7 +171,7 @@ export default function useAuthFlow() {
   // ── HANDLERS ──────────────────────────────────────────────────────────────
 
   const handleLogin = async (email, password) => {
-    setSystemStatus((p) => ({ ...p, loading: true, error: "" }));
+    setSystemStatus((p) => ({ ...p, loading: true, error: "", resetMsg: "" }));
     try {
       await signInWithEmailAndPassword(auth, email, password);
       navigate("/app", { replace: true });
@@ -182,8 +184,35 @@ export default function useAuthFlow() {
     }
   };
 
+  const handlePasswordReset = async (email) => {
+    if (!email) {
+      return setSystemStatus((p) => ({
+        ...p,
+        error: "Enter your email address first.",
+      }));
+    }
+    setSystemStatus((p) => ({ ...p, loading: true, error: "", resetMsg: "" }));
+    try {
+      await sendPasswordResetEmail(auth, email);
+      setSystemStatus((p) => ({
+        ...p,
+        loading: false,
+        resetMsg: "Reset link dispatched to your inbox.",
+      }));
+    } catch (err) {
+      setSystemStatus((p) => ({
+        ...p,
+        loading: false,
+        error:
+          err.code === "auth/user-not-found"
+            ? "Operator not found."
+            : err.message.replace("Firebase: ", ""),
+      }));
+    }
+  };
+
   const handleSocialAuth = async () => {
-    setSystemStatus((p) => ({ ...p, loading: true, error: "" }));
+    setSystemStatus((p) => ({ ...p, loading: true, error: "", resetMsg: "" }));
     try {
       const provider = new GoogleAuthProvider();
       const result = await signInWithPopup(auth, provider);
@@ -449,6 +478,7 @@ export default function useAuthFlow() {
     isLogin: step === "login",
     setIsLogin: (v) => setStep(v ? "login" : "signup_auth"),
     handleLogin,
+    handlePasswordReset,
     handleSocialAuth,
     handleEmailSignup,
     handleIntentSubmit,

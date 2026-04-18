@@ -117,11 +117,11 @@ const LANDING_CSS = `
 @media (min-width: 900px) { .ld-nav { padding: 0 48px; } }
 
 .ld-nav-logo {
-  display: flex; align-items: center;
+  display: none; align-items: center;
 }
-.ld-nav-logo img { height: 28px; width: auto; object-fit: contain; }
 @media (min-width: 900px) {
-  .ld-nav-logo img { height: 34px; }
+  .ld-nav-logo { display: flex; }
+  .ld-nav-logo img { height: 34px; width: auto; object-fit: contain; }
 }
 
 .ld-nav-links {
@@ -165,6 +165,7 @@ const LANDING_CSS = `
 .ld-hamburger {
   display: flex; flex-direction: column; gap: 5px;
   background: none; border: none; padding: 8px; z-index: 10;
+  margin-left: auto; /* Forces the menu to the absolute right */
 }
 .ld-hamburger span {
   display: block; width: 22px; height: 1.5px;
@@ -241,16 +242,38 @@ const LANDING_CSS = `
 }
 @media (min-width: 640px) { .ld-hero-content { padding: 0 32px 80px; } }
 @media (min-width: 900px) { .ld-hero-content { padding: 0 48px 100px; } }
+@media (max-width: 639px) { .ld-hero-content { margin-top: 10vh !important; } }
 
 /* NAV LINKS DESKTOP ONLY */
 @media (max-width: 899px) {
   .ld-nav-links { display: none !important; }
 }
 
-/* HERO BG LOGO MOBILE SCALE */
+@keyframes ambient-drift {
+  0% { transform: translate(0, 0) scale(1); opacity: 0.4; }
+  50% { transform: translate(4%, -6%) scale(1.1); opacity: 0.7; }
+  100% { transform: translate(-2%, 4%) scale(0.95); opacity: 0.4; }
+}
+.ld-hero-mesh {
+  position: absolute; inset: 0; z-index: 0; pointer-events: none;
+  overflow: hidden;
+}
+.ld-hero-mesh-1 {
+  position: absolute; top: -20%; left: -20%; width: 80vw; height: 80vw;
+  background: radial-gradient(circle, rgba(191,162,100,0.15) 0%, transparent 60%);
+  border-radius: 50%; filter: blur(60px);
+  animation: ambient-drift 12s infinite ease-in-out alternate;
+}
+.ld-hero-mesh-2 {
+  position: absolute; bottom: -20%; right: -20%; width: 90vw; height: 90vw;
+  background: radial-gradient(circle, rgba(139,114,64,0.12) 0%, transparent 60%);
+  border-radius: 50%; filter: blur(80px);
+  animation: ambient-drift 15s infinite ease-in-out alternate-reverse;
+}
+
 .ld-hero-bg-logo {
   position: absolute;
-  top: 38%; left: 50%;
+  top: 24%; left: 50%; /* Pushed upwards on mobile */
   width: 85%;
   max-width: 1200px;
   display: flex; justify-content: center;
@@ -1044,27 +1067,37 @@ function FAQGroup({ faqs }) {
 }
 
 // ─── EMAIL CTA BLOCK ─────────────────────────────────────────────────────────
-function EmailCTA({ navigate, label = "Get Started →" }) {
+function EmailCTA({ navigate, label = "Get Started →", className, style }) {
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
     if (!email) return;
 
     setLoading(true);
-    // Identity Enumeration Protection requires us to handle this in the Auth component
-    // We pass the payload and let the Auth page's Firebase flow handle the resolution natively.
     const normalizedEmail = email.trim().toLowerCase();
 
-    // Simulate slight sub-100ms kinetic delay for perceived work, then route
-    setTimeout(() => {
-      navigate("/auth", { state: { email: normalizedEmail, intent: "auto" } });
-    }, 150);
+    try {
+      const methods = await fetchSignInMethodsForEmail(auth, normalizedEmail);
+      if (methods && methods.length > 0) {
+        navigate("/auth", { state: { email: normalizedEmail, isLogin: true } });
+      } else {
+        navigate("/auth", {
+          state: { email: normalizedEmail, isLogin: false },
+        });
+      }
+    } catch (err) {
+      navigate("/auth", { state: { email: normalizedEmail, isLogin: false } });
+    }
   };
 
   return (
-    <form onSubmit={handleSubmit} className="ld-email-wrap">
+    <form
+      onSubmit={handleSubmit}
+      className={className || "ld-email-wrap"}
+      style={style}
+    >
       <div className="ld-email-glow-wrap">
         <input
           type="email"
@@ -1077,7 +1110,7 @@ function EmailCTA({ navigate, label = "Get Started →" }) {
         />
       </div>
       <button type="submit" className="ld-email-btn" disabled={loading}>
-        {loading ? "Initializing..." : label}
+        {loading ? "..." : label}
         {!loading && (
           <svg
             width={14}
@@ -1327,23 +1360,17 @@ export default function Landing() {
           paddingTop: "var(--nav-h)",
         }}
       >
+        <div className="ld-hero-mesh">
+          <div className="ld-hero-mesh-1" />
+          <div className="ld-hero-mesh-2" />
+        </div>
+
         {/* Massive Background Image Logo */}
         <motion.div
+          className="ld-hero-bg-logo"
           initial={{ opacity: 0, scale: 0.95, x: "-50%", y: "-50%" }}
           animate={{ opacity: 1, scale: 1, x: "-50%", y: "-50%" }}
           transition={{ duration: 1.2, ease: [0.23, 1, 0.32, 1] }}
-          style={{
-            position: "absolute",
-            top: "38%" /* Pushed vertically towards the up per protocol */,
-            left: "50%",
-            width: "100%",
-            maxWidth: "1200px",
-            display: "flex",
-            justifyContent: "center",
-            userSelect: "none",
-            pointerEvents: "none",
-            zIndex: 1,
-          }}
         >
           <img
             src="/Logo with Title.png"
@@ -1450,11 +1477,7 @@ export default function Landing() {
             </p>
           </motion.div>
 
-          <motion.form
-            onSubmit={(e) => {
-              e.preventDefault();
-              navigate("/auth", { state: { isLogin: false } });
-            }}
+          <motion.div
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{
@@ -1462,32 +1485,10 @@ export default function Landing() {
               delay: 0.5,
               ease: [0.23, 1, 0.32, 1],
             }}
-            className="ld-email-wrap"
             style={{ width: "100%", maxWidth: 520 }}
           >
-            <div className="ld-email-glow-wrap">
-              <input
-                type="email"
-                className="ld-email-input"
-                placeholder="Enter your email address"
-                required
-              />
-            </div>
-            <button type="submit" className="ld-email-btn">
-              Get Started
-              <svg
-                width={14}
-                height={14}
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.5"
-                strokeLinecap="round"
-              >
-                <polyline points="9 18 15 12 9 6" />
-              </svg>
-            </button>
-          </motion.form>
+            <EmailCTA navigate={navigate} label="Get Started" />
+          </motion.div>
         </div>
 
         {/* Scroll indicator */}
