@@ -1119,7 +1119,6 @@ const SwipeableEntryCard = memo(({ entry, onDelete, onSelect, isToday }) => {
         drag="x"
         dragConstraints={{ left: 0, right: 0 }}
         dragElastic={{ left: 0.7, right: 0 }}
-        style={{ x }}
         onDragStart={() => setIsDragging(true)}
         onDragEnd={(_, info) => {
           setIsDragging(false);
@@ -1128,6 +1127,7 @@ const SwipeableEntryCard = memo(({ entry, onDelete, onSelect, isToday }) => {
         onClick={() => !isDragging && onSelect(entry.dateStr)}
         className="relative z-10 py-5 px-1 cursor-pointer"
         style={{
+          x,
           background: V.bg,
           borderBottom: "1px solid rgba(255,255,255,0.04)",
         }}
@@ -1202,10 +1202,9 @@ const DesktopEntryCard = memo(
           onMouseEnter={() => setHovered(true)}
           onMouseLeave={() => setHovered(false)}
           onClick={() => onSelect(entry.dateStr)}
-          className="relative cursor-pointer rounded-2xl p-4 overflow-hidden"
+          className="relative cursor-pointer rounded-3xl p-5 overflow-hidden transition-colors"
           style={{
-            background: V.surface,
-            border: `1px solid ${hovered ? "rgba(191,162,100,0.25)" : "rgba(255,255,255,0.05)"}`,
+            background: hovered ? "rgba(255,255,255,0.03)" : "transparent",
             minHeight: 140,
           }}
         >
@@ -1223,7 +1222,7 @@ const DesktopEntryCard = memo(
             )}
             {isToday && (
               <span
-                className="text-[8px] font-black uppercase px-1.5 py-0.5 rounded-full"
+                className="text-[8px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded-full"
                 style={{
                   background: G.dimBg,
                   color: G.bright,
@@ -1246,8 +1245,8 @@ const DesktopEntryCard = memo(
                 e.stopPropagation();
                 onDelete(entry.dateStr);
               }}
-              className="absolute top-3 right-3 p-1.5 rounded-lg transition-all"
-              style={{ background: "rgba(239,68,68,0.12)", color: "#F87171" }}
+              className="absolute top-4 right-4 p-1.5 rounded-full transition-all backdrop-blur-md"
+              style={{ background: "rgba(239,68,68,0.15)", color: "#F87171" }}
             >
               <Trash2 size={12} />
             </button>
@@ -1258,28 +1257,27 @@ const DesktopEntryCard = memo(
 
     return (
       <motion.div
-        whileHover={{ x: 3 }}
+        whileHover={{ x: 4 }}
         onMouseEnter={() => setHovered(true)}
         onMouseLeave={() => setHovered(false)}
-        className="relative flex items-center gap-4 py-3 px-4 cursor-pointer rounded-xl transition-all"
+        className="relative flex items-center gap-4 py-4 px-5 cursor-pointer rounded-[20px] transition-colors"
         style={{
-          background: hovered ? V.surface : "transparent",
-          border: `1px solid ${hovered ? "rgba(255,255,255,0.06)" : "transparent"}`,
+          background: hovered ? "rgba(255,255,255,0.03)" : "transparent",
         }}
       >
         <button
           onClick={() => onSelect(entry.dateStr)}
-          className="flex-1 flex items-center gap-4 min-w-0 text-left"
+          className="flex-1 flex items-center gap-5 min-w-0 text-left outline-none"
         >
-          <div className="shrink-0 text-center" style={{ width: 48 }}>
+          <div className="shrink-0 text-center w-14">
             <p
-              className="text-lg font-black font-mono leading-none"
+              className="text-2xl font-black font-display leading-none tracking-tight"
               style={{ color: isToday ? G.bright : T.primary }}
             >
               {new Date(entry.dateStr + "T12:00:00").getDate()}
             </p>
             <p
-              className="text-[9px] font-bold uppercase"
+              className="text-[9px] font-bold uppercase tracking-widest mt-1"
               style={{ color: T.dim }}
             >
               {new Date(entry.dateStr + "T12:00:00").toLocaleDateString(
@@ -1289,7 +1287,7 @@ const DesktopEntryCard = memo(
             </p>
           </div>
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 mb-0.5">
+            <div className="flex items-center gap-2 mb-1">
               {entry.visibility === "public" ? (
                 <Globe size={9} style={{ color: G.base }} />
               ) : (
@@ -1297,7 +1295,7 @@ const DesktopEntryCard = memo(
               )}
               {isToday && (
                 <span
-                  className="text-[8px] font-black uppercase px-1.5 rounded-full"
+                  className="text-[8px] font-black uppercase tracking-widest px-1.5 rounded-full"
                   style={{
                     background: G.dimBg,
                     color: G.bright,
@@ -1308,21 +1306,27 @@ const DesktopEntryCard = memo(
                 </span>
               )}
             </div>
-            <p className="text-sm truncate" style={{ color: T.secondary }}>
-              {plain.slice(0, 80) || "Empty entry"}
+            <p
+              className="text-sm font-medium truncate"
+              style={{ color: T.secondary }}
+            >
+              {plain.slice(0, 90) || "Empty entry"}
             </p>
           </div>
-          <p className="text-[10px] shrink-0" style={{ color: T.dim }}>
+          <p
+            className="text-[10px] shrink-0 font-mono tracking-widest uppercase"
+            style={{ color: T.dim }}
+          >
             {wordCount(plain)}w
           </p>
         </button>
         {hovered && (
           <button
             onClick={() => onDelete(entry.dateStr)}
-            className="shrink-0 p-1.5 rounded-lg"
-            style={{ background: "rgba(239,68,68,0.10)", color: "#F87171" }}
+            className="shrink-0 p-2 rounded-full backdrop-blur-md transition-all"
+            style={{ background: "rgba(239,68,68,0.15)", color: "#F87171" }}
           >
-            <Trash2 size={12} />
+            <Trash2 size={14} />
           </button>
         )}
       </motion.div>
@@ -1519,546 +1523,558 @@ const exportToPDF = async (entry, userData) => {
 };
 
 /* ─── Main Agenda Editor Panel ───────────────────────────────────────────── */
-const AgendaEditor = memo(({ dateStr, userData, isToday, isPast }) => {
-  const uid = userData?.uid;
-  const [entry, setEntry] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [saveStatus, setSaveStatus] = useState("idle");
-  const [showWidgetPicker, setShowWidgetPicker] = useState(false);
-  const [showTemplatePicker, setShowTemplatePicker] = useState(false);
-  const [showShareModal, setShowShareModal] = useState(false);
-  const [isPublic, setIsPublic] = useState(false);
-  const [publicCount, setPublicCount] = useState(0);
-  const [richContent, setRichContent] = useState("");
-  const [entryTitle, setEntryTitle] = useState("");
-  const [charCount, setCharCount] = useState(0);
-  const [activeTemplate, setActiveTemplate] = useState("blank");
-  const [isExporting, setIsExporting] = useState(false);
-  const [isFullscreen, setIsFullscreen] = useState(false);
-  const editorRef = useRef(null);
-  const autosaveRef = useRef(null);
-  const isMobileView = window.innerWidth < 768;
+const AgendaEditor = memo(
+  ({ dateStr, userData, isToday, isPast, isDesktopOverlay }) => {
+    const uid = userData?.uid;
+    const [entry, setEntry] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const [saveStatus, setSaveStatus] = useState("idle");
+    const [showWidgetPicker, setShowWidgetPicker] = useState(false);
+    const [showTemplatePicker, setShowTemplatePicker] = useState(false);
+    const [showShareModal, setShowShareModal] = useState(false);
+    const [isPublic, setIsPublic] = useState(false);
+    const [publicCount, setPublicCount] = useState(0);
+    const [richContent, setRichContent] = useState("");
+    const [entryTitle, setEntryTitle] = useState("");
+    const [charCount, setCharCount] = useState(0);
+    const [activeTemplate, setActiveTemplate] = useState("blank");
+    const [isExporting, setIsExporting] = useState(false);
+    const [isFullscreen, setIsFullscreen] = useState(false);
+    const editorRef = useRef(null);
+    const autosaveRef = useRef(null);
+    const isMobileView = window.innerWidth < 768 || isDesktopOverlay;
 
-  // Load entry
-  useEffect(() => {
-    if (!uid || !dateStr) return;
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setLoading(true);
-    const fetchEntry = async () => {
-      try {
-        const snap = await getDoc(doc(db, "users", uid, "agenda", dateStr));
-        if (snap.exists()) {
-          const data = snap.data();
-          setEntry(data);
-          setRichContent(data.richContent || data.content || "");
-          setEntryTitle(data.title || "");
-          setIsPublic(data.visibility === "public");
-          setActiveTemplate(data.template || "blank");
-          if (editorRef.current && isToday) {
-            editorRef.current.innerHTML =
-              data.richContent || data.content || "";
+    // Load entry
+    useEffect(() => {
+      if (!uid || !dateStr) return;
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setLoading(true);
+      const fetchEntry = async () => {
+        try {
+          const snap = await getDoc(doc(db, "users", uid, "agenda", dateStr));
+          if (snap.exists()) {
+            const data = snap.data();
+            setEntry(data);
+            setRichContent(data.richContent || data.content || "");
+            setEntryTitle(data.title || "");
+            setIsPublic(data.visibility === "public");
+            setActiveTemplate(data.template || "blank");
+            if (editorRef.current && isToday) {
+              editorRef.current.innerHTML =
+                data.richContent || data.content || "";
+            }
+          } else {
+            setEntry(null);
+            setRichContent("");
+            setEntryTitle("");
+            setIsPublic(false);
+            if (editorRef.current) editorRef.current.innerHTML = "";
           }
-        } else {
-          setEntry(null);
-          setRichContent("");
-          setEntryTitle("");
-          setIsPublic(false);
-          if (editorRef.current) editorRef.current.innerHTML = "";
+          // Count public entries
+          const pubSnap = await getDocs(
+            query(
+              collection(db, "users", uid, "agenda"),
+              where("visibility", "==", "public"),
+            ),
+          );
+          setPublicCount(pubSnap.size);
+        } catch (err) {
+          console.error("[Agenda] fetchEntry:", err);
+        } finally {
+          setLoading(false);
         }
-        // Count public entries
-        const pubSnap = await getDocs(
-          query(
-            collection(db, "users", uid, "agenda"),
-            where("visibility", "==", "public"),
-          ),
-        );
-        setPublicCount(pubSnap.size);
-      } catch (err) {
-        console.error("[Agenda] fetchEntry:", err);
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchEntry();
-  }, [uid, dateStr, isToday]);
+      };
+      fetchEntry();
+    }, [uid, dateStr, isToday]);
 
-  const persist = useCallback(
-    async (html) => {
-      if (!uid || !isToday) return;
-      setSaveStatus("saving");
-      try {
-        const plain = stripHtml(html);
-        await setDoc(
-          doc(db, "users", uid, "agenda", dateStr),
-          {
-            title: entryTitle,
-            richContent: html,
-            content: plain,
-            visibility: isPublic ? "public" : "private",
-            template: activeTemplate,
-            attachedStats: {
-              score: userData?.discotiveScore?.current || 0,
-              streak: userData?.discotiveScore?.streak || 0,
-              rank: userData?.precomputed?.globalRank || null,
+    const persist = useCallback(
+      async (html) => {
+        if (!uid || !isToday) return;
+        setSaveStatus("saving");
+        try {
+          const plain = stripHtml(html);
+          await setDoc(
+            doc(db, "users", uid, "agenda", dateStr),
+            {
+              title: entryTitle,
+              richContent: html,
+              content: plain,
+              visibility: isPublic ? "public" : "private",
+              template: activeTemplate,
+              attachedStats: {
+                score: userData?.discotiveScore?.current || 0,
+                streak: userData?.discotiveScore?.streak || 0,
+                rank: userData?.precomputed?.globalRank || null,
+              },
+              savedAt: serverTimestamp(),
+              createdAt: serverTimestamp(),
             },
-            savedAt: serverTimestamp(),
-            createdAt: serverTimestamp(),
-          },
-          { merge: true },
-        );
-        setSaveStatus("saved");
-        setTimeout(() => setSaveStatus("idle"), 2500);
-      } catch (err) {
-        console.error("[Agenda] persist:", err);
-        setSaveStatus("idle");
-      }
-    },
-    [uid, dateStr, isToday, isPublic, activeTemplate, userData, entryTitle],
-  );
+            { merge: true },
+          );
+          setSaveStatus("saved");
+          setTimeout(() => setSaveStatus("idle"), 2500);
+        } catch (err) {
+          console.error("[Agenda] persist:", err);
+          setSaveStatus("idle");
+        }
+      },
+      [uid, dateStr, isToday, isPublic, activeTemplate, userData, entryTitle],
+    );
 
-  const handleTitleChange = useCallback(
-    (e) => {
-      setEntryTitle(e.target.value);
+    const handleTitleChange = useCallback(
+      (e) => {
+        setEntryTitle(e.target.value);
+        if (autosaveRef.current) clearTimeout(autosaveRef.current);
+        setSaveStatus("saving");
+        autosaveRef.current = setTimeout(
+          () => persist(editorRef.current?.innerHTML || richContent),
+          AUTOSAVE_MS,
+        );
+      },
+      [persist, richContent],
+    );
+
+    const handleInput = useCallback(() => {
+      if (!editorRef.current || !isToday) return;
+      const html = editorRef.current.innerHTML;
+      const plain = stripHtml(html);
+      if (plain.length > MAX_CHARS) {
+        editorRef.current.innerHTML = richContent;
+        return;
+      }
+      setRichContent(html);
+      setCharCount(plain.length);
       if (autosaveRef.current) clearTimeout(autosaveRef.current);
       setSaveStatus("saving");
-      autosaveRef.current = setTimeout(
-        () => persist(editorRef.current?.innerHTML || richContent),
-        AUTOSAVE_MS,
-      );
-    },
-    [persist, richContent],
-  );
+      autosaveRef.current = setTimeout(() => persist(html), AUTOSAVE_MS);
+    }, [isToday, richContent, persist]);
 
-  const handleInput = useCallback(() => {
-    if (!editorRef.current || !isToday) return;
-    const html = editorRef.current.innerHTML;
-    const plain = stripHtml(html);
-    if (plain.length > MAX_CHARS) {
-      editorRef.current.innerHTML = richContent;
-      return;
-    }
-    setRichContent(html);
-    setCharCount(plain.length);
-    if (autosaveRef.current) clearTimeout(autosaveRef.current);
-    setSaveStatus("saving");
-    autosaveRef.current = setTimeout(() => persist(html), AUTOSAVE_MS);
-  }, [isToday, richContent, persist]);
+    // Ctrl+S
+    useEffect(() => {
+      const handler = (e) => {
+        if ((e.ctrlKey || e.metaKey) && e.key === "s" && isToday) {
+          e.preventDefault();
+          if (autosaveRef.current) clearTimeout(autosaveRef.current);
+          persist(editorRef.current?.innerHTML || richContent);
+        }
+      };
+      window.addEventListener("keydown", handler);
+      return () => window.removeEventListener("keydown", handler);
+    }, [isToday, richContent, persist]);
 
-  // Ctrl+S
-  useEffect(() => {
-    const handler = (e) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === "s" && isToday) {
-        e.preventDefault();
-        if (autosaveRef.current) clearTimeout(autosaveRef.current);
-        persist(editorRef.current?.innerHTML || richContent);
+    const handleInsertWidget = (widgetId) => {
+      setShowWidgetPicker(false);
+      if (!editorRef.current) return;
+      const widgetHtml = `<span data-widget="${widgetId}" contenteditable="false" class="inline-widget">📊 [${widgetId}]</span>&nbsp;`;
+      document.execCommand("insertHTML", false, widgetHtml);
+      handleInput();
+    };
+
+    const handleInsertLink = () => {
+      const url = window.prompt("Enter URL:");
+      if (url) {
+        const text = window.prompt("Link text:", url);
+        document.execCommand(
+          "insertHTML",
+          false,
+          `<a href="${url}" target="_blank" style="color:#BFA264;text-decoration:underline;">${text || url}</a>`,
+        );
+        handleInput();
       }
     };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [isToday, richContent, persist]);
 
-  const handleInsertWidget = (widgetId) => {
-    setShowWidgetPicker(false);
-    if (!editorRef.current) return;
-    const widgetHtml = `<span data-widget="${widgetId}" contenteditable="false" class="inline-widget">📊 [${widgetId}]</span>&nbsp;`;
-    document.execCommand("insertHTML", false, widgetHtml);
-    handleInput();
-  };
-
-  const handleInsertLink = () => {
-    const url = window.prompt("Enter URL:");
-    if (url) {
-      const text = window.prompt("Link text:", url);
+    const handleInsertYoutube = () => {
+      const url = window.prompt("YouTube URL:");
+      if (!url) return;
+      const match = url.match(/(?:v=|youtu\.be\/)([^&\s]+)/);
+      if (!match) return;
+      const id = match[1];
       document.execCommand(
         "insertHTML",
         false,
-        `<a href="${url}" target="_blank" style="color:#BFA264;text-decoration:underline;">${text || url}</a>`,
+        `<div style="margin:12px 0;border-radius:12px;overflow:hidden;border:1px solid rgba(191,162,100,0.25);background:#0A0A0A;padding:8px;">` +
+          `<p style="font-size:10px;color:#888;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.1em;">▶ YOUTUBE EMBED</p>` +
+          `<iframe width="100%" height="200" src="https://www.youtube.com/embed/${id}" frameborder="0" allowfullscreen style="border-radius:8px;display:block;"></iframe></div>`,
       );
       handleInput();
-    }
-  };
+    };
 
-  const handleInsertYoutube = () => {
-    const url = window.prompt("YouTube URL:");
-    if (!url) return;
-    const match = url.match(/(?:v=|youtu\.be\/)([^&\s]+)/);
-    if (!match) return;
-    const id = match[1];
-    document.execCommand(
-      "insertHTML",
-      false,
-      `<div style="margin:12px 0;border-radius:12px;overflow:hidden;border:1px solid rgba(191,162,100,0.25);background:#0A0A0A;padding:8px;">` +
-        `<p style="font-size:10px;color:#888;margin-bottom:6px;text-transform:uppercase;letter-spacing:0.1em;">▶ YOUTUBE EMBED</p>` +
-        `<iframe width="100%" height="200" src="https://www.youtube.com/embed/${id}" frameborder="0" allowfullscreen style="border-radius:8px;display:block;"></iframe></div>`,
-    );
-    handleInput();
-  };
+    const handleTemplateSelect = (template) => {
+      setActiveTemplate(template.id);
+      setShowTemplatePicker(false);
+      if (!editorRef.current || !isToday) return;
+      if (template.prompt) {
+        editorRef.current.innerHTML = template.prompt;
+        handleInput();
+      }
+    };
 
-  const handleTemplateSelect = (template) => {
-    setActiveTemplate(template.id);
-    setShowTemplatePicker(false);
-    if (!editorRef.current || !isToday) return;
-    if (template.prompt) {
-      editorRef.current.innerHTML = template.prompt;
-      handleInput();
-    }
-  };
+    const handleVisibilityToggle = async () => {
+      if (
+        !isPublic &&
+        publicCount >= MAX_PUBLIC &&
+        !entry?.visibility === "public"
+      ) {
+        alert(`Maximum ${MAX_PUBLIC} public entries allowed.`);
+        return;
+      }
+      const next = !isPublic;
+      setIsPublic(next);
+      if (uid && dateStr) {
+        await setDoc(
+          doc(db, "users", uid, "agenda", dateStr),
+          {
+            visibility: next ? "public" : "private",
+            savedAt: serverTimestamp(),
+          },
+          { merge: true },
+        );
+        if (next) setPublicCount((p) => p + 1);
+        else setPublicCount((p) => Math.max(0, p - 1));
+      }
+    };
 
-  const handleVisibilityToggle = async () => {
-    if (
-      !isPublic &&
-      publicCount >= MAX_PUBLIC &&
-      !entry?.visibility === "public"
-    ) {
-      alert(`Maximum ${MAX_PUBLIC} public entries allowed.`);
-      return;
-    }
-    const next = !isPublic;
-    setIsPublic(next);
-    if (uid && dateStr) {
-      await setDoc(
-        doc(db, "users", uid, "agenda", dateStr),
-        { visibility: next ? "public" : "private", savedAt: serverTimestamp() },
-        { merge: true },
+    const handleExport = async () => {
+      setIsExporting(true);
+      await exportToPDF(
+        { dateStr, richContent, content: stripHtml(richContent) },
+        userData,
       );
-      if (next) setPublicCount((p) => p + 1);
-      else setPublicCount((p) => Math.max(0, p - 1));
+      setIsExporting(false);
+    };
+
+    if (loading) {
+      return (
+        <div className="flex items-center justify-center h-64">
+          <Loader2
+            size={20}
+            className="animate-spin"
+            style={{ color: G.base }}
+          />
+        </div>
+      );
     }
-  };
 
-  const handleExport = async () => {
-    setIsExporting(true);
-    await exportToPDF(
-      { dateStr, richContent, content: stripHtml(richContent) },
-      userData,
-    );
-    setIsExporting(false);
-  };
-
-  if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
-        <Loader2 size={20} className="animate-spin" style={{ color: G.base }} />
-      </div>
-    );
-  }
+      <>
+        <AnimatePresence>
+          {showWidgetPicker && (
+            <WidgetPickerModal
+              key="wp"
+              onSelect={handleInsertWidget}
+              onClose={() => setShowWidgetPicker(false)}
+              userData={userData}
+            />
+          )}
+          {showTemplatePicker && (
+            <TemplatePicker
+              key="tp"
+              onSelect={handleTemplateSelect}
+              onClose={() => setShowTemplatePicker(false)}
+              current={activeTemplate}
+            />
+          )}
+          {showShareModal && (
+            <ShareModal
+              key="sm"
+              entry={entry}
+              onClose={() => setShowShareModal(false)}
+              onUpdate={(fields) =>
+                setDoc(
+                  doc(db, "users", uid, "agenda", dateStr),
+                  { ...fields, savedAt: serverTimestamp() },
+                  { merge: true },
+                )
+              }
+              uid={uid}
+            />
+          )}
+        </AnimatePresence>
 
-  return (
-    <>
-      <AnimatePresence>
-        {showWidgetPicker && (
-          <WidgetPickerModal
-            key="wp"
-            onSelect={handleInsertWidget}
-            onClose={() => setShowWidgetPicker(false)}
-            userData={userData}
-          />
-        )}
-        {showTemplatePicker && (
-          <TemplatePicker
-            key="tp"
-            onSelect={handleTemplateSelect}
-            onClose={() => setShowTemplatePicker(false)}
-            current={activeTemplate}
-          />
-        )}
-        {showShareModal && (
-          <ShareModal
-            key="sm"
-            entry={entry}
-            onClose={() => setShowShareModal(false)}
-            onUpdate={(fields) =>
-              setDoc(
-                doc(db, "users", uid, "agenda", dateStr),
-                { ...fields, savedAt: serverTimestamp() },
-                { merge: true },
-              )
-            }
-            uid={uid}
-          />
-        )}
-      </AnimatePresence>
-
-      <motion.div
-        initial={{ opacity: 0, y: 8 }}
-        animate={{ opacity: 1, y: 0 }}
-        className={cn(
-          "flex flex-col h-full overflow-hidden flex-1",
-          isFullscreen && "fixed inset-4 z-[500]",
-          !isFullscreen && (isMobileView ? "" : "rounded-2xl"),
-        )}
-        style={{
-          background: isMobileView ? "transparent" : V.depth,
-          border:
-            isFullscreen || isMobileView
-              ? "none"
-              : `1px solid rgba(255,255,255,0.06)`,
-          boxShadow:
-            isFullscreen || isMobileView
-              ? "none"
-              : "0 20px 60px rgba(0,0,0,0.8)",
-          willChange: "transform, opacity",
-        }}
-      >
-        {/* Header */}
-        {isMobileView ? (
-          <div className="flex flex-col px-6 pt-8 pb-5 shrink-0 relative z-10">
-            <div className="flex items-center justify-between mb-1.5">
-              <span className="text-[9px] font-black uppercase tracking-[0.2em] text-[#BFA264]">
-                Today's Entry
-              </span>
-              <SaveStatus status={saveStatus} isMobile={true} />
-            </div>
-            <h2 className="text-3xl font-black font-display text-white tracking-tight leading-none mb-1">
-              {new Date(dateStr + "T12:00:00").toLocaleDateString("en-US", {
-                weekday: "long",
-              })}
-            </h2>
-            <p className="text-xs font-bold text-white/50 tracking-wider uppercase">
-              {new Date(dateStr + "T12:00:00").toLocaleDateString("en-US", {
-                month: "short",
-                day: "2-digit",
-              })}
-            </p>
-          </div>
-        ) : (
-          <div
-            className="flex items-center justify-between px-4 py-3 shrink-0"
-            style={{
-              borderBottom: "1px solid rgba(255,255,255,0.06)",
-              background: V.surface,
-            }}
-          >
-            <div>
-              <p
-                className="text-[9px] font-bold uppercase tracking-widest"
-                style={{ color: T.dim }}
-              >
-                {isPast
-                  ? "Read Only"
-                  : isToday
-                    ? "Today's Entry"
-                    : "Future locked"}
-              </p>
-              <p className="text-sm font-black" style={{ color: T.primary }}>
-                {fmtDisplay(dateStr)}
-              </p>
-            </div>
-            <div className="flex items-center gap-2">
-              <SaveStatus status={saveStatus} />
-              {isToday && (
-                <div className="hidden md:flex items-center gap-2">
-                  <button
-                    onClick={() => setShowTemplatePicker(true)}
-                    title="Templates"
-                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all hover:bg-white/5"
-                    style={{
-                      color: T.dim,
-                      border: "1px solid rgba(255,255,255,0.06)",
-                    }}
-                  >
-                    <Layout size={11} /> Templates
-                  </button>
-                  <button
-                    onClick={handleVisibilityToggle}
-                    title={isPublic ? "Make Private" : "Make Public"}
-                    className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all"
-                    style={{
-                      background: isPublic ? G.dimBg : "rgba(255,255,255,0.03)",
-                      border: `1px solid ${isPublic ? G.border : "rgba(255,255,255,0.06)"}`,
-                      color: isPublic ? G.bright : T.dim,
-                    }}
-                  >
-                    {isPublic ? <Globe size={11} /> : <Lock size={11} />}{" "}
-                    {isPublic ? "Public" : "Private"}
-                  </button>
-                  <button
-                    onClick={() => setShowShareModal(true)}
-                    title="Share"
-                    className="p-2 rounded-lg hover:bg-white/5 transition-all"
-                    style={{
-                      color: T.dim,
-                      border: "1px solid rgba(255,255,255,0.06)",
-                    }}
-                  >
-                    <Share2 size={13} />
-                  </button>
-                </div>
-              )}
-              <button
-                onClick={handleExport}
-                disabled={isExporting}
-                title="Export PDF"
-                className="hidden md:block p-2 rounded-lg hover:bg-white/5 transition-all"
-                style={{
-                  color: T.dim,
-                  border: "1px solid rgba(255,255,255,0.06)",
-                }}
-              >
-                {isExporting ? (
-                  <Loader2 size={13} className="animate-spin" />
-                ) : (
-                  <Download size={13} />
-                )}
-              </button>
-              <button
-                onClick={() => setIsFullscreen((v) => !v)}
-                title={isFullscreen ? "Exit Fullscreen" : "Fullscreen"}
-                className="p-2 rounded-lg hover:bg-white/5 transition-all hidden md:block"
-                style={{
-                  color: T.dim,
-                  border: "1px solid rgba(255,255,255,0.06)",
-                }}
-              >
-                {isFullscreen ? (
-                  <Minimize2 size={13} />
-                ) : (
-                  <Maximize2 size={13} />
-                )}
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Stats bar (Hidden on mobile) */}
-        {!isMobileView && (
-          <div
-            className="flex items-center gap-4 px-4 py-2 flex-wrap shrink-0"
-            style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}
-          >
-            {[
-              {
-                icon: Zap,
-                value:
-                  userData?.discotiveScore?.current?.toLocaleString() || "0",
-                label: "Score",
-                color: G.bright,
-              },
-              {
-                icon: Flame,
-                value: `${userData?.discotiveScore?.streak || 0}d`,
-                label: "Streak",
-                color: "#f97316",
-              },
-              {
-                icon: Trophy,
-                value: userData?.precomputed?.globalRank
-                  ? `#${userData.precomputed.globalRank}`
-                  : "—",
-                label: "Rank",
-                color: "#f59e0b",
-              },
-            ].map((s) => (
-              <div key={s.label} className="flex items-center gap-1.5">
-                <s.icon size={10} style={{ color: s.color }} />
-                <span
-                  className="text-[10px] font-black font-mono"
-                  style={{ color: s.color }}
-                >
-                  {s.value}
-                </span>
-                <span className="text-[9px]" style={{ color: T.dim }}>
-                  {s.label}
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Editor Area */}
-        <div
+        <motion.div
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
           className={cn(
-            "relative flex-1 flex flex-col min-h-0",
-            isMobileView ? "rounded-t-[32px]" : "bg-[#030303]",
+            "flex flex-col h-full overflow-hidden flex-1",
+            isFullscreen && "fixed inset-4 z-[500]",
           )}
           style={{
-            background: isMobileView
-              ? "radial-gradient(120% 120% at 50% -10%, #151515 0%, #030303 100%)"
-              : "#030303",
-            borderTop: isMobileView
-              ? "1px solid rgba(255,255,255,0.08)"
-              : "none",
-            boxShadow: isMobileView ? "0 -20px 40px rgba(0,0,0,0.5)" : "none",
+            background: "transparent",
+            border: "none",
+            boxShadow: "none",
+            willChange: "transform, opacity",
           }}
         >
-          {isToday && (
-            <FloatingEditorOverlay editorRef={editorRef} userData={userData} />
-          )}
-
-          {isToday && (
-            <div className="shrink-0 pt-7 px-6 pb-2">
-              <input
-                type="text"
-                value={entryTitle}
-                onChange={handleTitleChange}
-                placeholder="Entry Title..."
-                className="w-full bg-transparent outline-none text-2xl font-black font-display text-white placeholder-white/20 transition-all"
-                style={{ caretColor: G.bright }}
-              />
-              <div className="w-8 h-[3px] mt-4 rounded-full bg-[#BFA264]/40" />
-            </div>
-          )}
-
-          {isPast ? (
-            <div className="p-6 flex-1 overflow-y-auto custom-scrollbar">
-              {entryTitle && (
-                <h3 className="text-2xl font-black font-display text-white mb-4 leading-tight">
-                  {entryTitle}
-                </h3>
-              )}
-              <div
-                dangerouslySetInnerHTML={{
-                  __html:
-                    richContent ||
-                    `<p style="color:rgba(245,240,232,0.28);font-style:italic;">No entry for this day.</p>`,
-                }}
-              />
+          {/* Header */}
+          {isMobileView ? (
+            <div className="flex flex-col px-6 pt-8 pb-5 shrink-0 relative z-10">
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="text-[9px] font-black uppercase tracking-[0.2em] text-[#BFA264]">
+                  Today's Entry
+                </span>
+                <SaveStatus status={saveStatus} isMobile={true} />
+              </div>
+              <h2 className="text-3xl font-black font-display text-white tracking-tight leading-none mb-1">
+                {new Date(dateStr + "T12:00:00").toLocaleDateString("en-US", {
+                  weekday: "long",
+                })}
+              </h2>
+              <p className="text-xs font-bold text-white/50 tracking-wider uppercase">
+                {new Date(dateStr + "T12:00:00").toLocaleDateString("en-US", {
+                  month: "short",
+                  day: "2-digit",
+                })}
+              </p>
             </div>
           ) : (
-            <div className="relative flex-1 overflow-y-auto custom-scrollbar">
-              <div
-                ref={editorRef}
-                contentEditable={isToday}
-                onInput={handleInput}
-                suppressContentEditableWarning
-                className="px-6 py-4 outline-none min-h-full text-[15px] leading-relaxed"
-                style={{
-                  color: T.primary,
-                  caretColor: G.bright,
-                  paddingBottom: "120px",
-                }}
-              />
-              {isToday && !richContent && (
-                <div
-                  className="absolute top-4 left-6 pointer-events-none text-[15px] font-medium"
-                  style={{ color: "rgba(255,255,255,0.15)" }}
+            <div
+              className="flex items-center justify-between px-4 py-3 shrink-0"
+              style={{
+                borderBottom: "1px solid rgba(255,255,255,0.06)",
+                background: V.surface,
+              }}
+            >
+              <div>
+                <p
+                  className="text-[9px] font-bold uppercase tracking-widest"
+                  style={{ color: T.dim }}
                 >
-                  What's the agenda?
-                </div>
-              )}
+                  {isPast
+                    ? "Read Only"
+                    : isToday
+                      ? "Today's Entry"
+                      : "Future locked"}
+                </p>
+                <p className="text-sm font-black" style={{ color: T.primary }}>
+                  {fmtDisplay(dateStr)}
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <SaveStatus status={saveStatus} />
+                {isToday && (
+                  <div className="hidden md:flex items-center gap-2">
+                    <button
+                      onClick={() => setShowTemplatePicker(true)}
+                      title="Templates"
+                      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all hover:bg-white/5"
+                      style={{
+                        color: T.dim,
+                        border: "1px solid rgba(255,255,255,0.06)",
+                      }}
+                    >
+                      <Layout size={11} /> Templates
+                    </button>
+                    <button
+                      onClick={handleVisibilityToggle}
+                      title={isPublic ? "Make Private" : "Make Public"}
+                      className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all"
+                      style={{
+                        background: isPublic
+                          ? G.dimBg
+                          : "rgba(255,255,255,0.03)",
+                        border: `1px solid ${isPublic ? G.border : "rgba(255,255,255,0.06)"}`,
+                        color: isPublic ? G.bright : T.dim,
+                      }}
+                    >
+                      {isPublic ? <Globe size={11} /> : <Lock size={11} />}{" "}
+                      {isPublic ? "Public" : "Private"}
+                    </button>
+                    <button
+                      onClick={() => setShowShareModal(true)}
+                      title="Share"
+                      className="p-2 rounded-lg hover:bg-white/5 transition-all"
+                      style={{
+                        color: T.dim,
+                        border: "1px solid rgba(255,255,255,0.06)",
+                      }}
+                    >
+                      <Share2 size={13} />
+                    </button>
+                  </div>
+                )}
+                <button
+                  onClick={handleExport}
+                  disabled={isExporting}
+                  title="Export PDF"
+                  className="hidden md:block p-2 rounded-lg hover:bg-white/5 transition-all"
+                  style={{
+                    color: T.dim,
+                    border: "1px solid rgba(255,255,255,0.06)",
+                  }}
+                >
+                  {isExporting ? (
+                    <Loader2 size={13} className="animate-spin" />
+                  ) : (
+                    <Download size={13} />
+                  )}
+                </button>
+                <button
+                  onClick={() => setIsFullscreen((v) => !v)}
+                  title={isFullscreen ? "Exit Fullscreen" : "Fullscreen"}
+                  className="p-2 rounded-lg hover:bg-white/5 transition-all hidden md:block"
+                  style={{
+                    color: T.dim,
+                    border: "1px solid rgba(255,255,255,0.06)",
+                  }}
+                >
+                  {isFullscreen ? (
+                    <Minimize2 size={13} />
+                  ) : (
+                    <Maximize2 size={13} />
+                  )}
+                </button>
+              </div>
             </div>
           )}
 
+          {/* Stats bar (Hidden on mobile) */}
+          {!isMobileView && (
+            <div
+              className="flex items-center gap-4 px-4 py-2 flex-wrap shrink-0"
+              style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}
+            >
+              {[
+                {
+                  icon: Zap,
+                  value:
+                    userData?.discotiveScore?.current?.toLocaleString() || "0",
+                  label: "Score",
+                  color: G.bright,
+                },
+                {
+                  icon: Flame,
+                  value: `${userData?.discotiveScore?.streak || 0}d`,
+                  label: "Streak",
+                  color: "#f97316",
+                },
+                {
+                  icon: Trophy,
+                  value: userData?.precomputed?.globalRank
+                    ? `#${userData.precomputed.globalRank}`
+                    : "—",
+                  label: "Rank",
+                  color: "#f59e0b",
+                },
+              ].map((s) => (
+                <div key={s.label} className="flex items-center gap-1.5">
+                  <s.icon size={10} style={{ color: s.color }} />
+                  <span
+                    className="text-[10px] font-black font-mono"
+                    style={{ color: s.color }}
+                  >
+                    {s.value}
+                  </span>
+                  <span className="text-[9px]" style={{ color: T.dim }}>
+                    {s.label}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Editor Area */}
           <div
-            className="absolute bottom-5 right-5 flex items-center gap-1.5 px-3 py-1.5 rounded-full z-10 backdrop-blur-md shadow-lg"
+            className={cn(
+              "relative flex-1 flex flex-col min-h-0",
+              isMobileView ? "rounded-t-[32px]" : "",
+            )}
             style={{
-              background: "rgba(10,10,10,0.8)",
-              border: "1px solid rgba(255,255,255,0.08)",
-              color: charCount > MAX_CHARS * 0.9 ? "#f59e0b" : T.dim,
+              background:
+                isMobileView && !isDesktopOverlay
+                  ? "radial-gradient(120% 120% at 50% -10%, #151515 0%, #030303 100%)"
+                  : "transparent",
+              borderTop:
+                isMobileView && !isDesktopOverlay
+                  ? "1px solid rgba(255,255,255,0.08)"
+                  : "none",
+              boxShadow:
+                isMobileView && !isDesktopOverlay
+                  ? "0 -20px 40px rgba(0,0,0,0.5)"
+                  : "none",
             }}
           >
-            <span className="text-[10px] font-bold font-mono tracking-widest">
-              {charCount}
-            </span>
-            <span className="text-[9px] font-bold tracking-widest">
-              / {MAX_CHARS}
-            </span>
+            {isToday && (
+              <FloatingEditorOverlay
+                editorRef={editorRef}
+                userData={userData}
+              />
+            )}
+
+            {isToday && (
+              <div className="shrink-0 pt-7 px-6 pb-2">
+                <input
+                  type="text"
+                  value={entryTitle}
+                  onChange={handleTitleChange}
+                  placeholder="Entry Title..."
+                  className="w-full bg-transparent outline-none text-2xl font-black font-display text-white placeholder-white/20 transition-all"
+                  style={{ caretColor: G.bright }}
+                />
+                <div className="w-8 h-[3px] mt-4 rounded-full bg-[#BFA264]/40" />
+              </div>
+            )}
+
+            {isPast ? (
+              <div className="p-6 flex-1 overflow-y-auto custom-scrollbar">
+                {entryTitle && (
+                  <h3 className="text-2xl font-black font-display text-white mb-4 leading-tight">
+                    {entryTitle}
+                  </h3>
+                )}
+                <div
+                  dangerouslySetInnerHTML={{
+                    __html:
+                      richContent ||
+                      `<p style="color:rgba(245,240,232,0.28);font-style:italic;">No entry for this day.</p>`,
+                  }}
+                />
+              </div>
+            ) : (
+              <div className="relative flex-1 overflow-y-auto custom-scrollbar">
+                <div
+                  ref={editorRef}
+                  contentEditable={isToday}
+                  onInput={handleInput}
+                  suppressContentEditableWarning
+                  className="px-6 py-4 outline-none min-h-full text-[15px] leading-relaxed"
+                  style={{
+                    color: T.primary,
+                    caretColor: G.bright,
+                    paddingBottom: "120px",
+                  }}
+                />
+                {isToday && !richContent && (
+                  <div
+                    className="absolute top-4 left-6 pointer-events-none text-[15px] font-medium"
+                    style={{ color: "rgba(255,255,255,0.15)" }}
+                  >
+                    What's the agenda?
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div
+              className="absolute bottom-5 right-5 flex items-center gap-1.5 px-3 py-1.5 rounded-full z-10 backdrop-blur-md shadow-lg"
+              style={{
+                background: "rgba(10,10,10,0.8)",
+                border: "1px solid rgba(255,255,255,0.08)",
+                color: charCount > MAX_CHARS * 0.9 ? "#f59e0b" : T.dim,
+              }}
+            >
+              <span className="text-[10px] font-bold font-mono tracking-widest">
+                {charCount}
+              </span>
+              <span className="text-[9px] font-bold tracking-widest">
+                / {MAX_CHARS}
+              </span>
+            </div>
           </div>
-        </div>
-      </motion.div>
-    </>
-  );
-});
+        </motion.div>
+      </>
+    );
+  },
+);
 
 /* ─── Tier Gate Upsell ───────────────────────────────────────────────────── */
 const AgendaTierGate = memo(({ navigate }) => (
@@ -2221,6 +2237,8 @@ const AgendaPage = () => {
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   const [isCalendarExpanded, setIsCalendarExpanded] = useState(false);
   const [showMobileEditor, setShowMobileEditor] = useState(false);
+  const [selectedEntryDate, setSelectedEntryDate] = useState(null);
+  const [isDesktopEditorOpen, setIsDesktopEditorOpen] = useState(false);
 
   useEffect(() => {
     const check = () => setIsMobile(window.innerWidth < 768);
@@ -2277,6 +2295,15 @@ const AgendaPage = () => {
       if (selectedDate === dateStr) setSelectedDate(today);
     },
     [uid, entries, selectedDate, today],
+  );
+
+  const handleDesktopDelete = useCallback(
+    async (ds) => {
+      if (selectedEntryDate === ds) setSelectedEntryDate(null);
+      if (selectedDate === ds) setSelectedDate(today);
+      await handleDelete(ds);
+    },
+    [selectedEntryDate, selectedDate, today, handleDelete],
   );
 
   const handleUndo = useCallback(async () => {
@@ -2619,215 +2646,273 @@ const AgendaPage = () => {
   /* ── DESKTOP LAYOUT ── */
   return (
     <div
-      className="h-full min-h-full flex flex-1 w-full"
+      className="absolute inset-0 w-full h-full flex flex-col overflow-hidden"
       style={{ background: V.bg }}
     >
-      {/* Sidebar */}
-      <aside
-        className="w-80 shrink-0 flex flex-col border-r"
-        style={{ borderColor: "rgba(255,255,255,0.06)", background: V.depth }}
+      {/* Columns Wrapper */}
+      <motion.div
+        animate={{
+          y: isDesktopEditorOpen ? "100%" : 0,
+          opacity: isDesktopEditorOpen ? 0 : 1,
+          scale: isDesktopEditorOpen ? 0.95 : 1,
+        }}
+        transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+        className="flex flex-row flex-1 w-full h-full p-8 gap-8 overflow-hidden bg-transparent"
       >
-        {/* Sidebar Header */}
-        <div
-          className="px-5 pt-5 pb-4 border-b"
-          style={{ borderColor: "rgba(255,255,255,0.06)" }}
+        {/* COL 1: Entries */}
+        <motion.div
+          layout
+          className={cn(
+            "flex flex-col h-full transition-all duration-300",
+            selectedEntryDate ? "w-[420px] shrink-0" : "flex-1 min-w-0 w-full",
+          )}
         >
-          <div className="flex items-center gap-2.5 mb-1">
-            <BookOpen size={16} style={{ color: G.bright }} />
-            <h1 className="text-base font-black" style={{ color: T.primary }}>
-              Agenda
-            </h1>
-            <span
-              className="text-[9px] font-black uppercase tracking-widest px-2 py-0.5 rounded-full"
-              style={{
-                background: G.dimBg,
-                color: G.bright,
-                border: `1px solid ${G.border}`,
-              }}
+          {/* Header: Tabs + Calendar Btn */}
+          <div className="flex items-center justify-between mb-8 shrink-0">
+            <div
+              className="flex relative p-1 rounded-2xl w-[220px]"
+              style={{ background: "rgba(255,255,255,0.03)" }}
             >
-              Pro
-            </span>
-          </div>
-          <p className="text-[11px]" style={{ color: T.dim }}>
-            {entries.length} entries logged
-          </p>
-        </div>
-
-        {/* Calendar */}
-        <div
-          className="border-b"
-          style={{ borderColor: "rgba(255,255,255,0.06)" }}
-        >
-          <CalendarMini
-            selectedDate={selectedDate}
-            onSelect={setSelectedDate}
-            entryDates={entryDates}
-            today={today}
-          />
-        </div>
-
-        {/* View toggle */}
-        <div
-          className="flex items-center gap-2 px-4 py-3 border-b"
-          style={{ borderColor: "rgba(255,255,255,0.06)" }}
-        >
-          <span
-            className="text-[9px] font-bold uppercase tracking-widest flex-1"
-            style={{ color: T.dim }}
-          >
-            Past Entries
-          </span>
-          <div
-            className="flex gap-1 p-0.5 rounded-lg"
-            style={{ background: "rgba(255,255,255,0.04)" }}
-          >
-            {[
-              { v: "list", I: List },
-              { v: "grid", I: Grid },
-            ].map(({ v, I }) => (
-              <button
-                key={v}
-                onClick={() => setView(v)}
-                className="p-1.5 rounded-md transition-all"
-                style={{
-                  background:
-                    view === v ? "rgba(191,162,100,0.15)" : "transparent",
-                  color: view === v ? G.bright : T.dim,
-                }}
-              >
-                <I size={12} />
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Entry List */}
-        <div className="flex-1 overflow-y-auto custom-scrollbar py-2 px-2">
-          {entriesLoading ? (
-            Array(5)
-              .fill(0)
-              .map((_, i) => (
-                <div
-                  key={i}
-                  className="h-12 rounded-xl mb-1.5 animate-pulse"
-                  style={{ background: V.surface }}
-                />
-              ))
-          ) : entries.length === 0 ? (
-            <div className="py-8 text-center px-4">
-              <BookOpen
-                size={24}
-                style={{ color: "rgba(255,255,255,0.1)", margin: "0 auto 8px" }}
-              />
-              <p className="text-xs" style={{ color: "rgba(255,255,255,0.2)" }}>
-                No entries yet.
-              </p>
-            </div>
-          ) : view === "grid" ? (
-            <div className="grid grid-cols-2 gap-2 p-1">
-              {entries.map((entry) => (
-                <DesktopEntryCard
-                  key={entry.dateStr}
-                  entry={entry}
-                  view="grid"
-                  onDelete={handleDelete}
-                  onSelect={setSelectedDate}
-                  isToday={entry.dateStr === today}
-                />
+              {[
+                { id: "list", label: "List", icon: List },
+                { id: "grid", label: "Grid", icon: Grid },
+              ].map((t) => (
+                <button
+                  key={t.id}
+                  onClick={() => setView(t.id)}
+                  className="relative flex-1 py-2.5 text-[11px] font-black uppercase tracking-widest flex items-center justify-center gap-2 z-10 transition-colors"
+                  style={{ color: view === t.id ? "#000" : T.dim }}
+                >
+                  {view === t.id && (
+                    <motion.div
+                      layoutId="desktopTabIndicator"
+                      className="absolute inset-0 rounded-xl"
+                      style={{ background: G.bright }}
+                      transition={{
+                        type: "spring",
+                        bounce: 0.2,
+                        duration: 0.5,
+                      }}
+                    />
+                  )}
+                  <t.icon size={14} className="relative z-20" />
+                  <span className="relative z-20">{t.label}</span>
+                </button>
               ))}
             </div>
-          ) : (
-            entries.map((entry) => (
-              <DesktopEntryCard
-                key={entry.dateStr}
-                entry={entry}
-                view="list"
-                onDelete={handleDelete}
-                onSelect={setSelectedDate}
-                isToday={entry.dateStr === today}
-              />
-            ))
-          )}
-        </div>
-      </aside>
-
-      {/* Main Editor */}
-      <main className="flex-1 overflow-y-auto custom-scrollbar p-8 pb-24">
-        <div className="max-w-3xl mx-auto">
-          {/* Page heading */}
-          <div className="flex items-center justify-between mb-6">
-            <div>
-              <p
-                className="text-[9px] font-bold uppercase tracking-widest mb-1"
-                style={{ color: T.dim }}
-              >
-                {isToday
-                  ? "Today · Write Mode"
-                  : isPast
-                    ? "Past Entry · Read Only"
-                    : "Future · Locked"}
-              </p>
-              <h2
-                className="text-2xl font-black"
-                style={{ color: T.primary, letterSpacing: "-0.02em" }}
-              >
-                {fmtDisplay(selectedDate)}
-              </h2>
-            </div>
-            {isToday && (
-              <button
-                onClick={() => setSelectedDate(today)}
-                className="flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest"
-                style={{
-                  background: G.dimBg,
-                  border: `1px solid ${G.border}`,
-                  color: G.bright,
-                }}
-              >
-                <Clock size={12} /> Today
-              </button>
-            )}
-          </div>
-
-          {isFuture ? (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              className="flex flex-col items-center justify-center py-24 text-center rounded-2xl"
+            <button
+              onClick={() => setIsCalendarExpanded(!isCalendarExpanded)}
+              className="p-3.5 rounded-full transition-all active:scale-95"
               style={{
-                background: V.surface,
-                border: "1px solid rgba(255,255,255,0.05)",
+                color: isCalendarExpanded ? G.bright : T.primary,
+                background: isCalendarExpanded ? G.dimBg : "transparent",
               }}
             >
-              <div
-                className="w-16 h-16 rounded-2xl flex items-center justify-center mb-5"
-                style={{
-                  background: "rgba(245,158,11,0.1)",
-                  border: "1px solid rgba(245,158,11,0.2)",
-                }}
-              >
-                <Lock size={24} style={{ color: "#f59e0b" }} />
+              <Calendar size={18} />
+            </button>
+          </div>
+
+          {/* Entry List */}
+          <div className="flex-1 overflow-y-auto custom-scrollbar pb-32">
+            {entriesLoading ? (
+              Array(5)
+                .fill(0)
+                .map((_, i) => (
+                  <div
+                    key={i}
+                    className="h-20 rounded-2xl mb-3 animate-pulse"
+                    style={{ background: "rgba(255,255,255,0.02)" }}
+                  />
+                ))
+            ) : entries.length === 0 ? (
+              <div className="py-16 text-center px-4 flex flex-col items-center justify-center h-full">
+                <BookOpen
+                  size={32}
+                  style={{ color: "rgba(255,255,255,0.1)", marginBottom: 16 }}
+                />
+                <p className="text-sm font-bold text-white/40">
+                  No execution logs found.
+                </p>
               </div>
-              <h3
-                className="text-xl font-black mb-2"
-                style={{ color: T.primary }}
-              >
-                Future Entries Locked
-              </h3>
-              <p className="text-sm" style={{ color: T.dim }}>
-                You can only log today's execution. Select today or a past date.
-              </p>
+            ) : view === "grid" ? (
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(320px,1fr))] gap-4 p-1">
+                {entries.map((entry) => (
+                  <DesktopEntryCard
+                    key={entry.dateStr}
+                    entry={entry}
+                    view="grid"
+                    onDelete={handleDesktopDelete}
+                    onSelect={(ds) => {
+                      setSelectedEntryDate(ds);
+                    }}
+                    isToday={entry.dateStr === today}
+                  />
+                ))}
+              </div>
+            ) : (
+              <div className="space-y-2 p-1">
+                {entries.map((entry) => (
+                  <DesktopEntryCard
+                    key={entry.dateStr}
+                    entry={entry}
+                    view="list"
+                    onDelete={handleDesktopDelete}
+                    onSelect={(ds) => {
+                      setSelectedEntryDate(ds);
+                    }}
+                    isToday={entry.dateStr === today}
+                  />
+                ))}
+              </div>
+            )}
+          </div>
+        </motion.div>
+
+        {/* COL 2: Preview */}
+        <AnimatePresence>
+          {selectedEntryDate && (
+            <motion.div
+              layout
+              initial={{ opacity: 0, x: 40 }}
+              animate={{ opacity: 1, x: 0 }}
+              exit={{ opacity: 0, x: 40, transition: { duration: 0.2 } }}
+              transition={{ type: "spring", damping: 30, stiffness: 250 }}
+              className="flex-[2] flex flex-col h-full min-w-[400px]"
+            >
+              <div className="flex items-center justify-between mb-4 px-4 shrink-0">
+                <span className="text-[10px] font-black uppercase tracking-widest text-[#BFA264]">
+                  Entry Preview
+                </span>
+                <button
+                  onClick={() => setSelectedEntryDate(null)}
+                  className="p-2 hover:bg-white/5 rounded-full text-white/50 hover:text-white transition-colors"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+              <div className="flex-1 overflow-hidden relative">
+                <AgendaEditor
+                  dateStr={selectedEntryDate}
+                  userData={userData}
+                  isToday={selectedEntryDate === today}
+                  isPast={selectedEntryDate < today}
+                  isDesktopOverlay={false}
+                />
+              </div>
             </motion.div>
-          ) : (
-            <AgendaEditor
-              dateStr={selectedDate}
-              userData={userData}
-              isToday={isToday}
-              isPast={isPast}
-            />
           )}
-        </div>
-      </main>
+        </AnimatePresence>
+
+        {/* COL 3: Calendar */}
+        <AnimatePresence>
+          {isCalendarExpanded && (
+            <motion.div
+              layout
+              initial={{ opacity: 0, width: 0, scale: 0.95 }}
+              animate={{ opacity: 1, width: 340, scale: 1 }}
+              exit={{
+                opacity: 0,
+                width: 0,
+                scale: 0.95,
+                transition: { duration: 0.2 },
+              }}
+              transition={{ type: "spring", damping: 30, stiffness: 250 }}
+              className="h-full shrink-0 overflow-hidden"
+            >
+              <div className="w-[340px] h-full overflow-y-auto custom-scrollbar">
+                <CalendarMini
+                  selectedDate={selectedEntryDate || selectedDate}
+                  onSelect={(d) => {
+                    setSelectedDate(d);
+                    setSelectedEntryDate(d);
+                  }}
+                  entryDates={entryDates}
+                  today={today}
+                />
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </motion.div>
+
+      {/* Floating Action Button */}
+      <motion.button
+        whileHover={{ scale: 1.05 }}
+        whileTap={{ scale: 0.95 }}
+        animate={{
+          y: isDesktopEditorOpen ? 150 : 0,
+          opacity: isDesktopEditorOpen ? 0 : 1,
+          scale: isDesktopEditorOpen ? 0.8 : 1,
+        }}
+        transition={{ duration: 0.4 }}
+        onClick={() => {
+          setSelectedDate(today);
+          setIsDesktopEditorOpen(true);
+        }}
+        className="fixed bottom-10 right-10 w-[68px] h-[68px] rounded-[24px] flex items-center justify-center shadow-2xl z-[9000] cursor-pointer"
+        style={{
+          background: `linear-gradient(135deg, ${G.light}, ${G.bright})`,
+          color: "#000",
+          boxShadow: "0 10px 40px rgba(191,162,100,0.3)",
+        }}
+      >
+        <Plus size={32} strokeWidth={2.5} />
+      </motion.button>
+
+      {/* FULL SCREEN EDITOR OVERLAY */}
+      <AnimatePresence>
+        {isDesktopEditorOpen && (
+          <motion.div
+            initial={{ y: "100%", opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: "100%", opacity: 0 }}
+            transition={{ type: "spring", damping: 30, stiffness: 200 }}
+            className="absolute inset-0 z-[50] flex flex-col w-full h-full overflow-hidden"
+            style={{
+              background:
+                "radial-gradient(120% 120% at 50% -10%, #151515 0%, #030303 100%)",
+            }}
+          >
+            <div
+              className="absolute inset-0 opacity-[0.03] mix-blend-overlay pointer-events-none"
+              style={{
+                backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E")`,
+              }}
+            />
+            <button
+              onClick={() => setIsDesktopEditorOpen(false)}
+              className="absolute top-8 right-8 z-[60] p-3.5 rounded-full bg-white/5 backdrop-blur-md border border-white/10 text-white shadow-2xl transition-transform hover:bg-white/10 hover:scale-105 active:scale-95"
+            >
+              <X size={20} />
+            </button>
+
+            <div className="flex-1 w-full max-w-[1400px] mx-auto px-6 lg:px-12 h-full flex flex-col relative z-10 pt-4">
+              {isFuture ? (
+                <div className="flex-1 flex flex-col items-center justify-center text-center">
+                  <AlertTriangle
+                    size={56}
+                    style={{ color: "#f59e0b", marginBottom: 24 }}
+                  />
+                  <p className="text-4xl font-black font-display text-white tracking-tight mb-4">
+                    Future Locked
+                  </p>
+                  <p className="text-lg text-white/50 max-w-sm">
+                    You cannot log executions in the future.
+                  </p>
+                </div>
+              ) : (
+                <AgendaEditor
+                  dateStr={selectedDate}
+                  userData={userData}
+                  isToday={selectedDate === today}
+                  isPast={selectedDate < today}
+                  isDesktopOverlay={true}
+                />
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Undo Toast */}
       <AnimatePresence>
