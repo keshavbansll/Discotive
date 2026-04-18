@@ -1729,15 +1729,23 @@ const MainLayout = () => {
                   <span className="font-extrabold text-sm tracking-widest text-[#F5F0E8]">
                     DISCOTIVE OS
                   </span>
-                  <button
-                    onClick={() => setIsMobileMenuOpen(false)}
-                    className="p-1.5 bg-[#111] border border-white/5 rounded-full text-[#888] hover:text-[#F5F0E8] transition-colors"
-                  >
-                    <X className="w-4 h-4" />
-                  </button>
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={(e) => handleInstantNav("/app/settings", e)}
+                      className="p-1.5 bg-[#111] border border-white/5 rounded-full text-[#888] hover:text-[#BFA264] transition-colors"
+                    >
+                      <Settings className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => setIsMobileMenuOpen(false)}
+                      className="p-1.5 bg-[#111] border border-white/5 rounded-full text-[#888] hover:text-white transition-colors"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
                 </div>
 
-                {/* User Snapshot */}
+                {/* User Snapshot (Now acts as Profile Link) */}
                 {isGhostUser ? (
                   <div
                     className="flex items-center gap-4 p-4 bg-[rgba(191,162,100,0.08)] border border-[rgba(191,162,100,0.25)] rounded-2xl cursor-pointer"
@@ -1760,8 +1768,11 @@ const MainLayout = () => {
                     <ArrowRight className="w-4 h-4 text-[#D4AF78] shrink-0" />
                   </div>
                 ) : (
-                  <div className="flex items-center gap-4 p-4 bg-[#0F0F0F] border border-white/5 rounded-2xl">
-                    <div className="w-12 h-12 rounded-full bg-[#111] border border-[#BFA264]/40 flex items-center justify-center text-lg font-bold text-[#D4AF78] overflow-hidden">
+                  <div
+                    onClick={(e) => handleInstantNav("/app/profile", e)}
+                    className="flex items-center gap-4 p-4 bg-[#0F0F0F] border border-white/5 rounded-2xl cursor-pointer hover:bg-[rgba(255,255,255,0.03)] active:bg-[#111] transition-colors group"
+                  >
+                    <div className="w-12 h-12 rounded-full bg-[#111] border border-[#BFA264]/40 flex items-center justify-center text-lg font-bold text-[#D4AF78] overflow-hidden shrink-0">
                       {userData?.identity?.avatarUrl ? (
                         <img
                           src={userData.identity.avatarUrl}
@@ -1772,12 +1783,12 @@ const MainLayout = () => {
                         userData?.identity?.firstName?.charAt(0) || "U"
                       )}
                     </div>
-                    <div>
-                      <p className="font-extrabold text-[#F5F0E8]">
+                    <div className="flex-1 min-w-0">
+                      <p className="font-extrabold text-[#F5F0E8] truncate group-hover:text-white transition-colors">
                         {userData?.identity?.firstName}{" "}
                         {userData?.identity?.lastName}
                       </p>
-                      <p className="text-[10px] text-[#F5F0E8]/60 font-mono tracking-widest uppercase">
+                      <p className="text-[10px] text-[#F5F0E8]/60 font-mono tracking-widest uppercase truncate">
                         Lvl{" "}
                         {Math.min(
                           Math.floor(
@@ -1788,52 +1799,9 @@ const MainLayout = () => {
                         Operator
                       </p>
                     </div>
+                    <ArrowRight className="w-4 h-4 text-[#555] group-hover:text-[#BFA264] transition-colors shrink-0" />
                   </div>
                 )}
-
-                {/* Core Actions Grid */}
-                <div className="grid grid-cols-2 gap-3">
-                  <a
-                    href="/app/profile"
-                    onClick={(e) => handleInstantNav("/app/profile", e)}
-                    className="flex flex-col items-center justify-center gap-2 p-4 bg-[#0F0F0F] border border-white/5 rounded-2xl active:bg-[#111]"
-                  >
-                    <User className="w-5 h-5 text-[#BFA264]" />
-                    <span className="text-xs font-bold text-[#F5F0E8]">
-                      Profile
-                    </span>
-                  </a>
-                  <a
-                    href="/app/learn"
-                    onClick={(e) => handleInstantNav("/app/learn", e)}
-                    className="flex flex-col items-center justify-center gap-2 p-4 bg-[#0F0F0F] border border-white/5 rounded-2xl active:bg-[#111]"
-                  >
-                    <BookOpen className="w-5 h-5 text-[#BFA264]" />
-                    <span className="text-xs font-bold text-[#F5F0E8]">
-                      Learn
-                    </span>
-                  </a>
-                  <a
-                    href="/app/opportunities"
-                    onClick={(e) => handleInstantNav("/app/opportunities", e)}
-                    className="flex flex-col items-center justify-center gap-2 p-4 bg-[#0F0F0F] border border-white/5 rounded-2xl active:bg-[#111]"
-                  >
-                    <Briefcase className="w-5 h-5 text-[#BFA264]" />
-                    <span className="text-xs font-bold text-[#F5F0E8]">
-                      Opportunities
-                    </span>
-                  </a>
-                  <a
-                    href="/app/settings"
-                    onClick={(e) => handleInstantNav("/app/settings", e)}
-                    className="flex flex-col items-center justify-center gap-2 p-4 bg-[#0F0F0F] border border-white/5 rounded-2xl active:bg-[#111]"
-                  >
-                    <Settings className="w-5 h-5 text-[#BFA264]" />
-                    <span className="text-xs font-bold text-[#F5F0E8]">
-                      Settings
-                    </span>
-                  </a>
-                </div>
 
                 {/* Premium & Admin */}
                 <div className="space-y-2">
