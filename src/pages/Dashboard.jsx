@@ -65,6 +65,7 @@ import {
   Star,
   BarChart2,
   Radio,
+  Calendar,
   Network,
   Play,
   Clock,
@@ -2048,7 +2049,7 @@ const CommandActions = memo(({ navigate }) => {
     },
     {
       label: "Agenda",
-      icon: Book,
+      icon: Calendar,
       href: "/app/agenda",
       color: G.base,
     },

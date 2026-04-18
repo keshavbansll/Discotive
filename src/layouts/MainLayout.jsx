@@ -60,6 +60,7 @@ import {
   ArrowRight,
   Command,
   Ticket,
+  Calendar,
 } from "lucide-react";
 
 import { cn } from "../lib/cn";
@@ -97,6 +98,7 @@ const upperContentNavItems = [
 const lowerContentNavItems = [
   { icon: FolderOpen, label: "Asset Vault", path: "/app/vault" },
   { icon: BookOpen, label: "Learn", path: "/app/learn" },
+  { icon: Calendar, label: "Agenda", path: "/app/agenda" },
 ];
 
 const bottomNavItems = [
@@ -142,6 +144,51 @@ const MainLayout = () => {
   const [searchLoading, setSearchLoading] = useState(false);
   const searchDropdownRef = useRef(null);
 
+  // --- SEARCH MEMORY ENGINE ---
+  const [recentSearches, setRecentSearches] = useState(() => {
+    try {
+      const saved = localStorage.getItem("discotive_recent_searches");
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const saveSearchToHistory = (query) => {
+    if (!query || !query.trim()) return;
+    setRecentSearches((prev) => {
+      // Remove duplicates and push to top
+      const filtered = prev.filter(
+        (q) => q.toLowerCase() !== query.trim().toLowerCase(),
+      );
+      const updated = [query.trim(), ...filtered].slice(0, 10);
+      localStorage.setItem(
+        "discotive_recent_searches",
+        JSON.stringify(updated),
+      );
+      return updated;
+    });
+  };
+
+  // Close search dropdown on outside click
+  useEffect(() => {
+    const handler = (e) => {
+      if (
+        searchDropdownRef.current &&
+        !searchDropdownRef.current.contains(e.target)
+      ) {
+        setIsSearchOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  // --- SCROLL PHYSICS ENGINE (MOBILE NAV) ---
+  const mainScrollRef = useRef(null);
+  const lastScrollY = useRef(0);
+  const [showBottomNav, setShowBottomNav] = useState(true);
+
   // --- CORE STATE & ROUTING (Initialized before effects to prevent TDZ) ---
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [showLanguageMenu, setShowLanguageMenu] = useState(false);
@@ -155,16 +202,28 @@ const MainLayout = () => {
 
   // Search debounce + Firestore query
   useEffect(() => {
-    if (!searchQuery.trim() || searchQuery.length < 2) {
-      setSearchResults([]);
-      setIsSearchOpen(false);
-      return;
-    }
-    setIsSearchOpen(true);
-    if (searchTab !== "users") return;
-    setSearchLoading(true);
     let active = true;
+
+    if (!searchQuery.trim() || searchQuery.length < 2) {
+      const resetSearch = setTimeout(() => {
+        if (active) {
+          setSearchResults([]);
+          // MAANG-GRADE FIX: Removed aggressive setIsSearchOpen(false)
+          // The menu must remain open to show "Recent Searches" when empty.
+        }
+      }, 0);
+      return () => {
+        active = false;
+        clearTimeout(resetSearch);
+      };
+    }
+
     const timer = setTimeout(async () => {
+      if (!active) return;
+      setIsSearchOpen(true);
+      if (searchTab !== "users") return;
+      setSearchLoading(true);
+
       try {
         const q = query(
           collection(db, "users"),
@@ -184,24 +243,56 @@ const MainLayout = () => {
         if (active) setSearchLoading(false);
       }
     }, 350);
+
     return () => {
       active = false;
       clearTimeout(timer);
     };
   }, [searchQuery, searchTab]);
 
-  // Close search on outside click
+  // --- MAANG-GRADE MOBILE SCROLL PHYSICS ---
   useEffect(() => {
-    const handler = (e) => {
-      if (
-        searchDropdownRef.current &&
-        !searchDropdownRef.current.contains(e.target)
-      )
-        setIsSearchOpen(false);
+    const scrollElement = mainScrollRef.current;
+    if (!scrollElement) return;
+
+    let ticking = false;
+
+    const handleScroll = () => {
+      if (!ticking) {
+        window.requestAnimationFrame(() => {
+          const currentScrollY = scrollElement.scrollTop;
+
+          // 1. Absolute top edge-case (iOS rubber-banding prevention)
+          if (currentScrollY <= 15) {
+            setShowBottomNav(true);
+            lastScrollY.current = currentScrollY;
+            ticking = false;
+            return;
+          }
+
+          // 2. Calculate delta and apply strict tolerance threshold (prevents micro-jitters)
+          const deltaY = currentScrollY - lastScrollY.current;
+
+          if (Math.abs(deltaY) > 12) {
+            // 12px threshold for intent detection
+            if (deltaY > 0 && showBottomNav) {
+              setShowBottomNav(false); // Scrolling down -> hide
+            } else if (deltaY < 0 && !showBottomNav) {
+              setShowBottomNav(true); // Scrolling up -> show
+            }
+            lastScrollY.current = currentScrollY;
+          }
+
+          ticking = false;
+        });
+        ticking = true;
+      }
     };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, []);
+
+    // Passive listener guarantees 60fps scrolling without main-thread blocking
+    scrollElement.addEventListener("scroll", handleScroll, { passive: true });
+    return () => scrollElement.removeEventListener("scroll", handleScroll);
+  }, [showBottomNav]);
 
   useEffect(() => {
     const handleBeforeInstallPrompt = (e) => {
@@ -233,10 +324,10 @@ const MainLayout = () => {
   if (location.pathname !== prevPath) {
     setPrevPath(location.pathname);
     setIsMobileMenuOpen(false);
+    setIsSearchOpen(false);
     setIsNavigating(false); // Kill loader exactly when the new chunk finishes downloading
-    // You can also safely close other menus here if needed:
-    // setShowProfileMenu(false);
-    // setShowNotifMenu(false);
+    setShowProfileMenu(false);
+    setShowLanguageMenu(false);
   }
 
   /**
@@ -350,7 +441,9 @@ const MainLayout = () => {
 
   const handleSearch = (e) => {
     if (e.key === "Enter" && searchQuery.trim()) {
+      saveSearchToHistory(searchQuery.trim());
       navigate(`/app/leaderboard?q=${encodeURIComponent(searchQuery.trim())}`);
+      setIsSearchOpen(false);
       setSearchQuery("");
     }
   };
@@ -385,39 +478,43 @@ const MainLayout = () => {
               ? (e) => handleInstantNav(item.path, e)
               : item.subItems
                 ? (e) => {
-                    if (!isCollapsed) {
-                      e.preventDefault();
-                      setIsSubMenuOpen(!isSubMenuOpen);
-                    } else {
-                      handleInstantNav(item.path + "/feed", e);
-                    }
+                    if (!isCollapsed) setIsSubMenuOpen(true);
+                    handleInstantNav(item.path + "/feed", e);
                   }
                 : (e) => handleInstantNav(item.path, e)
           }
           className={cn(
-            "flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 group relative border border-transparent w-full",
-            isParentActive && !item.subItems
-              ? "bg-[rgba(191,162,100,0.08)] text-[#D4AF78] border-[rgba(191,162,100,0.25)] shadow-[0_0_15px_rgba(191,162,100,0.05)] font-bold"
-              : isParentActive && item.subItems
-                ? "text-[#D4AF78] font-bold"
-                : isItemLocked
-                  ? "text-[#444] hover:bg-[#111] font-medium cursor-pointer"
-                  : "text-[#F5F0E8]/60 hover:bg-[rgba(191,162,100,0.04)] hover:text-[#E8D5A3] font-medium",
+            "flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 group relative w-full cursor-pointer",
+            isItemLocked
+              ? "text-[#444] hover:bg-[#111] font-medium"
+              : "text-[#F5F0E8]/60 hover:text-white font-medium",
           )}
           title={isCollapsed ? item.label : undefined}
         >
+          {isParentActive && !item.subItems && !isItemLocked && (
+            <motion.div
+              layoutId="desktop-nav-indicator"
+              className="absolute inset-0 bg-[#1A1A1A] border border-white/5 rounded-xl z-0"
+              transition={{ type: "spring", bounce: 0, duration: 0.15 }}
+            />
+          )}
           <Icon
             className={cn(
-              "w-5 h-5 shrink-0 transition-colors",
-              isParentActive
+              "w-5 h-5 shrink-0 transition-colors relative z-10",
+              isParentActive && !isItemLocked
                 ? "text-[#BFA264]"
                 : isItemLocked
                   ? "text-[#333]"
-                  : "text-[#F5F0E8]/40 group-hover:text-[#BFA264]",
+                  : "text-[#F5F0E8]/40 group-hover:text-white",
             )}
           />
           {!isCollapsed && (
-            <span className="truncate text-sm tracking-wide flex-1">
+            <span
+              className={cn(
+                "truncate text-sm tracking-wide flex-1 relative z-10 transition-colors",
+                isParentActive && !isItemLocked ? "text-white font-bold" : "",
+              )}
+            >
               {item.label}
             </span>
           )}
@@ -448,22 +545,35 @@ const MainLayout = () => {
               className="flex flex-col gap-1 pl-10 pr-2 overflow-hidden"
             >
               {item.subItems.map((sub) => {
+                // Exact path match or fallback to feed if on root connective
                 const isSubActive =
                   location.pathname === sub.path ||
-                  (location.pathname === item.path &&
+                  (location.pathname === "/app/connective" &&
                     sub.path.endsWith("feed"));
+
                 return (
                   <Link
                     key={sub.path}
                     to={sub.path}
                     className={cn(
-                      "text-[11px] py-2 px-3 rounded-lg transition-all border border-transparent font-black tracking-widest uppercase",
+                      "relative text-[11px] py-2 px-3 rounded-lg transition-all border border-transparent font-black tracking-widest uppercase",
                       isSubActive
-                        ? "bg-[rgba(191,162,100,0.08)] text-[#D4AF78] border-[rgba(191,162,100,0.25)] shadow-[0_0_10px_rgba(191,162,100,0.05)]"
+                        ? "text-[#D4AF78]"
                         : "text-[#F5F0E8]/40 hover:text-[#E8D5A3] hover:bg-[rgba(191,162,100,0.04)]",
                     )}
                   >
-                    {sub.label}
+                    {isSubActive && (
+                      <motion.div
+                        layoutId="desktop-subnav-indicator"
+                        className="absolute inset-0 bg-[rgba(191,162,100,0.08)] border border-[rgba(191,162,100,0.25)] rounded-lg shadow-[0_0_10px_rgba(191,162,100,0.05)] z-0"
+                        transition={{
+                          type: "spring",
+                          bounce: 0,
+                          duration: 0.15,
+                        }}
+                      />
+                    )}
+                    <span className="relative z-10">{sub.label}</span>
                   </Link>
                 );
               })}
@@ -728,7 +838,7 @@ const MainLayout = () => {
         onHoverStart={() => setIsSidebarOpen(true)}
         onHoverEnd={() => setIsSidebarOpen(false)}
         animate={{ width: isSidebarOpen ? 260 : 80 }}
-        transition={{ type: "spring", damping: 25, stiffness: 200 }}
+        transition={{ type: "spring", bounce: 0, duration: 0.2 }}
         className="hidden md:flex flex-col bg-[#0A0A0A] border-r border-white/5 h-full z-[100] relative shadow-[10px_0_50px_rgba(0,0,0,0.5)]"
       >
         {/* Logo Section */}
@@ -914,124 +1024,233 @@ const MainLayout = () => {
       {/* ========================================================= */}
       <div className="flex-1 flex flex-col h-full min-w-0 relative z-10">
         {/* TOPBAR (Strict z-[90] to sit above pages but below dropdowns) */}
-        <header className="safe-area-pt h-[calc(4rem+env(safe-area-inset-top))] md:h-[calc(5rem+env(safe-area-inset-top))] bg-[#0A0A0A]/90 backdrop-blur-xl border-b border-white/5 flex items-center gap-3 md:gap-5 px-4 md:px-8 shrink-0 sticky top-0 z-[90]">
-          {/* SEARCH BAR */}
+        <header
+          className={cn(
+            "safe-area-pt h-[calc(4rem+env(safe-area-inset-top))] md:h-[calc(5rem+env(safe-area-inset-top))] bg-[#0A0A0A]/90 backdrop-blur-xl flex items-center gap-3 md:gap-5 px-4 md:px-8 shrink-0 sticky top-0 z-[90] transition-colors duration-300",
+            isSearchOpen
+              ? "border-b-0 bg-[#0A0A0A]"
+              : "border-b border-white/5",
+          )}
+        >
+          {/* SEARCH BAR & DROPDOWN ENGINE */}
           <div
-            className="flex-1 w-full max-w-md relative order-2 md:order-1"
+            className="flex-1 w-full max-w-md order-2 md:order-1"
             ref={searchDropdownRef}
           >
-            <div className="relative bg-[rgba(191,162,100,0.04)] rounded-full md:rounded-xl overflow-hidden border border-[rgba(191,162,100,0.1)] focus-within:border-[rgba(191,162,100,0.4)] focus-within:shadow-[0_0_15px_rgba(191,162,100,0.1)] transition-all">
+            {/* Input Container */}
+            <div
+              className={cn(
+                "relative bg-[#111]/50 rounded-full md:rounded-xl overflow-hidden border transition-all z-[91]",
+                isSearchOpen
+                  ? "border-[rgba(191,162,100,0.3)] bg-[#1a1a1a] shadow-[0_0_20px_rgba(191,162,100,0.1)]"
+                  : "border-white/5 hover:border-white/10",
+              )}
+            >
               <div className="absolute inset-y-0 left-0 pl-3 md:pl-4 flex items-center pointer-events-none">
-                <Search className="w-4 h-4 text-[#D4AF78]/50" />
+                <Search
+                  className={cn(
+                    "w-4 h-4 transition-colors",
+                    isSearchOpen ? "text-[#BFA264]" : "text-[#888]",
+                  )}
+                />
               </div>
               <input
                 type="text"
-                placeholder="Search"
+                placeholder="Search operators, companies..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 onKeyDown={handleSearch}
-                onFocus={() => searchQuery.length > 1 && setIsSearchOpen(true)}
-                className="w-full bg-transparent border-none text-xs md:text-sm text-[#F5F0E8] placeholder-[#F5F0E8]/40 focus:outline-none pl-9 md:pl-10 pr-4 py-2.5 font-medium"
+                onFocus={() => setIsSearchOpen(true)}
+                className="w-full bg-transparent border-none text-xs md:text-sm text-[#F5F0E8] placeholder-[#666] focus:outline-none pl-9 md:pl-10 pr-10 py-2.5 font-medium"
               />
-              <div className="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
-                <div className="hidden lg:flex items-center gap-1 px-2 py-1 rounded bg-black/20 border border-[rgba(191,162,100,0.15)]">
-                  <Command className="w-3 h-3 text-[#D4AF78]/50" />
-                  <span className="text-[10px] font-medium text-[#D4AF78]/50">
-                    K
-                  </span>
-                </div>
-              </div>
+              <AnimatePresence>
+                {searchQuery && (
+                  <motion.button
+                    initial={{ opacity: 0, scale: 0.8 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.8 }}
+                    onClick={() => {
+                      setSearchQuery("");
+                      setIsSearchOpen(true);
+                    }}
+                    className="absolute inset-y-0 right-0 pr-3 md:pr-4 flex items-center text-[#888] hover:text-white transition-colors outline-none"
+                  >
+                    <X className="w-4 h-4" />
+                  </motion.button>
+                )}
+              </AnimatePresence>
             </div>
 
-            {/* Search Dropdown */}
+            {/* Dropdown & Subtle Backdrop */}
             <AnimatePresence>
-              {isSearchOpen && searchQuery.length > 1 && (
-                <motion.div
-                  initial={{ opacity: 0, y: -6, scale: 0.97 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  exit={{ opacity: 0, y: -6, scale: 0.97 }}
-                  transition={{ duration: 0.14, ease: [0.16, 1, 0.3, 1] }}
-                  className="absolute top-[calc(100%+8px)] left-0 right-0 bg-[#0A0A0A] border border-[rgba(191,162,100,0.2)] rounded-2xl shadow-[0_24px_60px_rgba(0,0,0,0.9)] z-[9997] overflow-hidden"
-                >
-                  {/* Tabs */}
-                  <div className="flex px-4 pt-3 gap-1 border-b border-[rgba(255,255,255,0.05)]">
-                    {["users", "companies"].map((tab) => (
-                      <button
-                        key={tab}
-                        onClick={() => setSearchTab(tab)}
-                        className={cn(
-                          "pb-2.5 px-3 text-[10px] font-black uppercase tracking-widest border-b-2 transition-all",
-                          searchTab === tab
-                            ? "text-[#D4AF78] border-[#BFA264]"
-                            : "text-[rgba(245,240,232,0.25)] border-transparent hover:text-white",
-                        )}
-                      >
-                        {tab}
-                      </button>
-                    ))}
-                  </div>
+              {isSearchOpen && (
+                <>
+                  {/* Subtle Darkening Backdrop (No Blur) */}
+                  <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.2 }}
+                    onClick={() => setIsSearchOpen(false)}
+                    className="fixed inset-0 top-[calc(4rem+env(safe-area-inset-top))] md:top-[calc(5rem+env(safe-area-inset-top))] bg-[#000000]/60 z-[80] cursor-default"
+                  />
 
-                  {/* Results */}
-                  <div className="py-1.5 max-h-[280px] overflow-y-auto custom-scrollbar">
-                    {searchTab === "companies" ? (
-                      <div className="px-4 py-6 text-center">
-                        <p className="text-[11px] text-[rgba(245,240,232,0.20)] font-bold uppercase tracking-widest">
-                          Company search — coming soon
-                        </p>
-                      </div>
-                    ) : searchLoading ? (
-                      <div className="flex items-center justify-center py-6">
-                        <div className="w-4 h-4 border-2 border-[#BFA264]/20 border-t-[#BFA264] rounded-full animate-spin" />
-                      </div>
-                    ) : searchResults.length === 0 ? (
-                      <div className="px-4 py-6 text-center">
-                        <p className="text-[11px] text-[rgba(245,240,232,0.20)]">
-                          No operators found for &quot;{searchQuery}&quot;
-                        </p>
-                      </div>
-                    ) : (
-                      searchResults.map((user) => (
+                  {/* Full Navbar-Width Dropdown Menu */}
+                  <motion.div
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -10 }}
+                    transition={{ type: "spring", bounce: 0, duration: 0.3 }}
+                    className="absolute top-full left-0 right-0 bg-[#0A0A0A] border-b border-white/5 shadow-[0_40px_80px_rgba(0,0,0,0.95)] flex flex-col overflow-hidden z-[95]"
+                  >
+                    {/* Taxonomy Tabs */}
+                    <div className="flex px-4 md:px-8 pt-4 gap-6 border-b border-white/5 shrink-0 bg-[#0A0A0A]">
+                      {["users", "companies"].map((tab) => (
                         <button
-                          key={user.id}
-                          onClick={() => {
-                            navigate(`/@${user.identity?.username}`);
-                            setIsSearchOpen(false);
-                            setSearchQuery("");
-                          }}
-                          className="w-full flex items-center gap-3 px-4 py-3 hover:bg-[rgba(255,255,255,0.03)] transition-colors text-left"
+                          key={tab}
+                          onClick={() => setSearchTab(tab)}
+                          className={cn(
+                            "relative pb-3 px-1 text-[11px] font-black uppercase tracking-widest transition-colors",
+                            searchTab === tab
+                              ? "text-white"
+                              : "text-[#888] hover:text-[#ccc]",
+                          )}
                         >
-                          <div className="w-8 h-8 rounded-full bg-[#111] border border-[#BFA264]/30 flex items-center justify-center text-xs font-black text-[#BFA264] overflow-hidden shrink-0">
-                            {user.identity?.avatarUrl ? (
-                              <img
-                                src={user.identity.avatarUrl}
-                                alt=""
-                                className="w-full h-full object-cover"
-                              />
-                            ) : (
-                              user.identity?.firstName?.charAt(0) || "O"
-                            )}
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <p className="text-[13px] font-bold text-[#F5F0E8] truncate">
-                              {user.identity?.firstName}{" "}
-                              {user.identity?.lastName}
-                            </p>
-                            <p className="text-[10px] text-[rgba(245,240,232,0.30)] font-mono">
-                              @{user.identity?.username} ·{" "}
-                              {user.identity?.domain || "General"}
-                            </p>
-                          </div>
-                          <span className="text-[9px] font-black text-[#BFA264]/60 font-mono shrink-0">
-                            {(
-                              user.discotiveScore?.current || 0
-                            ).toLocaleString()}{" "}
-                            pts
-                          </span>
+                          {searchTab === tab && (
+                            <motion.div
+                              layoutId="dropdown-search-tab-indicator"
+                              className="absolute bottom-0 left-0 right-0 h-0.5 bg-[#BFA264] rounded-t-full shadow-[0_0_8px_rgba(191,162,100,0.6)]"
+                              transition={{
+                                type: "spring",
+                                bounce: 0,
+                                duration: 0.2,
+                              }}
+                            />
+                          )}
+                          {tab}
                         </button>
-                      ))
-                    )}
-                  </div>
-                </motion.div>
+                      ))}
+                    </div>
+
+                    {/* Output Area */}
+                    <div className="py-2 px-2 md:px-6 max-h-[400px] overflow-y-auto custom-scrollbar bg-[#0A0A0A]">
+                      {!searchQuery.trim() ? (
+                        /* Module: Recent Searches */
+                        <div className="p-2">
+                          <h4 className="px-3 pt-2 pb-3 text-[10px] font-bold text-[#555] uppercase tracking-widest">
+                            Recent Searches
+                          </h4>
+                          {recentSearches.length > 0 ? (
+                            <div className="space-y-0.5">
+                              {recentSearches.map((item, idx) => (
+                                <button
+                                  key={idx}
+                                  onClick={() => {
+                                    setSearchQuery(item);
+                                    saveSearchToHistory(item);
+                                    navigate(
+                                      `/app/leaderboard?q=${encodeURIComponent(item)}`,
+                                    );
+                                    setIsSearchOpen(false);
+                                  }}
+                                  className="w-full flex items-center justify-between p-3 hover:bg-[rgba(255,255,255,0.03)] rounded-xl transition-colors text-left group"
+                                >
+                                  <div className="flex items-center gap-3">
+                                    <Search className="w-4 h-4 text-[#444] group-hover:text-[#BFA264] transition-colors" />
+                                    <span className="text-[13px] font-medium text-[#ccc] group-hover:text-white transition-colors">
+                                      {item}
+                                    </span>
+                                  </div>
+                                  <ArrowRight className="w-3.5 h-3.5 text-transparent group-hover:text-[#BFA264]/50 transition-colors" />
+                                </button>
+                              ))}
+                            </div>
+                          ) : (
+                            <p className="px-3 text-xs text-[#444] font-medium pb-2">
+                              No recent searches.
+                            </p>
+                          )}
+                        </div>
+                      ) : (
+                        /* Module: Live Results */
+                        <div className="p-1.5">
+                          {searchTab === "companies" ? (
+                            <div className="px-4 py-8 text-center">
+                              <p className="text-[11px] text-[rgba(245,240,232,0.20)] font-bold uppercase tracking-widest">
+                                Company search — coming soon
+                              </p>
+                            </div>
+                          ) : searchLoading ? (
+                            <div className="flex items-center justify-center py-10">
+                              <div className="w-5 h-5 border-2 border-[#BFA264]/20 border-t-[#BFA264] rounded-full animate-spin" />
+                            </div>
+                          ) : searchResults.length === 0 ? (
+                            <div className="px-4 py-8 text-center">
+                              <p className="text-[11px] text-[rgba(245,240,232,0.40)]">
+                                No operators found for &quot;{searchQuery}&quot;
+                              </p>
+                            </div>
+                          ) : (
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-1 md:gap-2">
+                              {searchResults.map((user) => (
+                                <button
+                                  key={user.id}
+                                  onClick={() => {
+                                    saveSearchToHistory(searchQuery);
+                                    navigate(`/@${user.identity?.username}`);
+                                    setIsSearchOpen(false);
+                                    setSearchQuery("");
+                                  }}
+                                  className="w-full flex items-center gap-3 p-3 hover:bg-[rgba(255,255,255,0.03)] rounded-xl transition-all text-left"
+                                >
+                                  <div className="w-10 h-10 rounded-full bg-[#111] border border-[#BFA264]/30 flex items-center justify-center text-sm font-black text-[#BFA264] overflow-hidden shrink-0">
+                                    {user.identity?.avatarUrl ? (
+                                      <img
+                                        src={user.identity.avatarUrl}
+                                        alt=""
+                                        className="w-full h-full object-cover"
+                                      />
+                                    ) : (
+                                      user.identity?.firstName?.charAt(0) || "O"
+                                    )}
+                                  </div>
+                                  <div className="min-w-0 flex-1">
+                                    <p className="text-[13px] font-bold text-[#F5F0E8] truncate">
+                                      {user.identity?.firstName}{" "}
+                                      {user.identity?.lastName}
+                                    </p>
+                                    <p className="text-[10px] text-[rgba(245,240,232,0.40)] font-mono truncate">
+                                      @{user.identity?.username} ·{" "}
+                                      {user.identity?.domain || "General"}
+                                    </p>
+                                  </div>
+                                  <div className="flex flex-col items-end shrink-0">
+                                    <span className="text-[10px] font-black text-[#BFA264] font-mono">
+                                      {(
+                                        user.discotiveScore?.current || 0
+                                      ).toLocaleString()}{" "}
+                                      pts
+                                    </span>
+                                    <span className="text-[8px] font-bold text-[#555] uppercase tracking-widest mt-0.5">
+                                      Lvl{" "}
+                                      {Math.min(
+                                        Math.floor(
+                                          (user.discotiveScore?.current || 0) /
+                                            1000,
+                                        ) + 1,
+                                        10,
+                                      )}
+                                    </span>
+                                  </div>
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </motion.div>
+                </>
               )}
             </AnimatePresence>
           </div>
@@ -1243,7 +1462,10 @@ const MainLayout = () => {
         </AnimatePresence>
 
         {/* --- MAIN PAGE CONTENT OUTLET --- */}
-        <main className="flex-1 overflow-y-auto overflow-x-hidden relative z-0 custom-scrollbar">
+        <main
+          ref={mainScrollRef}
+          className="flex-1 overflow-y-auto overflow-x-hidden relative z-0 custom-scrollbar"
+        >
           {isRouteLocked ? (
             /**
              * @description
@@ -1382,7 +1604,12 @@ const MainLayout = () => {
       {/* ========================================================= */}
       {/* MOBILE BOTTOM NAVIGATION BAR (Strictly 5 Icons)           */}
       {/* ========================================================= */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-[#050505] border-t border-white/5 z-[100] flex items-center justify-around px-2 pb-[env(safe-area-inset-bottom)] pt-1 min-h-[calc(4rem+env(safe-area-inset-bottom))] shadow-[0_-10px_40px_rgba(0,0,0,0.6)]">
+      <motion.nav
+        initial={{ y: 0 }}
+        animate={{ y: showBottomNav ? 0 : "100%" }}
+        transition={{ type: "spring", stiffness: 400, damping: 30, mass: 0.8 }}
+        className="md:hidden fixed bottom-0 left-0 right-0 bg-[#050505] border-t border-white/5 z-[100] flex items-center justify-around px-2 pb-[env(safe-area-inset-bottom)] pt-1 min-h-[calc(4rem+env(safe-area-inset-bottom))] shadow-[0_-10px_40px_rgba(0,0,0,0.6)] will-change-transform"
+      >
         {[
           { icon: LayoutDashboard, path: "/app", label: "Dashboard" },
           { icon: Users, path: "/app/connective/network", label: "Connective" },
@@ -1390,36 +1617,53 @@ const MainLayout = () => {
           { icon: FolderOpen, path: "/app/vault", label: "Vault" },
         ].map((item) => {
           const Icon = item.icon;
-          const isActive = location.pathname === item.path;
+          // MAANG-Grade: Intelligent route matching for parent-child pathing on mobile
+          const isActive =
+            item.path === "/app/connective/network"
+              ? location.pathname.startsWith("/app/connective")
+              : location.pathname === item.path;
+
           const isMobileItemLocked =
-            isGhostUser && GHOST_LOCKED_ROUTES.some((r) => r === item.path);
+            isGhostUser &&
+            GHOST_LOCKED_ROUTES.some(
+              (r) => r === item.path || item.path.startsWith(r + "/"),
+            );
           return (
             <a
               key={item.path}
               href={item.path}
               onClick={(e) => handleInstantNav(item.path, e)}
               className={cn(
-                "flex flex-col items-center justify-center w-14 h-full gap-1 transition-all active:scale-90 duration-150 relative",
-                isActive
-                  ? "text-[#D4AF78]"
-                  : isMobileItemLocked
-                    ? "text-[#444]"
-                    : "text-[#F5F0E8]/40 active:text-[#F5F0E8]/80",
+                "flex flex-col items-center justify-center w-[4.5rem] h-full gap-1 transition-all active:scale-95 duration-150 relative",
+                isMobileItemLocked
+                  ? "text-[#444]"
+                  : "text-[#F5F0E8]/40 hover:text-white",
               )}
             >
-              {isActive && (
+              {isActive && !isMobileItemLocked && (
                 <motion.div
                   layoutId="mobile-nav-indicator"
-                  className="absolute -top-[5px] w-8 h-[3px] bg-[#BFA264] rounded-b-full shadow-[0_2px_15px_rgba(191,162,100,0.6)]"
+                  className="absolute bottom-1 left-1/2 -translate-x-1/2 w-4 h-[3px] bg-[#BFA264] rounded-full shadow-[0_0_8px_rgba(191,162,100,0.6)] z-0"
+                  transition={{ type: "spring", bounce: 0, duration: 0.2 }}
                 />
               )}
-              <div className="relative">
-                <Icon className="w-5 h-5" />
+              <div className="relative z-10">
+                <Icon
+                  className={cn(
+                    "w-5 h-5 transition-colors",
+                    isActive && !isMobileItemLocked ? "text-[#BFA264]" : "",
+                  )}
+                />
                 {isMobileItemLocked && (
                   <Lock className="absolute -top-1 -right-1 w-2.5 h-2.5 text-[#444]" />
                 )}
               </div>
-              <span className="text-[9px] font-bold tracking-wider">
+              <span
+                className={cn(
+                  "text-[9px] font-bold tracking-wider relative z-10 transition-colors",
+                  isActive && !isMobileItemLocked ? "text-white" : "",
+                )}
+              >
                 {item.label}
               </span>
             </a>
@@ -1439,7 +1683,7 @@ const MainLayout = () => {
           <Menu className="w-5 h-5" />
           <span className="text-[9px] font-bold tracking-wider">Menu</span>
         </button>
-      </nav>
+      </motion.nav>
 
       {/* ========================================================= */}
       {/* MOBILE HAMBURGER OVERLAY MENU (NATIVE BOTTOM SHEET)       */}
