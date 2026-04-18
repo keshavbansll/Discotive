@@ -18,17 +18,20 @@ importScripts(
 );
 
 // ============================================================================
-// 2. SYSTEM CONFIGURATION & INITIALIZATION
+// 2. SYSTEM CONFIGURATION & INITIALIZATION (DYNAMIC INJECTION)
 // ============================================================================
-// NOTE: Firebase config is public by design. Hardcoding here is the industry standard
-// for Service Workers as they operate outside the Vite/Webpack build pipeline.
+// MAANG-Grade Architecture: API Keys are dynamically injected via URL parameters
+// during the Service Worker registration phase to prevent VSC leaks and allow
+// seamless environment switching (Staging/Production).
+const urlParams = new URLSearchParams(self.location.search);
+
 const firebaseConfig = {
-  apiKey: "AIzaSyCOO8h5z8BSxxe9VP0hBWH-w5VoHtDajjI",
-  authDomain: "discotivehub.firebaseapp.com",
-  projectId: "discotivehub",
-  storageBucket: "discotivehub.firebasestorage.app",
-  messagingSenderId: "1092162372161",
-  appId: "1:1092162372161:web:2b4f3d33c4f8fff85fbcc0",
+  apiKey: urlParams.get("apiKey"),
+  authDomain: urlParams.get("authDomain"),
+  projectId: urlParams.get("projectId"),
+  storageBucket: urlParams.get("storageBucket"),
+  messagingSenderId: urlParams.get("messagingSenderId"),
+  appId: urlParams.get("appId"),
 };
 
 firebase.initializeApp(firebaseConfig);
