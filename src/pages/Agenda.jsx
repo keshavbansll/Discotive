@@ -39,7 +39,7 @@ import {
   useMotionValue,
   useTransform,
 } from "framer-motion";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import {
   doc,
   getDoc,
@@ -51,6 +51,7 @@ import {
   orderBy,
   limit,
   serverTimestamp,
+  where,
 } from "firebase/firestore";
 import { db } from "../firebase";
 import { useUserData } from "../hooks/useUserData";
@@ -60,33 +61,48 @@ import {
   ChevronRight,
   Calendar,
   Lock,
+  Unlock,
+  Globe,
   BookOpen,
   Plus,
   Trash2,
+  Share2,
   Download,
   Bold,
   Italic,
   Underline as UnderlineIcon,
   Link2,
+  Youtube,
   Zap,
   Trophy,
   Flame,
   TrendingUp,
   BarChart2,
+  Users,
   Crown,
   Check,
   X,
   Grid,
   List,
+  Tag,
+  Eye,
+  EyeOff,
+  FileText,
   Loader2,
   AlertTriangle,
+  Sparkles,
   Layout,
   AtSign,
+  MoreHorizontal,
+  Save,
   Clock,
   Star,
   Maximize2,
   Minimize2,
+  ArrowLeft,
+  Search,
   User,
+  Cloud,
 } from "lucide-react";
 
 /* ─── Design Tokens ─────────────────────────────────────────────────────── */
@@ -111,6 +127,7 @@ const T = {
 };
 
 const MAX_CHARS = 3000;
+const MAX_PUBLIC = 5;
 const AUTOSAVE_MS = 800;
 
 /* ─── Helpers ────────────────────────────────────────────────────────────── */
