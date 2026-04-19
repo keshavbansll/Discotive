@@ -1,3 +1,5 @@
+/* eslint-env node */
+/* global process */
 import { initializeApp, cert, getApps } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
 
@@ -45,7 +47,6 @@ export default async function handler(req) {
     const tier = data.tier || "ESSENTIAL";
     const level = Math.min(Math.floor(score / 1000) + 1, 10);
     const avatar = data.identity?.avatarUrl || "";
-    const country = data.identity?.country || "";
     const bio =
       data.footprint?.bio ||
       data.professional?.bio ||
@@ -59,6 +60,20 @@ export default async function handler(req) {
       .then((r) => r.text())
       .catch(() => null);
     const base = indexHTML || DEFAULT_HTML;
+
+    const jsonLd = {
+      "@context": "https://schema.org",
+      "@type": "ProfilePage",
+      mainEntity: {
+        "@type": "Person",
+        name: name,
+        alternateName: handle,
+        description: desc,
+        jobTitle: domain,
+        url: `${SITE_URL}/@${handle}`,
+        image: avatar || ogImg,
+      },
+    };
 
     const injected = base
       .replace(/<title>[^<]*<\/title>/, `<title>${esc(title)}</title>`)
@@ -78,11 +93,13 @@ export default async function handler(req) {
       <meta name="twitter:description" content="${esc(desc)}" />
       <meta name="twitter:image" content="${ogImg}" />
       <link rel="canonical" href="${SITE_URL}/@${handle}" />
+      <script type="application/ld+json">${JSON.stringify(jsonLd)}</script>
       </head>`,
       );
 
     return new Response(injected, { headers: htmlHeaders() });
-  } catch (e) {
+  } catch (error) {
+    console.error("[Profile Meta Edge Error]:", error);
     return new Response(fallbackHTML(SITE_URL), { headers: htmlHeaders() });
   }
 }

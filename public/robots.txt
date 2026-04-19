@@ -1,5 +1,19 @@
 User-agent: *
 Allow: /
 Disallow: /app/
+Disallow: /checkout
+Disallow: /auth/action
+Disallow: /verify-asset
+
+# LLM Crawler Specifics - Explicit Allow for Public Domains
+User-agent: GPTBot
+Allow: /
+Disallow: /app/
+Disallow: /checkout
+
+User-agent: ClaudeBot
+Allow: /
+Disallow: /app/
+Disallow: /checkout
 
 Sitemap: https://www.discotive.in/sitemap.xml

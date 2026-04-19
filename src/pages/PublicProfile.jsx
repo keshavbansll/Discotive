@@ -17,6 +17,7 @@ import React, {
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { motion, AnimatePresence } from "framer-motion";
+import { Helmet } from "react-helmet-async";
 import { increment, doc, updateDoc } from "firebase/firestore";
 import { httpsCallable } from "firebase/functions";
 import { db, auth, functions } from "../firebase";
@@ -357,51 +358,58 @@ const PublicProfile = () => {
     ? Math.round((verifiedVault.length / profileData.vault.length) * 100)
     : 0;
 
-  // ── Dynamic Title & Meta Management (SEO Engine) ─────────────────────────
-  useEffect(() => {
-    if (loading) {
-      document.title = "Loading Profile... | Discotive";
-      return;
-    }
-    if (!profileData) {
-      document.title = "Not Found | Discotive";
-      return;
-    }
+  // ── Dynamic Title, Meta & JSON-LD (SEO & LLM Engine) ─────────────────────
+  const siteUrl = import.meta.env.VITE_SITE_URL || "https://discotive.in";
+  const ogImg = profileData
+    ? `${siteUrl}/api/og/profile?n=${encodeURIComponent(fullName)}&s=${score}&d=${encodeURIComponent(domain)}&t=${profileData.tier || "ESSENTIAL"}&l=${level}`
+    : "";
+  const metaDesc = profileData
+    ? `${bio?.slice(0, 120) || `Level ${level} ${domain} operator`} · Score: ${score.toLocaleString()}`
+    : "";
+  const pageTitle = profileData
+    ? `${fullName} | Level ${level} ${domain} — Discotive`
+    : "Profile | Discotive";
 
-    document.title = `${fullName} | Level ${level} ${domain} — Discotive`;
-
-    const setMeta = (prop, val, isOg = false) => {
-      const sel = isOg ? `meta[property="${prop}"]` : `meta[name="${prop}"]`;
-      let el = document.querySelector(sel);
-      if (!el) {
-        el = document.createElement("meta");
-        isOg
-          ? el.setAttribute("property", prop)
-          : el.setAttribute("name", prop);
-        document.head.appendChild(el);
-      }
-      el.setAttribute("content", val);
+  const jsonLdSchema = useMemo(() => {
+    if (!profileData) return null;
+    return {
+      "@context": "https://schema.org",
+      "@type": "ProfilePage",
+      mainEntity: {
+        "@type": "Person",
+        name: fullName,
+        alternateName: username,
+        description: metaDesc,
+        jobTitle: domain,
+        url: `${siteUrl}/@${username}`,
+        image: profileData.identity?.avatarUrl || ogImg,
+        ...(workExperience?.company && {
+          worksFor: {
+            "@type": "Organization",
+            name: workExperience.company,
+          },
+        }),
+        ...(institution && {
+          alumniOf: {
+            "@type": "CollegeOrUniversity",
+            name: institution,
+          },
+        }),
+        knowsAbout: skills.length > 0 ? skills : undefined,
+      },
     };
-
-    const siteUrl = import.meta.env.VITE_SITE_URL || "https://discotive.in";
-    const h = username || "";
-    const ogImg = `${siteUrl}/api/og/profile?n=${encodeURIComponent(fullName)}&s=${score}&d=${encodeURIComponent(domain)}&t=${profileData.tier || "ESSENTIAL"}&l=${level}`;
-    const metaDesc = `${bio?.slice(0, 120) || `Level ${level} ${domain} operator`} · Score: ${score.toLocaleString()}`;
-
-    setMeta("description", metaDesc);
-    setMeta("og:title", document.title, true);
-    setMeta("og:description", metaDesc, true);
-    setMeta("og:image", ogImg, true);
-    setMeta("og:url", `${siteUrl}/@${h}`, true);
-    setMeta("og:type", "profile", true);
-    setMeta("twitter:card", "summary_large_image");
-    setMeta("twitter:title", document.title);
-    setMeta("twitter:image", ogImg);
-
-    return () => {
-      document.title = "Discotive | Unified Career Engine";
-    };
-  }, [profileData, loading, fullName, level, domain, score, bio, username]);
+  }, [
+    profileData,
+    fullName,
+    username,
+    metaDesc,
+    domain,
+    siteUrl,
+    ogImg,
+    workExperience,
+    institution,
+    skills,
+  ]);
 
   // ── Chart data from daily_scores ──────────────────────────────────────────
   const chartData = useMemo(() => {
@@ -547,6 +555,9 @@ const PublicProfile = () => {
   if (loading)
     return (
       <div className="min-h-screen bg-[#030303] flex items-center justify-center">
+        <Helmet>
+          <title>Loading Profile... | Discotive</title>
+        </Helmet>
         <div className="flex gap-1.5">
           {[0, 1, 2, 3].map((i) => (
             <motion.div
@@ -563,6 +574,10 @@ const PublicProfile = () => {
   if (!profileData)
     return (
       <div className="min-h-screen bg-[#030303] flex flex-col items-center justify-center gap-4 text-center p-6">
+        <Helmet>
+          <title>Operator Not Found | Discotive</title>
+          <meta name="robots" content="noindex" />
+        </Helmet>
         <div className="w-16 h-16 rounded-2xl bg-[#0a0a0a] border border-[#1a1a1a] flex items-center justify-center mb-2">
           <Lock className="w-7 h-7 text-[#333]" />
         </div>
@@ -581,6 +596,25 @@ const PublicProfile = () => {
 
   return (
     <div className="min-h-screen bg-[#030303] text-white selection:bg-[#BFA264]/25 pb-24 relative overflow-x-hidden">
+      <Helmet>
+        <title>{pageTitle}</title>
+        <meta name="description" content={metaDesc} />
+        <meta property="og:title" content={pageTitle} />
+        <meta property="og:description" content={metaDesc} />
+        <meta property="og:image" content={ogImg} />
+        <meta property="og:url" content={`${siteUrl}/@${username}`} />
+        <meta property="og:type" content="profile" />
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="twitter:title" content={pageTitle} />
+        <meta name="twitter:description" content={metaDesc} />
+        <meta name="twitter:image" content={ogImg} />
+        <link rel="canonical" href={`${siteUrl}/@${username}`} />
+        {jsonLdSchema && (
+          <script type="application/ld+json">
+            {JSON.stringify(jsonLdSchema)}
+          </script>
+        )}
+      </Helmet>
       <div className="absolute inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-[0.02] pointer-events-none" />
       <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[300px] bg-[#BFA264] opacity-[0.025] blur-[120px] rounded-full pointer-events-none" />
 

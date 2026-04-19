@@ -10,6 +10,7 @@ import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import { useEffect, useState } from "react";
 import { AnimatePresence } from "framer-motion";
 import { useUserData } from "./hooks/useUserData"; // <-- Inject this
+import { Helmet } from "react-helmet-async";
 
 // ── EAGER IMPORTS (The Critical Path) ──
 // These MUST load immediately. Landing is the entry point. MainLayout is the shell.
@@ -93,108 +94,110 @@ const RouteChunkLoader = () => (
   </div>
 );
 
-// ── GLOBAL ROUTE TITLE MANAGER ───────────────────────────────────────────────
-const RouteTitleManager = () => {
+// ── GLOBAL ROUTE METADATA MANAGER (SEO & LLM OPTIMIZED) ──────────────────────
+const RouteMetadataManager = () => {
   const location = useLocation();
+  const path = location.pathname;
 
-  useEffect(() => {
-    const path = location.pathname;
-    let title = "Discotive | Unified Career Engine";
+  let title = "Discotive | Unified Career Engine";
+  let description =
+    "Build your monopoly. Discotive is the algorithmic career system for people from all domains. Plan execution, track consistency, and verify your compete globally.";
 
-    if (path.startsWith("/app/admin")) {
-      title = "Admin Command | Discotive";
-    } else if (path.startsWith("/app")) {
-      const subPath = path.split("/")[2] || "";
-      switch (subPath) {
-        case "":
-          title = "Dashboard | Discotive";
-          break;
-        case "agenda":
-          title = "Discotive Agenda";
-          break;
-        case "leaderboard":
-          title = "Global Arena | Discotive";
-          break;
-        case "vault":
-          title = "Vault | Discotive";
-          break;
-        case "connective":
-          if (path.includes("network")) title = "Network | Discotive";
-          else if (path.includes("feed")) title = "Execution Feed | Discotive";
-          else title = "Connective | Discotive";
-          break;
-        case "learn":
-          title = "Learn | Discotive";
-          break;
-        case "settings":
-          title = "Settings | Discotive";
-          break;
-        case "profile":
-          title = path.includes("/edit")
-            ? "Edit Profile | Discotive"
-            : "Profile | Discotive";
-          break;
-        case "finance":
-          title = "Financial Ledger | Discotive";
-          break;
-        case "opportunities":
-          title = "Opportunities | Discotive";
-          break;
-        case "hubs":
-          title = "Hubs | Discotive";
-          break;
-        case "roadmap":
-          title = "Execution Agent | Discotive";
-          break;
-        case "podcasts":
-          title = "Podcasts & Media | Discotive";
-          break;
-        case "assessments":
-          title = "Workshops & Assessments | Discotive";
-          break;
-        case "discover":
-          title = "Discover | Discotive";
-          break;
-        default:
-          title = "Command Center | Discotive";
-          break;
-      }
-    } else if (path === "/about" || path === "/") {
-      title = "Discotive | Unified Career Engine";
-    } else if (path === "/auth") {
-      title = "Authenticate | Discotive";
-    } else if (path === "/premium") {
-      title = "Premium | Discotive";
-    } else if (path === "/checkout") {
-      title = "Checkout | Discotive";
-    } else if (path === "/contact") {
-      title = "Contact | Discotive";
-    } else if (path === "/privacy") {
-      title = "Privacy Policy | Discotive";
-    } else if (path === "/verify-asset") {
-      title = "Verify Asset | Discotive";
+  if (path.startsWith("/app/admin")) {
+    title = "Admin Command | Discotive";
+  } else if (path.startsWith("/app")) {
+    const subPath = path.split("/")[2] || "";
+    const appTitles = {
+      "": "Dashboard | Discotive",
+      agenda: "Discotive Agenda",
+      leaderboard: "Global Arena | Discotive",
+      vault: "Vault | Discotive",
+      connective: path.includes("network")
+        ? "Network | Discotive"
+        : path.includes("feed")
+          ? "Execution Feed | Discotive"
+          : "Connective | Discotive",
+      learn: "Learn | Discotive",
+      settings: "Settings | Discotive",
+      profile: path.includes("/edit")
+        ? "Edit Profile | Discotive"
+        : "Profile | Discotive",
+      finance: "Financial Ledger | Discotive",
+      opportunities: "Opportunities | Discotive",
+      hubs: "Hubs | Discotive",
+      roadmap: "Execution Agent | Discotive",
+      podcasts: "Podcasts & Media | Discotive",
+      assessments: "Workshops & Assessments | Discotive",
+      discover: "Discover | Discotive",
+    };
+    title = appTitles[subPath] || "Command Center | Discotive";
+    description =
+      "Manage your Discotive Execution Engine, track your score, and sync your assets.";
+  } else {
+    const staticRoutes = {
+      "/about": {
+        t: "About | Discotive",
+        d: "Learn about the mission behind Discotive, the ultimate career operating system.",
+      },
+      "/auth": {
+        t: "Authenticate | Discotive",
+        d: "Log in or register to enter the Discotive global arena.",
+      },
+      "/premium": {
+        t: "Premium | Discotive",
+        d: "Upgrade your execution. Unlock advanced AI nodes, granular analytics, and priority asset verification.",
+      },
+      "/checkout": {
+        t: "Checkout | Discotive",
+        d: "Secure your Discotive Premium subscription.",
+      },
+      "/contact": {
+        t: "Contact | Discotive",
+        d: "Get in touch with the Discotive team for support, business inquiries, or alliance requests.",
+      },
+      "/privacy": {
+        t: "Privacy Policy | Discotive",
+        d: "Zero-Trust by Default. Read how Discotive protects and manages your execution data.",
+      },
+      "/verify-asset": {
+        t: "Verify Asset | Discotive",
+        d: "Verify the authenticity of a Discotive Digital Credential or Vault Asset.",
+      },
+    };
+    if (staticRoutes[path]) {
+      title = staticRoutes[path].t;
+      description = staticRoutes[path].d;
     }
+  }
 
-    // Update title for static pages. Skip for dynamic routes (like /@username) so the target component can inject real data.
-    const isKnownStaticRoute =
-      path.startsWith("/app") ||
-      [
-        "/about",
-        "/",
-        "/auth",
-        "/premium",
-        "/checkout",
-        "/contact",
-        "/privacy",
-        "/verify-asset",
-      ].includes(path);
+  // Skip rendering Helmet here for public profiles; let the PublicProfile component handle its own dynamic SEO.
+  const isDynamicProfileRoute =
+    !path.startsWith("/app") &&
+    ![
+      "/",
+      "/about",
+      "/auth",
+      "/premium",
+      "/checkout",
+      "/contact",
+      "/privacy",
+      "/verify-asset",
+    ].includes(path);
 
-    if (isKnownStaticRoute) {
-      document.title = title;
-    }
-  }, [location]);
+  if (isDynamicProfileRoute) return null;
 
-  return null;
+  return (
+    <Helmet>
+      <title>{title}</title>
+      <meta name="description" content={description} />
+      <meta property="og:title" content={title} />
+      <meta property="og:description" content={description} />
+      <meta property="og:url" content={`https://www.discotive.in${path}`} />
+      <meta property="twitter:title" content={title} />
+      <meta property="twitter:description" content={description} />
+      <link rel="canonical" href={`https://www.discotive.in${path}`} />
+    </Helmet>
+  );
 };
 
 const AppInitializer = ({ children }) => {
@@ -249,7 +252,7 @@ function App() {
     <AuthProvider>
       <AppInitializer>
         <Router>
-          <RouteTitleManager />
+          <RouteMetadataManager />
           <PageTracker />
           <Suspense fallback={<RouteChunkLoader />}>
             <Routes>
