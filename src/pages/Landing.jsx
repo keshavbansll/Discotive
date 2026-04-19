@@ -63,6 +63,7 @@ const LANDING_CSS = `
   z-index: 99999;
   display: none;
   border-radius: 50%;
+  will-change: transform;
 }
 @media (min-width: 900px) {
   .ld-cursor-dot, .ld-cursor-ring { display: block; }
@@ -260,14 +261,14 @@ const LANDING_CSS = `
 }
 .ld-hero-mesh-1 {
   position: absolute; top: -20%; left: -20%; width: 80vw; height: 80vw;
-  background: radial-gradient(circle, rgba(191,162,100,0.15) 0%, transparent 60%);
-  border-radius: 50%; filter: blur(60px);
+  background: radial-gradient(circle closest-side, rgba(191,162,100,0.15) 0%, rgba(191,162,100,0.05) 40%, transparent 100%);
+  border-radius: 50%; will-change: transform;
   animation: ambient-drift 12s infinite ease-in-out alternate;
 }
 .ld-hero-mesh-2 {
   position: absolute; bottom: -20%; right: -20%; width: 90vw; height: 90vw;
-  background: radial-gradient(circle, rgba(139,114,64,0.12) 0%, transparent 60%);
-  border-radius: 50%; filter: blur(80px);
+  background: radial-gradient(circle closest-side, rgba(139,114,64,0.12) 0%, rgba(139,114,64,0.04) 40%, transparent 100%);
+  border-radius: 50%; will-change: transform;
   animation: ambient-drift 15s infinite ease-in-out alternate-reverse;
 }
 
@@ -681,14 +682,6 @@ const LANDING_CSS = `
   background: linear-gradient(90deg, transparent, var(--gold-3) 20%, var(--gold-1) 50%, var(--gold-3) 80%, transparent);
 }
 
-/* GRAIN */
-.ld-grain {
-  position: fixed; inset: -50%; width: 200%; height: 200%;
-  opacity: 0.012; pointer-events: none; z-index: 9998;
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-  animation: ld-grain 0.4s steps(1) infinite;
-}
-
 /* ANIMATIONS */
 @keyframes ld-grain {
   0%,100% { transform: translate(0,0); }
@@ -812,37 +805,134 @@ const DISCOVERY_CARDS = [
     border: "rgba(251,146,60,0.2)",
     image: "/landing/card-vault.png",
   },
+  {
+    sub: "Daily agenda and deep work scheduling",
+    color: "#F43F5E",
+    bg: "rgba(244,63,94,0.08)",
+    border: "rgba(244,63,94,0.2)",
+    image: "/landing/card-agenda.png",
+  },
+  {
+    sub: "Track your consistency and maintain streaks",
+    color: "#10B981",
+    bg: "rgba(16,185,129,0.08)",
+    border: "rgba(16,185,129,0.2)",
+    image: "/landing/card-consistency.png",
+  },
 ];
 
 // ─── REASONS DATA ─────────────────────────────────────────────────────────────
 const REASONS = [
   {
-    icon: "🎯",
-    title: "Track your execution",
-    body: "Every achievement is cryptographically verified. No bullet points — only proof of work.",
+    icon: (
+      <svg
+        width="28"
+        height="28"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M12 2L2 7l10 5 10-5-10-5Z" />
+        <path d="M2 17l10 5 10-5" />
+        <path d="M2 12l10 5 10-5" />
+      </svg>
+    ),
+    title: "Discotive Score",
+    body: "A quantitatively calculated score based on your execution and achievements. The new standard of qualification.",
     accent: "#BFA264",
     bg: "rgba(191,162,100,0.06)",
   },
   {
-    icon: "📡",
-    title: "Compete globally",
-    body: "A live leaderboard across 180+ countries. Your score is real-time. Your rank, earned.",
+    icon: (
+      <svg
+        width="28"
+        height="28"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <rect width="18" height="18" x="3" y="3" rx="2" ry="2" />
+        <path d="M3 9h18" />
+        <path d="M9 21V9" />
+      </svg>
+    ),
+    title: "Position Matrix",
+    body: "A live leaderboard across the globe. Know where you actually stand among your university, domain, niche, network and targets.",
     accent: "#38BDF8",
     bg: "rgba(56,189,248,0.06)",
   },
   {
-    icon: "🔮",
-    title: "AI-powered roadmap",
-    body: "A DAG execution map built from your goals. Every node unlocks the next. Zero confusion.",
+    icon: (
+      <svg
+        width="28"
+        height="28"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <circle cx="12" cy="12" r="10" />
+        <path d="m12 16 4-4-4-4" />
+        <path d="M8 12h8" />
+      </svg>
+    ),
+    title: "Personalize to YOUR domain",
+    body: "Not just for engineers or founders, but for everyone. Whether you are a filmmaker, writer, designer, or belong to any domain.",
     accent: "#C084FC",
     bg: "rgba(168,85,247,0.06)",
   },
   {
-    icon: "⚡",
-    title: "Verify on any device",
-    body: "Native experience on mobile, desktop, and tablet. Your career engine, always with you.",
+    icon: (
+      <svg
+        width="28"
+        height="28"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+        <path d="M14 2v6h6" />
+        <path d="M16 13H8" />
+        <path d="M16 17H8" />
+        <path d="M10 9H8" />
+      </svg>
+    ),
+    title: "Ease freelance",
+    body: "No need of certificates or experience. You know any skill—welcome to your freelance portfolio.",
     accent: "#4ADE80",
     bg: "rgba(74,222,128,0.06)",
+  },
+  {
+    icon: (
+      <svg
+        width="28"
+        height="28"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
+        <path d="m9 12 2 2 4-4" />
+      </svg>
+    ),
+    title: "Credibility at its peak",
+    body: "No fake certificates, experience, or skills. Everything is verified and real.",
+    accent: "#F43F5E",
+    bg: "rgba(244,63,94,0.06)",
   },
 ];
 
@@ -1358,6 +1448,7 @@ export default function Landing() {
           scale: heroScale,
           justifyContent: "center",
           paddingTop: "var(--nav-h)",
+          willChange: "transform, opacity",
         }}
       >
         <div className="ld-hero-mesh">
@@ -1379,20 +1470,7 @@ export default function Landing() {
               width: "100%",
               height: "auto",
               objectFit: "contain",
-              opacity: 0.35 /* Calibrated for deep void matte background */,
-            }}
-          />
-          {/* True Black Depth Fade Overlay */}
-          <div
-            style={{
-              position: "absolute",
-              bottom: "-5%",
-              left: 0,
-              right: 0,
-              height: "65%",
-              background:
-                "linear-gradient(to top, var(--void) 0%, rgba(3,3,3,0.92) 25%, transparent 100%)",
-              zIndex: 2,
+              opacity: 0.08 /* Uniformly faded */,
             }}
           />
         </motion.div>
@@ -1785,9 +1863,18 @@ export default function Landing() {
                     border: `0.5px solid ${r.accent}30`,
                     marginRight: 24,
                     flexShrink: 0,
+                    color: r.accent,
                   }}
                 >
-                  <span style={{ fontSize: 26 }}>{r.icon}</span>
+                  <span
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    {r.icon}
+                  </span>
                 </div>
 
                 {/* Text */}

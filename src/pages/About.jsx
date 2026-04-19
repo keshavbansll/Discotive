@@ -154,12 +154,7 @@ const ABOUT_CSS = `
 .ab-metric-title { font-family: var(--font-display); font-size: 24px; font-weight: 700; margin-bottom: 16px; color: var(--gold-2); }
 .ab-metric-desc { font-family: var(--font-body); font-size: 15px; color: var(--text-secondary); line-height: 1.8; font-weight: 300; }
 
-/* GRAIN */
-.ab-grain {
-  position: fixed; inset: -50%; width: 200%; height: 200%; opacity: 0.015; pointer-events: none; z-index: 9998;
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-  animation: ab-grain 0.4s steps(1) infinite;
-}
+
 @keyframes ab-grain {
   0%,100% { transform: translate(0,0); }
   20% { transform: translate(3%,2%); }
