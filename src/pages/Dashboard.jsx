@@ -1217,13 +1217,25 @@ const HUDPanel = memo(
   },
 );
 
-/* ─── Streak Risk Banner (FIXED — account age check) ───────────────────── */
+/* ─── Streak Risk Banner (FIXED — timezone, parsing & dismissal) ───────────────────── */
 const StreakRiskBanner = memo(({ streak, lastLoginDate, createdAt }) => {
-  const todayStr = new Date().toISOString().split("T")[0];
-  const hasLoggedToday = lastLoginDate === todayStr;
+  // Robust Local YYYY-MM-DD Generation to avoid UTC timezone offset mismatch
+  const today = new Date();
+  const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
 
-  // Lazily initialize the timestamp so it remains pure across renders
+  // Safely strip time from ISO string for an exact date match
+  const lastLoginStr = lastLoginDate?.split("T")[0];
+  const hasLoggedToday = lastLoginStr === todayStr;
+
   const [now] = useState(() => Date.now());
+  const [dismissed, setDismissed] = useState(() => {
+    return localStorage.getItem("discotive_streak_dismiss") === todayStr;
+  });
+
+  const handleDismiss = () => {
+    localStorage.setItem("discotive_streak_dismiss", todayStr);
+    setDismissed(true);
+  };
 
   const accountAgeDays = useMemo(() => {
     if (!createdAt) return 999;
@@ -1231,46 +1243,76 @@ const StreakRiskBanner = memo(({ streak, lastLoginDate, createdAt }) => {
     return (now - ts.getTime()) / (1000 * 60 * 60 * 24);
   }, [createdAt, now]);
 
-  if (hasLoggedToday || streak === 0 || accountAgeDays < 3) return null;
+  const shouldShow =
+    !hasLoggedToday && streak > 0 && accountAgeDays >= 3 && !dismissed;
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: -12 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="flex items-center justify-between gap-4 px-5 py-3.5"
-      style={{
-        background: "rgba(248,113,113,0.07)",
-        borderBottom: "1px solid rgba(248,113,113,0.2)",
-      }}
-      role="alert"
-      aria-live="assertive"
-    >
-      <div className="flex items-center gap-3">
-        <Flame
-          size={16}
-          style={{ color: "#F87171" }}
-          className="shrink-0 animate-pulse"
-        />
-        <span className="text-[11px] font-bold" style={{ color: T.secondary }}>
-          Your{" "}
-          <span className="font-black" style={{ color: "#F87171" }}>
-            {streak}-day streak
-          </span>{" "}
-          expires at midnight. Stay consistent or lose{" "}
-          <span style={{ color: "#F87171" }}>−15 pts</span>.
-        </span>
-      </div>
-      <span
-        className="text-[9px] font-black uppercase tracking-widest shrink-0 px-2.5 py-1 rounded-full"
-        style={{
-          background: "rgba(248,113,113,0.12)",
-          border: "1px solid rgba(248,113,113,0.25)",
-          color: "#F87171",
-        }}
-      >
-        At Risk
-      </span>
-    </motion.div>
+    <AnimatePresence>
+      {shouldShow && (
+        <motion.div
+          initial={{ opacity: 0, height: 0 }}
+          animate={{ opacity: 1, height: "auto" }}
+          exit={{ opacity: 0, height: 0 }}
+          className="flex items-center justify-between gap-4 px-5 overflow-hidden border-b"
+          style={{
+            background: "rgba(248,113,113,0.07)",
+            borderColor: "rgba(248,113,113,0.2)",
+          }}
+          role="alert"
+          aria-live="assertive"
+        >
+          <div className="flex items-center gap-3 py-3.5 pr-2">
+            <Flame
+              size={16}
+              style={{ color: "#F87171" }}
+              className="shrink-0 animate-pulse"
+            />
+            <span
+              className="text-[11px] font-bold"
+              style={{ color: T.secondary }}
+            >
+              Your{" "}
+              <span className="font-black" style={{ color: "#F87171" }}>
+                {streak}-day streak
+              </span>{" "}
+              expires at midnight. Execute a task to maintain momentum.
+            </span>
+          </div>
+          <div className="flex items-center gap-3 shrink-0 py-3.5">
+            <span
+              className="text-[9px] font-black uppercase tracking-widest shrink-0 px-2.5 py-1 rounded-full hidden sm:inline-block"
+              style={{
+                background: "rgba(248,113,113,0.12)",
+                border: "1px solid rgba(248,113,113,0.25)",
+                color: "#F87171",
+              }}
+            >
+              At Risk
+            </span>
+            <button
+              onClick={handleDismiss}
+              className="p-1 rounded-md text-[#F87171]/60 hover:bg-[#F87171]/10 hover:text-[#F87171] transition-colors"
+              aria-label="Dismiss alert"
+            >
+              {/* Native embedded SVG to prevent import failures across different lucide-react versions */}
+              <svg
+                width="15"
+                height="15"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              >
+                <line x1="18" y1="6" x2="6" y2="18"></line>
+                <line x1="6" y1="6" x2="18" y2="18"></line>
+              </svg>
+            </button>
+          </div>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 });
 

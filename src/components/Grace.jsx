@@ -9,7 +9,12 @@
  */
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { motion, AnimatePresence } from "framer-motion";
+import {
+  motion,
+  AnimatePresence,
+  useMotionValue,
+  useAnimation,
+} from "framer-motion";
 import { Link } from "react-router-dom";
 import FeedbackModal from "../components/FeedbackModal";
 import { auth } from "../firebase";
@@ -285,6 +290,131 @@ const Grace = ({ userData }) => {
   const hasUnread = false; // future: badge count from notifications
 
   const name = userData?.identity?.firstName || "Operator";
+
+  // ─── PHYSICS & IDLE ENGINE (Edge Snapping) ───
+  const PADDING = 16;
+  const BALL_SIZE = 56;
+
+  const x = useMotionValue(0);
+  const y = useMotionValue(0);
+  const controls = useAnimation();
+
+  const [isIdle, setIsIdle] = useState(false);
+  const [side, setSide] = useState("right"); // 'left' | 'right'
+  const idleTimeoutRef = useRef(null);
+  const isDragging = useRef(false);
+
+  const startIdleTimer = useCallback(() => {
+    clearTimeout(idleTimeoutRef.current);
+    idleTimeoutRef.current = setTimeout(() => {
+      if (!isOpen) setIsIdle(true);
+    }, 3000);
+  }, [isOpen]);
+
+  const wakeUp = useCallback(() => {
+    setIsIdle(false);
+    startIdleTimer();
+  }, [startIdleTimer]);
+
+  // Mount initialization (sets correct screen bounds & hydration)
+  useEffect(() => {
+    const initX = window.innerWidth - BALL_SIZE - PADDING;
+    const initY = window.innerHeight - BALL_SIZE - 96; // Offset above bottom nav
+    x.set(initX);
+    y.set(initY);
+    controls.set({ x: initX, y: initY });
+    startIdleTimer();
+    return () => clearTimeout(idleTimeoutRef.current);
+  }, [controls, startIdleTimer, x, y]);
+
+  // Visual state controller (Idle dimming & morphing)
+  useEffect(() => {
+    if (isOpen) {
+      setIsIdle(false);
+      clearTimeout(idleTimeoutRef.current);
+      // Full view when panel is open
+      controls.start({
+        x: side === "left" ? PADDING : window.innerWidth - BALL_SIZE - PADDING,
+        opacity: 1,
+        scale: 1,
+        transition: { type: "spring", stiffness: 300, damping: 25 },
+      });
+      return;
+    }
+
+    if (isIdle) {
+      // Shift 40% off-screen and dim
+      const targetX =
+        side === "left"
+          ? -(BALL_SIZE * 0.4)
+          : window.innerWidth - BALL_SIZE + BALL_SIZE * 0.4;
+      controls.start({
+        x: targetX,
+        opacity: 0.5,
+        scale: 0.9,
+        transition: { duration: 0.4, ease: "easeOut" },
+      });
+    } else {
+      const targetX =
+        side === "left" ? PADDING : window.innerWidth - BALL_SIZE - PADDING;
+      controls.start({
+        x: targetX,
+        opacity: 1,
+        scale: 1,
+        transition: { type: "spring", stiffness: 300, damping: 25 },
+      });
+      startIdleTimer();
+    }
+  }, [isIdle, isOpen, side, controls, startIdleTimer]);
+
+  const handleDragStart = () => {
+    isDragging.current = true;
+    setIsIdle(false);
+    clearTimeout(idleTimeoutRef.current);
+    controls.start({ scale: 1.1, opacity: 0.85 }); // Tactile pickup feedback
+  };
+
+  const handleDragEnd = () => {
+    // 150ms grace period to prevent tap firing after drag
+    setTimeout(() => {
+      isDragging.current = false;
+    }, 150);
+
+    const currentX = x.get();
+    const currentY = y.get();
+    const screenWidth = window.innerWidth;
+    const screenHeight = window.innerHeight;
+
+    // Midpoint detection
+    const isLeft = currentX + BALL_SIZE / 2 < screenWidth / 2;
+    setSide(isLeft ? "left" : "right");
+
+    const targetX = isLeft ? PADDING : screenWidth - BALL_SIZE - PADDING;
+    // Clamp Y to safe bounds (avoid notch and bottom indicators)
+    const targetY = Math.max(
+      PADDING,
+      Math.min(currentY, screenHeight - BALL_SIZE - PADDING),
+    );
+
+    controls.start({
+      x: targetX,
+      y: targetY,
+      scale: 1,
+      opacity: 1,
+      transition: { type: "spring", stiffness: 300, damping: 25, mass: 0.8 },
+    });
+
+    startIdleTimer();
+  };
+
+  const handleTriggerClick = () => {
+    if (isDragging.current) return; // Prevent accidental opening on drag release
+    if (isIdle) {
+      wakeUp(); // First tap just wakes it up
+      return;
+    }
+    setIsOpen((v) => !v);
+  };
 
   const reset = useCallback(() => {
     setStep("topics");
@@ -749,8 +879,9 @@ const Grace = ({ userData }) => {
               transition={{ type: "spring", damping: 26, stiffness: 320 }}
               className={cn(
                 "fixed z-[9999] bg-[#0A0A0A] border border-white/5 rounded-[2rem] shadow-[0_30px_80px_rgba(0,0,0,0.95)] overflow-hidden flex flex-col",
-                // Desktop: bottom-right above buttons
-                "bottom-24 right-6 w-[380px] h-[550px]",
+                // Desktop: dynamic lateral placement matching ball side
+                "bottom-24 w-[380px] h-[550px]",
+                side === "left" ? "left-6" : "right-6 md:right-8",
                 // Mobile: full-width bottom sheet
                 "max-md:bottom-0 max-md:right-0 max-md:left-0 max-md:w-full max-md:rounded-b-none max-md:h-[80vh]",
               )}
@@ -788,16 +919,22 @@ const Grace = ({ userData }) => {
         )}
       </AnimatePresence>
 
-      {/* ── Floating Trigger Button ── */}
+      {/* ── Edge-Snapping Floating Assistive Ball ── */}
       <motion.button
-        onClick={() => setIsOpen((v) => !v)}
-        whileHover={{ scale: 1.08 }}
-        whileTap={{ scale: 0.95 }}
+        style={{ x, y }}
+        animate={controls}
+        drag
+        dragMomentum={false}
+        onDragStart={handleDragStart}
+        onDragEnd={handleDragEnd}
+        onClick={handleTriggerClick}
+        whileHover={{ scale: isIdle || isOpen ? 1 : 1.08 }}
+        whileTap={{ scale: isIdle || isOpen ? 1 : 0.95 }}
         aria-label={
           isOpen ? "Close Grace" : "Open Grace — Discotive AI Assistant"
         }
         className={cn(
-          "fixed bottom-24 right-6 md:right-8 z-[9999] w-14 h-14 rounded-full flex items-center justify-center transition-all duration-300 focus-visible:ring-2 focus-visible:ring-[#BFA264] focus-visible:outline-none",
+          "fixed top-0 left-0 z-[9999] w-14 h-14 rounded-full flex items-center justify-center focus-visible:ring-2 focus-visible:ring-[#BFA264] focus-visible:outline-none touch-none",
           "bg-gradient-to-br from-[#E8D5A3] via-[#D4AF78] to-[#8B7240]",
           "shadow-[0_0_0_4px_rgba(191,162,100,0.15),0_8px_32px_rgba(191,162,100,0.35)]",
           isOpen &&
