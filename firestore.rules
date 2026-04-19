@@ -407,4 +407,37 @@ service cloud.firestore {
       allow write: if false;
     }
   }
+ // =========================================================================
+ // COLISTS — Public read, Pro-only create, view/save count by all
+ // =========================================================================
+ match /colists/{colistId} {
+   // Anyone can read public colists (SEO + non-auth users)
+   allow read: if true;
+
+   // Only authenticated Pro/Enterprise users can create
+   allow create: if isAuthenticated()
+     && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.tier
+        in ["PRO", "ENTERPRISE"]
+     && request.resource.data.authorId == request.auth.uid
+     && request.resource.data.isPublic is bool
+     && request.resource.data.title is string
+     && request.resource.data.title.size() >= 3
+     && request.resource.data.title.size() <= 150
+     && request.resource.data.blocks is list
+     && request.resource.data.blocks.size() <= 50;
+
+   // Allow:  owner full update | anyone viewCount | auth users saveCount
+   allow update: if
+     (isAuthenticated() && resource.data.authorId == request.auth.uid)
+     || (request.resource.data.diff(resource.data).affectedKeys().hasOnly(['viewCount'])
+         && request.resource.data.viewCount == resource.data.viewCount + 1)
+     || (isAuthenticated()
+         && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['saveCount'])
+         && request.resource.data.saveCount == resource.data.saveCount + 1)
+     || isAdmin();
+
+   // Owner or admin can delete
+   allow delete: if (isAuthenticated() && resource.data.authorId == request.auth.uid)
+     || isAdmin();
+ }
 }

@@ -50,6 +50,7 @@ import {
   Circle,
   Trash2,
   BookOpen,
+  BookMarked,
   Keyboard,
   Shield,
   Languages,
@@ -61,6 +62,7 @@ import {
   Command,
   Ticket,
   Calendar,
+  Sparkles,
 } from "lucide-react";
 
 import { cn } from "../lib/cn";
@@ -99,6 +101,7 @@ const lowerContentNavItems = [
   { icon: FolderOpen, label: "Asset Vault", path: "/app/vault" },
   { icon: BookOpen, label: "Learn", path: "/app/learn" },
   { icon: Calendar, label: "Agenda", path: "/app/agenda" },
+  { icon: Sparkles, label: "Colists", path: "/colists", external: true },
 ];
 
 const bottomNavItems = [

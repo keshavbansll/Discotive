@@ -1,0 +1,33 @@
+# Discotive: Unified Career Engine
+
+> Stop consuming. Start executing. Discotive is the algorithmic career operating system for the next generation of youth.
+
+## Platform Architecture
+
+Discotive replaces the outdated, static résumé with a living, verified proof-of-work ecosystem. It is designed to track consistency, verify digital assets, and map career trajectories using advanced mechanics.
+
+### Core Mechanics
+
+* **Discotive Score:** A dynamic, algorithmic score representing an operator's execution level. It is calculated based on consistency, verified assets (VSS), and network strength. The score decays without execution.
+* **Asset Vault:** A highly secure, drive-grade vault where users upload their proof-of-work (certificates, project links, employment records). Assets are vetted and marked as 'Verified', directly impacting the user's Vault Strength Score (VSS).
+* **The Global Arena (Leaderboard):** Operators are ranked globally based on their Discotive Score. Top 10 operators achieve 'Elite Tier' status. 
+* **Execution Agenda:** A tactical engine for planning daily and weekly objectives. Completing agenda nodes maintains the user's execution streak and prevents score decay.
+* **The Connective (Network):** A zero-noise, execution-focused network. Users can send 'Alliance Requests' to other operators.
+
+
+## Tier System
+
+Discotive operates on a Freemium psychology:
+1.  **Essential (Free):** Unrestricted access to core execution tools, basic vault storage, and standard network capabilities.
+2.  **Premium (139 INR/month):** Advanced AI node generation, granular profile analytics, priority asset verification, and premium UI vanity (The Crown).
+
+## Target Audience
+
+Gen-Z and Gen-Alpha operators across all domains: Engineering, Design, Finance, Content, Business, and Healthcare. If you are building a monopoly, you belong on Discotive.
+
+## Key Endpoints
+
+* Public Profiles: `https://discotive.in/@{username}`
+* Acquisition Engine: `https://discotive.in/`
+* Learn & Methodology: `https://discotive.in/learn`
+* Premium Upgrades: `https://discotive.in/premium`

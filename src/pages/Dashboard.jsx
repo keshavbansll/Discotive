@@ -2078,9 +2078,8 @@ const CommandActions = memo(({ navigate }) => {
     {
       label: "CoLists",
       icon: Newspaper,
-      href: "#",
+      href: "/colists",
       color: "#38bdf8",
-      locked: true,
     },
     {
       label: "Profile",
