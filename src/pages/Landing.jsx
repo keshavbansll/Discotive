@@ -761,7 +761,7 @@ const DISCOVERY_CARDS = [
     color: "#60A5FA",
     bg: "rgba(59,130,246,0.08)",
     border: "rgba(59,130,246,0.2)",
-    image: "/landing/card-opportunities.png",
+    image: "/landing/card-compete.png",
   },
   {
     sub: "Curated resources that unlock execution nodes on your map",
@@ -775,21 +775,21 @@ const DISCOVERY_CARDS = [
     color: "#FBBF24",
     bg: "rgba(251,191,36,0.08)",
     border: "rgba(251,191,36,0.2)",
-    image: "/landing/card-freelance.png",
+    image: "/landing/card-playlists.png",
   },
   {
     sub: "Broadcast your proof of work to the global operator network",
     color: "#F472B6",
     bg: "rgba(244,114,182,0.08)",
     border: "rgba(244,114,182,0.2)",
-    image: "/landing/card-promote.png",
+    image: "/landing/card-selection.png",
   },
   {
     sub: "Alliance-building with verified operators in your domain",
     color: "#4ADE80",
     bg: "rgba(74,222,128,0.08)",
     border: "rgba(74,222,128,0.2)",
-    image: "/landing/card-connective.png",
+    image: "/landing/card-freelance.png",
   },
   {
     sub: "Compete live on the world leaderboard. Rise or fall.",
@@ -803,14 +803,14 @@ const DISCOVERY_CARDS = [
     color: "#38BDF8",
     bg: "rgba(56,189,248,0.08)",
     border: "rgba(56,189,248,0.2)",
-    image: "/landing/card-vault.png",
+    image: "/landing/card-connective.png",
   },
   {
     sub: "AI-generated DAG career map. From fog to certainty.",
     color: "#FB923C",
     bg: "rgba(251,146,60,0.08)",
     border: "rgba(251,146,60,0.2)",
-    image: "/landing/card-roadmap.png",
+    image: "/landing/card-vault.png",
   },
 ];
 
