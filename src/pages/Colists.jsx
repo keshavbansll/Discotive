@@ -1276,7 +1276,7 @@ const ColistFeed = memo(({ onNavigate, onCreateClick }) => {
                 className="text-[9px] font-black uppercase tracking-[0.3em]"
                 style={{ color: G.base }}
               >
-                Discotive Colists
+                Modern Media
               </span>
             </div>
             <h1
@@ -1293,7 +1293,7 @@ const ColistFeed = memo(({ onNavigate, onCreateClick }) => {
               className="text-sm md:text-base max-w-lg leading-relaxed mb-0 md:mb-6"
               style={{ color: T.secondary }}
             >
-              A collection of guides, tools, and execution lists compiled by top
+              A collection of guides, tools, and verified lists compiled by top
               operators.
             </p>
           </motion.div>
@@ -2049,9 +2049,30 @@ const ColistEditor = memo(({ onClose, userData, onPublish }) => {
   const [step, setStep] = useState("meta");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [tagsInput, setTagsInput] = useState("");
+  const [tags, setTags] = useState([]);
+  const [tagInput, setTagInput] = useState("");
   const [coverIdx, setCoverIdx] = useState(0);
   const [blocks, setBlocks] = useState([]);
+
+  const handleTagChange = useCallback(
+    (e) => {
+      const val = e.target.value;
+      if (val.endsWith(", ") || val.endsWith(",")) {
+        const newTag = val.replace(/,\s*$/, "").trim();
+        if (newTag && tags.length < 5 && !tags.includes(newTag)) {
+          setTags((prev) => [...prev, newTag]);
+        }
+        setTagInput("");
+      } else {
+        setTagInput(val);
+      }
+    },
+    [tags],
+  );
+
+  const removeTag = useCallback((t) => {
+    setTags((prev) => prev.filter((tag) => tag !== t));
+  }, []);
   const [showBlockPicker, setShowBlockPicker] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -2127,8 +2148,7 @@ const ColistEditor = memo(({ onClose, userData, onPublish }) => {
     setError("");
     try {
       const slug = generateSlug(title.trim());
-      const tags = tagsInput
-        .split(",")
+      const finalTags = [...tags, tagInput]
         .map((t) => t.trim())
         .filter(Boolean)
         .slice(0, 5);
@@ -2137,7 +2157,7 @@ const ColistEditor = memo(({ onClose, userData, onPublish }) => {
         title: title.trim(),
         slug,
         description: description.trim(),
-        tags,
+        tags: finalTags,
         coverGradient: COVER_GRADIENTS[coverIdx],
         blocks: validBlocks,
         authorId: userData.uid,
@@ -2200,9 +2220,21 @@ const ColistEditor = memo(({ onClose, userData, onPublish }) => {
             <X size={16} />
           </button>
           <div
-            className="flex gap-0.5 p-0.5 rounded-xl border"
+            className="relative flex items-center p-1 rounded-xl border w-[160px] md:w-[180px]"
             style={{ background: "#111", borderColor: "#222" }}
           >
+            <motion.div
+              className="absolute top-1 bottom-1 rounded-lg"
+              initial={false}
+              animate={{
+                left: step === "meta" ? "4px" : "calc(50% + 2px)",
+                width: "calc(50% - 6px)",
+              }}
+              transition={{ type: "spring", stiffness: 400, damping: 35 }}
+              style={{
+                background: "linear-gradient(135deg, #8B7240, #D4AF78)",
+              }}
+            />
             {[
               { id: "meta", label: "Details" },
               { id: "blocks", label: `Blocks (${validBlocks.length})` },
@@ -2210,10 +2242,9 @@ const ColistEditor = memo(({ onClose, userData, onPublish }) => {
               <button
                 key={s.id}
                 onClick={() => setStep(s.id)}
-                className="px-4 py-1.5 rounded-[10px] text-[10px] font-black uppercase tracking-widest transition-all"
+                className="relative flex-1 py-1.5 rounded-lg text-[9px] md:text-[10px] font-black uppercase tracking-widest transition-all z-10 flex items-center justify-center"
                 style={{
-                  background: step === s.id ? G.dimBg : "transparent",
-                  color: step === s.id ? G.bright : "#555",
+                  color: step === s.id ? "#000" : "#555",
                 }}
               >
                 {s.label}
@@ -2306,66 +2337,133 @@ const ColistEditor = memo(({ onClose, userData, onPublish }) => {
                   </span>
                 </div>
 
-                <div>
-                  <label
-                    className="block text-[10px] font-black uppercase tracking-widest mb-2"
-                    style={{ color: T.dim }}
-                  >
-                    Title <span style={{ color: G.base }}>*</span>
-                  </label>
+                <style>{`
+                  .co-input-group { position: relative; width: 100%; }
+                  .co-input {
+                    width: 100%; background: #0F0F0F; border: 1px solid rgba(255,255,255,0.07);
+                    border-radius: 14px; padding: 26px 16px 8px 16px; color: #F5F0E8; outline: none;
+                    font-family: Poppins, sans-serif; transition: border-color 0.2s;
+                  }
+                  .co-input:focus, .co-input-group:focus-within .co-input { border-color: rgba(191,162,100,0.5); }
+                  .co-input::placeholder { color: transparent; }
+                  .co-label {
+                    position: absolute; left: 16px; top: 50%; transform: translateY(-50%);
+                    font-size: 13px; color: rgba(245,240,232,0.28); pointer-events: none;
+                    transition: all 0.2s cubic-bezier(0.23, 1, 0.32, 1); font-family: Poppins, sans-serif;
+                  }
+                  .co-input:focus ~ .co-label,
+                  .co-input:not(:placeholder-shown) ~ .co-label,
+                  .co-input-group:focus-within .co-label,
+                  .co-input-group.has-value .co-label {
+                    top: 14px; transform: translateY(0); font-size: 9px; font-weight: 700;
+                    letter-spacing: 0.15em; text-transform: uppercase; color: #D4AF78;
+                  }
+                  .co-textarea {
+                    resize: vertical; min-height: 80px; max-height: 200px;
+                    padding-top: 28px;
+                  }
+                  .co-textarea ~ .co-label {
+                    top: 24px;
+                  }
+                  .co-textarea:focus ~ .co-label,
+                  .co-textarea:not(:placeholder-shown) ~ .co-label {
+                    top: 14px;
+                  }
+                `}</style>
+                <div className="co-input-group">
                   <input
                     value={title}
                     onChange={(e) => setTitle(e.target.value)}
-                    placeholder="Your execution playlist title..."
+                    placeholder=" "
                     maxLength={100}
-                    style={{ ...inputBase, fontSize: 16, fontWeight: 800 }}
+                    className="co-input"
+                    style={{ fontSize: 16, fontWeight: 800 }}
                   />
-                </div>
-                <div>
-                  <label
-                    className="block text-[10px] font-black uppercase tracking-widest mb-2"
-                    style={{ color: T.dim }}
-                  >
-                    Description
+                  <label className="co-label">
+                    Title <span style={{ color: G.base }}>*</span>
                   </label>
+                </div>
+                <div className="co-input-group">
                   <textarea
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
-                    placeholder="What will operators gain from this colist?"
-                    rows={3}
-                    maxLength={300}
-                    style={{ ...inputBase, resize: "none" }}
+                    placeholder=" "
+                    maxLength={200}
+                    className="co-input co-textarea"
                   />
+                  <label className="co-label">Description</label>
                 </div>
-                <div>
-                  <label
-                    className="block text-[10px] font-black uppercase tracking-widest mb-2"
-                    style={{ color: T.dim }}
+                <div
+                  className={cn(
+                    "co-input-group",
+                    (tags.length > 0 || tagInput) && "has-value",
+                  )}
+                >
+                  <div
+                    className="co-input"
+                    style={{
+                      display: "flex",
+                      flexWrap: "wrap",
+                      gap: "6px",
+                      alignItems: "center",
+                      minHeight: "56px",
+                      paddingTop: "24px",
+                    }}
                   >
-                    Tags{" "}
-                    <span style={{ color: T.dim }}>
-                      (comma-separated, max 5)
-                    </span>
-                  </label>
-                  <input
-                    value={tagsInput}
-                    onChange={(e) => setTagsInput(e.target.value)}
-                    placeholder="productivity, startups, frontend, growth"
-                    style={inputBase}
-                  />
+                    {tags.map((t) => (
+                      <span
+                        key={t}
+                        style={{
+                          background: G.dimBg,
+                          color: G.bright,
+                          border: `1px solid ${G.border}`,
+                          borderRadius: 99,
+                          padding: "2px 8px",
+                          fontSize: 10,
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 4,
+                        }}
+                      >
+                        {t}{" "}
+                        <X
+                          size={10}
+                          style={{ cursor: "pointer" }}
+                          onClick={() => removeTag(t)}
+                        />
+                      </span>
+                    ))}
+                    <input
+                      value={tagInput}
+                      onChange={handleTagChange}
+                      placeholder=" "
+                      style={{
+                        flex: 1,
+                        minWidth: 100,
+                        background: "transparent",
+                        border: "none",
+                        outline: "none",
+                        color: T.primary,
+                        fontSize: 13,
+                      }}
+                    />
+                  </div>
+                  <label className="co-label">Tags (type and add ',')</label>
                 </div>
                 <motion.button
                   whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.97 }}
                   onClick={() => setStep("blocks")}
-                  className="w-full py-4 rounded-2xl font-black text-xs uppercase tracking-widest mt-2"
+                  className="w-full py-4 rounded-2xl flex items-center justify-center mt-2"
                   style={{
-                    background: G.dimBg,
-                    color: G.bright,
-                    border: `1px solid ${G.border}`,
+                    background:
+                      "linear-gradient(to right, #848484, #c2c2c2, #d8d8d8, #ffffff)",
+                    color: "#000",
+                    border: "none",
+                    boxShadow: "0 0 30px rgba(255,255,255,0.15)",
                   }}
                 >
-                  Next: Add Blocks →
+                  <ArrowRight size={24} strokeWidth={2.5} />
                 </motion.button>
               </motion.div>
             ) : (

@@ -86,6 +86,7 @@ import {
   User,
   Book,
   Newspaper,
+  BookOpen,
 } from "lucide-react";
 import { cn } from "../lib/cn";
 
@@ -2077,7 +2078,7 @@ const CommandActions = memo(({ navigate }) => {
     },
     {
       label: "CoLists",
-      icon: Newspaper,
+      icon: BookOpen,
       href: "/colists",
       color: "#38bdf8",
     },

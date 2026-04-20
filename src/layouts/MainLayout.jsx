@@ -63,6 +63,7 @@ import {
   Ticket,
   Calendar,
   Newspaper,
+  GraduationCap,
 } from "lucide-react";
 
 import { cn } from "../lib/cn";
@@ -99,9 +100,9 @@ const upperContentNavItems = [
 
 const lowerContentNavItems = [
   { icon: FolderOpen, label: "Asset Vault", path: "/app/vault" },
-  { icon: BookOpen, label: "Learn", path: "/app/learn" },
+  { icon: GraduationCap, label: "Learn", path: "/app/learn" },
   { icon: Calendar, label: "Agenda", path: "/app/agenda" },
-  { icon: Newspaper, label: "Colists", path: "/colists", external: true },
+  { icon: BookOpen, label: "Colists", path: "/colists", external: true },
 ];
 
 const bottomNavItems = [
