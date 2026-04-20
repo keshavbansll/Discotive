@@ -87,6 +87,10 @@ import {
   ChevronDown,
   AlertTriangle,
   GripVertical,
+  LogOut,
+  LayoutDashboard,
+  Filter,
+  Home,
 } from "lucide-react";
 
 /* ─── Design Tokens (strict Discotive palette) ───────────────────────── */
@@ -1020,6 +1024,162 @@ const ColistCard = memo(({ colist, view, onClick }) => {
 });
 
 /* ─── Feed View ───────────────────────────────────────────────────────── */
+const Header = memo(
+  ({
+    currentUser,
+    userData,
+    showProfileMenu,
+    setShowProfileMenu,
+    navigate,
+  }) => {
+    const isGhost = !currentUser;
+    return (
+      <header className="safe-area-pt h-[calc(4rem+env(safe-area-inset-top))] bg-[#0A0A0A]/90 backdrop-blur-xl flex items-center justify-between px-4 md:px-8 sticky top-0 z-[100] border-b border-white/5">
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => navigate(currentUser ? "/app" : "/")}
+            className="flex items-center gap-2 group"
+          >
+            <img
+              src="/logo.png"
+              alt="Logo"
+              className="w-8 h-8 object-contain transition-transform group-hover:scale-105"
+            />
+            <span className="font-extrabold text-lg tracking-tight hidden md:block text-white">
+              DISCOTIVE
+            </span>
+          </button>
+        </div>
+        <div className="relative">
+          <button
+            onClick={() => setShowProfileMenu(!showProfileMenu)}
+            className={cn(
+              "w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold border transition-all overflow-hidden",
+              isGhost
+                ? "bg-[#111] border-white/10 text-white/50 hover:text-white"
+                : "bg-[#111] border-[#BFA264]/40 text-[#D4AF78]",
+            )}
+          >
+            {isGhost ? (
+              <User size={18} />
+            ) : userData?.identity?.avatarUrl ? (
+              <img
+                src={userData.identity.avatarUrl}
+                className="w-full h-full object-cover"
+                alt="Profile"
+              />
+            ) : (
+              userData?.identity?.firstName?.charAt(0) || "U"
+            )}
+          </button>
+          <AnimatePresence>
+            {showProfileMenu && (
+              <>
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="fixed inset-0 z-[9998]"
+                  onClick={() => setShowProfileMenu(false)}
+                />
+                <motion.div
+                  initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                  animate={{ opacity: 1, y: 0, scale: 1 }}
+                  exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                  className="absolute right-0 top-[calc(100%+8px)] w-56 bg-[#0A0A0A] border border-white/5 rounded-2xl shadow-2xl py-2 z-[9999]"
+                >
+                  {!currentUser ? (
+                    <button
+                      onClick={() => navigate("/auth")}
+                      className="w-full px-4 py-3 flex items-center gap-3 text-white hover:bg-[#111] transition-colors text-sm font-bold text-left"
+                    >
+                      <LogOut className="w-4 h-4 rotate-180" /> Sign In / Sign
+                      Up
+                    </button>
+                  ) : (
+                    <>
+                      <div className="px-4 py-3 border-b border-white/5">
+                        <p className="font-bold text-sm text-white truncate">
+                          {userData?.identity?.firstName || "Operator"}
+                        </p>
+                        <p className="text-[10px] text-[#888] font-mono truncate">
+                          @{userData?.identity?.username || "—"}
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => navigate("/app")}
+                        className="w-full px-4 py-2.5 flex items-center gap-3 text-[#ccc] hover:bg-[#111] transition-colors text-sm text-left mt-1"
+                      >
+                        <LayoutDashboard className="w-4 h-4 text-[#888]" />{" "}
+                        Command Center
+                      </button>
+                      <button
+                        onClick={async () => {
+                          const { signOut } = await import("firebase/auth");
+                          const { auth } = await import("../firebase");
+                          await signOut(auth);
+                          navigate("/auth?step=2");
+                        }}
+                        className="w-full px-4 py-2.5 flex items-center gap-3 text-[#ccc] hover:bg-[#111] transition-colors text-sm text-left text-red-400 hover:text-red-300"
+                      >
+                        <LogOut className="w-4 h-4" /> Sign out
+                      </button>
+                    </>
+                  )}
+                </motion.div>
+              </>
+            )}
+          </AnimatePresence>
+        </div>
+      </header>
+    );
+  },
+);
+
+const BottomNav = memo(({ navigate, currentUser, showBottomNav }) => {
+  const items = [
+    { icon: LayoutDashboard, path: "/app", label: "App" },
+    { icon: BookOpen, path: "/colists", label: "Colists", active: true },
+  ];
+  if (currentUser) {
+    items.push({ icon: User, path: "/app/profile", label: "Profile" });
+  }
+  return (
+    <motion.nav
+      initial={{ y: 0 }}
+      animate={{ y: showBottomNav ? 0 : "100%" }}
+      transition={{ type: "spring", stiffness: 400, damping: 30, mass: 0.8 }}
+      className="md:hidden fixed bottom-0 left-0 right-0 bg-[#050505] border-t border-white/5 z-[100] flex items-center justify-around px-2 pb-[env(safe-area-inset-bottom)] pt-1 h-[calc(4rem+env(safe-area-inset-bottom))] shadow-[0_-10px_40px_rgba(0,0,0,0.6)] will-change-transform"
+    >
+      {items.map((item) => (
+        <button
+          key={item.path}
+          onClick={() => navigate(item.path)}
+          className={cn(
+            "flex flex-col items-center justify-center w-[4.5rem] h-full gap-1 transition-all active:scale-95 duration-150 relative",
+            item.active
+              ? "text-[#BFA264]"
+              : "text-[#F5F0E8]/40 hover:text-white",
+          )}
+        >
+          {item.active && (
+            <motion.div
+              layoutId="mobile-nav-indicator"
+              className="absolute bottom-1 left-1/2 -translate-x-1/2 w-4 h-[3px] bg-[#BFA264] rounded-full shadow-[0_0_8px_rgba(191,162,100,0.6)] z-0"
+            />
+          )}
+          <div className="relative z-10">
+            <item.icon className="w-5 h-5" />
+          </div>
+          <span className="text-[9px] font-bold tracking-wider relative z-10">
+            {item.label}
+          </span>
+        </button>
+      ))}
+    </motion.nav>
+  );
+});
+
 const ColistFeed = memo(({ onNavigate, onCreateClick }) => {
   const [colists, setColists] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -1104,7 +1264,7 @@ const ColistFeed = memo(({ onNavigate, onCreateClick }) => {
             "radial-gradient(ellipse at 50% -20%,rgba(191,162,100,0.18) 0%,transparent 65%)",
         }}
       >
-        <div className="max-w-6xl mx-auto px-5 md:px-10 pt-12 pb-10">
+        <div className="max-w-6xl mx-auto px-5 md:px-10 pt-12 pb-6 md:pb-10">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
@@ -1127,36 +1287,22 @@ const ColistFeed = memo(({ onNavigate, onCreateClick }) => {
                 color: T.primary,
               }}
             >
-              Curated Execution Playlists.
+              Discotive Colists.
             </h1>
             <p
-              className="text-sm md:text-base max-w-lg leading-relaxed mb-6"
+              className="text-sm md:text-base max-w-lg leading-relaxed mb-0 md:mb-6"
               style={{ color: T.secondary }}
             >
-              High-signal sequences by top operators. No noise, no filler — just
-              distilled execution intelligence worth saving.
+              A collection of guides, tools, and execution lists compiled by top
+              operators.
             </p>
-            <motion.button
-              whileHover={{ scale: 1.04 }}
-              whileTap={{ scale: 0.96 }}
-              onClick={onCreateClick}
-              className="inline-flex items-center gap-2.5 px-6 py-3 rounded-full font-black text-xs uppercase tracking-widest"
-              style={{
-                background: "linear-gradient(135deg,#8B7240,#D4AF78)",
-                color: "#000",
-                boxShadow: "0 0 30px rgba(191,162,100,0.25)",
-              }}
-            >
-              <Plus size={14} strokeWidth={3} /> Create a Colist
-              <Crown size={10} />
-            </motion.button>
           </motion.div>
         </div>
       </div>
 
       {/* Sticky Toolbar */}
       <div
-        className="sticky top-0 z-50 py-3 px-5 md:px-10"
+        className="sticky top-[calc(4rem+env(safe-area-inset-top))] z-50 py-4 px-5 md:px-10"
         style={{
           background: `${V.bg}E8`,
           backdropFilter: "blur(24px)",
@@ -1164,46 +1310,69 @@ const ColistFeed = memo(({ onNavigate, onCreateClick }) => {
         }}
       >
         <div className="max-w-6xl mx-auto">
-          <div className="flex items-center gap-3 mb-2.5">
-            <div className="relative flex-1 max-w-sm">
+          <div className="flex flex-row items-center gap-2 md:gap-3 mb-4 mt-2">
+            <div className="relative flex-1 min-w-0">
               <Search
-                size={12}
-                className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
-                style={{ color: "#555" }}
+                size={14}
+                className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none md:left-4 md:w-4 md:h-4"
+                style={{ color: "#888" }}
               />
               <input
                 type="text"
-                placeholder="Search colists..."
+                placeholder="Search..."
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="w-full pl-8 pr-4 py-2 rounded-xl text-xs font-medium outline-none transition-all"
+                className="w-full pl-9 pr-3 py-2.5 md:py-3 md:pl-11 md:pr-4 rounded-xl md:rounded-2xl text-xs md:text-sm font-medium outline-none transition-all"
                 style={{
                   background: V.surface,
-                  border: "1px solid rgba(255,255,255,0.06)",
+                  border: "1px solid rgba(255,255,255,0.08)",
                   color: T.primary,
                 }}
               />
             </div>
-            <div
-              className="flex items-center gap-1 p-0.5 rounded-xl border"
-              style={{ background: "#111", borderColor: "#222" }}
-            >
-              {[
-                { id: "grid", Icon: LayoutGrid },
-                { id: "list", Icon: List },
-              ].map((v) => (
-                <button
-                  key={v.id}
-                  onClick={() => setView(v.id)}
-                  className="p-2 rounded-lg transition-all"
-                  style={{
-                    background: view === v.id ? G.dimBg : "transparent",
-                    color: view === v.id ? G.bright : "#555",
+            <div className="flex items-center gap-1.5 md:gap-2 shrink-0">
+              <div
+                className="relative flex items-center p-1 rounded-xl md:rounded-2xl border w-[80px] md:w-[120px]"
+                style={{ background: "#111", borderColor: "#222" }}
+              >
+                <motion.div
+                  className="absolute top-1 bottom-1 rounded-lg md:rounded-xl"
+                  initial={false}
+                  animate={{
+                    left: view === "grid" ? "4px" : "calc(50% + 2px)",
+                    width: "calc(50% - 6px)",
                   }}
-                >
-                  <v.Icon size={13} />
-                </button>
-              ))}
+                  transition={{ type: "spring", stiffness: 400, damping: 35 }}
+                  style={{
+                    background: "linear-gradient(135deg, #8B7240, #D4AF78)",
+                  }}
+                />
+                {[
+                  { id: "grid", Icon: LayoutGrid },
+                  { id: "list", Icon: List },
+                ].map((v) => (
+                  <button
+                    key={v.id}
+                    onClick={() => setView(v.id)}
+                    className="relative flex-1 py-1.5 md:py-2 rounded-lg md:rounded-xl transition-all z-10 flex items-center justify-center"
+                    style={{
+                      color: view === v.id ? "#000" : "#555",
+                    }}
+                  >
+                    <v.Icon size={14} />
+                  </button>
+                ))}
+              </div>
+              <button
+                className="p-2 md:p-3.5 rounded-xl md:rounded-2xl transition-all border flex items-center justify-center hover:bg-white/5"
+                style={{
+                  background: V.surface,
+                  borderColor: "rgba(255,255,255,0.08)",
+                  color: T.primary,
+                }}
+              >
+                <Filter size={14} className="md:w-4 md:h-4" />
+              </button>
             </div>
           </div>
 
@@ -2353,6 +2522,52 @@ const Colists = () => {
   const [showPremiumModal, setShowPremiumModal] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [savedIds, setSavedIds] = useState(new Set());
+  const [showProfileMenu, setShowProfileMenu] = useState(false);
+
+  // Scroll Auto-Hide Physics
+  const mainScrollRef = useRef(null);
+  const lastScrollY = useRef(0);
+  const [showBottomNav, setShowBottomNav] = useState(true);
+
+  useEffect(() => {
+    const scrollElement = mainScrollRef.current;
+    if (!scrollElement) return;
+
+    let ticking = false;
+    const handleScroll = () => {
+      if (!ticking) {
+        window.requestAnimationFrame(() => {
+          const currentScrollY = scrollElement.scrollTop;
+
+          // 1. Absolute top edge-case (iOS rubber-banding prevention)
+          if (currentScrollY <= 15) {
+            setShowBottomNav(true);
+            lastScrollY.current = currentScrollY;
+            ticking = false;
+            return;
+          }
+
+          // 2. Calculate delta and apply strict tolerance threshold (prevents micro-jitters)
+          const deltaY = currentScrollY - lastScrollY.current;
+
+          if (Math.abs(deltaY) > 12) {
+            // 12px threshold for intent detection
+            if (deltaY > 0 && showBottomNav) {
+              setShowBottomNav(false); // Scrolling down -> hide
+            } else if (deltaY < 0 && !showBottomNav) {
+              setShowBottomNav(true); // Scrolling up -> show
+            }
+            lastScrollY.current = currentScrollY;
+          }
+          ticking = false;
+        });
+        ticking = true;
+      }
+    };
+
+    scrollElement.addEventListener("scroll", handleScroll, { passive: true });
+    return () => scrollElement.removeEventListener("scroll", handleScroll);
+  }, [showBottomNav]);
 
   const isPro = userData?.tier === "PRO" || userData?.tier === "ENTERPRISE";
 
@@ -2451,26 +2666,34 @@ const Colists = () => {
   }
 
   return (
-    <>
+    <div
+      className="flex flex-col h-[100dvh] w-full fixed inset-0 overflow-hidden"
+      style={{ background: V.bg }}
+    >
       <Helmet>
         <title>
           {slug
             ? "Colist — Discotive"
-            : "Colists | Curated Execution Playlists — Discotive"}
+            : "Discotive Colists | The best tools, guides, and sequences"}
         </title>
         <meta
           name="description"
-          content="High-signal execution sequences by top operators on Discotive. Save blocks directly to your Vault."
+          content="A collection of guides, tools, and execution lists compiled by top operators on Discotive."
         />
-        <meta
-          property="og:title"
-          content="Discotive Colists — Curated Execution Playlists"
-        />
+        <meta property="og:title" content="Discotive Colists" />
         <meta
           property="og:description"
-          content="Distilled intelligence from top operators. No noise, no filler."
+          content="A collection of guides, tools, and execution lists compiled by top operators on Discotive."
         />
       </Helmet>
+
+      <Header
+        currentUser={currentUser}
+        userData={userData}
+        showProfileMenu={showProfileMenu}
+        setShowProfileMenu={setShowProfileMenu}
+        navigate={navigate}
+      />
 
       <AnimatePresence>
         {showPremiumModal && (
@@ -2488,20 +2711,61 @@ const Colists = () => {
         )}
       </AnimatePresence>
 
-      {!slug ? (
-        <ColistFeed
-          onNavigate={(s) => navigate(`/colists/${s}`)}
-          onCreateClick={handleCreateClick}
-        />
-      ) : (
-        <ColistReader
-          slug={slug}
-          onBack={() => navigate("/colists")}
-          onSaveBlock={handleSaveBlock}
-          savedIds={savedIds}
-        />
+      <main
+        ref={mainScrollRef}
+        className="flex-1 overflow-y-auto custom-scrollbar relative z-0"
+      >
+        {!slug ? (
+          <ColistFeed
+            onNavigate={(s) => navigate(`/colists/${s}`)}
+            onCreateClick={handleCreateClick}
+          />
+        ) : (
+          <ColistReader
+            slug={slug}
+            onBack={() => navigate("/colists")}
+            onSaveBlock={handleSaveBlock}
+            savedIds={savedIds}
+          />
+        )}
+      </main>
+
+      {/* Universal FAB */}
+      {!slug && (
+        <motion.button
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
+          animate={{
+            y: showBottomNav
+              ? 0
+              : typeof window !== "undefined" && window.innerWidth < 768
+                ? 60
+                : 0,
+          }}
+          transition={{
+            type: "spring",
+            stiffness: 400,
+            damping: 30,
+            mass: 0.8,
+          }}
+          onClick={handleCreateClick}
+          className="fixed right-5 md:right-10 bottom-[calc(5.5rem+env(safe-area-inset-bottom))] md:bottom-10 w-14 h-14 md:w-[68px] md:h-[68px] rounded-full md:rounded-[24px] flex items-center justify-center shadow-2xl z-[90]"
+          style={{
+            background: "linear-gradient(135deg, #E8D5A3, #D4AF78)",
+            color: "#000",
+            boxShadow: "0 10px 40px rgba(191,162,100,0.3)",
+          }}
+        >
+          <Plus strokeWidth={2.5} className="w-7 h-7 md:w-8 md:h-8" />
+        </motion.button>
       )}
-    </>
+
+      <BottomNav
+        navigate={navigate}
+        currentUser={currentUser}
+        showBottomNav={showBottomNav}
+      />
+    </div>
   );
 };
 
