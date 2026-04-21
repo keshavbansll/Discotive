@@ -26,6 +26,7 @@ import ComingSoon from "./components/ComingSoon";
 // ── LAZY IMPORTS (Code-Split Chunks) ──
 // These are chunked into separate files and downloaded ONLY when the route is hit.
 const Auth = lazy(() => import("./pages/Auth"));
+const ColistsLayout = lazy(() => import("./layouts/ColistsLayout"));
 const Colists = lazy(() => import("./pages/Colists"));
 const ResetPassword = lazy(() => import("./pages/Auth/ResetPassword"));
 const Agenda = lazy(() => import("./pages/Agenda"));
@@ -279,8 +280,10 @@ function App() {
               />
               <Route path="/auth" element={<Auth />} />
               <Route path="/auth/action" element={<ResetPassword />} />
-              <Route path="/colists" element={<Colists />} />
-              <Route path="/colists/:slug" element={<Colists />} />
+              <Route path="/colists" element={<ColistsLayout />}>
+                <Route index element={<Colists />} />
+                <Route path=":slug" element={<Colists />} />
+              </Route>
               <Route path="/:handle" element={<PublicProfile />} />
               <Route path="/contact" element={<Contact />} />
               <Route path="/privacy" element={<PrivacyPage />} />

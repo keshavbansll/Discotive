@@ -151,6 +151,7 @@ const NAV_SECTIONS = [
     label: "Content",
     items: [
       { key: "learn", label: "Learn Database", icon: BookOpen },
+      { key: "colists", label: "Colists Curation", icon: Layers },
       { key: "opportunities", label: "Opportunities", icon: Target },
     ],
   },
@@ -2147,6 +2148,126 @@ const LearnPanel = memo(() => {
 });
 
 // ══════════════════════════════════════════════════════════════════════════════
+// COLISTS CURATION PANEL
+// ══════════════════════════════════════════════════════════════════════════════
+const ColistsPanel = memo(() => {
+  const [colists, setColists] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    getDocs(
+      query(
+        collection(db, "colists"),
+        orderBy("createdAt", "desc"),
+        limit(100),
+      ),
+    ).then((snap) => {
+      setColists(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+      setLoading(false);
+    });
+  }, []);
+
+  const handleVerify = async (id, tier) => {
+    await updateDoc(doc(db, "colists", id), { verificationTier: tier });
+    setColists((prev) =>
+      prev.map((c) => (c.id === id ? { ...c, verificationTier: tier } : c)),
+    );
+  };
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <p className="text-xs font-bold" style={{ color: T.dim }}>
+          {colists.length} published colists
+        </p>
+      </div>
+
+      {loading ? (
+        <div className="space-y-2 animate-pulse">
+          {[1, 2, 3].map((i) => (
+            <div
+              key={i}
+              className="h-20 rounded-xl"
+              style={{ background: V.surface }}
+            />
+          ))}
+        </div>
+      ) : colists.length === 0 ? (
+        <p className="text-center text-sm py-8" style={{ color: T.dim }}>
+          No colists found.
+        </p>
+      ) : (
+        <div className="space-y-3">
+          {colists.map((c) => (
+            <div
+              key={c.id}
+              className="rounded-2xl p-5"
+              style={{
+                background: V.surface,
+                border: "1px solid rgba(255,255,255,0.06)",
+              }}
+            >
+              <div className="flex items-start justify-between gap-4 mb-3">
+                <div>
+                  <a
+                    href={`/colists/${c.slug}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-sm font-black hover:underline flex items-center gap-1.5"
+                    style={{ color: T.primary }}
+                  >
+                    {c.title} <ExternalLink size={12} className="opacity-50" />
+                  </a>
+                  <p
+                    className="text-[10px] font-mono mt-1"
+                    style={{ color: T.dim }}
+                  >
+                    @{c.authorUsername} · Resonance: {c.colistScore || 0} ·
+                    Views: {c.viewCount || 0}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end max-w-[280px]">
+                  <span
+                    className="text-[9px] font-black uppercase tracking-widest mr-2"
+                    style={{ color: T.dim }}
+                  >
+                    Verify:
+                  </span>
+                  {["original", "strong", "medium", "weak"].map((tier) => {
+                    const active = c.verificationTier === tier;
+                    return (
+                      <button
+                        key={tier}
+                        onClick={() => handleVerify(c.id, tier)}
+                        className={cn(
+                          "px-2.5 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all border",
+                          active
+                            ? "opacity-100"
+                            : "opacity-40 hover:opacity-100",
+                        )}
+                        style={{
+                          background: active ? G.dim : "transparent",
+                          color: active ? G.bright : T.secondary,
+                          borderColor: active
+                            ? G.border
+                            : "rgba(255,255,255,0.1)",
+                        }}
+                      >
+                        {tier}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
 // OPPORTUNITIES PANEL
 // ══════════════════════════════════════════════════════════════════════════════
 const OpportunitiesPanel = memo(() => {
@@ -2940,6 +3061,7 @@ const AdminDashboard = () => {
     connectors: "Connector Approvals",
     scoring: "Scoring Engine",
     learn: "Learn Database",
+    colists: "Colists Curation",
     opportunities: "Opportunities",
     tickets: "Support Tickets",
     reports: "User Reports",
@@ -3075,6 +3197,8 @@ const AdminDashboard = () => {
         return <ScoringPanel />;
       case "learn":
         return <LearnPanel />;
+      case "colists":
+        return <ColistsPanel />;
       case "opportunities":
         return <OpportunitiesPanel />;
       case "tickets":

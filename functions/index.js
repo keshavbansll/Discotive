@@ -1574,6 +1574,57 @@ exports.updateUserSettings = onCall(async (request) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
+// 15.5 RESONANCE → DISCOTIVE SCORE ENGINE
+// ─────────────────────────────────────────────────────────────────────────────
+exports.processColistResonanceMilestones = onSchedule(
+  { schedule: "0 * * * *", timeZone: "Asia/Kolkata", timeoutSeconds: 300 },
+  async () => {
+    const MILESTONES = [50, 100, 250, 500, 1000];
+    const PAYOUTS = { 50: 5, 100: 10, 250: 20, 500: 35, 1000: 50 };
+
+    const snap = await db
+      .collection("colists")
+      .where("isPublic", "==", true)
+      .get();
+
+    const batch = db.batch();
+    let updates = 0;
+
+    for (const docSnap of snap.docs) {
+      const data = docSnap.data();
+      const score = data.colistScore || 0;
+      const lastMilestone = data.colistScoreMilestone || 0;
+
+      const nextMilestone = MILESTONES.find(
+        (m) => m > lastMilestone && score >= m,
+      );
+      if (!nextMilestone) continue;
+
+      const pts = PAYOUTS[nextMilestone];
+      const userRef = db.collection("users").doc(data.authorId);
+
+      batch.update(docSnap.ref, { colistScoreMilestone: nextMilestone });
+      batch.update(userRef, {
+        "discotiveScore.current": FieldValue.increment(pts),
+        "discotiveScore.lastAmount": pts,
+        "discotiveScore.lastReason": `Colist Milestone: ${nextMilestone} resonance on "${data.title}"`,
+        "discotiveScore.lastUpdatedAt": new Date().toISOString(),
+      });
+      updates++;
+
+      if (updates % 400 === 0) {
+        await batch.commit(); // Ensure we don't breach Firestore limits
+      }
+    }
+
+    if (updates % 400 !== 0 && updates > 0) {
+      await batch.commit();
+    }
+    console.log(`[ColistResonance] Processed ${updates} milestone awards`);
+  },
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
 // 16. BOUNTY ESCROW ENGINE (Gen 2)
 // ─────────────────────────────────────────────────────────────────────────────
 
