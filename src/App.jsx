@@ -282,7 +282,7 @@ function App() {
               <Route path="/auth/action" element={<ResetPassword />} />
               <Route path="/colists" element={<ColistsLayout />}>
                 <Route index element={<Colists />} />
-                <Route path=":slug" element={<Colists />} />
+                <Route path=":slug/*" element={<Colists />} />
               </Route>
               <Route path="/:handle" element={<PublicProfile />} />
               <Route path="/contact" element={<Contact />} />

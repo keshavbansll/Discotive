@@ -99,6 +99,10 @@ import {
   RefreshCw,
   Trophy,
   ArrowUpRight,
+  Undo,
+  Redo,
+  Save,
+  Cloud,
 } from "lucide-react";
 
 /* ─── Design Tokens ─────────────────────────────────────────────────────── */
@@ -280,7 +284,7 @@ const saveProgress = (uid, colistId, pageIndex, pagesRead) => {
       PROGRESS_KEY(uid, colistId),
       JSON.stringify({ pageIndex, pagesRead, ts: Date.now() }),
     );
-  } catch (e) {
+  } catch {
     // silently fail
   }
 };
@@ -862,6 +866,10 @@ const ColistReader = memo(({ colist, onBack, currentUser }) => {
   const [hasApplauded, setHasApplauded] = useState({});
   const [shareToast, setShareToast] = useState(false);
   const [isSaved, setIsSaved] = useState(false);
+  const [milestoneToast, setMilestoneToast] = useState(null);
+  const [showAnalytics, setShowAnalytics] = useState(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const localScoreRef = useRef(colist.colistScore || 0);
   const lastTapRef = useRef(0);
   const containerRef = useRef(null);
 
@@ -887,7 +895,7 @@ const ColistReader = memo(({ colist, onBack, currentUser }) => {
   // Fire view increment on mount
   useEffect(() => {
     updateDoc(doc(db, "colists", colist.id), { viewCount: increment(1) }).catch(
-      (e) => {},
+      () => {},
     );
   }, [colist.id]);
 
@@ -935,14 +943,30 @@ const ColistReader = memo(({ colist, onBack, currentUser }) => {
           ...prev,
           [safePage]: (prev[safePage] || 0) + 1,
         }));
+        localScoreRef.current += 1;
+        const claimedMilestone = colist.colistScoreMilestone || 0;
+        const crossedMilestone = RESONANCE_MILESTONES.find(
+          (m) =>
+            m.threshold > claimedMilestone &&
+            localScoreRef.current >= m.threshold,
+        );
         updateDoc(doc(db, "colists", colist.id), {
           [`pageApplause.${safePage}`]: increment(1),
           colistScore: increment(1),
+          ...(crossedMilestone
+            ? { colistScoreMilestone: crossedMilestone.threshold }
+            : {}),
         }).catch(() => {});
+        if (crossedMilestone) {
+          setMilestoneToast(
+            `🏆 Milestone ${crossedMilestone.threshold} reached! +${crossedMilestone.globalPts} pts → Discotive Score`,
+          );
+          setTimeout(() => setMilestoneToast(null), 4000);
+        }
       }
       lastTapRef.current = now;
     },
-    [safePage, hasApplauded, colist.id],
+    [safePage, hasApplauded, colist.id, colist.colistScoreMilestone],
   );
 
   const handleShare = () => {
@@ -952,6 +976,30 @@ const ColistReader = memo(({ colist, onBack, currentUser }) => {
     setShareToast(true);
     setTimeout(() => setShareToast(false), 2200);
   };
+
+  const handleAudio = useCallback(() => {
+    if (!("speechSynthesis" in window)) return;
+    if (isSpeaking) {
+      window.speechSynthesis.cancel();
+      setIsSpeaking(false);
+      return;
+    }
+    if (!block) return;
+    const text = [
+      block.title,
+      block.content,
+      block.author ? `— ${block.author}` : "",
+    ]
+      .filter(Boolean)
+      .join(". ");
+    if (!text.trim()) return;
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.rate = 0.92;
+    utterance.onend = () => setIsSpeaking(false);
+    utterance.onerror = () => setIsSpeaking(false);
+    setIsSpeaking(true);
+    window.speechSynthesis.speak(utterance);
+  }, [block, isSpeaking]);
 
   const handleSave = async () => {
     if (!currentUser || isSaved) return;
@@ -965,6 +1013,8 @@ const ColistReader = memo(({ colist, onBack, currentUser }) => {
         source: "colist",
         colistId: colist.id,
         savedAt: new Date().toISOString(),
+        pinnedPage: safePage,
+        pinnedColistId: colist.id,
       };
       await updateDoc(doc(db, "users", currentUser.uid), {
         vault: arrayUnion(entry),
@@ -1109,6 +1159,37 @@ const ColistReader = memo(({ colist, onBack, currentUser }) => {
           >
             {shareToast ? <Check size={15} /> : <Share2 size={15} />}
           </button>
+          {"speechSynthesis" in window && (
+            <button
+              onClick={handleAudio}
+              className="p-2 rounded-full transition-all"
+              title={isSpeaking ? "Stop narration" : "Listen to this page"}
+              style={{
+                background: isSpeaking
+                  ? "rgba(74,222,128,0.12)"
+                  : "rgba(255,255,255,0.05)",
+                color: isSpeaking ? "#4ADE80" : T.dim,
+              }}
+            >
+              <Play
+                size={15}
+                style={{ fill: isSpeaking ? "#4ADE80" : "none" }}
+              />
+            </button>
+          )}
+          {colist.authorId === uid && (
+            <button
+              onClick={() => setShowAnalytics((v) => !v)}
+              className="p-2 rounded-full transition-all"
+              title="Page analytics"
+              style={{
+                background: showAnalytics ? G.dimBg : "rgba(255,255,255,0.05)",
+                color: showAnalytics ? G.bright : T.dim,
+              }}
+            >
+              <BarChart2 size={15} />
+            </button>
+          )}
           <button
             onClick={() => setIsFullscreen((v) => !v)}
             className="p-2 rounded-full transition-all hidden md:block"
@@ -1278,6 +1359,155 @@ const ColistReader = memo(({ colist, onBack, currentUser }) => {
           onDone={() => setBursts((prev) => prev.filter((p) => p.id !== b.id))}
         />
       ))}
+
+      {/* Milestone Toast */}
+      <AnimatePresence>
+        {milestoneToast && (
+          <motion.div
+            initial={{ opacity: 0, y: 40, scale: 0.94 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 20, scale: 0.96 }}
+            transition={{ type: "spring", damping: 22, stiffness: 280 }}
+            className="fixed bottom-28 left-1/2 -translate-x-1/2 z-[99998] px-5 py-3 rounded-2xl flex items-center gap-3 shadow-2xl"
+            style={{
+              background: V.elevated,
+              border: `1px solid ${G.border}`,
+              boxShadow: `0 0 30px rgba(191,162,100,0.3)`,
+              backdropFilter: "blur(20px)",
+            }}
+          >
+            <Zap size={14} style={{ color: G.bright, flexShrink: 0 }} />
+            <span className="text-xs font-black" style={{ color: T.primary }}>
+              {milestoneToast}
+            </span>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Creator Analytics Panel */}
+      <AnimatePresence>
+        {showAnalytics && colist.authorId === uid && (
+          <motion.div
+            initial={{ opacity: 0, y: "100%" }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: "100%" }}
+            transition={{ type: "spring", damping: 28, stiffness: 260 }}
+            className="fixed bottom-0 left-0 right-0 z-[9990] rounded-t-3xl p-6"
+            style={{
+              background: V.depth,
+              border: "1px solid rgba(255,255,255,0.06)",
+              maxHeight: "50vh",
+              backdropFilter: "blur(30px)",
+            }}
+          >
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <BarChart2 size={14} style={{ color: G.bright }} />
+                <span
+                  className="text-xs font-black uppercase tracking-widest"
+                  style={{ color: T.primary }}
+                >
+                  Page Analytics
+                </span>
+              </div>
+              <button
+                onClick={() => setShowAnalytics(false)}
+                className="p-1.5 rounded-full"
+                style={{ background: "rgba(255,255,255,0.06)", color: T.dim }}
+              >
+                <X size={13} />
+              </button>
+            </div>
+            <p
+              className="text-[9px] font-bold uppercase tracking-widest mb-4"
+              style={{ color: T.dim }}
+            >
+              Applause per page — drop-off signal
+            </p>
+            <div className="flex items-end gap-1.5 overflow-x-auto hide-scrollbar pb-2">
+              {blocks.map((_, i) => {
+                const count =
+                  (colist.pageApplause || {})[i] || applauseCounts[i] || 0;
+                const maxCount = Math.max(
+                  1,
+                  ...blocks.map((__, j) => (colist.pageApplause || {})[j] || 0),
+                );
+                const pct = Math.max(4, (count / maxCount) * 100);
+                return (
+                  <div
+                    key={i}
+                    className="flex flex-col items-center gap-1 shrink-0"
+                    style={{ minWidth: 28 }}
+                  >
+                    <span
+                      className="text-[7px] font-mono"
+                      style={{ color: T.dim }}
+                    >
+                      {count}
+                    </span>
+                    <motion.div
+                      initial={{ height: 0 }}
+                      animate={{ height: `${pct}%` }}
+                      transition={{ duration: 0.6, delay: i * 0.04 }}
+                      className="w-5 rounded-t-sm"
+                      style={{
+                        background: i === safePage ? G.bright : `${G.base}60`,
+                        minHeight: 4,
+                        maxHeight: 80,
+                        height: `${pct}%`,
+                      }}
+                    />
+                    <span
+                      className="text-[7px] font-mono"
+                      style={{ color: i === safePage ? G.bright : T.dim }}
+                    >
+                      P{i + 1}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+            <div
+              className="mt-4 flex items-center gap-4 pt-3"
+              style={{ borderTop: "1px solid rgba(255,255,255,0.05)" }}
+            >
+              <div>
+                <p
+                  className="text-[8px] font-bold uppercase tracking-widest"
+                  style={{ color: T.dim }}
+                >
+                  Total Resonance
+                </p>
+                <p className="text-lg font-black" style={{ color: G.bright }}>
+                  {colist.colistScore || 0}
+                </p>
+              </div>
+              <div>
+                <p
+                  className="text-[8px] font-bold uppercase tracking-widest"
+                  style={{ color: T.dim }}
+                >
+                  Views
+                </p>
+                <p className="text-lg font-black" style={{ color: T.primary }}>
+                  {colist.viewCount || 0}
+                </p>
+              </div>
+              <div>
+                <p
+                  className="text-[8px] font-bold uppercase tracking-widest"
+                  style={{ color: T.dim }}
+                >
+                  Saves
+                </p>
+                <p className="text-lg font-black" style={{ color: T.primary }}>
+                  {colist.saveCount || 0}
+                </p>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 });
@@ -1415,6 +1645,29 @@ const ColistCard = memo(({ colist, view, onRead, progress }) => {
           className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300"
           style={{ background: "rgba(0,0,0,0.2)" }}
         />
+        {isOriginal && (
+          <motion.div
+            animate={{ opacity: [0.15, 0.25, 0.15] }}
+            transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
+            className="absolute inset-0 pointer-events-none z-[1]"
+            style={{
+              backgroundImage:
+                "url(https://grainy-gradients.vercel.app/noise.svg)",
+              mixBlendMode: "overlay",
+            }}
+          />
+        )}
+        {isOriginal && (
+          <motion.div
+            animate={{ opacity: [0.4, 0.7, 0.4] }}
+            transition={{ duration: 3, repeat: Infinity, ease: "easeInOut" }}
+            className="absolute inset-0 pointer-events-none z-[1] rounded-t-2xl"
+            style={{
+              border: `1px solid ${G.bright}`,
+              boxShadow: `inset 0 0 20px rgba(212,175,120,0.2)`,
+            }}
+          />
+        )}
         <div className="relative z-10 flex flex-wrap gap-1">
           {(colist.tags || []).slice(0, 2).map((tag) => (
             <span
@@ -1490,8 +1743,12 @@ const ColistCard = memo(({ colist, view, onRead, progress }) => {
               className="w-4 h-4 rounded-full overflow-hidden flex items-center justify-center text-[7px] font-black"
               style={{
                 background: G.dimBg,
-                border: `1px solid ${G.border}`,
+                border: `1px solid ${(colist.colistScore || 0) >= 100 ? G.bright : G.border}`,
                 color: G.base,
+                boxShadow:
+                  (colist.colistScore || 0) >= 100
+                    ? `0 0 5px ${G.bright}`
+                    : "none",
               }}
             >
               {colist.authorAvatar ? (
@@ -1510,6 +1767,18 @@ const ColistCard = memo(({ colist, view, onRead, progress }) => {
             >
               @{colist.authorUsername || "operator"}
             </span>
+            {(colist.colistScore || 0) >= 100 && (
+              <span
+                className="shrink-0 text-[6px] font-black uppercase tracking-widest px-1 py-0.5 rounded"
+                style={{
+                  background: G.dimBg,
+                  color: G.bright,
+                  border: `1px solid ${G.border}`,
+                }}
+              >
+                Top Voice
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-2.5">
             <span
@@ -1562,213 +1831,220 @@ const ColistCard = memo(({ colist, view, onRead, progress }) => {
 });
 
 /* ─── Fork Modal ─────────────────────────────────────────────────────────── */
-const ForkModal = memo(({ colist, onClose, userData, onForked }) => {
-  const [forking, setForking] = useState(false);
-  const [done, setDone] = useState(false);
-  const [newSlug, setNewSlug] = useState("");
+const ForkModal = memo(
+  ({ colist, onClose, userData, currentUser, onForked }) => {
+    const [forking, setForking] = useState(false);
+    const [done, setDone] = useState(false);
+    const [newSlug, setNewSlug] = useState("");
 
-  const handleFork = async () => {
-    if (!userData?.uid) return;
-    setForking(true);
-    try {
-      const slug = generateSlug(`fork-${colist.title}`);
-      await addDoc(collection(db, "colists"), {
-        title: `${colist.title} (Fork)`,
-        slug,
-        description: colist.description || "",
-        tags: colist.tags || [],
-        coverGradient: colist.coverGradient || COVER_GRADIENTS[0],
-        blocks: (colist.blocks || []).map((b) => ({
-          ...b,
-          id: createBlockId(),
-        })),
-        authorId: userData.uid,
-        authorUsername: userData.identity?.username || "operator",
-        authorName:
-          `${userData.identity?.firstName || ""} ${userData.identity?.lastName || ""}`.trim() ||
-          "Operator",
-        authorAvatar: userData.identity?.avatarUrl || null,
-        isPublic: true,
-        viewCount: 0,
-        saveCount: 0,
-        colistScore: 0,
-        forkOf: {
-          colistId: colist.id,
-          authorUsername: colist.authorUsername,
-          title: colist.title,
-        },
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      });
-      setNewSlug(slug);
-      setDone(true);
-      onForked?.(slug);
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setForking(false);
-    }
-  };
+    const handleFork = async () => {
+      const finalUid = currentUser?.uid || userData?.uid;
+      if (!finalUid) return;
+      setForking(true);
+      try {
+        const slug = generateSlug(`fork-${colist.title}`);
+        await addDoc(collection(db, "colists"), {
+          title: `${colist.title} (Fork)`,
+          slug,
+          description: colist.description || "",
+          tags: colist.tags || [],
+          coverGradient: colist.coverGradient || COVER_GRADIENTS[0],
+          blocks: (colist.blocks || []).map((b) => ({
+            ...b,
+            id: createBlockId(),
+          })),
+          authorId: finalUid,
+          authorUsername: userData.identity?.username || "operator",
+          authorName:
+            `${userData.identity?.firstName || ""} ${userData.identity?.lastName || ""}`.trim() ||
+            "Operator",
+          authorAvatar: userData.identity?.avatarUrl || null,
+          isPublic: true,
+          viewCount: 0,
+          saveCount: 0,
+          colistScore: 0,
+          forkOf: {
+            colistId: colist.id,
+            authorUsername: colist.authorUsername,
+            title: colist.title,
+          },
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+        setNewSlug(slug);
+        setDone(true);
+        onForked?.(slug);
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setForking(false);
+      }
+    };
 
-  return (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      className="fixed inset-0 z-[600] flex items-center justify-center p-4"
-      style={{ background: "rgba(0,0,0,0.9)", backdropFilter: "blur(20px)" }}
-      onClick={onClose}
-    >
+    return (
       <motion.div
-        initial={{ scale: 0.92, y: 20 }}
-        animate={{ scale: 1, y: 0 }}
-        exit={{ scale: 0.92, y: 20 }}
-        className="w-full max-w-md rounded-3xl overflow-hidden shadow-2xl"
-        style={{
-          background: V.depth,
-          border: "1px solid rgba(255,255,255,0.08)",
-        }}
-        onClick={(e) => e.stopPropagation()}
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        className="fixed inset-0 z-[600] flex items-center justify-center p-4"
+        style={{ background: "rgba(0,0,0,0.9)", backdropFilter: "blur(20px)" }}
+        onClick={onClose}
       >
-        <div className="p-6">
-          {done ? (
-            <div className="text-center py-4">
-              <motion.div
-                initial={{ scale: 0 }}
-                animate={{ scale: 1 }}
-                transition={{ type: "spring" }}
-                className="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4"
-                style={{
-                  background: "rgba(74,222,128,0.12)",
-                  border: "1px solid rgba(74,222,128,0.3)",
-                }}
-              >
-                <GitFork size={28} style={{ color: "#4ADE80" }} />
-              </motion.div>
-              <h3 className="text-xl font-black text-white mb-2">
-                Fork Created!
-              </h3>
-              <p className="text-xs mb-5" style={{ color: T.secondary }}>
-                Your fork is live with attribution to @{colist.authorUsername}.
-              </p>
-              <div className="flex gap-3">
-                <button
-                  onClick={onClose}
-                  className="flex-1 py-3 rounded-xl text-xs font-black uppercase tracking-widest"
+        <motion.div
+          initial={{ scale: 0.92, y: 20 }}
+          animate={{ scale: 1, y: 0 }}
+          exit={{ scale: 0.92, y: 20 }}
+          className="w-full max-w-md rounded-3xl overflow-hidden shadow-2xl"
+          style={{
+            background: V.depth,
+            border: "1px solid rgba(255,255,255,0.08)",
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="p-6">
+            {done ? (
+              <div className="text-center py-4">
+                <motion.div
+                  initial={{ scale: 0 }}
+                  animate={{ scale: 1 }}
+                  transition={{ type: "spring" }}
+                  className="w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4"
                   style={{
-                    background: V.surface,
-                    color: T.dim,
-                    border: "1px solid rgba(255,255,255,0.06)",
+                    background: "rgba(74,222,128,0.12)",
+                    border: "1px solid rgba(74,222,128,0.3)",
                   }}
                 >
-                  Close
-                </button>
-                <a
-                  href={`/colists/${newSlug}`}
-                  className="flex-1 py-3 rounded-xl text-xs font-black uppercase tracking-widest flex items-center justify-center gap-2"
-                  style={{
-                    background: "linear-gradient(135deg,#8B7240,#D4AF78)",
-                    color: "#000",
-                  }}
-                >
-                  Open Fork <ArrowRight size={11} />
-                </a>
+                  <GitFork size={28} style={{ color: "#4ADE80" }} />
+                </motion.div>
+                <h3 className="text-xl font-black text-white mb-2">
+                  Fork Created!
+                </h3>
+                <p className="text-xs mb-5" style={{ color: T.secondary }}>
+                  Your fork is live with attribution to @{colist.authorUsername}
+                  .
+                </p>
+                <div className="flex gap-3">
+                  <button
+                    onClick={onClose}
+                    className="flex-1 py-3 rounded-xl text-xs font-black uppercase tracking-widest"
+                    style={{
+                      background: V.surface,
+                      color: T.dim,
+                      border: "1px solid rgba(255,255,255,0.06)",
+                    }}
+                  >
+                    Close
+                  </button>
+                  <a
+                    href={`/colists/${newSlug}`}
+                    className="flex-1 py-3 rounded-xl text-xs font-black uppercase tracking-widest flex items-center justify-center gap-2"
+                    style={{
+                      background: "linear-gradient(135deg,#8B7240,#D4AF78)",
+                      color: "#000",
+                    }}
+                  >
+                    Open Fork <ArrowRight size={11} />
+                  </a>
+                </div>
               </div>
-            </div>
-          ) : (
-            <>
-              <div className="flex items-center gap-3 mb-5">
+            ) : (
+              <>
+                <div className="flex items-center gap-3 mb-5">
+                  <div
+                    className="w-10 h-10 rounded-xl flex items-center justify-center"
+                    style={{
+                      background: G.dimBg,
+                      border: `1px solid ${G.border}`,
+                    }}
+                  >
+                    <GitFork size={18} style={{ color: G.bright }} />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-black text-white">
+                      Fork this Colist
+                    </h3>
+                    <p className="text-[10px]" style={{ color: T.dim }}>
+                      Create your own editable copy
+                    </p>
+                  </div>
+                </div>
+
                 <div
-                  className="w-10 h-10 rounded-xl flex items-center justify-center"
+                  className="p-4 rounded-xl mb-5"
                   style={{
                     background: G.dimBg,
                     border: `1px solid ${G.border}`,
                   }}
                 >
-                  <GitFork size={18} style={{ color: G.bright }} />
-                </div>
-                <div>
-                  <h3 className="text-sm font-black text-white">
-                    Fork this Colist
-                  </h3>
-                  <p className="text-[10px]" style={{ color: T.dim }}>
-                    Create your own editable copy
+                  <p
+                    className="text-xs font-bold mb-1"
+                    style={{ color: G.bright }}
+                  >
+                    Attribution Note
+                  </p>
+                  <p className="text-[11px]" style={{ color: T.secondary }}>
+                    Your fork will permanently credit{" "}
+                    <span className="font-black text-white">
+                      @{colist.authorUsername}
+                    </span>
+                    . This is permanent and cannot be removed.
                   </p>
                 </div>
-              </div>
 
-              <div
-                className="p-4 rounded-xl mb-5"
-                style={{ background: G.dimBg, border: `1px solid ${G.border}` }}
-              >
-                <p
-                  className="text-xs font-bold mb-1"
-                  style={{ color: G.bright }}
+                <div
+                  className="text-[10px] mb-5 space-y-1.5"
+                  style={{ color: T.dim }}
                 >
-                  Attribution Note
-                </p>
-                <p className="text-[11px]" style={{ color: T.secondary }}>
-                  Your fork will permanently credit{" "}
-                  <span className="font-black text-white">
-                    @{colist.authorUsername}
-                  </span>
-                  . This is permanent and cannot be removed.
-                </p>
-              </div>
+                  <p>
+                    ✓ All {(colist.blocks || []).length} pages copied to your
+                    editor
+                  </p>
+                  <p>✓ Attribution tag attached to your colist</p>
+                  <p>✓ Independent colist score tracking</p>
+                  <p>✓ Full edit access — customize freely</p>
+                </div>
 
-              <div
-                className="text-[10px] mb-5 space-y-1.5"
-                style={{ color: T.dim }}
-              >
-                <p>
-                  ✓ All {(colist.blocks || []).length} pages copied to your
-                  editor
-                </p>
-                <p>✓ Attribution tag attached to your colist</p>
-                <p>✓ Independent colist score tracking</p>
-                <p>✓ Full edit access — customize freely</p>
-              </div>
-
-              <div className="flex gap-3">
-                <button
-                  onClick={onClose}
-                  className="flex-1 py-3 rounded-xl text-[11px] font-black uppercase tracking-widest"
-                  style={{
-                    background: V.surface,
-                    color: T.dim,
-                    border: "1px solid rgba(255,255,255,0.06)",
-                  }}
-                >
-                  Cancel
-                </button>
-                <motion.button
-                  whileHover={{ scale: 1.03 }}
-                  whileTap={{ scale: 0.97 }}
-                  onClick={handleFork}
-                  disabled={forking}
-                  className="flex-1 py-3 rounded-xl text-[11px] font-black uppercase tracking-widest flex items-center justify-center gap-2"
-                  style={{
-                    background: "linear-gradient(135deg,#8B7240,#D4AF78)",
-                    color: "#000",
-                    opacity: forking ? 0.7 : 1,
-                  }}
-                >
-                  {forking ? (
-                    <Loader2 size={12} className="animate-spin" />
-                  ) : (
-                    <>
-                      <GitFork size={11} /> Fork Now
-                    </>
-                  )}
-                </motion.button>
-              </div>
-            </>
-          )}
-        </div>
+                <div className="flex gap-3">
+                  <button
+                    onClick={onClose}
+                    className="flex-1 py-3 rounded-xl text-[11px] font-black uppercase tracking-widest"
+                    style={{
+                      background: V.surface,
+                      color: T.dim,
+                      border: "1px solid rgba(255,255,255,0.06)",
+                    }}
+                  >
+                    Cancel
+                  </button>
+                  <motion.button
+                    whileHover={{ scale: 1.03 }}
+                    whileTap={{ scale: 0.97 }}
+                    onClick={handleFork}
+                    disabled={forking}
+                    className="flex-1 py-3 rounded-xl text-[11px] font-black uppercase tracking-widest flex items-center justify-center gap-2"
+                    style={{
+                      background: "linear-gradient(135deg,#8B7240,#D4AF78)",
+                      color: "#000",
+                      opacity: forking ? 0.7 : 1,
+                    }}
+                  >
+                    {forking ? (
+                      <Loader2 size={12} className="animate-spin" />
+                    ) : (
+                      <>
+                        <GitFork size={11} /> Fork Now
+                      </>
+                    )}
+                  </motion.button>
+                </div>
+              </>
+            )}
+          </div>
+        </motion.div>
       </motion.div>
-    </motion.div>
-  );
-});
+    );
+  },
+);
 
 /* ─── Premium + Auth Modals ───────────────────────────────────────────────── */
 const PremiumModal = memo(({ onClose, navigate }) => (
@@ -1847,838 +2123,969 @@ const PremiumModal = memo(({ onClose, navigate }) => (
   </motion.div>
 ));
 
-/* ─── Block Editor Row ────────────────────────────────────────────────────── */
+/* ─── Block Editor Row (Reimagined Open Canvas) ──────────────────────────── */
 const BlockEditorRow = memo(
-  ({ block, idx, total, onUpdate, onDelete, onMoveUp, onMoveDown }) => {
-    const [open, setOpen] = useState(true);
-    const meta = BLOCK_TYPES.find((t) => t.id === block.type);
-    const Icon = meta?.icon || Zap;
-    const fieldStyle = {
-      background: V.depth,
-      border: "1px solid rgba(255,255,255,0.07)",
-      color: T.primary,
-      borderRadius: 12,
-      padding: "10px 14px",
-      width: "100%",
-      outline: "none",
-      fontSize: 13,
-      fontFamily: "Poppins, sans-serif",
-      transition: "border-color 0.2s",
+  ({
+    block,
+    idx,
+    total,
+    onUpdate,
+    onDelete,
+    onMoveUp,
+    onMoveDown,
+    textColor,
+    onUndo,
+    onRedo,
+    canUndo,
+    canRedo,
+  }) => {
+    const handleTypeChange = (newType) => {
+      onUpdate(idx, { ...block, type: newType });
     };
+
     return (
-      <div
-        className="rounded-2xl overflow-hidden"
-        style={{
-          background: V.surface,
-          border: "1px solid rgba(255,255,255,0.06)",
-        }}
-      >
-        <div
-          className="flex items-center gap-3 px-4 py-3 cursor-pointer select-none"
-          style={{ background: V.elevated }}
-          onClick={() => setOpen((o) => !o)}
-        >
-          <GripVertical size={12} style={{ color: "#333", cursor: "grab" }} />
-          <Icon size={12} style={{ color: meta?.color || G.base }} />
-          <span
-            className="text-[10px] font-black uppercase tracking-widest flex-1"
-            style={{ color: meta?.color || T.dim }}
-          >
-            {meta?.label || block.type}
-          </span>
-          <div className="flex items-center gap-0.5">
-            {idx > 0 && (
+      <div className="flex flex-col h-full relative z-10">
+        {/* Top Control Bar (Glassmorphic inline switcher) */}
+        <div className="flex items-center justify-between mb-6 bg-black/20 backdrop-blur-md rounded-2xl p-2 border border-white/5">
+          <div className="flex items-center gap-1 overflow-x-auto hide-scrollbar">
+            {BLOCK_TYPES.filter((t) => t.id !== "divider").map((t) => (
               <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onMoveUp(idx);
+                key={t.id}
+                onClick={() => handleTypeChange(t.id)}
+                className="p-2 rounded-xl transition-all flex items-center gap-1.5 shrink-0"
+                style={{
+                  background:
+                    block.type === t.id
+                      ? "rgba(255,255,255,0.15)"
+                      : "transparent",
+                  color: block.type === t.id ? "#fff" : "rgba(255,255,255,0.4)",
                 }}
-                className="p-1.5 rounded-lg text-[11px] hover:bg-white/5"
-                style={{ color: T.dim }}
+                title={`Change type to ${t.label}`}
               >
-                ↑
+                <t.icon
+                  size={14}
+                  style={{ color: block.type === t.id ? t.color : "inherit" }}
+                />
+                {block.type === t.id && (
+                  <span className="text-[9px] font-black uppercase tracking-wider">
+                    {t.label}
+                  </span>
+                )}
               </button>
-            )}
-            {idx < total - 1 && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onMoveDown(idx);
-                }}
-                className="p-1.5 rounded-lg text-[11px] hover:bg-white/5"
-                style={{ color: T.dim }}
-              >
-                ↓
-              </button>
-            )}
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onDelete(idx);
-              }}
-              className="p-1.5 rounded-lg ml-1 hover:bg-red-500/10"
-              style={{ color: "#F87171" }}
-            >
-              <X size={12} />
-            </button>
+            ))}
           </div>
         </div>
-        <AnimatePresence>
-          {open && (
-            <motion.div
-              initial={{ height: 0, opacity: 0 }}
-              animate={{ height: "auto", opacity: 1 }}
-              exit={{ height: 0, opacity: 0 }}
-              transition={{ duration: 0.2 }}
-              className="overflow-hidden"
-            >
-              <div className="p-4 space-y-2.5">
-                {(block.type === "insight" || block.type === "quote") && (
-                  <>
-                    {block.type === "insight" && (
-                      <input
-                        value={block.title || ""}
-                        onChange={(e) =>
-                          onUpdate(idx, { ...block, title: e.target.value })
-                        }
-                        placeholder="Title (optional)"
-                        style={fieldStyle}
-                      />
-                    )}
-                    <textarea
-                      value={block.content || ""}
-                      onChange={(e) =>
-                        onUpdate(idx, { ...block, content: e.target.value })
-                      }
-                      placeholder={
-                        block.type === "insight"
-                          ? "Your insight..."
-                          : "Quote text..."
-                      }
-                      rows={3}
-                      style={{ ...fieldStyle, resize: "none" }}
-                    />
-                    {block.type === "quote" && (
-                      <input
-                        value={block.author || ""}
-                        onChange={(e) =>
-                          onUpdate(idx, { ...block, author: e.target.value })
-                        }
-                        placeholder="Attribution (optional)"
-                        style={fieldStyle}
-                      />
-                    )}
-                  </>
-                )}
-                {block.type === "link" && (
-                  <>
-                    <input
-                      value={block.url || ""}
-                      onChange={(e) =>
-                        onUpdate(idx, { ...block, url: e.target.value })
-                      }
-                      placeholder="https://..."
-                      style={fieldStyle}
-                    />
-                    <input
-                      value={block.title || ""}
-                      onChange={(e) =>
-                        onUpdate(idx, { ...block, title: e.target.value })
-                      }
-                      placeholder="Link title"
-                      style={fieldStyle}
-                    />
-                    <input
-                      value={block.description || ""}
-                      onChange={(e) =>
-                        onUpdate(idx, { ...block, description: e.target.value })
-                      }
-                      placeholder="Description (optional)"
-                      style={fieldStyle}
-                    />
-                  </>
-                )}
-                {block.type === "code" && (
-                  <>
-                    <input
-                      value={block.language || ""}
-                      onChange={(e) =>
-                        onUpdate(idx, { ...block, language: e.target.value })
-                      }
-                      placeholder="Language"
-                      style={fieldStyle}
-                    />
-                    <textarea
-                      value={block.content || ""}
-                      onChange={(e) =>
-                        onUpdate(idx, { ...block, content: e.target.value })
-                      }
-                      placeholder="// Code here..."
-                      rows={7}
-                      style={{
-                        ...fieldStyle,
-                        background: "#0d1117",
-                        fontFamily: "monospace",
-                        fontSize: 12,
-                        color: "#e6edf3",
-                        border: "1px solid rgba(74,222,128,0.2)",
-                        resize: "none",
-                      }}
-                    />
-                  </>
-                )}
-                {block.type === "video" && (
-                  <>
-                    <input
-                      value={block.url || ""}
-                      onChange={(e) =>
-                        onUpdate(idx, { ...block, url: e.target.value })
-                      }
-                      placeholder="YouTube URL"
-                      style={fieldStyle}
-                    />
-                    <input
-                      value={block.title || ""}
-                      onChange={(e) =>
-                        onUpdate(idx, { ...block, title: e.target.value })
-                      }
-                      placeholder="Video title (optional)"
-                      style={fieldStyle}
-                    />
-                  </>
-                )}
-                {block.type === "divider" && (
-                  <p
-                    className="text-xs py-2 text-center"
-                    style={{ color: T.dim }}
-                  >
-                    Section separator — no content needed.
-                  </p>
-                )}
-              </div>
-            </motion.div>
+
+        {/* Canvas Area */}
+        <div className="flex-1 flex flex-col gap-4 overflow-y-auto custom-scrollbar pb-20">
+          <span
+            className="text-[10px] font-black font-mono tracking-widest"
+            style={{ color: textColor, opacity: 0.5 }}
+          >
+            PAGE {String(idx + 1).padStart(2, "0")}
+          </span>
+
+          {(block.type === "insight" ||
+            block.type === "video" ||
+            block.type === "link") && (
+            <textarea
+              value={block.title || ""}
+              onChange={(e) => {
+                e.target.style.height = "auto";
+                e.target.style.height = e.target.scrollHeight + "px";
+                onUpdate(idx, { ...block, title: e.target.value });
+              }}
+              placeholder={
+                block.type === "video"
+                  ? "Video Title..."
+                  : block.type === "link"
+                    ? "Link Title..."
+                    : "Heading..."
+              }
+              className="colored-placeholder font-display font-black text-3xl md:text-4xl leading-tight resize-none overflow-hidden bg-transparent border-none outline-none"
+              style={{ color: textColor }}
+              rows={1}
+            />
           )}
-        </AnimatePresence>
+
+          <textarea
+            value={block.content || ""}
+            onChange={(e) => {
+              e.target.style.height = "auto";
+              e.target.style.height = e.target.scrollHeight + "px";
+              onUpdate(idx, { ...block, content: e.target.value });
+            }}
+            placeholder={
+              block.type === "quote"
+                ? '"Type your quote here..."'
+                : block.type === "code"
+                  ? "// Write your code..."
+                  : "Start typing your insight..."
+            }
+            className="colored-placeholder text-base md:text-lg leading-relaxed resize-none overflow-hidden bg-transparent border-none outline-none w-full"
+            style={{
+              color:
+                block.type === "quote" || block.type === "code"
+                  ? textColor
+                  : textColor,
+              opacity:
+                block.type === "quote" || block.type === "code" ? 1 : 0.9,
+              fontFamily:
+                block.type === "code" ? "monospace" : "Poppins, sans-serif",
+              fontStyle: block.type === "quote" ? "italic" : "normal",
+              minHeight: "120px",
+            }}
+          />
+
+          {block.type === "quote" && (
+            <input
+              value={block.author || ""}
+              onChange={(e) =>
+                onUpdate(idx, { ...block, author: e.target.value })
+              }
+              placeholder="— Author (Optional)"
+              className="colored-placeholder text-sm font-bold uppercase tracking-widest bg-transparent border-none outline-none w-full"
+              style={{ color: textColor, opacity: 0.8 }}
+            />
+          )}
+
+          {block.type === "link" && (
+            <div className="mt-auto space-y-3 bg-black/20 backdrop-blur-md p-4 rounded-2xl border border-white/5">
+              <input
+                value={block.url || ""}
+                onChange={(e) =>
+                  onUpdate(idx, { ...block, url: e.target.value })
+                }
+                placeholder="https://..."
+                className="colored-placeholder text-sm font-mono bg-transparent border-none outline-none w-full"
+                style={{ color: textColor }}
+              />
+              <input
+                value={block.description || ""}
+                onChange={(e) =>
+                  onUpdate(idx, { ...block, description: e.target.value })
+                }
+                placeholder="Brief description..."
+                className="colored-placeholder text-xs bg-transparent border-none outline-none w-full"
+                style={{ color: textColor, opacity: 0.7 }}
+              />
+            </div>
+          )}
+
+          {block.type === "video" && (
+            <div className="mt-auto bg-black/20 backdrop-blur-md p-4 rounded-2xl border border-white/5">
+              <input
+                value={block.url || ""}
+                onChange={(e) =>
+                  onUpdate(idx, { ...block, url: e.target.value })
+                }
+                placeholder="YouTube URL..."
+                className="colored-placeholder text-sm font-mono bg-transparent border-none outline-none w-full"
+                style={{ color: textColor }}
+              />
+            </div>
+          )}
+
+          {block.type === "code" && (
+            <div className="mt-auto bg-black/20 backdrop-blur-md p-3 rounded-2xl border border-white/5 flex items-center gap-2">
+              <Code size={14} style={{ color: textColor }} />
+              <input
+                value={block.language || ""}
+                onChange={(e) =>
+                  onUpdate(idx, { ...block, language: e.target.value })
+                }
+                placeholder="Language (e.g. javascript)"
+                className="colored-placeholder text-xs font-black uppercase tracking-widest bg-transparent border-none outline-none w-full"
+                style={{ color: textColor }}
+              />
+            </div>
+          )}
+        </div>
+
+        {/* Bottom Actions (Centered & Expanded) */}
+        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex items-center gap-1.5 bg-[#111111] p-2 rounded-[1.25rem] border border-white/10 z-20 shadow-2xl">
+          <button
+            title="Move Left"
+            onClick={() => onMoveUp(idx)}
+            disabled={idx === 0}
+            className="p-2.5 rounded-xl transition-all disabled:opacity-30 hover:scale-105 active:scale-95"
+            style={{
+              background:
+                "linear-gradient(135deg, rgba(255,255,255,0.15), rgba(255,255,255,0.02))",
+              color: "#fff",
+            }}
+          >
+            <ArrowLeft size={16} />
+          </button>
+          <button
+            title="Undo"
+            onClick={onUndo}
+            disabled={!canUndo}
+            className="p-2.5 rounded-xl transition-all disabled:opacity-30 hover:scale-105 active:scale-95"
+            style={{
+              background:
+                "linear-gradient(135deg, rgba(255,255,255,0.15), rgba(255,255,255,0.02))",
+              color: "#fff",
+            }}
+          >
+            <Undo size={16} />
+          </button>
+          <div className="w-px h-6 bg-white/10 mx-1" />
+          <button
+            title="Delete Page"
+            onClick={() => onDelete(idx)}
+            className="p-2.5 rounded-xl transition-all text-red-400 hover:bg-red-500/20 hover:scale-105 active:scale-95"
+            style={{
+              background:
+                "linear-gradient(135deg, rgba(255,255,255,0.05), transparent)",
+            }}
+          >
+            <X size={16} />
+          </button>
+          <div className="w-px h-6 bg-white/10 mx-1" />
+          <button
+            title="Redo"
+            onClick={onRedo}
+            disabled={!canRedo}
+            className="p-2.5 rounded-xl transition-all disabled:opacity-30 hover:scale-105 active:scale-95"
+            style={{
+              background:
+                "linear-gradient(135deg, rgba(255,255,255,0.15), rgba(255,255,255,0.02))",
+              color: "#fff",
+            }}
+          >
+            <Redo size={16} />
+          </button>
+          <button
+            title="Move Right"
+            onClick={() => onMoveDown(idx)}
+            disabled={idx === total - 1}
+            className="p-2.5 rounded-xl transition-all disabled:opacity-30 hover:scale-105 active:scale-95"
+            style={{
+              background:
+                "linear-gradient(135deg, rgba(255,255,255,0.15), rgba(255,255,255,0.02))",
+              color: "#fff",
+            }}
+          >
+            <ArrowRight size={16} />
+          </button>
+        </div>
       </div>
     );
   },
 );
 
-/* ─── Colist Editor ───────────────────────────────────────────────────────── */
-const ColistEditor = memo(({ onClose, userData, onPublish, forkOf = null }) => {
-  const [step, setStep] = useState("meta");
-  const [title, setTitle] = useState(forkOf ? `${forkOf.title} (Fork)` : "");
-  const [description, setDescription] = useState("");
-  const [tags, setTags] = useState([]);
-  const [tagInput, setTagInput] = useState("");
-  const [coverIdx, setCoverIdx] = useState(0);
-  const [blocks, setBlocks] = useState(forkOf?.blocks || []);
-  const [showBlockPicker, setShowBlockPicker] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
+/* ─── Colist Editor (Horizontal Deck Architecture) ────────────────────────── */
+const ColistEditor = memo(
+  ({ onClose, userData, currentUser, onPublish, forkOf = null }) => {
+    const [title, setTitle] = useState(forkOf ? `${forkOf.title} (Fork)` : "");
+    const [subtext, setSubtext] = useState(forkOf?.subtext || "");
+    const [description, setDescription] = useState("");
+    const [tags, setTags] = useState([]);
+    const [tagInput, setTagInput] = useState("");
+    const [coverIdx, setCoverIdx] = useState(0);
+    const [textColor, setTextColor] = useState("#ffffff");
+    const [showThemeDropdown, setShowThemeDropdown] = useState(false);
+    const [showColorDropdown, setShowColorDropdown] = useState(false);
+    const [error, setError] = useState("");
 
-  const validBlocks = useMemo(
-    () =>
-      blocks.filter(
-        (b) =>
-          b.type === "divider" ||
-          b.content?.trim() ||
-          b.url?.trim() ||
-          b.title?.trim(),
-      ),
-    [blocks],
-  );
-  const canPublish = title.trim().length >= 3 && validBlocks.length >= 1;
+    const initialBlocks =
+      forkOf?.blocks?.length > 0
+        ? forkOf.blocks
+        : [
+            {
+              id: createBlockId(),
+              type: "insight",
+              content: "",
+              title: "",
+              description: "",
+              url: "",
+              language: "",
+              author: "",
+              youtubeId: "",
+            },
+          ];
 
-  const addBlock = useCallback((type) => {
-    setBlocks((prev) => [
-      ...prev,
-      {
-        id: createBlockId(),
-        type,
-        content: "",
-        title: "",
-        description: "",
-        url: "",
-        language: "",
-        author: "",
-        youtubeId: "",
-      },
+    const [blocks, setBlocks] = useState(initialBlocks);
+
+    // Undo/Redo Engine
+    const historyRef = useRef([{ blocks: initialBlocks }]);
+    const historyIdxRef = useRef(0);
+    const [canUndo, setCanUndo] = useState(false);
+    const [canRedo, setCanRedo] = useState(false);
+
+    useEffect(() => {
+      const timeout = setTimeout(() => {
+        const currentHistoryBlock =
+          historyRef.current[historyIdxRef.current].blocks;
+        if (JSON.stringify(currentHistoryBlock) !== JSON.stringify(blocks)) {
+          const newHistory = historyRef.current.slice(
+            0,
+            historyIdxRef.current + 1,
+          );
+          newHistory.push({ blocks });
+          historyRef.current = newHistory.slice(-50); // Store last 50 edits
+          historyIdxRef.current = historyRef.current.length - 1;
+          setCanUndo(historyIdxRef.current > 0);
+          setCanRedo(false);
+        }
+      }, 800);
+      return () => clearTimeout(timeout);
+    }, [blocks]);
+
+    const handleUndo = useCallback(() => {
+      if (historyIdxRef.current > 0) {
+        historyIdxRef.current -= 1;
+        setBlocks(historyRef.current[historyIdxRef.current].blocks);
+        setCanUndo(historyIdxRef.current > 0);
+        setCanRedo(true);
+      }
+    }, []);
+
+    const handleRedo = useCallback(() => {
+      if (historyIdxRef.current < historyRef.current.length - 1) {
+        historyIdxRef.current += 1;
+        setBlocks(historyRef.current[historyIdxRef.current].blocks);
+        setCanUndo(true);
+        setCanRedo(historyIdxRef.current < historyRef.current.length - 1);
+      }
+    }, []);
+
+    const validBlocks = useMemo(
+      () =>
+        blocks.filter(
+          (b) =>
+            b.type === "divider" ||
+            b.content?.trim() ||
+            b.url?.trim() ||
+            b.title?.trim(),
+        ),
+      [blocks],
+    );
+
+    const canPublish = title.trim().length >= 3 && validBlocks.length >= 2;
+
+    // Cloud Save Engine
+    const [saveState, setSaveState] = useState("saved"); // saved | unsaved | saving
+    const [draftId, setDraftId] = useState(null);
+
+    useEffect(() => {
+      const handleBeforeUnload = (e) => {
+        if (saveState !== "saved") {
+          e.preventDefault();
+          e.returnValue = "";
+        }
+      };
+      window.addEventListener("beforeunload", handleBeforeUnload);
+      return () =>
+        window.removeEventListener("beforeunload", handleBeforeUnload);
+    }, [saveState]);
+
+    const handleCloseClick = useCallback(() => {
+      if (saveState !== "saved") {
+        if (
+          !window.confirm(
+            "You have unsaved changes. Are you sure you want to exit?",
+          )
+        ) {
+          return;
+        }
+      }
+      onClose();
+    }, [saveState, onClose]);
+
+    useEffect(() => {
+      const timer = setTimeout(() => {
+        setSaveState((prev) => (prev !== "unsaved" ? "unsaved" : prev));
+      }, 0);
+      return () => clearTimeout(timer);
+    }, [title, subtext, description, tags, coverIdx, textColor, blocks]);
+
+    // Utility to generate the specific draft slug format
+    const generateDraftSlug = useCallback((baseTitle) => {
+      const base = baseTitle
+        .toLowerCase()
+        .replace(/[^a-z0-9\s-]/g, "")
+        .replace(/\s+/g, "-")
+        .replace(/-+/g, "-")
+        .replace(/^-|-$/g, "")
+        .slice(0, 45); // Leave room for the random 6 digits
+      const random6 = Math.floor(100000 + Math.random() * 900000).toString();
+      return `${base || "draft"}-${random6}`;
+    }, []);
+
+    const performSave = useCallback(async () => {
+      // Condition 1: MUST have a title to auto-save
+      if (!title.trim() || title.trim().length < 3) return;
+
+      setSaveState("saving");
+      try {
+        const finalTags = tags.slice(0, 5);
+        const isInitialSave = !draftId;
+
+        // If it's the first save, generate the slug. Otherwise, keep the existing one.
+        const currentSlug = isInitialSave
+          ? generateDraftSlug(title.trim())
+          : undefined;
+
+        const payload = {
+          title: title.trim(),
+          subtext: subtext.trim(),
+          description: description.trim(),
+          tags: finalTags,
+          coverGradient: COVER_GRADIENTS[coverIdx],
+          textColor,
+          blocks: validBlocks,
+          updatedAt: serverTimestamp(),
+        };
+
+        if (isInitialSave) {
+          payload.slug = currentSlug;
+        }
+
+        if (draftId) {
+          await updateDoc(doc(db, "colists", draftId), payload);
+        } else {
+          payload.authorId = currentUser?.uid || userData?.uid;
+          payload.authorUsername = userData.identity?.username || "operator";
+          payload.authorName =
+            `${userData.identity?.firstName || ""} ${userData.identity?.lastName || ""}`.trim() ||
+            "Operator";
+          payload.authorAvatar = userData.identity?.avatarUrl || null;
+          payload.isPublic = false;
+          payload.viewCount = 0;
+          payload.saveCount = 0;
+          payload.colistScore = 0;
+          payload.colistScoreMilestone = 0;
+          payload.createdAt = serverTimestamp();
+
+          const docRef = await addDoc(collection(db, "colists"), payload);
+          setDraftId(docRef.id);
+
+          // Silently update the URL to /colists/[slug]/unpublished
+          window.history.replaceState(
+            null,
+            "",
+            `/colists/${currentSlug}/unpublished`,
+          );
+        }
+        setSaveState("saved");
+      } catch (e) {
+        console.error("Save failure:", e);
+        setSaveState("unsaved");
+      }
+    }, [
+      title,
+      subtext,
+      description,
+      tags,
+      coverIdx,
+      textColor,
+      validBlocks,
+      draftId,
+      userData,
+      currentUser,
+      generateDraftSlug,
     ]);
-    setShowBlockPicker(false);
-  }, []);
-  const updateBlock = useCallback(
-    (idx, updated) =>
-      setBlocks((prev) => prev.map((b, i) => (i === idx ? updated : b))),
-    [],
-  );
-  const deleteBlock = useCallback(
-    (idx) => setBlocks((prev) => prev.filter((_, i) => i !== idx)),
-    [],
-  );
-  const moveUp = useCallback((idx) => {
-    if (idx === 0) return;
-    setBlocks((prev) => {
-      const n = [...prev];
-      [n[idx - 1], n[idx]] = [n[idx], n[idx - 1]];
-      return n;
-    });
-  }, []);
-  const moveDown = useCallback(
-    (idx) =>
+
+    useEffect(() => {
+      if (saveState === "unsaved") {
+        const timer = setTimeout(() => {
+          // Enforce title rule in the timeout as well
+          if (title.trim().length >= 3) {
+            performSave();
+          }
+        }, 3000);
+        return () => clearTimeout(timer);
+      }
+    }, [saveState, performSave, title]);
+
+    const addSlide = useCallback(() => {
+      setBlocks((prev) => [
+        ...prev,
+        {
+          id: createBlockId(),
+          type: "insight",
+          content: "",
+          title: "",
+          description: "",
+          url: "",
+          language: "",
+          author: "",
+          youtubeId: "",
+        },
+      ]);
+      setTimeout(() => {
+        const el = document.getElementById("editor-scroll-area");
+        if (el) el.scrollTo({ left: el.scrollWidth, behavior: "smooth" });
+      }, 50);
+    }, []);
+
+    const updateBlock = useCallback(
+      (idx, updated) =>
+        setBlocks((prev) => prev.map((b, i) => (i === idx ? updated : b))),
+      [],
+    );
+    const deleteBlock = useCallback(
+      (idx) => setBlocks((prev) => prev.filter((_, i) => i !== idx)),
+      [],
+    );
+    const moveUp = useCallback((idx) => {
+      if (idx === 0) return;
+      setBlocks((prev) => {
+        const n = [...prev];
+        [n[idx - 1], n[idx]] = [n[idx], n[idx - 1]];
+        return n;
+      });
+    }, []);
+    const moveDown = useCallback((idx) => {
       setBlocks((prev) => {
         if (idx >= prev.length - 1) return prev;
         const n = [...prev];
         [n[idx], n[idx + 1]] = [n[idx + 1], n[idx]];
         return n;
-      }),
-    [],
-  );
-
-  const handleTagChange = useCallback(
-    (e) => {
-      const val = e.target.value;
-      if (val.endsWith(", ") || val.endsWith(",")) {
-        const newTag = val.replace(/,\s*$/, "").trim();
-        if (newTag && tags.length < 10 && !tags.includes(newTag))
-          setTags((prev) => [...prev, newTag]);
-        setTagInput("");
-      } else setTagInput(val);
-    },
-    [tags],
-  );
-
-  const handleDescChange = useCallback((e) => {
-    setDescription(e.target.value);
-    e.target.style.height = "auto";
-    e.target.style.height = `${Math.min(e.target.scrollHeight, 150)}px`;
-  }, []);
-
-  const handlePublish = async () => {
-    if (!canPublish) {
-      setError(
-        validBlocks.length === 0
-          ? "Add at least 1 page."
-          : "Title must be at least 3 characters.",
-      );
-      return;
-    }
-    setSaving(true);
-    setError("");
-    try {
-      const slug = generateSlug(title.trim());
-      const finalTags = [...tags, tagInput]
-        .map((t) => t.trim())
-        .filter(Boolean)
-        .slice(0, 5);
-      await addDoc(collection(db, "colists"), {
-        title: title.trim(),
-        slug,
-        description: description.trim(),
-        tags: finalTags,
-        coverGradient: COVER_GRADIENTS[coverIdx],
-        blocks: validBlocks,
-        authorId: userData.uid,
-        authorUsername: userData.identity?.username || "operator",
-        authorName:
-          `${userData.identity?.firstName || ""} ${userData.identity?.lastName || ""}`.trim() ||
-          "Operator",
-        authorAvatar: userData.identity?.avatarUrl || null,
-        isPublic: true,
-        viewCount: 0,
-        saveCount: 0,
-        colistScore: 0,
-        colistScoreMilestone: 0,
-        ...(forkOf ? { forkOf } : {}),
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
       });
-      onPublish?.(slug);
-    } catch (err) {
-      console.error(err);
-      setError("Failed to publish. Please try again.");
-    } finally {
-      setSaving(false);
-    }
-  };
+    }, []);
 
-  const inputBase = {
-    background: V.surface,
-    border: "1px solid rgba(255,255,255,0.07)",
-    color: T.primary,
-    borderRadius: 14,
-    padding: "12px 16px",
-    width: "100%",
-    outline: "none",
-    fontFamily: "Poppins, sans-serif",
-    transition: "border-color 0.2s",
-  };
+    const handleTagChange = useCallback(
+      (e) => {
+        const val = e.target.value;
+        if (val.endsWith(", ") || val.endsWith(",")) {
+          const newTag = val.replace(/,\s*$/, "").trim();
+          if (newTag && tags.length < 10 && !tags.includes(newTag))
+            setTags((prev) => [...prev, newTag]);
+          setTagInput("");
+        } else setTagInput(val);
+      },
+      [tags],
+    );
 
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: "3%" }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: "3%" }}
-      transition={{ type: "spring", damping: 32, stiffness: 220 }}
-      className="fixed inset-0 z-[500] flex flex-col overflow-hidden"
-      style={{ background: V.bg }}
-    >
-      {/* Header */}
-      <div
-        className="flex items-center justify-between px-5 md:px-8 py-4 shrink-0"
-        style={{
-          background: V.depth,
-          borderBottom: "1px solid rgba(255,255,255,0.06)",
-        }}
+    const handlePublish = async () => {
+      if (!canPublish) {
+        setError(
+          validBlocks.length < 2
+            ? "Minimum 2 pages required (Cover + 1 Content)."
+            : "Title must be at least 3 characters.",
+        );
+        return;
+      }
+      setSaveState("saving");
+      setError("");
+      try {
+        const finalTags = tags.slice(0, 5);
+        const isInitialSave = !draftId;
+        const currentSlug = isInitialSave
+          ? generateDraftSlug(title.trim())
+          : undefined;
+
+        const payload = {
+          title: title.trim(),
+          subtext: subtext.trim(),
+          description: description.trim(),
+          tags: finalTags,
+          coverGradient: COVER_GRADIENTS[coverIdx],
+          textColor,
+          blocks: validBlocks,
+          isPublic: true,
+          updatedAt: serverTimestamp(),
+        };
+
+        if (isInitialSave) {
+          payload.slug = currentSlug;
+        }
+
+        if (draftId) {
+          await updateDoc(doc(db, "colists", draftId), payload);
+          // We do not know the exact slug if we didn't just generate it,
+          // so we fetch it or we can trigger the callback which relies on the slug param.
+          // Assuming we rely on a full navigation from the parent component, we just close.
+          onPublish?.(currentSlug || "published"); // The parent handles the navigation
+        } else {
+          payload.authorId = currentUser?.uid || userData?.uid;
+          payload.authorUsername = userData.identity?.username || "operator";
+          payload.authorName =
+            `${userData.identity?.firstName || ""} ${userData.identity?.lastName || ""}`.trim() ||
+            "Operator";
+          payload.authorAvatar = userData.identity?.avatarUrl || null;
+          payload.viewCount = 0;
+          payload.saveCount = 0;
+          payload.colistScore = 0;
+          payload.colistScoreMilestone = 0;
+          payload.createdAt = serverTimestamp();
+
+          await addDoc(collection(db, "colists"), payload);
+          onPublish?.(currentSlug);
+        }
+      } catch (err) {
+        console.error(err);
+        setError("Failed to publish. Please try again.");
+        setSaveState("unsaved");
+      }
+    };
+
+    return (
+      <motion.div
+        initial={{ opacity: 0, y: "3%" }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: "3%" }}
+        transition={{ type: "spring", damping: 32, stiffness: 220 }}
+        className="fixed inset-0 z-[500] flex flex-col overflow-hidden bg-[#030303]"
+        style={{ "--editor-text-color": textColor }}
       >
-        <div className="flex items-center gap-4">
-          <button
-            onClick={onClose}
-            className="p-2 rounded-full hover:bg-white/5 transition-colors"
-            style={{ color: T.dim }}
-          >
-            <X size={16} />
-          </button>
-          {forkOf && (
-            <div
-              className="flex items-center gap-2 px-3 py-1.5 rounded-full"
-              style={{ background: G.dimBg, border: `1px solid ${G.border}` }}
+        <style>{`
+        .colored-placeholder::placeholder { 
+          color: var(--editor-text-color) !important; 
+          opacity: 0.4 !important; 
+        }
+      `}</style>
+
+        {/* Absolute Floating Header */}
+        <div className="absolute top-0 left-0 right-0 z-50 flex items-center justify-between px-5 md:px-8 py-4 bg-black/40 backdrop-blur-xl border-b border-white/5">
+          <div className="flex items-center gap-4">
+            <button
+              onClick={handleCloseClick}
+              title="Close Editor"
+              className="p-2 rounded-full hover:bg-white/10 transition-colors text-white/50 hover:text-white"
             >
-              <GitFork size={10} style={{ color: G.bright }} />
-              <span
-                className="text-[9px] font-black uppercase tracking-widest"
-                style={{ color: G.bright }}
-              >
-                Fork of @{forkOf.authorUsername}
+              <X size={18} />
+            </button>
+            {forkOf && (
+              <div className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/5 border border-white/10">
+                <GitFork size={12} className="text-[#D4AF78]" />
+                <span className="text-[10px] font-black uppercase tracking-widest text-[#D4AF78]">
+                  Fork of @{forkOf.authorUsername}
+                </span>
+              </div>
+            )}
+          </div>
+
+          <div className="flex items-center gap-4">
+            <div className="hidden md:flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-white/30 mr-2">
+              <span>Meta</span>
+              <ArrowRight size={10} />
+              <span>
+                {validBlocks.length} Page{validBlocks.length !== 1 && "s"}
               </span>
             </div>
-          )}
-          <div
-            className="relative flex items-center p-1 rounded-xl border w-[160px]"
-            style={{ background: "#111", borderColor: "#222" }}
-          >
-            <motion.div
-              className="absolute top-1 bottom-1 rounded-lg"
-              animate={{
-                left: step === "meta" ? "4px" : "calc(50% + 2px)",
-                width: "calc(50% - 6px)",
+
+            <button
+              title={
+                saveState === "saved"
+                  ? "Saved to Cloud"
+                  : saveState === "saving"
+                    ? "Saving..."
+                    : "Unsaved Changes (Click to save)"
+              }
+              onClick={() => saveState === "unsaved" && performSave()}
+              className="p-2 rounded-full transition-colors text-white/50 hover:text-white flex items-center justify-center"
+            >
+              {saveState === "saving" && (
+                <Loader2 size={16} className="animate-spin text-[#D4AF78]" />
+              )}
+              {saveState === "saved" && (
+                <Cloud size={16} className="text-[#4ADE80]" />
+              )}
+              {saveState === "unsaved" && <Save size={16} />}
+            </button>
+
+            {error && (
+              <p className="text-[10px] text-red-400 font-bold hidden md:block max-w-[150px] truncate">
+                {error}
+              </p>
+            )}
+            <motion.button
+              whileHover={canPublish ? { scale: 1.04 } : {}}
+              whileTap={canPublish ? { scale: 0.96 } : {}}
+              onClick={handlePublish}
+              disabled={saveState === "saving" || !canPublish}
+              className="flex items-center gap-2 px-6 py-2.5 rounded-full font-black text-xs uppercase tracking-widest disabled:opacity-30 transition-opacity"
+              style={{
+                background: "linear-gradient(135deg,#8B7240,#D4AF78)",
+                color: "#000",
               }}
-              transition={{ type: "spring", stiffness: 400, damping: 35 }}
-              style={{ background: "linear-gradient(135deg,#8B7240,#D4AF78)" }}
-            />
-            {[
-              { id: "meta", label: "Details" },
-              { id: "blocks", label: `Pages (${validBlocks.length})` },
-            ].map((s) => (
-              <button
-                key={s.id}
-                onClick={() => setStep(s.id)}
-                className="relative flex-1 py-1.5 rounded-lg text-[9px] md:text-[10px] font-black uppercase tracking-widest transition-all z-10 flex items-center justify-center"
-                style={{ color: step === s.id ? "#000" : "#555" }}
-              >
-                {s.label}
-              </button>
-            ))}
+            >
+              <Globe size={14} /> Publish
+            </motion.button>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          {error && (
-            <p className="text-[10px] text-red-400 font-bold hidden md:block">
-              {error}
-            </p>
-          )}
-          <motion.button
-            whileHover={canPublish ? { scale: 1.04 } : {}}
-            whileTap={canPublish ? { scale: 0.96 } : {}}
-            onClick={handlePublish}
-            disabled={saving || !canPublish}
-            className="flex items-center gap-2 px-5 py-2.5 rounded-full font-black text-xs uppercase tracking-widest disabled:opacity-35"
-            style={{
-              background: "linear-gradient(135deg,#8B7240,#D4AF78)",
-              color: "#000",
+
+        {/* Horizontal Scroll Deck */}
+        <div
+          id="editor-scroll-area"
+          className="flex-1 w-full h-full overflow-x-auto overflow-y-hidden custom-scrollbar snap-x snap-mandatory flex items-center px-[5vw] md:px-[15vw] pt-20 pb-8 gap-4 md:gap-8"
+        >
+          {/* Card 1: Meta Configuration */}
+          <div
+            className="w-[85vw] max-w-[400px] h-[75vh] min-h-[500px] shrink-0 snap-center rounded-[2.5rem] p-6 md:p-8 flex flex-col relative overflow-visible shadow-2xl transition-all border border-white/10"
+            style={{ background: COVER_GRADIENTS[coverIdx] }}
+            onClick={() => {
+              setShowThemeDropdown(false);
+              setShowColorDropdown(false);
             }}
           >
-            {saving ? (
-              <Loader2 size={12} className="animate-spin" />
-            ) : (
-              <Globe size={12} />
-            )}
-            Publish
-          </motion.button>
-        </div>
-      </div>
-
-      {/* Body */}
-      <div className="flex-1 overflow-y-auto custom-scrollbar">
-        <div className="max-w-2xl mx-auto px-5 py-8">
-          <AnimatePresence mode="wait">
-            {step === "meta" ? (
-              <motion.div
-                key="meta"
-                initial={{ opacity: 0, x: 20 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: -20 }}
-                className="space-y-5"
+            <div className="flex items-center justify-between mb-6 relative z-[60]">
+              <span
+                className="text-[10px] font-black font-mono tracking-widest"
+                style={{ color: textColor, opacity: 0.6 }}
               >
-                {/* Cover picker */}
-                <div>
-                  <label
-                    className="block text-[10px] font-black uppercase tracking-widest mb-2"
-                    style={{ color: T.dim }}
-                  >
-                    Cover Style
-                  </label>
-                  <div className="flex gap-2.5 overflow-x-auto hide-scrollbar pb-1">
-                    {COVER_GRADIENTS.map((g, i) => (
-                      <motion.button
-                        key={i}
-                        whileTap={{ scale: 0.92 }}
-                        onClick={() => setCoverIdx(i)}
-                        className="shrink-0 rounded-xl transition-all"
-                        style={{
-                          width: 60,
-                          height: 36,
-                          background: g,
-                          border:
-                            coverIdx === i
-                              ? `2px solid ${G.bright}`
-                              : "2px solid transparent",
-                          boxShadow:
-                            coverIdx === i
-                              ? `0 0 14px rgba(191,162,100,0.4)`
-                              : "none",
-                        }}
-                      />
-                    ))}
-                  </div>
-                </div>
-                <div
-                  className="w-full h-20 rounded-2xl flex items-end p-4"
-                  style={{ background: COVER_GRADIENTS[coverIdx] }}
-                >
-                  <span
-                    className="text-sm font-black leading-tight truncate"
-                    style={{ color: "rgba(255,255,255,0.6)" }}
-                  >
-                    {title || "Your Colist Title"}
-                  </span>
-                </div>
-                <style>{`
-                  .netflix-input-group { position: relative; width: 100%; }
-                  .netflix-input {
-                    width: 100%; background: #0F0F0F; border: 1px solid rgba(255,255,255,0.07);
-                    border-radius: 14px; padding: 26px 16px 8px 16px; color: #F5F0E8;
-                    font-family: 'Poppins', sans-serif; outline: none; transition: all 0.2s;
-                  }
-                  .netflix-input::placeholder { color: transparent; }
-                  .netflix-input:focus { border-color: rgba(191,162,100,0.5); background: #141414; }
-                  .netflix-floating-label {
-                    position: absolute; left: 16px; top: 50%; transform: translateY(-50%);
-                    font-size: 14px; color: rgba(245,240,232,0.28); pointer-events: none;
-                    transition: all 0.2s cubic-bezier(0.23, 1, 0.32, 1); font-family: 'Poppins', sans-serif;
-                  }
-                  .netflix-input-group textarea.netflix-input ~ .netflix-floating-label { top: 24px; }
-                  .netflix-input:focus ~ .netflix-floating-label,
-                  .netflix-input:not(:placeholder-shown) ~ .netflix-floating-label {
-                    top: 14px; transform: translateY(0); font-size: 9px; font-weight: 700;
-                    letter-spacing: 0.15em; text-transform: uppercase; color: #D4AF78;
-                  }
-                  .netflix-input-group textarea.netflix-input:focus ~ .netflix-floating-label,
-                  .netflix-input-group textarea.netflix-input:not(:placeholder-shown) ~ .netflix-floating-label {
-                    top: 14px;
-                  }
-                `}</style>
-                <div className="netflix-input-group">
-                  <input
-                    className="netflix-input"
-                    value={title}
-                    onChange={(e) => setTitle(e.target.value)}
-                    placeholder=" "
-                    maxLength={100}
-                    style={{ fontSize: 16, fontWeight: 800, height: 60 }}
+                COVER & META
+              </span>
+              <div className="flex items-center gap-2 relative">
+                {/* Theme Dropdown Toggle */}
+                <div className="relative" onClick={(e) => e.stopPropagation()}>
+                  <button
+                    title="Canvas Theme"
+                    onClick={() => {
+                      setShowThemeDropdown(!showThemeDropdown);
+                      setShowColorDropdown(false);
+                    }}
+                    className="w-6 h-6 rounded-full border-2 border-white shadow-xl hover:scale-110 transition-transform"
+                    style={{ background: COVER_GRADIENTS[coverIdx] }}
                   />
-                  <label className="netflix-floating-label">Title *</label>
-                  <span
-                    style={{
-                      position: "absolute",
-                      right: 16,
-                      top: 18,
-                      fontSize: 10,
-                      color: "rgba(255,255,255,0.2)",
-                      pointerEvents: "none",
-                    }}
-                  >
-                    {title.length}/100
-                  </span>
-                </div>
-                <div className="netflix-input-group">
-                  <textarea
-                    className="netflix-input custom-scrollbar"
-                    value={description}
-                    onChange={handleDescChange}
-                    placeholder=" "
-                    maxLength={200}
-                    rows={1}
-                    style={{ resize: "none", overflowY: "auto", minHeight: 60 }}
-                  />
-                  <label className="netflix-floating-label">Description</label>
-                  <span
-                    style={{
-                      position: "absolute",
-                      right: 16,
-                      top: 18,
-                      fontSize: 10,
-                      color: "rgba(255,255,255,0.2)",
-                      pointerEvents: "none",
-                    }}
-                  >
-                    {description.length}/200
-                  </span>
-                </div>
-                <div
-                  className="netflix-input-group"
-                  style={{
-                    background: "#0F0F0F",
-                    border: "1px solid rgba(255,255,255,0.07)",
-                    borderRadius: 14,
-                    padding: "26px 16px 8px 16px",
-                    minHeight: 60,
-                    transition: "all 0.2s",
-                  }}
-                >
-                  <div
-                    style={{
-                      display: "flex",
-                      flexWrap: "wrap",
-                      gap: 6,
-                      alignItems: "center",
-                    }}
-                  >
-                    {tags.map((t) => (
-                      <span
-                        key={t}
-                        style={{
-                          background: G.dimBg,
-                          color: G.bright,
-                          border: `1px solid ${G.border}`,
-                          borderRadius: 99,
-                          padding: "2px 8px",
-                          fontSize: 10,
-                          display: "flex",
-                          alignItems: "center",
-                          gap: 4,
-                          zIndex: 2,
-                        }}
-                      >
-                        {t}{" "}
-                        <X
-                          size={10}
-                          style={{ cursor: "pointer" }}
-                          onClick={() =>
-                            setTags((prev) => prev.filter((tag) => tag !== t))
-                          }
-                        />
-                      </span>
-                    ))}
-                    <input
-                      value={tagInput}
-                      onChange={handleTagChange}
-                      placeholder=" "
-                      style={{
-                        flex: 1,
-                        minWidth: 100,
-                        background: "transparent",
-                        border: "none",
-                        outline: "none",
-                        color: T.primary,
-                        fontSize: 13,
-                        padding: 0,
-                      }}
-                    />
-                  </div>
-                  <label
-                    className="netflix-floating-label"
-                    style={{
-                      top: tags.length > 0 || tagInput ? 14 : "50%",
-                      fontSize: tags.length > 0 || tagInput ? 9 : 14,
-                      fontWeight: tags.length > 0 || tagInput ? 700 : 400,
-                      color:
-                        tags.length > 0 || tagInput
-                          ? "#D4AF78"
-                          : "rgba(245,240,232,0.28)",
-                      textTransform:
-                        tags.length > 0 || tagInput ? "uppercase" : "none",
-                      letterSpacing:
-                        tags.length > 0 || tagInput ? "0.15em" : "normal",
-                    }}
-                  >
-                    Tags (Max 10, add ',')
-                  </label>
-                  <span
-                    style={{
-                      position: "absolute",
-                      right: 16,
-                      top: 14,
-                      fontSize: 10,
-                      color: "rgba(255,255,255,0.2)",
-                      pointerEvents: "none",
-                    }}
-                  >
-                    {tags.length}/10
-                  </span>
-                </div>
-                <motion.button
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.97 }}
-                  onClick={() => setStep("blocks")}
-                  className="w-full py-4 rounded-2xl flex items-center justify-center mt-2"
-                  style={{
-                    background:
-                      "linear-gradient(to right, #848484, #c2c2c2, #d8d8d8, #ffffff)",
-                    color: "#000",
-                    border: "none",
-                  }}
-                >
-                  <ArrowRight size={24} strokeWidth={2.5} />
-                </motion.button>
-              </motion.div>
-            ) : (
-              <motion.div
-                key="blocks"
-                initial={{ opacity: 0, x: 20 }}
-                animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: -20 }}
-                className="space-y-3"
-              >
-                <div className="flex items-center justify-between mb-5">
-                  <span
-                    className="text-[10px] font-black uppercase tracking-widest"
-                    style={{ color: T.dim }}
-                  >
-                    {validBlocks.length} valid page
-                    {validBlocks.length !== 1 ? "s" : ""}
-                  </span>
-                  <motion.button
-                    whileHover={{ scale: 1.04 }}
-                    whileTap={{ scale: 0.95 }}
-                    onClick={() => setShowBlockPicker((p) => !p)}
-                    className="flex items-center gap-2 px-4 py-2 rounded-full text-[10px] font-black uppercase tracking-widest"
-                    style={{
-                      background: showBlockPicker ? G.dimBg : V.surface,
-                      color: G.bright,
-                      border: `1px solid ${G.border}`,
-                    }}
-                  >
-                    <Plus size={11} strokeWidth={3} /> Add Page
-                  </motion.button>
-                </div>
-                <AnimatePresence>
-                  {showBlockPicker && (
-                    <motion.div
-                      initial={{ opacity: 0, y: -10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0, y: -10 }}
-                      className="grid grid-cols-2 gap-2 p-4 rounded-2xl mb-2"
-                      style={{
-                        background: V.elevated,
-                        border: "1px solid rgba(255,255,255,0.08)",
-                      }}
-                    >
-                      {BLOCK_TYPES.map((t) => {
-                        const Icon = t.icon;
-                        return (
-                          <motion.button
-                            key={t.id}
-                            whileHover={{ scale: 1.03 }}
-                            whileTap={{ scale: 0.96 }}
-                            onClick={() => addBlock(t.id)}
-                            className="flex items-center gap-2.5 p-3 rounded-xl text-left"
-                            style={{
-                              background: V.surface,
-                              border: `1px solid ${t.color}22`,
-                            }}
-                          >
-                            <Icon size={14} style={{ color: t.color }} />
-                            <div>
-                              <p
-                                className="text-xs font-bold"
-                                style={{ color: T.primary }}
-                              >
-                                {t.label}
-                              </p>
-                              <p
-                                className="text-[9px]"
-                                style={{ color: T.dim }}
-                              >
-                                {t.desc}
-                              </p>
-                            </div>
-                          </motion.button>
-                        );
-                      })}
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-                {error && (
-                  <div
-                    className="px-4 py-3 rounded-xl text-[11px] font-bold"
-                    style={{
-                      background: "rgba(248,113,113,0.08)",
-                      border: "1px solid rgba(248,113,113,0.2)",
-                      color: "#F87171",
-                    }}
-                  >
-                    {error}
-                  </div>
-                )}
-                {blocks.length === 0 ? (
-                  <div
-                    className="py-16 text-center rounded-2xl border-2 border-dashed"
-                    style={{ borderColor: "rgba(255,255,255,0.07)" }}
-                  >
-                    <Plus
-                      size={32}
-                      className="mx-auto mb-3 opacity-15"
-                      style={{ color: T.primary }}
-                    />
-                    <p
-                      className="text-sm font-black mb-1"
-                      style={{ color: "rgba(255,255,255,0.18)" }}
-                    >
-                      No pages yet.
-                    </p>
-                  </div>
-                ) : (
                   <AnimatePresence>
-                    {blocks.map((block, idx) => (
+                    {showThemeDropdown && (
                       <motion.div
-                        key={block.id}
-                        layout
-                        initial={{ opacity: 0, scale: 0.97 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        exit={{ opacity: 0, scale: 0.95, height: 0 }}
+                        initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                        className="absolute top-8 right-0 bg-[#111] border border-white/10 p-3 rounded-2xl shadow-2xl w-[200px] z-[100]"
                       >
-                        <BlockEditorRow
-                          block={block}
-                          idx={idx}
-                          total={blocks.length}
-                          onUpdate={updateBlock}
-                          onDelete={deleteBlock}
-                          onMoveUp={moveUp}
-                          onMoveDown={moveDown}
-                        />
+                        <p className="text-[9px] font-black uppercase tracking-widest text-white/50 mb-3">
+                          Themes
+                        </p>
+                        <div className="grid grid-cols-4 gap-2">
+                          {COVER_GRADIENTS.map((g, i) => (
+                            <button
+                              key={i}
+                              title={`Theme ${i + 1}`}
+                              onClick={() => {
+                                setCoverIdx(i);
+                                setShowThemeDropdown(false);
+                              }}
+                              className="w-8 h-8 rounded-full border-2 transition-all hover:scale-110"
+                              style={{
+                                background: g,
+                                borderColor:
+                                  coverIdx === i ? "#fff" : "transparent",
+                              }}
+                            />
+                          ))}
+                        </div>
                       </motion.div>
-                    ))}
+                    )}
                   </AnimatePresence>
-                )}
+                </div>
+
+                {/* Text Color Dropdown Toggle */}
+                <div className="relative" onClick={(e) => e.stopPropagation()}>
+                  <button
+                    title="Text Color"
+                    onClick={() => {
+                      setShowColorDropdown(!showColorDropdown);
+                      setShowThemeDropdown(false);
+                    }}
+                    className="w-6 h-6 rounded-full border-2 border-white/20 shadow-xl flex items-center justify-center hover:scale-110 transition-transform"
+                    style={{ background: textColor }}
+                  >
+                    <span
+                      className="text-[10px] font-bold mix-blend-difference"
+                      style={{
+                        color: textColor === "#ffffff" ? "#000" : "#fff",
+                      }}
+                    >
+                      A
+                    </span>
+                  </button>
+                  <AnimatePresence>
+                    {showColorDropdown && (
+                      <motion.div
+                        initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                        animate={{ opacity: 1, y: 0, scale: 1 }}
+                        exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                        className="absolute top-8 right-0 bg-[#111] border border-white/10 p-3 rounded-2xl shadow-2xl w-[200px] z-[100]"
+                      >
+                        <p className="text-[9px] font-black uppercase tracking-widest text-white/50 mb-3">
+                          Text Color
+                        </p>
+                        <div className="flex flex-wrap gap-2 mb-3">
+                          {[
+                            "#ffffff",
+                            "#F5F0E8",
+                            "#000000",
+                            "#BFA264",
+                            "#F87171",
+                            "#38bdf8",
+                            "#4ADE80",
+                          ].map((c) => (
+                            <button
+                              key={c}
+                              title={c}
+                              onClick={() => setTextColor(c)}
+                              className="w-6 h-6 rounded-full border border-white/20 hover:scale-110 transition-all"
+                              style={{ background: c }}
+                            />
+                          ))}
+                        </div>
+                        <div className="flex items-center gap-2 bg-black/50 p-2 rounded-lg border border-white/5">
+                          <input
+                            type="color"
+                            title="Custom Color"
+                            value={textColor}
+                            onChange={(e) => setTextColor(e.target.value)}
+                            className="w-6 h-6 rounded cursor-pointer bg-transparent border-none p-0"
+                          />
+                          <input
+                            type="text"
+                            title="Hex Code"
+                            value={textColor}
+                            onChange={(e) => setTextColor(e.target.value)}
+                            className="flex-1 bg-transparent text-xs font-mono text-white outline-none uppercase"
+                          />
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+              </div>
+            </div>
+
+            <textarea
+              value={title}
+              onChange={(e) => {
+                e.target.style.height = "auto";
+                e.target.style.height = e.target.scrollHeight + "px";
+                setTitle(e.target.value);
+              }}
+              placeholder="Title..."
+              className="colored-placeholder font-display font-black text-4xl leading-tight resize-none overflow-hidden bg-transparent border-none outline-none mb-2"
+              style={{ color: textColor }}
+              rows={1}
+              maxLength={70}
+            />
+
+            <input
+              value={subtext}
+              onChange={(e) => setSubtext(e.target.value)}
+              placeholder="Subtext..."
+              className="colored-placeholder font-display font-bold text-lg md:text-xl bg-transparent border-none outline-none mb-6 w-full"
+              style={{ color: textColor, opacity: 0.8 }}
+              maxLength={20}
+            />
+
+            <textarea
+              value={description}
+              onChange={(e) => {
+                e.target.style.height = "auto";
+                e.target.style.height = e.target.scrollHeight + "px";
+                setDescription(e.target.value);
+              }}
+              placeholder="Brief description..."
+              className="colored-placeholder text-base md:text-lg leading-relaxed resize-none overflow-hidden bg-transparent border-none outline-none w-full mb-6"
+              style={{ color: textColor, opacity: 0.9 }}
+              maxLength={200}
+              rows={2}
+            />
+
+            <div className="mt-auto space-y-4 md:space-y-6">
+              {/* Tag Manager */}
+              <div className="bg-black/20 backdrop-blur-md p-4 rounded-2xl border border-white/5">
+                <div className="flex flex-wrap gap-2 mb-2">
+                  {tags.map((t) => (
+                    <span
+                      key={t}
+                      className="bg-white/10 text-white border border-white/10 rounded-full px-2 py-1 text-[10px] flex items-center gap-1 font-black tracking-widest uppercase"
+                    >
+                      {t}{" "}
+                      <X
+                        size={10}
+                        className="cursor-pointer hover:text-red-400"
+                        onClick={() =>
+                          setTags((prev) => prev.filter((tag) => tag !== t))
+                        }
+                      />
+                    </span>
+                  ))}
+                </div>
+                <input
+                  value={tagInput}
+                  onChange={handleTagChange}
+                  placeholder={
+                    tags.length < 10
+                      ? "Add tag (type ',')"
+                      : "Max 10 tags reached"
+                  }
+                  disabled={tags.length >= 10}
+                  className="text-xs bg-transparent border-none outline-none text-white placeholder-white/30 w-full font-mono"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Card 2...N: Execution Blocks */}
+          <AnimatePresence>
+            {blocks.map((block, idx) => (
+              <motion.div
+                key={block.id}
+                layout
+                initial={{ opacity: 0, scale: 0.9, x: 40 }}
+                animate={{ opacity: 1, scale: 1, x: 0 }}
+                exit={{
+                  opacity: 0,
+                  scale: 0.8,
+                  width: 0,
+                  marginLeft: 0,
+                  marginRight: 0,
+                }}
+                className="w-[85vw] max-w-[400px] h-[75vh] min-h-[500px] shrink-0 snap-center rounded-[2.5rem] p-6 md:p-8 flex flex-col relative shadow-2xl transition-all border border-white/10"
+                style={{ background: COVER_GRADIENTS[coverIdx] }}
+              >
+                <BlockEditorRow
+                  block={block}
+                  idx={idx}
+                  total={blocks.length}
+                  onUpdate={updateBlock}
+                  onDelete={deleteBlock}
+                  onMoveUp={moveUp}
+                  onMoveDown={moveDown}
+                  textColor={textColor}
+                  onUndo={handleUndo}
+                  onRedo={handleRedo}
+                  canUndo={canUndo}
+                  canRedo={canRedo}
+                />
               </motion.div>
-            )}
+            ))}
           </AnimatePresence>
+
+          {/* Card N+1: Add Slide Action */}
+          <motion.div
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+            onClick={addSlide}
+            className="w-[85vw] max-w-[400px] h-[75vh] min-h-[500px] shrink-0 snap-center rounded-[2.5rem] flex flex-col items-center justify-center cursor-pointer group transition-all"
+            style={{
+              background: "rgba(255,255,255,0.03)",
+              border: "2px dashed rgba(255,255,255,0.1)",
+            }}
+          >
+            <div className="w-16 h-16 rounded-full bg-white/5 flex items-center justify-center mb-4 group-hover:bg-white/10 group-hover:scale-110 transition-all">
+              <Plus
+                size={28}
+                className="text-white/40 group-hover:text-white transition-colors"
+              />
+            </div>
+            <span className="text-[11px] font-black uppercase tracking-widest text-white/30 group-hover:text-white/80 transition-colors">
+              Add New Page
+            </span>
+          </motion.div>
+
+          {/* Dummy spacer to ensure right-padding on mobile scroll */}
+          <div className="shrink-0 w-[5vw] md:w-[15vw] h-1" />
         </div>
-      </div>
-    </motion.div>
-  );
-});
+      </motion.div>
+    );
+  },
+);
 
 /* ─── Tag Pill ────────────────────────────────────────────────────────────── */
 const TagPill = memo(({ active, onClick, label }) => (
@@ -2727,7 +3134,7 @@ const ColistCardSkeleton = () => (
 );
 
 /* ─── Feed View ───────────────────────────────────────────────────────────── */
-const ColistFeed = memo(({ onOpenReader, onCreateClick, currentUser }) => {
+const ColistFeed = memo(({ onOpenReader, currentUser }) => {
   const uid = currentUser?.uid;
   const [colists, setColists] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -3361,11 +3768,7 @@ const Colists = () => {
           currentUser={currentUser}
         />
       ) : (
-        <ColistFeed
-          onOpenReader={handleOpenReader}
-          onCreateClick={handleCreateClick}
-          currentUser={currentUser}
-        />
+        <ColistFeed onOpenReader={handleOpenReader} currentUser={currentUser} />
       )}
 
       {/* Create FAB */}
@@ -3407,9 +3810,22 @@ const Colists = () => {
               if (slug === "new") navigate("/colists");
             }}
             userData={userData}
-            onPublish={(s) => {
+            currentUser={currentUser}
+            onPublish={(newSlugStr) => {
               setShowEditor(false);
-              navigate(`/colists/${s}`);
+              // If it was an existing draft, newSlugStr might be "published".
+              // We grab the actual slug from the current URL to ensure a clean redirect.
+              const currentPath = window.location.pathname;
+              let finalSlug = newSlugStr;
+
+              if (newSlugStr === "published") {
+                // Extract the true slug from /colists/the-actual-slug/unpublished
+                const pathParts = currentPath.split("/");
+                // e.g. ["", "colists", "my-slug-123456", "unpublished"]
+                finalSlug = pathParts[2];
+              }
+
+              navigate(`/colists/${finalSlug}`);
             }}
             forkOf={null}
           />
@@ -3426,6 +3842,7 @@ const Colists = () => {
               setForkTarget(null);
             }}
             userData={userData}
+            currentUser={currentUser}
             onForked={(s) => {
               setShowForkModal(false);
               setForkTarget(null);
