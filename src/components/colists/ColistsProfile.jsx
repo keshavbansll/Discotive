@@ -81,6 +81,7 @@ import {
   List,
   Search,
   Trash,
+  Trash2,
 } from "lucide-react";
 
 /* ─── Design Tokens (mirrors Discotive Gold & Void system) ──────────────── */

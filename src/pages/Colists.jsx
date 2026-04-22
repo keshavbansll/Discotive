@@ -3282,7 +3282,7 @@ const ColistEditor = memo(
           return;
         }
 
-        const fileName = `cover_${Date.now()}.jpg`;
+        const fileName = `cover_${createBlockId()}.jpg`;
         const storageRef = ref(
           storage,
           `colist_covers/${currentUser.uid}/${fileName}`,
@@ -3473,10 +3473,40 @@ const ColistEditor = memo(
     const [draftId, setDraftId] = useState(
       initialColist ? initialColist.id : null,
     );
+    const isInitialRender = useRef(true);
+
+    const isDraftEmptyAndNew = useCallback(() => {
+      if (draftId) return false; // Existing draft in DB
+      if (title.trim() !== "") return false;
+      if (subtext.trim() !== "") return false;
+      if (description.trim() !== "") return false;
+      if (tags.length > 0) return false;
+      if (blocks.length > 1) return false;
+
+      // Deep verification of the single initial block
+      if (blocks.length === 1) {
+        const b = blocks[0];
+        if (
+          b.title?.trim() ||
+          b.url?.trim() ||
+          b.youtubeId?.trim() ||
+          b.author?.trim()
+        )
+          return false;
+        // TipTap normalizes empty strings to <p></p>, so we explicitly ignore it
+        if (
+          b.content &&
+          b.content.trim() !== "" &&
+          b.content.trim() !== "<p></p>"
+        )
+          return false;
+      }
+      return true;
+    }, [draftId, title, subtext, description, tags, blocks]);
 
     useEffect(() => {
       const handleBeforeUnload = (e) => {
-        if (saveState !== "saved") {
+        if (saveState !== "saved" && !isDraftEmptyAndNew()) {
           e.preventDefault();
           e.returnValue = "";
         }
@@ -3484,10 +3514,10 @@ const ColistEditor = memo(
       window.addEventListener("beforeunload", handleBeforeUnload);
       return () =>
         window.removeEventListener("beforeunload", handleBeforeUnload);
-    }, [saveState]);
+    }, [saveState, isDraftEmptyAndNew]);
 
     const handleCloseClick = useCallback(() => {
-      if (saveState !== "saved") {
+      if (saveState !== "saved" && !isDraftEmptyAndNew()) {
         if (
           !window.confirm(
             "You have unsaved changes. Are you sure you want to exit?",
@@ -3497,14 +3527,27 @@ const ColistEditor = memo(
         }
       }
       onClose();
-    }, [saveState, onClose]);
+    }, [saveState, onClose, isDraftEmptyAndNew]);
 
     useEffect(() => {
+      if (isInitialRender.current) {
+        isInitialRender.current = false;
+        return;
+      }
       const timer = setTimeout(() => {
         setSaveState((prev) => (prev !== "unsaved" ? "unsaved" : prev));
       }, 0);
       return () => clearTimeout(timer);
-    }, [title, subtext, description, tags, coverIdx, textColor, blocks]);
+    }, [
+      title,
+      subtext,
+      description,
+      tags,
+      coverIdx,
+      coverUrl,
+      textColor,
+      blocks,
+    ]);
 
     // Utility to generate the specific draft slug format
     const generateDraftSlug = useCallback((baseTitle) => {
@@ -3546,7 +3589,7 @@ const ColistEditor = memo(
           coverUrl: coverUrl || null,
           textColor,
           blocks: validBlocks,
-          isPublic: true,
+          // CRITICAL FIX: Removed isPublic: true to prevent auto-save from leaking drafts
           ...(isActuallyAdmin
             ? { verificationTier: "original", colistScore: 100 }
             : {}), // Admin Auto-mint Original
@@ -3594,6 +3637,7 @@ const ColistEditor = memo(
       description,
       tags,
       coverIdx,
+      coverUrl,
       textColor,
       validBlocks,
       draftId,
@@ -3664,7 +3708,7 @@ const ColistEditor = memo(
           setTagInput("");
         } else setTagInput(val);
       },
-      [tags],
+      [tags, setTags, setTagInput],
     );
 
     const handlePublish = async () => {
@@ -3696,6 +3740,7 @@ const ColistEditor = memo(
           description: description.trim(),
           tags: finalTags,
           coverGradient: COVER_GRADIENTS[coverIdx],
+          coverUrl: coverUrl || null, // CRITICAL FIX: Prevent cover wipe on publish
           textColor,
           blocks: validBlocks,
           isPublic: true,
