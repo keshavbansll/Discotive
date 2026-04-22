@@ -3186,7 +3186,7 @@ const ColistEditor = memo(
 
           // Silently update the URL to /colists/[slug]/unpublished
           window.history.replaceState(
-            null,
+            window.history.state || { modal: "editor" },
             "",
             `/colists/${currentSlug}/unpublished`,
           );
@@ -4482,7 +4482,25 @@ const Colists = () => {
   const handleEdit = useCallback((colist) => {
     setEditColistTarget(colist);
     setShowEditor(true);
+    // Elevate UX: Update the URL to reflect the draft without unmounting the profile backdrop
+    window.history.pushState(
+      { modal: "editor" },
+      "",
+      `/colists/${colist.slug || colist.id}/unpublished`,
+    );
   }, []);
+
+  // Architect Grade: Ensure browser back button elegantly closes the editor modal
+  useEffect(() => {
+    const handlePopState = () => {
+      if (showEditor && !window.location.pathname.includes("/unpublished")) {
+        setShowEditor(false);
+        setEditColistTarget(null);
+      }
+    };
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, [showEditor]);
 
   return (
     <>
@@ -4559,7 +4577,16 @@ const Colists = () => {
             onClose={() => {
               setShowEditor(false);
               setEditColistTarget(null);
-              if (slug === "new") navigate("/colists");
+              if (slug === "new") {
+                navigate("/colists");
+              } else if (window.location.pathname.includes("/unpublished")) {
+                // Intelligent cleanup: revert URL to profile seamlessly
+                if (window.history.state?.modal === "editor") {
+                  window.history.back();
+                } else {
+                  window.history.replaceState(null, "", "/colists/profile");
+                }
+              }
             }}
             userData={userData}
             currentUser={currentUser}
