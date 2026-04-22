@@ -94,7 +94,7 @@ const Header = React.memo(
               ) : (
                 <>
                   <p className="font-extrabold text-sm text-white truncate">
-                    {userData?.identity?.firstName}{" "}
+                    {userData?.identity?.firstName}
                     {userData?.identity?.lastName}
                   </p>
                   <p className="text-[10px] md:text-xs text-[#888] font-mono truncate">
@@ -115,8 +115,8 @@ const Header = React.memo(
               </button>
             ) : (
               <a
-                href="/app/profile"
-                onClick={(e) => handleInstantNav("/app/profile", e)}
+                href="/colists/profile"
+                onClick={(e) => handleInstantNav("/colists/profile", e)}
                 className="text-blue-400 text-xs font-bold hover:text-blue-300 transition-colors"
               >
                 View full profile
@@ -354,7 +354,9 @@ const ColistsLayout = () => {
   }, []);
 
   const isReaderView =
-    location.pathname !== "/colists" && location.pathname !== "/colists/new";
+    location.pathname !== "/colists" &&
+    location.pathname !== "/colists/new" &&
+    location.pathname !== "/colists/profile";
 
   return (
     <div className="flex flex-col h-[100dvh] w-full fixed inset-0 overflow-hidden bg-[#030303]">
@@ -396,12 +398,15 @@ const ColistsLayout = () => {
               icon: BookOpen,
               path: "/colists",
               label: "Colists",
-              active: true,
+              active:
+                location.pathname === "/colists" ||
+                location.pathname === "/colists/new",
             },
             currentUser && {
               icon: User,
-              path: "/app/profile",
+              path: "/colists/profile",
               label: "Profile",
+              active: location.pathname === "/colists/profile",
             },
           ]
             .filter(Boolean)

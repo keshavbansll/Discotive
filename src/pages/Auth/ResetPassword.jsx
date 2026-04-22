@@ -217,7 +217,7 @@ export default function ResetPassword() {
         {(status === "ready" || status === "loading") && (
           <form onSubmit={handleSubmit} className="flex flex-col gap-5 mt-6">
             <p className="text-sm text-white/60 text-center mb-2">
-              Updating credentials for{" "}
+              Updating credentials for
               <strong className="text-white">{email}</strong>
             </p>
 

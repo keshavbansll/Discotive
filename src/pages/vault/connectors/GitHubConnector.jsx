@@ -882,7 +882,7 @@ const SyncModal = memo(
                             <>
                               <span>·</span>
                               <span className="flex items-center gap-0.5">
-                                <Star className="w-2.5 h-2.5" />{" "}
+                                <Star className="w-2.5 h-2.5" />
                                 {repo.stargazers_count}
                               </span>
                             </>
@@ -1692,7 +1692,7 @@ const GitHubConnector = ({ userData, onVaultAssetAdded, addToast }) => {
                           className={`relative z-10 flex items-center justify-between ${isPending ? "opacity-20" : ""}`}
                         >
                           <div className="flex items-center gap-1.5 text-[10px] font-black font-mono text-[#f59e0b]">
-                            <Star className="w-3 h-3" />{" "}
+                            <Star className="w-3 h-3" />
                             {fmtNum(asset.credentials?.stars || 0)}
                           </div>
                           {!isPending && (
@@ -1828,7 +1828,7 @@ const GitHubConnector = ({ userData, onVaultAssetAdded, addToast }) => {
                             <div className="flex items-center justify-between text-[9px] font-mono text-white/40 mb-3">
                               <span>{repo.language || "Mixed"}</span>
                               <span className="flex items-center gap-0.5">
-                                <Star className="w-3 h-3 text-amber-500" />{" "}
+                                <Star className="w-3 h-3 text-amber-500" />
                                 {fmtNum(repo.stargazers_count)}
                               </span>
                             </div>
@@ -1888,7 +1888,7 @@ const GitHubConnector = ({ userData, onVaultAssetAdded, addToast }) => {
                       <ChevronLeft className="w-4 h-4 text-white" />
                     </button>
                     <span className="text-[11px] font-black font-mono text-white/50 px-2">
-                      {repoPage} /{" "}
+                      {repoPage} /
                       {Math.ceil(
                         repos.filter(
                           (r) =>

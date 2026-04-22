@@ -320,8 +320,8 @@ export const DCIExportTemplate = ({
               <Text style={styles.sectionTitle}>Operator Synthesis</Text>
               <Text style={styles.paragraph}>
                 <Text style={styles.boldText}>Trajectory Analysis: </Text>
-                {data.firstName} is a Level {level} Operator specializing in{" "}
-                {data.domain}. With a Discotive Score of{" "}
+                {data.firstName} is a Level {level} Operator specializing in
+                {data.domain}. With a Discotive Score of
                 {data.score.toLocaleString()}, this profile indicates a
                 compounding trajectory in {data.niche}. The operator has
                 currently secured {assetsCount} verified assets on the protocol

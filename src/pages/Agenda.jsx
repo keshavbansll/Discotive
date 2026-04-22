@@ -323,7 +323,7 @@ const SaveStatus = memo(({ status, isMobile }) => (
         )}
         style={{ color: "#f59e0b" }}
       >
-        <Loader2 size={isMobile ? 18 : 10} className="animate-spin" />{" "}
+        <Loader2 size={isMobile ? 18 : 10} className="animate-spin" />
         {!isMobile && "Saving"}
       </motion.div>
     )}
@@ -1876,7 +1876,7 @@ const AgendaEditor = memo(
                         color: isPublic ? G.bright : T.dim,
                       }}
                     >
-                      {isPublic ? <Globe size={11} /> : <Lock size={11} />}{" "}
+                      {isPublic ? <Globe size={11} /> : <Lock size={11} />}
                       {isPublic ? "Public" : "Private"}
                     </button>
                     <button
@@ -2325,12 +2325,7 @@ const AgendaPage = () => {
         className="h-full min-h-full flex flex-col items-center justify-center"
         style={{ background: V.bg }}
       >
-        {" "}
-        <Loader2
-          size={24}
-          className="animate-spin"
-          style={{ color: G.base }}
-        />{" "}
+        <Loader2 size={24} className="animate-spin" style={{ color: G.base }} />
       </div>
     );
   }
@@ -2358,15 +2353,14 @@ const AgendaPage = () => {
         className="h-full min-h-full flex flex-col pb-24 select-none relative overflow-y-auto custom-scrollbar"
         style={{ background: V.bg }}
       >
-        {/* Background noise and animated ambient gradients */}{" "}
+        {/* Background noise and animated ambient gradients */}
         <div className="absolute inset-0 z-0 pointer-events-none">
-          {" "}
           <div
             className="absolute inset-0 opacity-[0.03] mix-blend-overlay"
             style={{
               backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E")`,
             }}
-          />{" "}
+          />
           <motion.div
             animate={{ opacity: [0.3, 0.6, 0.3], scale: [1, 1.05, 1] }}
             transition={{ duration: 10, repeat: Infinity, ease: "easeInOut" }}
@@ -2375,32 +2369,29 @@ const AgendaPage = () => {
               background:
                 "radial-gradient(circle, rgba(191,162,100,0.15) 0%, transparent 70%)",
             }}
-          />{" "}
+          />
         </div>
         {!showMobileEditor && (
           <>
-            {/* Header */}{" "}
+            {/* Header */}
             <div className="relative z-10 px-5 pt-8 pb-4">
-              {" "}
               <div className="flex items-center justify-between">
-                {" "}
                 <div>
-                  {" "}
                   <motion.h1
                     layout
                     className="text-2xl font-black font-display tracking-tight"
                     style={{ color: T.primary }}
                   >
-                    {displayDate}{" "}
-                  </motion.h1>{" "}
+                    {displayDate}
+                  </motion.h1>
                   <motion.p
                     layout
                     className="text-sm font-medium mt-0.5"
                     style={{ color: T.dim }}
                   >
-                    {displayDay}{" "}
-                  </motion.p>{" "}
-                </div>{" "}
+                    {displayDay}
+                  </motion.p>
+                </div>
                 <button
                   onClick={() => setIsCalendarExpanded(!isCalendarExpanded)}
                   className="p-3 rounded-full transition-all"
@@ -2412,13 +2403,12 @@ const AgendaPage = () => {
                     color: isCalendarExpanded ? G.bright : T.primary,
                   }}
                 >
-                  <Calendar size={20} />{" "}
-                </button>{" "}
-              </div>{" "}
+                  <Calendar size={20} />
+                </button>
+              </div>
             </div>
-            {/* Calendar (collapsible) */}{" "}
+            {/* Calendar (collapsible) */}
             <AnimatePresence initial={false}>
-              {" "}
               {isCalendarExpanded && (
                 <motion.div
                   initial={{ height: 0, opacity: 0 }}
@@ -2428,9 +2418,7 @@ const AgendaPage = () => {
                   className="px-2 overflow-hidden relative z-10"
                   style={{ background: "transparent" }}
                 >
-                  {" "}
                   <div className="pb-6">
-                    {" "}
                     <CalendarMini
                       selectedDate={selectedDate}
                       onSelect={(ds) => {
@@ -2439,14 +2427,13 @@ const AgendaPage = () => {
                       }}
                       entryDates={entryDates}
                       today={today}
-                    />{" "}
-                  </div>{" "}
+                    />
+                  </div>
                 </motion.div>
-              )}{" "}
+              )}
             </AnimatePresence>
-            {/* Sliding Tabs */}{" "}
+            {/* Sliding Tabs */}
             <div className="px-5 mb-6 relative z-10">
-              {" "}
               <div
                 className="flex p-1 rounded-2xl relative"
                 style={{
@@ -2454,7 +2441,6 @@ const AgendaPage = () => {
                   border: "1px solid rgba(255,255,255,0.06)",
                 }}
               >
-                {" "}
                 {[
                   { id: "list", label: "List View", icon: List },
                   { id: "grid", label: "Thumbnails", icon: Grid },
@@ -2465,7 +2451,6 @@ const AgendaPage = () => {
                     className="relative flex-1 py-2.5 text-xs font-bold flex items-center justify-center gap-2 z-10 transition-colors duration-300"
                     style={{ color: view === t.id ? "#000" : T.dim }}
                   >
-                    {" "}
                     {view === t.id && (
                       <motion.div
                         layoutId="mobileTabIndicator"
@@ -2479,21 +2464,19 @@ const AgendaPage = () => {
                       />
                     )}
                     <t.icon size={14} className="relative z-20" />
-                    <span className="relative z-20">{t.label}</span>{" "}
+                    <span className="relative z-20">{t.label}</span>
                   </button>
-                ))}{" "}
-              </div>{" "}
+                ))}
+              </div>
             </div>
-            {/* Entry list */}{" "}
+            {/* Entry list */}
             <div className="px-5 relative z-10">
-              {" "}
               {entriesLoading ? (
                 <div
                   className={
                     view === "grid" ? "grid grid-cols-2 gap-3" : "space-y-3"
                   }
                 >
-                  {" "}
                   {Array(4)
                     .fill(0)
                     .map((_, i) => (
@@ -2502,34 +2485,31 @@ const AgendaPage = () => {
                         className={`rounded-3xl animate-pulse ${view === "grid" ? "aspect-square" : "h-24"}`}
                         style={{ background: "rgba(255,255,255,0.03)" }}
                       />
-                    ))}{" "}
+                    ))}
                 </div>
               ) : entries.length === 0 ? (
                 <div className="py-16 flex flex-col items-center justify-center text-center">
-                  {" "}
                   <div
                     className="w-16 h-16 rounded-full flex items-center justify-center mb-4"
                     style={{ background: "rgba(255,255,255,0.02)" }}
                   >
-                    {" "}
                     <BookOpen
                       size={24}
                       style={{ color: "rgba(255,255,255,0.2)" }}
-                    />{" "}
-                  </div>{" "}
+                    />
+                  </div>
                   <p
                     className="text-sm font-black"
                     style={{ color: T.primary }}
                   >
                     No entries yet.
-                  </p>{" "}
+                  </p>
                   <p className="text-[11px] mt-1.5" style={{ color: T.dim }}>
                     Tap + to log your execution.
-                  </p>{" "}
+                  </p>
                 </div>
               ) : view === "grid" ? (
                 <div className="grid grid-cols-2 gap-3">
-                  {" "}
                   {entries.map((entry) => (
                     <DesktopEntryCard
                       key={entry.dateStr}
@@ -2542,11 +2522,10 @@ const AgendaPage = () => {
                       }}
                       isToday={entry.dateStr === today}
                     />
-                  ))}{" "}
+                  ))}
                 </div>
               ) : (
                 <div className="space-y-2">
-                  {" "}
                   {entries.map((entry) => (
                     <SwipeableEntryCard
                       key={entry.dateStr}
@@ -2558,13 +2537,13 @@ const AgendaPage = () => {
                       }}
                       isToday={entry.dateStr === today}
                     />
-                  ))}{" "}
+                  ))}
                 </div>
-              )}{" "}
+              )}
             </div>
           </>
         )}
-        {/* Huge Plus FAB */}{" "}
+        {/* Huge Plus FAB */}
         {!showMobileEditor && (
           <motion.button
             whileHover={{ scale: 1.05 }}
@@ -2580,7 +2559,7 @@ const AgendaPage = () => {
               boxShadow: "0 10px 30px rgba(191,162,100,0.3)",
             }}
           >
-            <Plus size={32} strokeWidth={2.5} />{" "}
+            <Plus size={32} strokeWidth={2.5} />
           </motion.button>
         )}
         {/* Full Screen Mobile Editor Modal (Viewport Optimized) */}

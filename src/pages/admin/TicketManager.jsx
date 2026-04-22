@@ -213,7 +213,7 @@ const TicketRow = ({ ticket, onToggleStatus, onExpand, expanded }) => {
                 <div className="flex items-center gap-2 p-3 bg-red-500/5 border border-red-500/10 rounded-xl">
                   <AlertTriangle className="w-3.5 h-3.5 text-red-400 shrink-0" />
                   <p className="text-[10px] text-red-400/70 font-bold">
-                    Auto-deletes{" "}
+                    Auto-deletes
                     {timeAgo(
                       ticket.deleteAt?.toDate
                         ? ticket.deleteAt.toDate()
@@ -222,7 +222,7 @@ const TicketRow = ({ ticket, onToggleStatus, onExpand, expanded }) => {
                               (Date.now() -
                                 (ticket.deleteAt?.seconds * 1000 || 0)),
                           ),
-                    )}{" "}
+                    )}
                     — 48h after closing
                   </p>
                 </div>
@@ -380,7 +380,7 @@ const TicketManager = () => {
                     : "bg-[#0a0a0c] border-white/[0.05] text-white/40 hover:text-white",
                 )}
               >
-                {f.label}{" "}
+                {f.label}
                 <span className="font-mono ml-1 text-[8px] opacity-60">
                   ({f.count})
                 </span>

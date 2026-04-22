@@ -142,3 +142,28 @@ body.map-fullscreen-active #root > div {
 }
 
 /* Custom cursors removed — OS hardware-accelerated cursors restore input latency */
+
+.ProseMirror {
+  outline: none;
+  min-height: 100%;
+}
+.ProseMirror p.is-editor-empty:first-child::before {
+  color: var(--tt-color);
+  content: attr(data-placeholder);
+  float: left;
+  height: 0;
+  pointer-events: none;
+  opacity: 0.4;
+}
+.ProseMirror iframe {
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  margin-top: 1rem;
+}
+.ProseMirror blockquote {
+  border-left: 3px solid #a855f7;
+  padding-left: 1rem;
+  font-style: italic;
+  font-size: 1.2rem;
+  margin: 1rem 0;
+}

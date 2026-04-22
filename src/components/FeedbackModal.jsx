@@ -267,7 +267,7 @@ const FeedbackModal = ({ isOpen, onClose, user }) => {
                 {/* ── 2. RECOMMENDATION SELECTOR ── */}
                 <div>
                   <h4 className="text-[13px] md:text-sm font-medium text-white mb-3 leading-tight">
-                    How would you rate the efficiency of Discotive?{" "}
+                    How would you rate the efficiency of Discotive?
                     <span className="text-[#f59e0b]">*</span>
                   </h4>
                   <div className="grid grid-cols-2 gap-2">

@@ -138,7 +138,7 @@ export default function Contact() {
           className="text-center mb-16"
         >
           <div className="text-[9px] font-black text-[#D4AF37]/60 uppercase tracking-[0.3em] mb-5 flex items-center justify-center gap-3">
-            <div className="h-px w-8 bg-[#D4AF37]/40" /> Signal Us{" "}
+            <div className="h-px w-8 bg-[#D4AF37]/40" /> Signal Us
             <div className="h-px w-8 bg-[#D4AF37]/40" />
           </div>
           <h1

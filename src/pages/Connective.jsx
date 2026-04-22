@@ -318,7 +318,7 @@ const IntelligenceHub = ({
                         Slots
                       </span>
                       <span className="text-[#BFA264] flex items-center gap-1">
-                        <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />{" "}
+                        <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
                         {onlineCount} ONLINE
                       </span>
                     </p>

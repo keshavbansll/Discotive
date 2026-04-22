@@ -482,7 +482,7 @@ const FeedbackManager = () => {
                       : "bg-[#0a0a0c] border-white/[0.05] text-white/40 hover:text-white",
                   )}
                 >
-                  All{" "}
+                  All
                   <span className="font-mono ml-1 text-[8px] opacity-60">
                     ({stats.total})
                   </span>

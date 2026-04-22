@@ -1006,7 +1006,7 @@ export const NotificationPage = ({ userData, patchLocalData }) => {
             </h1>
           </div>
           <p className="text-xs" style={{ color: T.dim }}>
-            {notifications.length} total ·{" "}
+            {notifications.length} total ·
             {isMobile ? "Swipe left to delete" : "Hover to delete"}
           </p>
         </div>
@@ -1053,7 +1053,7 @@ export const NotificationPage = ({ userData, patchLocalData }) => {
                       <CheckCircle2
                         className="w-3.5 h-3.5"
                         style={{ color: "#4ADE80" }}
-                      />{" "}
+                      />
                       Mark all as read
                     </button>
                     {notifications.length > 0 && (

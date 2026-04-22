@@ -115,7 +115,7 @@ const ReportRow = ({ report, onUpdateStatus, expanded, onExpand }) => {
           </div>
           <div className="flex items-center gap-2">
             <span className="text-[10px] text-white/30 font-mono">
-              {report.targetType}{" "}
+              {report.targetType}
               {report.targetUsername ? `· @${report.targetUsername}` : ""}
             </span>
             <span className="text-[10px] text-white/20">
@@ -340,7 +340,7 @@ const ReportManager = () => {
                     : "bg-[#0a0a0c] border-white/[0.05] text-white/40 hover:text-white",
                 )}
               >
-                {f.key}{" "}
+                {f.key}
                 <span className="font-mono ml-1 text-[8px] opacity-60">
                   ({f.count})
                 </span>

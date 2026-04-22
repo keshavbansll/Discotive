@@ -993,7 +993,7 @@ const PlayerRow = ({
             </span>
           </div>
           <p className="text-[9px] text-white/20 mt-0.5 truncate">
-            {player.identity?.domain || "—"} ·{" "}
+            {player.identity?.domain || "—"} ·
             {player.identity?.niche || "General"}
           </p>
         </div>
@@ -1736,7 +1736,7 @@ const Leaderboard = () => {
               <p className="text-[9px] text-white/30 font-bold uppercase tracking-widest ml-7">
                 {totalCount > 0
                   ? `${totalCount.toLocaleString()} operators`
-                  : "Live rankings"}{" "}
+                  : "Live rankings"}
                 · Page {page}
               </p>
             </div>
@@ -1853,7 +1853,7 @@ const Leaderboard = () => {
           <div className="flex items-center gap-2.5">
             <Lock className="w-4 h-4 text-amber-500 shrink-0" />
             <p className="text-xs font-bold text-amber-400">
-              Preview Mode —{" "}
+              Preview Mode —
               <span className="text-[#777] font-medium">
                 Complete onboarding to appear in rankings and access X-Ray
                 analytics.
@@ -2201,7 +2201,7 @@ const Leaderboard = () => {
                             <span className="font-black ml-1 text-red-300">
                               (+
                               {(nextTarget.discotiveScore?.current || 0) -
-                                (userData?.discotiveScore?.current || 0)}{" "}
+                                (userData?.discotiveScore?.current || 0)}
                               pts)
                             </span>
                           </span>

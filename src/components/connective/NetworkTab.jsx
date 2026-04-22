@@ -737,7 +737,7 @@ const BattlefieldPanel = ({ competitors, userData, onExpand }) => {
                   {(arenaTarget.targetScore || 0).toLocaleString()}
                 </span>
                 <span className="text-[9px] text-[rgba(245,240,232,0.40)] uppercase tracking-widest mt-1.5 flex items-center gap-1">
-                  <Flame className="w-3 h-3 text-orange-400" />{" "}
+                  <Flame className="w-3 h-3 text-orange-400" />
                   {arenaTarget.targetStreak || 0}d
                 </span>
               </div>

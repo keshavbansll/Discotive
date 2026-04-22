@@ -1139,7 +1139,7 @@ function StepLogin({
 
       <div style={{ marginTop: 24, textAlign: "center" }}>
         <p style={{ fontSize: 13, color: "var(--text-secondary)" }}>
-          Don't have an account?{" "}
+          Don't have an account?
           <button
             onClick={onSwitch}
             style={{
@@ -1335,14 +1335,14 @@ function StepAuth({ onSubmit, onOAuth, onSwitch, loading, error }) {
           disabled={loading}
           style={{ marginTop: 4 }}
         >
-          {loading ? <Spinner size={14} color="#0a0a0a" /> : "Continue"}{" "}
+          {loading ? <Spinner size={14} color="#0a0a0a" /> : "Continue"}
           {!loading && <ChevronRight />}
         </button>
       </form>
 
       <div style={{ marginTop: 24, textAlign: "center" }}>
         <p style={{ fontSize: 13, color: "var(--text-secondary)" }}>
-          Already an operator?{" "}
+          Already an operator?
           <button
             type="button"
             onClick={onSwitch}
@@ -1536,7 +1536,7 @@ function StepVerifyEmail({ email, firstName, onVerified, onBack }) {
             lineHeight: 1.65,
           }}
         >
-          6-digit code sent to{" "}
+          6-digit code sent to
           <strong style={{ color: "var(--text-primary)" }}>{email}</strong>
         </p>
       </div>
@@ -1782,7 +1782,7 @@ function StepIdentity({ onSubmit, onBack, loading, error }) {
               loading || checking || username.length < 3 || available === false
             }
           >
-            {loading ? <Spinner size={14} color="#0a0a0a" /> : "Continue"}{" "}
+            {loading ? <Spinner size={14} color="#0a0a0a" /> : "Continue"}
             {!loading && <ChevronRight />}
           </button>
         </div>
@@ -2042,7 +2042,7 @@ function StepBaseline({ onSubmit, onBack, loading, error }) {
             style={{ flex: 1 }}
             disabled={!currentStatus.length || loading}
           >
-            {loading ? <Spinner size={14} color="#0a0a0a" /> : "Continue"}{" "}
+            {loading ? <Spinner size={14} color="#0a0a0a" /> : "Continue"}
             {!loading && <ChevronRight />}
           </button>
         </div>
@@ -2229,7 +2229,7 @@ function StepIntent({ onSubmit, onBack, loading, error }) {
             style={{ flex: 1 }}
             disabled={!passion || loading}
           >
-            {loading ? <Spinner size={14} color="#0a0a0a" /> : "Continue"}{" "}
+            {loading ? <Spinner size={14} color="#0a0a0a" /> : "Continue"}
             {!loading && <ChevronRight />}
           </button>
         </div>
@@ -2548,7 +2548,7 @@ function StepMotivation({ onSubmit, onBack, loading, error }) {
             style={{ flex: 1 }}
             disabled={selected.length === 0 || loading}
           >
-            {loading ? <Spinner size={14} color="#0a0a0a" /> : "Continue"}{" "}
+            {loading ? <Spinner size={14} color="#0a0a0a" /> : "Continue"}
             {!loading && <ChevronRight />}
           </button>
         </div>
@@ -2681,9 +2681,9 @@ function StepPremium({ firstName, onUpgrade, onSkip, loading }) {
             margin: "0 auto",
           }}
         >
-          You're on{" "}
+          You're on
           <strong style={{ color: "var(--text-primary)" }}>Essential</strong>.
-          Upgrade to Pro for{" "}
+          Upgrade to Pro for
           <strong style={{ color: "var(--gold-2)" }}>₹139/month</strong> and
           unlock the full OS.
         </p>

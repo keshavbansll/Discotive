@@ -80,7 +80,7 @@ const Upgrade = () => {
                 key={feature}
                 className="flex items-center gap-3 text-slate-200 text-sm font-medium"
               >
-                <Check className="w-5 h-5 text-primary-400 shrink-0" />{" "}
+                <Check className="w-5 h-5 text-primary-400 shrink-0" />
                 {feature}
               </li>
             ))}

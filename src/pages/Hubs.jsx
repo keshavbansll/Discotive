@@ -103,7 +103,7 @@ const Hubs = () => {
             transition={{ delay: 0.2 }}
             className="flex items-center gap-3 bg-[#0a0a0a] border border-[#333] text-white px-8 py-4 rounded-full font-extrabold text-sm hover:bg-[#111] hover:border-[#555] transition-colors shadow-2xl shrink-0 group"
           >
-            <Navigation className="w-5 h-5 group-hover:rotate-45 transition-transform duration-300" />{" "}
+            <Navigation className="w-5 h-5 group-hover:rotate-45 transition-transform duration-300" />
             View Global Map
           </motion.button>
         </div>
@@ -168,7 +168,7 @@ const Hubs = () => {
                 </div>
                 <div className="bg-[#050505] border border-[#222] rounded-2xl p-5 hidden md:block hover:border-green-500/30 transition-colors group">
                   <p className="text-[10px] font-bold text-[#666] uppercase tracking-[0.2em] mb-2 flex items-center gap-1.5 group-hover:text-green-500 transition-colors">
-                    <ShieldCheck className="w-3 h-3 text-[#888] group-hover:text-green-500" />{" "}
+                    <ShieldCheck className="w-3 h-3 text-[#888] group-hover:text-green-500" />
                     Scouts
                   </p>
                   <p className="text-3xl font-extrabold text-white tracking-tighter group-hover:text-green-400">
@@ -241,7 +241,7 @@ const Hubs = () => {
         <div className="pt-8">
           <div className="flex items-center justify-between mb-8 border-b border-[#222] pb-6">
             <h3 className="text-2xl font-extrabold text-white tracking-tight flex items-center gap-3">
-              Global Network{" "}
+              Global Network
               <span className="text-xs font-mono text-[#666] bg-[#111] px-3 py-1 rounded-full border border-[#222]">
                 3 HUBS
               </span>
@@ -279,7 +279,7 @@ const Hubs = () => {
 
                 <div className="mt-auto pt-6 border-t border-[#222] flex items-center justify-between">
                   <div className="flex items-center gap-2 text-[10px] font-bold text-[#888] uppercase tracking-[0.2em]">
-                    <Activity className="w-3.5 h-3.5 text-[#444]" /> Load:{" "}
+                    <Activity className="w-3.5 h-3.5 text-[#444]" /> Load:
                     {hub.capacity}%
                   </div>
                   <div className="w-10 h-10 rounded-full border border-[#333] flex items-center justify-center group-hover:bg-white group-hover:text-black group-hover:border-white transition-all">

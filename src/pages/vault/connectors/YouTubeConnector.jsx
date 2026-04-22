@@ -1103,10 +1103,10 @@ const YouTubeConnector = ({ userData, onVaultAssetAdded, addToast }) => {
           className="text-sm mb-6 max-w-sm leading-relaxed"
           style={{ color: T.secondary }}
         >
-          Your channel{" "}
+          Your channel
           <strong style={{ color: T.primary }}>
             {existing?.handle ? `@${existing.handle}` : existing?.channelUrl}
-          </strong>{" "}
+          </strong>
           is under review. You'll be notified once verified.
         </p>
         <div
@@ -1224,7 +1224,7 @@ const YouTubeConnector = ({ userData, onVaultAssetAdded, addToast }) => {
                 All Videos ({videos.length})
               </p>
               <span className="text-[9px] font-mono" style={{ color: T.dim }}>
-                {videos.filter((v) => v.vaultStatus === "VERIFIED").length}{" "}
+                {videos.filter((v) => v.vaultStatus === "VERIFIED").length}
                 verified
               </span>
             </div>

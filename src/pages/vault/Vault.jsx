@@ -960,7 +960,7 @@ const AssetCard = memo(
             className="text-[10px] font-mono truncate"
             style={{ color: T.dim }}
           >
-            {asset.credentials?.issuer || catConfig.label} ·{" "}
+            {asset.credentials?.issuer || catConfig.label} ·
             {formatBytes(asset.size || 0)}
           </p>
         </div>
@@ -2060,7 +2060,7 @@ const ConnectorModal = ({ connector, onClose }) => {
           {connector.description}
         </p>
         <p className="text-xs mb-6" style={{ color: T.dim }}>
-          Deep integration coming in the next release. This will sync your{" "}
+          Deep integration coming in the next release. This will sync your
           {connector.label} assets directly into your Vault.
         </p>
         <div
@@ -2456,7 +2456,7 @@ const Vault = () => {
                 )}
               </div>
               <p className="text-sm" style={{ color: T.secondary }}>
-                {assets.length} assets · {verifiedCount} verified ·{" "}
+                {assets.length} assets · {verifiedCount} verified ·
                 {pendingCount} pending review
               </p>
             </div>

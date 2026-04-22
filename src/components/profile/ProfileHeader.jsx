@@ -104,7 +104,6 @@ export const ProfileHeader = ({
               "Undeclared"}
             {(userData?.identity?.niche || userData?.vision?.niche) && (
               <span className="text-[#444]">
-                {" "}
                 · {userData?.identity?.niche || userData?.vision?.niche}
               </span>
             )}
@@ -136,7 +135,7 @@ export const ProfileHeader = ({
               />
             </div>
             <span className="text-[9px] text-[#444] font-mono">
-              {(score % 1000).toLocaleString()} / 1000 → Lv{" "}
+              {(score % 1000).toLocaleString()} / 1000 → Lv
               {Math.min(level + 1, 10)}
             </span>
           </div>

@@ -156,7 +156,7 @@ const CompareModal = ({ isOpen, onClose, currentUser, targetUser }) => {
                 <div className="hidden sm:flex items-center gap-1.5 px-3 py-1 rounded-full bg-slate-100 dark:bg-white/5 border border-slate-200 dark:border-white/10">
                   <Activity className="w-3 h-3 text-slate-500 dark:text-slate-400" />
                   <span className="text-[10px] font-semibold text-slate-600 dark:text-slate-300 uppercase tracking-widest">
-                    {usageData.count + (hasAccess ? 1 : 0)} / {usageData.limit}{" "}
+                    {usageData.count + (hasAccess ? 1 : 0)} / {usageData.limit}
                     Daily Uses
                   </span>
                 </div>

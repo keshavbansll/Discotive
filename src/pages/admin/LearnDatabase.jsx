@@ -1588,10 +1588,10 @@ const LearnDatabase = () => {
         {!loading && (
           <div className="flex items-center justify-between mb-3">
             <p className="text-[10px] font-bold text-white/25 uppercase tracking-widest">
-              Showing{" "}
+              Showing
               {activeTab === "certs"
                 ? filteredCerts.length
-                : filteredVideos.length}{" "}
+                : filteredVideos.length}
               {activeTab === "certs"
                 ? `of ${certs.length} certificates`
                 : `of ${videos.length} videos`}

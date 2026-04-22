@@ -1272,10 +1272,10 @@ const StreakRiskBanner = memo(({ streak, lastLoginDate, createdAt }) => {
               className="text-[11px] font-bold"
               style={{ color: T.secondary }}
             >
-              Your{" "}
+              Your
               <span className="font-black" style={{ color: "#F87171" }}>
                 {streak}-day streak
-              </span>{" "}
+              </span>
               expires at midnight. Execute a task to maintain momentum.
             </span>
           </div>
@@ -2413,7 +2413,7 @@ const AgendaPreview = memo(({ userData, isPro, navigate }) => {
                 {
                   (latestEntry.content || "").split(/\s+/).filter(Boolean)
                     .length
-                }{" "}
+                }
                 words
               </p>
             </div>

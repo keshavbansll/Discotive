@@ -1634,7 +1634,7 @@ const Learn = () => {
                         <Loader2 className="w-4 h-4 animate-spin" />
                       ) : (
                         <ChevronDown className="w-4 h-4" />
-                      )}{" "}
+                      )}
                       {isPaging ? "Loading..." : "Load More"}
                     </button>
                   </div>

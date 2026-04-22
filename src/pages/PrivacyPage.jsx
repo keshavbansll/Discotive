@@ -157,7 +157,7 @@ const PrivacyPage = () => {
               Trust Layer
             </div>
             <h1 className="text-4xl md:text-6xl font-black tracking-[-0.04em] mb-5 leading-tight">
-              <span className="text-white/90">Privacy</span>{" "}
+              <span className="text-white/90">Privacy</span>
               <span style={goldText}>Protocol.</span>
             </h1>
             <p className="text-white/35 max-w-2xl leading-relaxed mb-6">

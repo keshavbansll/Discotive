@@ -564,7 +564,7 @@ const DetailSidebar = memo(({ opp, userData, onClose, navigate }) => {
                       : "text-red-400",
                 )}
               >
-                {pct}% Probability Percentile —{" "}
+                {pct}% Probability Percentile —
                 {tier === "strong"
                   ? "Strong fit"
                   : tier === "medium"
@@ -1148,7 +1148,7 @@ const Opportunities = () => {
                 </span>
               </div>
               <h1 className="text-2xl md:text-3xl font-black tracking-tight">
-                Opportunities{" "}
+                Opportunities
                 {totalCount > 0 && (
                   <span className="text-[10px] font-black text-white/15 uppercase tracking-widest">
                     {totalCount}+ listings

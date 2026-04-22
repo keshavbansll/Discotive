@@ -508,7 +508,7 @@ const InlineBioEdit = ({ userData, uid, onSaved }) => {
                 <Loader2 className="w-3 h-3 animate-spin" />
               ) : (
                 <Check className="w-3 h-3" />
-              )}{" "}
+              )}
               Save
             </button>
           </div>
@@ -1103,7 +1103,7 @@ const ProofLedger = ({
                 to="/app/vault"
                 className="flex items-center justify-center gap-2 py-3 border border-dashed border-white/[0.06] rounded-2xl text-[9px] font-black text-white/20 hover:text-white/40 hover:border-white/[0.12] transition-all"
               >
-                +{vault.length - 8} more assets in vault{" "}
+                +{vault.length - 8} more assets in vault
                 <ArrowUpRight className="w-2.5 h-2.5" />
               </Link>
             )}
@@ -1356,7 +1356,7 @@ const ProofLedger = ({
                 discotive.in/@
                 <span className="text-[#BFA264]/60">
                   {userData?.identity?.username || "handle"}
-                </span>{" "}
+                </span>
                 — visible to the world.
               </p>
             </div>
@@ -1763,7 +1763,7 @@ const MobileProfile = ({
                       to="/app/vault"
                       className="flex items-center justify-center gap-2 py-3 border border-dashed border-white/[0.06] rounded-2xl text-[9px] font-black text-white/20 hover:text-white/40 transition-all"
                     >
-                      +{vault.length - 10} more in vault{" "}
+                      +{vault.length - 10} more in vault
                       <ArrowUpRight className="w-2.5 h-2.5" />
                     </Link>
                   )}

@@ -2026,7 +2026,7 @@ export default function Landing() {
                 marginTop: 16,
               }}
             >
-              Questions? Contact us at{" "}
+              Questions? Contact us at
               <a
                 href="mailto:discotive@gmail.com"
                 style={{

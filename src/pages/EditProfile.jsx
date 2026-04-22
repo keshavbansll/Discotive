@@ -358,7 +358,7 @@ const EditProfile = () => {
                         disabled={isDisabled}
                         className={`px-4 py-2.5 rounded-xl text-sm font-bold border transition-all ${isSelected ? "bg-white text-black border-white" : "bg-[#111] border-[#333] text-[#888] hover:border-[#666]"} ${isDisabled ? "opacity-30 cursor-not-allowed" : ""}`}
                       >
-                        {skill}{" "}
+                        {skill}
                         {isSelected && <X className="inline w-3 h-3 ml-1" />}
                       </button>
                     );

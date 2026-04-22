@@ -809,8 +809,8 @@ const ProfileTab = memo(({ userData }) => {
             <p className="text-[9px] text-[#444] mt-0.5 truncate">
               {userData?.identity?.domain ||
                 userData?.vision?.passion ||
-                "No domain"}{" "}
-              ·{" "}
+                "No domain"}
+              ·
               {userData?.identity?.niche ||
                 userData?.vision?.niche ||
                 "No niche"}
@@ -1038,7 +1038,7 @@ const PrivacyTab = memo(({ userData, uid, refreshUserData }) => {
           <NeuralNetworkViz />
           <p className="text-[9px] text-[#555] mt-3 leading-relaxed">
             When enabled, anonymised activity patterns train Discotive's AI
-            recommendation models. Your vault assets, score, and identity are{" "}
+            recommendation models. Your vault assets, score, and identity are
             <span className="text-violet-400 font-bold">
               never sold or shared
             </span>
@@ -1197,7 +1197,7 @@ const NotificationsTab = memo(({ userData, uid, refreshUserData }) => {
           <div className="mt-3 flex items-center gap-2 p-3 bg-emerald-500/[0.05] border border-emerald-500/15 rounded-xl">
             <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
             <p className="text-[9px] text-emerald-400/70">
-              Subscribed · Updates go to{" "}
+              Subscribed · Updates go to
               {userData?.identity?.email || auth.currentUser?.email}
             </p>
           </div>
@@ -1813,7 +1813,7 @@ const DangerZoneTab = memo(({ userData, uid }) => {
               Irreversible Actions
             </p>
             <p className="text-[10px] text-red-400/50 leading-relaxed">
-              Everything in this section is{" "}
+              Everything in this section is
               <strong className="text-red-400">permanent</strong> and cannot be
               undone. Your execution ledger, vault assets, and Discotive Score
               will be permanently destroyed.
@@ -1896,7 +1896,7 @@ const DangerZoneTab = memo(({ userData, uid }) => {
                         Terminate Operator?
                       </h3>
                       <p className="text-xs text-[#666] text-center leading-relaxed">
-                        This action is{" "}
+                        This action is
                         <span className="text-rose-400 font-bold">
                           permanent and irreversible
                         </span>

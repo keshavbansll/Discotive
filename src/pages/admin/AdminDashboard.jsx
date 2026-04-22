@@ -565,7 +565,7 @@ const OverviewPanel = memo(({ stats, recentUsers, refreshing }) => {
                         className="text-[9px] font-mono truncate"
                         style={{ color: T.dim }}
                       >
-                        @{user.identity?.username} ·{" "}
+                        @{user.identity?.username} ·
                         {user.identity?.domain || "—"}
                       </p>
                     </div>
@@ -845,7 +845,7 @@ const UsersPanel = memo(() => {
                         @{user.identity?.username} · {user.id.slice(0, 12)}...
                       </p>
                       <p className="text-[10px]" style={{ color: T.dim }}>
-                        {user.identity?.domain || "—"} · Score:{" "}
+                        {user.identity?.domain || "—"} · Score:
                         {score.toLocaleString()}
                       </p>
                     </div>
@@ -1240,7 +1240,7 @@ const ConnectorPanel = memo(() => {
                           className="text-[10px] font-mono"
                           style={{ color: T.dim }}
                         >
-                          @{repo.userUsername} ·{" "}
+                          @{repo.userUsername} ·
                           {repo.credentials?.language || "—"}
                         </p>
                       </div>
@@ -1703,7 +1703,7 @@ const VaultPanel = memo(() => {
                       className="text-[10px] font-mono"
                       style={{ color: T.dim }}
                     >
-                      @{asset.userUsername} · {asset.category || "—"} ·{" "}
+                      @{asset.userUsername} · {asset.category || "—"} ·
                       {timeAgo(asset.uploadedAt)}
                     </p>
                   </div>
@@ -1905,7 +1905,7 @@ const LearnPanel = memo(() => {
                   : "border-white/[0.06] text-white/40 hover:text-white",
               )}
             >
-              {label}{" "}
+              {label}
               <span className="font-mono opacity-60 ml-1">({count})</span>
             </button>
           ))}
@@ -1921,7 +1921,7 @@ const LearnPanel = memo(() => {
             color: G.bright,
           }}
         >
-          <Plus className="w-3.5 h-3.5" /> Add{" "}
+          <Plus className="w-3.5 h-3.5" /> Add
           {tab === "certs" ? "Certificate" : "Video"}
         </button>
       </div>
@@ -2499,7 +2499,7 @@ const OpportunitiesPanel = memo(() => {
                   <Loader2 className="w-3.5 h-3.5 animate-spin" />
                 ) : (
                   <Check className="w-3.5 h-3.5" />
-                )}{" "}
+                )}
                 Save
               </button>
               <button
@@ -2831,7 +2831,7 @@ const ReportsPanel = memo(() => {
                     {r.reason}
                   </p>
                   <p className="text-[10px]" style={{ color: T.dim }}>
-                    {r.targetType} · @{r.reporterUsername || "anon"} ·{" "}
+                    {r.targetType} · @{r.reporterUsername || "anon"} ·
                     {timeAgo(r.createdAt)}
                   </p>
                 </div>

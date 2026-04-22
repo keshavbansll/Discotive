@@ -94,10 +94,10 @@ export const ShortcutsPanel = ({ isOpen, onClose }) => {
             </div>
 
             <p className="text-[9px] text-[#444] mt-5 text-center">
-              Press{" "}
+              Press
               <kbd className="px-1.5 py-0.5 bg-[#111] border border-[#333] rounded text-[8px] font-mono">
                 ?
-              </kbd>{" "}
+              </kbd>
               anytime to toggle this panel.
             </p>
           </motion.div>

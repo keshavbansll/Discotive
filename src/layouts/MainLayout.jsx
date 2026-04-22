@@ -1220,11 +1220,11 @@ const MainLayout = () => {
                                   </div>
                                   <div className="min-w-0 flex-1">
                                     <p className="text-[13px] font-bold text-[#F5F0E8] truncate">
-                                      {user.identity?.firstName}{" "}
+                                      {user.identity?.firstName}
                                       {user.identity?.lastName}
                                     </p>
                                     <p className="text-[10px] text-[rgba(245,240,232,0.40)] font-mono truncate">
-                                      @{user.identity?.username} ·{" "}
+                                      @{user.identity?.username} ·
                                       {user.identity?.domain || "General"}
                                     </p>
                                   </div>
@@ -1232,11 +1232,11 @@ const MainLayout = () => {
                                     <span className="text-[10px] font-black text-[#BFA264] font-mono">
                                       {(
                                         user.discotiveScore?.current || 0
-                                      ).toLocaleString()}{" "}
+                                      ).toLocaleString()}
                                       pts
                                     </span>
                                     <span className="text-[8px] font-bold text-[#555] uppercase tracking-widest mt-0.5">
-                                      Lvl{" "}
+                                      Lvl
                                       {Math.min(
                                         Math.floor(
                                           (user.discotiveScore?.current || 0) /
@@ -1789,17 +1789,17 @@ const MainLayout = () => {
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="font-extrabold text-[#F5F0E8] truncate group-hover:text-white transition-colors">
-                        {userData?.identity?.firstName}{" "}
+                        {userData?.identity?.firstName}
                         {userData?.identity?.lastName}
                       </p>
                       <p className="text-[10px] text-[#F5F0E8]/60 font-mono tracking-widest uppercase truncate">
-                        Lvl{" "}
+                        Lvl
                         {Math.min(
                           Math.floor(
                             (userData?.discotiveScore?.current ?? 0) / 1000,
                           ) + 1,
                           10,
-                        )}{" "}
+                        )}
                         Operator
                       </p>
                     </div>
