@@ -46,6 +46,7 @@ export const db = initializeFirestore(app, {
   localCache: persistentLocalCache({
     tabManager: persistentMultipleTabManager(),
   }),
+  ignoreUndefinedProperties: true, // Drops undefined fields silently instead of crashing
 });
 export const storage = getStorage(app);
 export const functions = getFunctions(app);

@@ -3060,7 +3060,7 @@ const TipTapPageEditor = memo(
         onUpdateRef.current(idxRef.current, {
           ...blockRef.current,
           content: editor.getHTML(),
-          _initialJSON: undefined, // consumed — clear it
+          _initialJSON: null, // CRITICAL: Firestore rejects undefined
         });
 
         // ── Character-count split: enforced at the ProseMirror data layer ──
@@ -3099,7 +3099,7 @@ const TipTapPageEditor = memo(
         onUpdateRef.current(idxRef.current, {
           ...blockRef.current,
           content: editor.getHTML(),
-          _initialJSON: undefined,
+          _initialJSON: null, // CRITICAL: Firestore rejects undefined
         });
 
         // Advance to next slide, passing overflow as rich ProseMirror JSON
@@ -3456,13 +3456,25 @@ const ColistEditor = memo(
 
     const validBlocks = useMemo(
       () =>
-        blocks.filter(
-          (b) =>
-            b.type === "divider" ||
-            b.content?.trim() ||
-            b.url?.trim() ||
-            b.title?.trim(),
-        ),
+        blocks
+          .filter(
+            (b) =>
+              b.type === "divider" ||
+              b.content?.trim() ||
+              b.url?.trim() ||
+              b.title?.trim(),
+          )
+          .map((b) => {
+            // MAANG-GRADE FIX: Firestore violently rejects 'undefined' values.
+            // We must scrub the block payload completely before passing to db.
+            const cleanBlock = { ...b };
+            Object.keys(cleanBlock).forEach((key) => {
+              if (cleanBlock[key] === undefined) {
+                cleanBlock[key] = null;
+              }
+            });
+            return cleanBlock;
+          }),
       [blocks],
     );
 
