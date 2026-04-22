@@ -413,10 +413,11 @@ service cloud.firestore {
     match /colists/{colistId} {
       allow read: if true;
 
-      // PRO/ENTERPRISE only creation
+      // PRO/ENTERPRISE & ADMIN creation clearance
       allow create: if isAuthenticated()
-        && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.tier
-          in ["PRO", "ENTERPRISE"]
+        && (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.tier in ["PRO", "ENTERPRISE", "ADMIN"]
+            || get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == "admin"
+            || isAdmin())
         && request.resource.data.authorId == request.auth.uid
         && request.resource.data.isPublic is bool
         && request.resource.data.title is string

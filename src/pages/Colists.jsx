@@ -41,7 +41,9 @@ import {
   increment,
   arrayUnion,
 } from "firebase/firestore";
-import { db } from "../firebase";
+import { db, storage } from "../firebase";
+import { ref, uploadBytes, getDownloadURL } from "firebase/storage";
+import Cropper from "react-easy-crop";
 import { useAuth } from "../contexts/AuthContext";
 import { useUserData } from "../hooks/useUserData";
 import { cn } from "../lib/cn";
@@ -112,6 +114,10 @@ import {
   Quote as QuoteIcon,
   ListOrdered,
   Code as CodeIcon,
+  Headphones,
+  Image as ImageIcon,
+  UploadCloud,
+  Crop,
 } from "lucide-react";
 import {
   useEditor,
@@ -266,6 +272,48 @@ const estimateReadTime = (blocks = []) => {
 
 const createBlockId = () =>
   `blk_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 5)}`;
+
+/* ─── Canvas Cropping Utility ────────────────────────────────────────────── */
+const createImage = (url) =>
+  new Promise((resolve, reject) => {
+    const image = new Image();
+    image.addEventListener("load", () => resolve(image));
+    image.addEventListener("error", (error) => reject(error));
+    image.setAttribute("crossOrigin", "anonymous");
+    image.src = url;
+  });
+
+const getCroppedImg = async (imageSrc, pixelCrop) => {
+  const image = await createImage(imageSrc);
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d");
+
+  // Exact 1280x720 Target Size
+  canvas.width = 1280;
+  canvas.height = 720;
+
+  ctx.drawImage(
+    image,
+    pixelCrop.x,
+    pixelCrop.y,
+    pixelCrop.width,
+    pixelCrop.height,
+    0,
+    0,
+    1280,
+    720,
+  );
+
+  return new Promise((resolve) => {
+    canvas.toBlob(
+      (blob) => {
+        resolve(blob);
+      },
+      "image/jpeg",
+      0.85, // High quality compression
+    );
+  });
+};
 
 /* ─── Progress Tracking (localStorage) ─────────────────────────────────── */
 const PROGRESS_KEY = (uid, colistId) => `colist_progress_${uid}_${colistId}`;
@@ -849,6 +897,224 @@ const DividerBlock = memo(() => (
   </div>
 ));
 
+const PodcastBlock = memo(({ block }) => {
+  const getEmbedUrl = (rawUrl) => {
+    if (!rawUrl) return null;
+    let parsed = rawUrl;
+
+    // If it's already an embed format, return it directly
+    if (parsed.includes("/embed/")) return parsed;
+
+    // Convert standard Spotify link to embed
+    if (parsed.includes("open.spotify.com")) {
+      parsed = parsed.replace("open.spotify.com/", "open.spotify.com/embed/");
+    }
+    // Convert standard Apple link to embed
+    if (
+      parsed.includes("podcasts.apple.com") &&
+      !parsed.includes("embed.podcasts.apple.com")
+    ) {
+      parsed = parsed.replace("podcasts.apple.com", "embed.podcasts.apple.com");
+    }
+    return parsed;
+  };
+
+  const embedUrl = getEmbedUrl(block.url);
+  if (!embedUrl) return null;
+
+  const isSpotify = embedUrl.includes("spotify");
+
+  return (
+    <div className="h-full flex flex-col justify-center items-center px-8 md:px-16 py-12">
+      <div className="flex items-center gap-2 mb-6 self-start">
+        <Headphones size={12} style={{ color: "#A855F7" }} />
+        <span
+          className="text-[10px] font-black uppercase tracking-widest"
+          style={{ color: "#A855F7" }}
+        >
+          Podcast Episode
+        </span>
+      </div>
+      {block.title && (
+        <h3
+          className="text-base font-bold mb-6 self-start max-w-2xl"
+          style={{ color: "var(--editor-text-color, inherit)" }}
+        >
+          {block.title}
+        </h3>
+      )}
+      <div
+        className="w-full max-w-3xl rounded-2xl overflow-hidden shadow-2xl"
+        style={{ border: "1px solid rgba(168,85,247,0.2)" }}
+      >
+        <iframe
+          src={embedUrl}
+          width="100%"
+          height={isSpotify ? "152" : "175"}
+          frameBorder="0"
+          allowFullScreen
+          allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
+          style={{ background: "transparent" }}
+        />
+      </div>
+    </div>
+  );
+});
+
+const PodcastNodeView = ({ node, updateAttributes, deleteNode }) => {
+  const [editingLink, setEditingLink] = useState(false);
+  const [newLink, setNewLink] = useState("");
+  const [playing, setPlaying] = useState(false);
+  const { url, title } = node.attrs;
+
+  const handleUpdate = () => {
+    if (!newLink.trim()) return setEditingLink(false);
+
+    // If user pasted an iframe, extract just the src
+    let finalUrl = newLink.trim();
+    const iframeMatch = finalUrl.match(/<iframe.*?src=["'](.*?)["']/i);
+    if (iframeMatch) {
+      finalUrl = iframeMatch[1];
+    }
+
+    updateAttributes({ url: finalUrl });
+    setEditingLink(false);
+  };
+
+  const isSpotify = url?.includes("spotify");
+
+  const getEmbedUrl = (rawUrl) => {
+    if (!rawUrl) return null;
+    let parsed = rawUrl;
+    if (parsed.includes("/embed/")) return parsed;
+    if (parsed.includes("open.spotify.com")) {
+      parsed = parsed.replace("open.spotify.com/", "open.spotify.com/embed/");
+    }
+    if (
+      parsed.includes("podcasts.apple.com") &&
+      !parsed.includes("embed.podcasts.apple.com")
+    ) {
+      parsed = parsed.replace("podcasts.apple.com", "embed.podcasts.apple.com");
+    }
+    return parsed;
+  };
+
+  const embedUrl = getEmbedUrl(url);
+
+  return (
+    <NodeViewWrapper className="my-8" data-drag-handle>
+      <div
+        className="relative w-full max-w-3xl mx-auto rounded-2xl overflow-hidden group border border-white/10 shadow-2xl bg-[#0A0A0A] p-4"
+        onMouseLeave={() => setPlaying(false)}
+      >
+        {embedUrl ? (
+          <iframe
+            src={embedUrl}
+            width="100%"
+            height={isSpotify ? "152" : "175"}
+            frameBorder="0"
+            allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
+          />
+        ) : (
+          <div className="w-full h-[152px] bg-[#111] flex flex-col items-center justify-center gap-3 text-white/50">
+            <Headphones size={32} className="opacity-50" />
+            <span className="text-xs font-bold uppercase tracking-widest">
+              No Podcast Linked
+            </span>
+          </div>
+        )}
+
+        {!playing && (
+          <div className="absolute inset-0 bg-black/80 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-4 backdrop-blur-sm z-30">
+            <button
+              onClick={deleteNode}
+              className="w-12 h-12 rounded-full bg-red-500/20 text-red-500 flex items-center justify-center hover:bg-red-500 hover:text-white transition-all border border-red-500/30 shadow-lg"
+            >
+              <X size={20} />
+            </button>
+
+            {embedUrl && (
+              <button
+                onClick={() => setPlaying(true)}
+                className="w-16 h-16 rounded-full bg-[#4ADE80]/20 text-[#4ADE80] flex items-center justify-center hover:bg-[#4ADE80] hover:text-black transition-all border border-[#4ADE80]/30 hover:scale-110 shadow-[0_0_30px_rgba(74,222,128,0.3)]"
+              >
+                <Play size={28} className="ml-1" fill="currentColor" />
+              </button>
+            )}
+
+            <button
+              onClick={() => {
+                setEditingLink(true);
+                setNewLink(url || "");
+              }}
+              className="w-12 h-12 rounded-full bg-[#A855F7]/20 text-[#A855F7] flex items-center justify-center hover:bg-[#A855F7] hover:text-white transition-all border border-[#A855F7]/30 shadow-lg"
+            >
+              <Link2 size={20} />
+            </button>
+          </div>
+        )}
+
+        <AnimatePresence>
+          {editingLink && (
+            <motion.div
+              initial={{ y: "100%" }}
+              animate={{ y: 0 }}
+              exit={{ y: "100%" }}
+              className="absolute bottom-0 left-0 right-0 p-4 bg-black/90 backdrop-blur-2xl border-t border-white/10 z-30 flex items-center gap-3"
+            >
+              <input
+                type="url"
+                value={newLink}
+                onChange={(e) => setNewLink(e.target.value)}
+                placeholder="Paste Spotify or Apple Podcast link..."
+                className="flex-1 bg-[#111] border border-white/10 rounded-xl px-4 py-3 text-sm text-white outline-none"
+                autoFocus
+                onKeyDown={(e) => e.key === "Enter" && handleUpdate()}
+              />
+              <button
+                onClick={handleUpdate}
+                className="px-6 py-3 rounded-xl text-xs font-black text-black bg-[#A855F7]"
+              >
+                Update
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+      <textarea
+        value={title}
+        onChange={(e) => updateAttributes({ title: e.target.value })}
+        placeholder="Episode Takeaway..."
+        className="mt-3 text-center font-bold text-sm bg-transparent border-b-2 border-transparent hover:border-white/10 focus:border-white/30 outline-none transition-all px-4 py-1 w-full resize-none overflow-hidden"
+        style={{ color: "var(--editor-text-color)" }}
+        rows={1}
+      />
+    </NodeViewWrapper>
+  );
+};
+
+const EnhancedPodcast = Node.create({
+  name: "enhancedPodcast",
+  group: "block",
+  atom: true,
+  addAttributes() {
+    return { url: { default: "" }, title: { default: "" } };
+  },
+  parseHTML() {
+    return [{ tag: "div[data-podcast-embed]" }];
+  },
+  renderHTML({ HTMLAttributes }) {
+    return [
+      "div",
+      mergeAttributes({ "data-podcast-embed": "" }, HTMLAttributes),
+      HTMLAttributes.title,
+    ];
+  },
+  addNodeView() {
+    return ReactNodeViewRenderer(PodcastNodeView);
+  },
+});
+
 const PageBlockRenderer = memo(({ block }) => {
   switch (block.type) {
     case "insight":
@@ -861,6 +1127,8 @@ const PageBlockRenderer = memo(({ block }) => {
       return <CodeBlock block={block} />;
     case "video":
       return <VideoBlock block={block} />;
+    case "podcast":
+      return <PodcastBlock block={block} />;
     case "divider":
       return <DividerBlock />;
     default:
@@ -1583,10 +1851,25 @@ const ColistCard = memo(({ colist, view, onRead, progress }) => {
           />
         )}
         <div
-          className="shrink-0 rounded-xl w-14 h-14 flex items-center justify-center"
-          style={{ background: colist.coverGradient || COVER_GRADIENTS[0] }}
+          className="shrink-0 rounded-xl w-14 h-14 flex items-center justify-center overflow-hidden relative"
+          style={{
+            background: colist.coverUrl
+              ? "#111"
+              : colist.coverGradient || COVER_GRADIENTS[0],
+          }}
         >
-          <BookOpen size={18} style={{ color: "rgba(255,255,255,0.6)" }} />
+          {colist.coverUrl && (
+            <img
+              src={colist.coverUrl}
+              className="absolute inset-0 w-full h-full object-cover opacity-70"
+              alt=""
+            />
+          )}
+          <BookOpen
+            size={18}
+            className="relative z-10"
+            style={{ color: "rgba(255,255,255,0.6)" }}
+          />
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 mb-0.5">
@@ -1671,12 +1954,23 @@ const ColistCard = memo(({ colist, view, onRead, progress }) => {
     >
       {/* Cover */}
       <div
-        className="relative h-28 shrink-0 flex items-end justify-between p-3"
-        style={{ background: colist.coverGradient || COVER_GRADIENTS[0] }}
+        className="relative h-28 shrink-0 flex items-end justify-between p-3 overflow-hidden"
+        style={{
+          background: colist.coverUrl
+            ? "#111"
+            : colist.coverGradient || COVER_GRADIENTS[0],
+        }}
       >
+        {colist.coverUrl && (
+          <img
+            src={colist.coverUrl}
+            alt=""
+            className="absolute inset-0 w-full h-full object-cover opacity-60 mix-blend-screen"
+          />
+        )}
         <div
-          className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300"
-          style={{ background: "rgba(0,0,0,0.2)" }}
+          className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-300 z-[1]"
+          style={{ background: "rgba(0,0,0,0.4)" }}
         />
         {isOriginal && (
           <motion.div
@@ -2645,6 +2939,7 @@ const TipTapPageEditor = memo(
         StarterKit,
         LinkExtension.configure({ openOnClick: false }),
         EnhancedYouTube,
+        EnhancedPodcast,
         Placeholder.configure({ placeholder: "Start typing..." }),
       ],
       // _initialJSON is set by handleAdvancePage/handleBulkPaste for overflow content.
@@ -2656,11 +2951,42 @@ const TipTapPageEditor = memo(
           const text = event.clipboardData?.getData("text/plain")?.trim();
           if (!text) return false;
 
+          // ── Extract URL if user pasted an raw iframe ──
+          let extractedUrl = text;
+          const iframeMatch = text.match(/<iframe.*?src=["'](.*?)["']/i);
+          if (iframeMatch) extractedUrl = iframeMatch[1];
+
+          // ── Apple/Spotify Podcast shortcut ──
+          const isPodcast =
+            /^(https?:\/\/)?(open\.spotify\.com|podcasts\.apple\.com)\/.+$/.test(
+              extractedUrl,
+            ) ||
+            extractedUrl.includes("spotify.com/embed") ||
+            extractedUrl.includes("embed.podcasts.apple.com");
+
+          if (isPodcast) {
+            event.preventDefault();
+            view.dispatch(
+              view.state.tr.replaceSelectionWith(
+                view.state.schema.nodes.enhancedPodcast.create({
+                  url: extractedUrl,
+                  title: "",
+                }),
+              ),
+            );
+            return true;
+          }
+
           // ── YouTube shortcut: embed node ──
           const isYoutube =
-            /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+$/.test(text);
+            /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be)\/.+$/.test(
+              extractedUrl,
+            ) || extractedUrl.includes("youtube.com/embed/");
+
           if (isYoutube) {
-            const videoId = text.match(/(?:v=|youtu\.be\/)([^&\s?]+)/)?.[1];
+            const videoId = extractedUrl.match(
+              /(?:v=|youtu\.be\/|embed\/)([^&\s?]+)/,
+            )?.[1];
             if (videoId) {
               event.preventDefault();
               view.dispatch(
@@ -2916,6 +3242,63 @@ const ColistEditor = memo(
     initialColist = null,
     forkOf = null,
   }) => {
+    const [coverUrl, setCoverUrl] = useState(
+      initialColist ? initialColist.coverUrl || "" : forkOf?.coverUrl || "",
+    );
+    const [isUploadingCover, setIsUploadingCover] = useState(false);
+    const [cropModalOpen, setCropModalOpen] = useState(false);
+    const [imageSrc, setImageSrc] = useState(null);
+    const [crop, setCrop] = useState({ x: 0, y: 0 });
+    const [zoom, setZoom] = useState(1);
+    const [croppedAreaPixels, setCroppedAreaPixels] = useState(null);
+
+    const onFileChange = async (e) => {
+      if (e.target.files && e.target.files.length > 0) {
+        const file = e.target.files[0];
+        const imageDataUrl = await new Promise((resolve) => {
+          const reader = new FileReader();
+          reader.onload = (e) => resolve(e.target.result);
+          reader.readAsDataURL(file);
+        });
+        setImageSrc(imageDataUrl);
+        setCropModalOpen(true);
+      }
+    };
+
+    const handleUploadCroppedImage = async () => {
+      try {
+        setIsUploadingCover(true);
+        const croppedImageBlob = await getCroppedImg(
+          imageSrc,
+          croppedAreaPixels,
+        );
+
+        if (croppedImageBlob.size > 1 * 1024 * 1024) {
+          setError(
+            "Cropped image exceeds 1MB limit. Please choose a smaller image.",
+          );
+          setIsUploadingCover(false);
+          setCropModalOpen(false);
+          return;
+        }
+
+        const fileName = `cover_${Date.now()}.jpg`;
+        const storageRef = ref(
+          storage,
+          `colist_covers/${currentUser.uid}/${fileName}`,
+        );
+        await uploadBytes(storageRef, croppedImageBlob);
+        const downloadUrl = await getDownloadURL(storageRef);
+
+        setCoverUrl(downloadUrl);
+        setCropModalOpen(false);
+      } catch (e) {
+        console.error(e);
+        setError("Cover upload failed.");
+      } finally {
+        setIsUploadingCover(false);
+      }
+    };
     const [title, setTitle] = useState(
       initialColist
         ? initialColist.title
@@ -3150,14 +3533,23 @@ const ColistEditor = memo(
           ? generateDraftSlug(title.trim())
           : undefined;
 
+        const isActuallyAdmin =
+          userData?.role === "admin" ||
+          String(userData?.tier).toUpperCase() === "ADMIN";
+
         const payload = {
           title: title.trim(),
           subtext: subtext.trim(),
           description: description.trim(),
           tags: finalTags,
           coverGradient: COVER_GRADIENTS[coverIdx],
+          coverUrl: coverUrl || null,
           textColor,
           blocks: validBlocks,
+          isPublic: true,
+          ...(isActuallyAdmin
+            ? { verificationTier: "original", colistScore: 100 }
+            : {}), // Admin Auto-mint Original
           updatedAt: serverTimestamp(),
         };
 
@@ -3293,6 +3685,11 @@ const ColistEditor = memo(
           ? generateDraftSlug(title.trim())
           : undefined;
 
+        // Elevate Admin payloads instantly to Discotive Original
+        const isAdmin =
+          userData?.role === "admin" ||
+          String(userData?.tier).toUpperCase() === "ADMIN";
+
         const payload = {
           title: title.trim(),
           subtext: subtext.trim(),
@@ -3302,6 +3699,7 @@ const ColistEditor = memo(
           textColor,
           blocks: validBlocks,
           isPublic: true,
+          ...(isAdmin ? { verificationTier: "original" } : {}),
           updatedAt: serverTimestamp(),
         };
 
@@ -3462,13 +3860,97 @@ const ColistEditor = memo(
               setShowColorDropdown(false);
             }}
           >
-            <div className="flex items-center justify-between mb-6 relative z-[60]">
+            {coverUrl && (
+              <img
+                src={coverUrl}
+                alt="Cover"
+                className="absolute inset-0 w-full h-full object-cover z-0 opacity-40 mix-blend-overlay pointer-events-none"
+              />
+            )}
+
+            {/* Cropper Modal */}
+            <AnimatePresence>
+              {cropModalOpen && (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="fixed inset-0 z-[99999] bg-black/95 backdrop-blur-md flex flex-col items-center justify-center p-4 md:p-10"
+                >
+                  <div className="w-full max-w-4xl bg-[#0A0A0A] rounded-[2rem] overflow-hidden border border-white/10 shadow-2xl flex flex-col">
+                    <div className="p-5 border-b border-white/5 flex items-center justify-between">
+                      <div>
+                        <h3 className="text-sm font-black text-white uppercase tracking-widest">
+                          Crop Cover Image
+                        </h3>
+                        <p className="text-[10px] text-white/40 mt-1">
+                          Aspect Ratio Fixed at 16:9 (Output: 1280x720px) • Max
+                          1MB
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => setCropModalOpen(false)}
+                        className="p-2 bg-white/5 rounded-full text-white/50 hover:text-white transition-colors"
+                      >
+                        <X size={16} />
+                      </button>
+                    </div>
+                    <div className="relative w-full h-[50vh] bg-[#111]">
+                      <Cropper
+                        image={imageSrc}
+                        crop={crop}
+                        zoom={zoom}
+                        aspect={1280 / 720}
+                        onCropChange={setCrop}
+                        onCropComplete={(p, px) => setCroppedAreaPixels(px)}
+                        onZoomChange={setZoom}
+                      />
+                    </div>
+                    <div className="p-6 bg-[#0A0A0A] flex items-center justify-between">
+                      <input
+                        type="range"
+                        value={zoom}
+                        min={1}
+                        max={3}
+                        step={0.1}
+                        aria-labelledby="Zoom"
+                        onChange={(e) => setZoom(e.target.value)}
+                        className="w-1/3 accent-[#D4AF78]"
+                      />
+                      <button
+                        onClick={handleUploadCroppedImage}
+                        disabled={isUploadingCover}
+                        className="flex items-center gap-2 px-6 py-3 rounded-xl font-black text-xs uppercase tracking-widest disabled:opacity-50"
+                        style={{
+                          background: "linear-gradient(135deg,#8B7240,#D4AF78)",
+                          color: "#000",
+                        }}
+                      >
+                        {isUploadingCover ? (
+                          <>
+                            <Loader2 size={14} className="animate-spin" />{" "}
+                            Processing...
+                          </>
+                        ) : (
+                          <>
+                            <Crop size={14} /> Confirm & Upload
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+
+            <div className="flex items-center justify-between mb-4 relative z-[60]">
               <span
                 className="text-[10px] font-black font-mono tracking-widest"
                 style={{ color: textColor, opacity: 0.6 }}
               >
                 COVER & META
               </span>
+
               <div className="flex items-center gap-2 relative">
                 {/* Theme Dropdown Toggle */}
                 <div className="relative" onClick={(e) => e.stopPropagation()}>
@@ -3671,6 +4153,32 @@ const ColistEditor = memo(
                 </div>
               </div>
             </div>
+
+            {/* New Full Width Cover Image Uploader */}
+            <label
+              className="w-full relative z-[60] flex flex-col items-center justify-center py-4 mb-6 rounded-xl border-2 border-dashed transition-all cursor-pointer group hover:bg-black/40"
+              style={{
+                borderColor: "rgba(255,255,255,0.15)",
+                background: "rgba(0,0,0,0.2)",
+                color: textColor,
+              }}
+            >
+              <div className="flex items-center gap-2 mb-1 opacity-80 group-hover:opacity-100 transition-opacity">
+                <ImageIcon size={14} />
+                <span className="text-[10px] font-black uppercase tracking-widest">
+                  {coverUrl ? "Change Cover Image" : "Upload Cover Image"}
+                </span>
+              </div>
+              <span className="text-[8px] font-mono opacity-40">
+                1280 x 720px (Max 1MB)
+              </span>
+              <input
+                type="file"
+                accept="image/*"
+                onChange={onFileChange}
+                className="hidden"
+              />
+            </label>
 
             <textarea
               value={title}
@@ -4404,7 +4912,12 @@ const Colists = () => {
   const [forkTarget, setForkTarget] = useState(null);
   const [showForkModal, setShowForkModal] = useState(false);
 
-  const isPro = userData?.tier === "PRO" || userData?.tier === "ENTERPRISE";
+  // Expand clearance to include Admin entities
+  const isPro =
+    userData?.tier === "PRO" ||
+    userData?.tier === "ENTERPRISE" ||
+    userData?.tier === "ADMIN" ||
+    userData?.role === "admin";
 
   // Auto-load colist from slug
   useEffect(() => {
