@@ -3048,6 +3048,7 @@ const AdminDashboard = () => {
     pendingConnectors: 0,
     pendingYT: 0,
     pendingGithub: 0,
+    signupsOpen: true,
   });
   const [recentUsers, setRecentUsers] = useState([]);
   const [refreshing, setRefreshing] = useState(false);
@@ -3143,6 +3144,14 @@ const AdminDashboard = () => {
         pendingAppVerifs = as.data().count;
       } catch {}
 
+      let signupsOpen = true;
+      try {
+        const configSnap = await getDoc(doc(db, "system", "config"));
+        if (configSnap.exists()) {
+          signupsOpen = configSnap.data().allowSignups ?? true;
+        }
+      } catch (err) {}
+
       setStats({
         total,
         pro,
@@ -3154,6 +3163,7 @@ const AdminDashboard = () => {
         pendingConnectors: pendingYT + pendingGithub + pendingAppVerifs,
         pendingYT,
         pendingGithub,
+        signupsOpen,
       });
 
       try {
@@ -3291,17 +3301,35 @@ const AdminDashboard = () => {
             )}
           </div>
           <div className="flex items-center gap-2 ml-auto">
-            <div
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[8px] font-black uppercase tracking-widest"
+            <button
+              onClick={async () => {
+                const newVal = !stats.signupsOpen;
+                setStats((p) => ({ ...p, signupsOpen: newVal }));
+                await setDoc(
+                  doc(db, "system", "config"),
+                  { allowSignups: newVal },
+                  { merge: true },
+                );
+              }}
+              className="flex items-center gap-2 px-3 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest transition-all border hover:opacity-80"
               style={{
-                background: "rgba(239,68,68,0.1)",
-                border: "1px solid rgba(239,68,68,0.2)",
-                color: "#f87171",
+                background: stats.signupsOpen
+                  ? "rgba(74,222,128,0.1)"
+                  : "rgba(239,68,68,0.1)",
+                border: `1px solid ${stats.signupsOpen ? "rgba(74,222,128,0.3)" : "rgba(239,68,68,0.3)"}`,
+                color: stats.signupsOpen ? "#4ade80" : "#f87171",
               }}
             >
-              <div className="w-1.5 h-1.5 bg-red-500 rounded-full animate-pulse" />
-              SECTOR OMEGA
-            </div>
+              <div
+                className={cn(
+                  "w-1.5 h-1.5 rounded-full",
+                  stats.signupsOpen
+                    ? "bg-green-500 animate-pulse"
+                    : "bg-red-500",
+                )}
+              />
+              Signups: {stats.signupsOpen ? "ON" : "OFF"}
+            </button>
             <button
               onClick={fetchStats}
               disabled={refreshing}

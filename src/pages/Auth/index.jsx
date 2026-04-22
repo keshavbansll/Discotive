@@ -652,6 +652,37 @@ const ChevronRight = ({ size = 14 }) => (
   </svg>
 );
 
+const LockIcon = ({ size = 16, color = "currentColor" }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke={color}
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+    <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+  </svg>
+);
+
+const ChevronLeftIcon = ({ size = 14, color = "currentColor" }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke={color}
+    strokeWidth="2.5"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <polyline points="15 18 9 12 15 6"></polyline>
+  </svg>
+);
+
 const ErrorBox = ({ msg }) => {
   if (!msg) return null;
   return (
@@ -3102,6 +3133,72 @@ function StepExecution({ uid, onComplete }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// STEP 1B-CLOSED — EARLY TESTING PHASE
+// ─────────────────────────────────────────────────────────────────────────────
+function StepAuthClosed({ onSwitch }) {
+  return (
+    <motion.div
+      variants={STEP_VARIANTS}
+      initial="initial"
+      animate="animate"
+      exit="exit"
+      transition={{ duration: 0.3, ease: [0.23, 1, 0.32, 1] }}
+      style={{ textAlign: "center", padding: "40px 0" }}
+    >
+      <div
+        style={{
+          width: 72,
+          height: 72,
+          borderRadius: "50%",
+          background: "rgba(191,162,100,0.1)",
+          border: "1px solid rgba(191,162,100,0.25)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          margin: "0 auto 28px",
+          boxShadow: "0 0 30px rgba(191,162,100,0.1)",
+        }}
+      >
+        <LockIcon size={32} color="var(--gold-2)" />
+      </div>
+      <h2
+        style={{
+          fontFamily: "var(--font-display)",
+          fontWeight: 800,
+          fontSize: "clamp(26px, 5vw, 34px)",
+          letterSpacing: "-0.03em",
+          color: "var(--text-primary)",
+          marginBottom: 16,
+        }}
+      >
+        Access Restricted.
+      </h2>
+      <p
+        style={{
+          fontSize: 14,
+          color: "var(--text-secondary)",
+          fontFamily: "var(--font-body)",
+          lineHeight: 1.65,
+          maxWidth: 360,
+          margin: "0 auto 40px",
+        }}
+      >
+        Discotive is currently in a closed early-testing phase. New operator
+        signups are temporarily locked to ensure absolute platform stability.
+      </p>
+
+      <button
+        onClick={onSwitch}
+        className="ob-btn-primary"
+        style={{ margin: "0 auto", maxWidth: 220, gap: 12 }}
+      >
+        <ChevronLeftIcon size={14} /> Back to Login
+      </button>
+    </motion.div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // MAIN ORCHESTRATOR
 // ─────────────────────────────────────────────────────────────────────────────
 export default function AuthOrchestrator() {
@@ -3112,6 +3209,7 @@ export default function AuthOrchestrator() {
   const [localError, setLocalError] = useState("");
   const [resetMsg, setResetMsg] = useState("");
   const [showExecution, setShowExecution] = useState(false);
+  const [signupsOpen, setSignupsOpen] = useState(true);
 
   // Inject CSS
   useEffect(() => {
@@ -3148,6 +3246,17 @@ export default function AuthOrchestrator() {
     location.pathname,
     navigate,
   ]);
+
+  // Fetch System Config for Signups
+  useEffect(() => {
+    getDoc(doc(db, "system", "config"))
+      .then((snap) => {
+        if (snap.exists() && snap.data().allowSignups === false) {
+          setSignupsOpen(false);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   // Global Auth Guard: Username is the absolute source of truth.
   useEffect(() => {
@@ -3218,6 +3327,15 @@ export default function AuthOrchestrator() {
 
       const snap = await getDoc(doc(db, "users", user.uid));
       const dbData = snap.exists() ? snap.data() : null;
+
+      // Prevent New Google Signups if locked
+      if (!snap.exists() && !signupsOpen) {
+        await user.delete().catch(() => {});
+        setErr("New signups are currently locked for early testing.");
+        setLocalLoading(false);
+        return;
+      }
+
       const existingUsername = dbData?.identity?.username;
 
       // MAANG Standard Routing Guard: Explicitly verify username presence.
@@ -3637,16 +3755,22 @@ export default function AuthOrchestrator() {
                 resetMsg={resetMsg}
               />
             )}
-            {store.step === "auth" && (
-              <StepAuth
-                key="auth"
-                onOAuth={handleOAuth}
-                onSwitch={() => store.setStep("login")}
-                onSubmit={handleAuthSubmit}
-                loading={localLoading}
-                error={localError}
-              />
-            )}
+            {store.step === "auth" &&
+              (signupsOpen ? (
+                <StepAuth
+                  key="auth"
+                  onOAuth={handleOAuth}
+                  onSwitch={() => store.setStep("login")}
+                  onSubmit={handleAuthSubmit}
+                  loading={localLoading}
+                  error={localError}
+                />
+              ) : (
+                <StepAuthClosed
+                  key="auth-closed"
+                  onSwitch={() => store.setStep("login")}
+                />
+              ))}
             {store.step === "verify" && (
               <StepVerifyEmail
                 key="verify"
