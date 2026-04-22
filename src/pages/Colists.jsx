@@ -32,6 +32,7 @@ import {
   doc,
   addDoc,
   updateDoc,
+  setDoc,
   query,
   orderBy,
   limit,
@@ -2170,7 +2171,7 @@ const ForkModal = memo(
       setForking(true);
       try {
         const slug = generateSlug(`fork-${colist.title}`);
-        await addDoc(collection(db, "colists"), {
+        const payload = {
           title: `${colist.title} (Fork)`,
           slug,
           description: colist.description || "",
@@ -2197,7 +2198,14 @@ const ForkModal = memo(
           },
           createdAt: serverTimestamp(),
           updatedAt: serverTimestamp(),
-        });
+        };
+
+        // OPTIMISTIC EXECUTION: Bypass adblocker network hang
+        const newDocRef = doc(collection(db, "colists"));
+        setDoc(newDocRef, payload).catch((err) =>
+          console.warn("Background sync delayed:", err),
+        );
+
         setNewSlug(slug);
         setDone(true);
         onForked?.(slug);
@@ -3612,8 +3620,12 @@ const ColistEditor = memo(
           payload.slug = currentSlug;
         }
 
+        // OPTIMISTIC EXECUTION: Do not await network ACKs to bypass adblocker deadlocks
         if (draftId) {
-          await updateDoc(doc(db, "colists", draftId), payload);
+          const docRef = doc(db, "colists", draftId);
+          updateDoc(docRef, payload).catch((err) =>
+            console.warn("Background sync delayed:", err),
+          );
         } else {
           payload.authorId = currentUser?.uid || userData?.uid;
           payload.authorUsername = userData.identity?.username || "operator";
@@ -3628,8 +3640,11 @@ const ColistEditor = memo(
           payload.colistScoreMilestone = 0;
           payload.createdAt = serverTimestamp();
 
-          const docRef = await addDoc(collection(db, "colists"), payload);
-          setDraftId(docRef.id);
+          const newDocRef = doc(collection(db, "colists"));
+          setDraftId(newDocRef.id);
+          setDoc(newDocRef, payload).catch((err) =>
+            console.warn("Background sync delayed:", err),
+          );
 
           // Silently update the URL to /colists/[slug]/unpublished
           window.history.replaceState(
@@ -3638,6 +3653,8 @@ const ColistEditor = memo(
             `/colists/${currentSlug}/unpublished`,
           );
         }
+
+        // Immediately mark as saved, UI flows instantly
         setSaveState("saved");
       } catch (e) {
         console.error("Save failure:", e);
@@ -3764,12 +3781,14 @@ const ColistEditor = memo(
           payload.slug = currentSlug;
         }
 
+        // OPTIMISTIC EXECUTION: Fire and forget to obliterate network hangs
         if (draftId) {
-          await updateDoc(doc(db, "colists", draftId), payload);
-          // We do not know the exact slug if we didn't just generate it,
-          // so we fetch it or we can trigger the callback which relies on the slug param.
-          // Assuming we rely on a full navigation from the parent component, we just close.
-          onPublish?.(currentSlug || "published"); // The parent handles the navigation
+          const docRef = doc(db, "colists", draftId);
+          updateDoc(docRef, payload).catch((err) =>
+            console.warn("Background sync delayed:", err),
+          );
+
+          onPublish?.(currentSlug || "published");
         } else {
           payload.authorId = currentUser?.uid || userData?.uid;
           payload.authorUsername = userData.identity?.username || "operator";
@@ -3783,7 +3802,11 @@ const ColistEditor = memo(
           payload.colistScoreMilestone = 0;
           payload.createdAt = serverTimestamp();
 
-          await addDoc(collection(db, "colists"), payload);
+          const newDocRef = doc(collection(db, "colists"));
+          setDoc(newDocRef, payload).catch((err) =>
+            console.warn("Background sync delayed:", err),
+          );
+
           onPublish?.(currentSlug);
         }
       } catch (err) {
