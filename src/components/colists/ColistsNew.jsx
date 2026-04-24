@@ -1505,9 +1505,10 @@ const ColistEditor = memo(
           croppedAreaPixels,
         );
 
-        if (croppedImageBlob.size > 1 * 1024 * 1024) {
+        // Updated limit to match backend rules
+        if (croppedImageBlob.size > 2 * 1024 * 1024) {
           setError(
-            "Cropped image exceeds 1MB limit. Please choose a smaller image.",
+            "Cropped image exceeds 2MB limit. Please choose a smaller image.",
           );
           setIsUploadingCover(false);
           setCropModalOpen(false);
@@ -1515,22 +1516,42 @@ const ColistEditor = memo(
         }
 
         const fileName = `cover_${createBlockId()}.jpg`;
+        const activeUserId = currentUser?.uid || userData?.uid;
+
+        if (!activeUserId) {
+          throw new Error("Security Violation: Authentication context lost.");
+        }
+
         const storageRef = ref(
           storage,
-          `colist_covers/${currentUser.uid}/${fileName}`,
+          `colist_covers/${activeUserId}/${fileName}`,
         );
-        await uploadBytes(storageRef, croppedImageBlob);
+
+        // MAANG STANDARD: Force browser to construct a native File object.
+        // This guarantees strict MIME type headers are attached natively before Firebase payload wrapping.
+        const nativeFile = new File([croppedImageBlob], fileName, {
+          type: "image/jpeg",
+          lastModified: Date.now(),
+        });
+
+        const metadata = {
+          contentType: "image/jpeg",
+          cacheControl: "public,max-age=31536000",
+        };
+
+        await uploadBytes(storageRef, nativeFile, metadata);
         const downloadUrl = await getDownloadURL(storageRef);
 
         setCoverUrl(downloadUrl);
         setCropModalOpen(false);
       } catch (e) {
-        console.error(e);
-        setError("Cover upload failed.");
+        console.error("Storage Pipeline Failure:", e);
+        setError("Cover upload rejected by security firewall.");
       } finally {
         setIsUploadingCover(false);
       }
     };
+
     const [title, setTitle] = useState(
       initialColist
         ? initialColist.title
@@ -2134,14 +2155,6 @@ const ColistEditor = memo(
               setShowColorDropdown(false);
             }}
           >
-            {coverUrl && (
-              <img
-                src={coverUrl}
-                alt="Cover"
-                className="absolute inset-0 w-full h-full object-cover z-0 opacity-40 mix-blend-overlay pointer-events-none"
-              />
-            )}
-
             <AnimatePresence>
               {cropModalOpen && (
                 <motion.div
@@ -2425,22 +2438,51 @@ const ColistEditor = memo(
             </div>
 
             <label
-              className="w-full relative z-[60] flex flex-col items-center justify-center py-4 mb-6 rounded-xl border-2 border-dashed transition-all cursor-pointer group hover:bg-black/40"
-              style={{
-                borderColor: "rgba(255,255,255,0.15)",
-                background: "rgba(0,0,0,0.2)",
-                color: textColor,
-              }}
+              className={cn(
+                "w-full relative z-[60] flex flex-col items-center justify-center mb-6 rounded-xl transition-all cursor-pointer group overflow-hidden shrink-0",
+                coverUrl
+                  ? "h-32 md:h-40 border-none shadow-2xl"
+                  : "py-4 border-2 border-dashed hover:bg-black/40",
+              )}
+              style={
+                !coverUrl
+                  ? {
+                      borderColor: "rgba(255,255,255,0.15)",
+                      background: "rgba(0,0,0,0.2)",
+                      color: textColor,
+                    }
+                  : {}
+              }
             >
-              <div className="flex items-center gap-2 mb-1 opacity-80 group-hover:opacity-100 transition-opacity">
-                <ImageIcon size={14} />
-                <span className="text-[10px] font-black uppercase tracking-widest">
-                  {coverUrl ? "Change Cover Image" : "Upload Cover Image"}
-                </span>
-              </div>
-              <span className="text-[8px] font-mono opacity-40">
-                1280 x 720px (Max 1MB)
-              </span>
+              {coverUrl ? (
+                <>
+                  <img
+                    src={coverUrl}
+                    alt="Cover Banner"
+                    className="absolute inset-0 w-full h-full object-cover z-0"
+                  />
+                  <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center z-10 backdrop-blur-sm">
+                    <div className="flex items-center gap-2 mb-1 text-white">
+                      <ImageIcon size={16} />
+                      <span className="text-[10px] font-black uppercase tracking-widest">
+                        Change Cover Image
+                      </span>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="flex items-center gap-2 mb-1 opacity-80 group-hover:opacity-100 transition-opacity">
+                    <ImageIcon size={14} />
+                    <span className="text-[10px] font-black uppercase tracking-widest">
+                      Upload Cover Image
+                    </span>
+                  </div>
+                  <span className="text-[8px] font-mono opacity-40">
+                    1280 x 720px (Max 1MB)
+                  </span>
+                </>
+              )}
               <input
                 type="file"
                 accept="image/*"

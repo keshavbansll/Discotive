@@ -64,6 +64,15 @@ const CoverBlock = memo(({ block, textColor }) => {
   const tc = textColor || T.primary;
   return (
     <div className="flex flex-col justify-center px-7 md:px-11 py-12 min-h-full items-center text-center">
+      {block.coverUrl && (
+        <div className="w-full h-32 md:h-40 rounded-xl overflow-hidden mb-8 shrink-0 shadow-2xl relative border border-white/10">
+          <img
+            src={block.coverUrl}
+            alt="Cover Banner"
+            className="absolute inset-0 w-full h-full object-cover z-0"
+          />
+        </div>
+      )}
       {block.verificationTier && block.verificationTier !== "weak" && (
         <div className="mb-6 flex flex-col items-center justify-center gap-3">
           {block.verificationTier === "original" ? (
@@ -581,17 +590,6 @@ const DeckCard = memo(
         onDragEnd={isActive ? onDragEnd : undefined}
         whileTap={isActive ? { cursor: "grabbing" } : {}}
       >
-        {/* Cover Image Overlay */}
-        {coverUrl && (
-          <img
-            src={coverUrl}
-            className="absolute inset-0 w-full h-full object-cover opacity-20 mix-blend-overlay pointer-events-none"
-            alt=""
-            style={{ borderRadius: "2.5rem" }}
-            draggable={false}
-          />
-        )}
-
         {/* Depth Dimming Overlay (Animated & Synchronized) */}
         <motion.div
           className="absolute inset-0 pointer-events-none"
