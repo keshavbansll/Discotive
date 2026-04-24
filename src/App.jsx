@@ -19,7 +19,7 @@ import About from "./pages/About"; // The legacy informational view
 import MainLayout from "./layouts/MainLayout";
 import GlobalLoader from "./components/GlobalLoader";
 import PageTracker from "./components/PageTracker";
-import SystemFailure from "./components/SystemFailure";
+import SystemFailure from "./components/boundaries/SystemFailure";
 import AdminRoute from "./components/AdminRoute";
 import ComingSoon from "./components/ComingSoon";
 

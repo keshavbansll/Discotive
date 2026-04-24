@@ -18,8 +18,8 @@ import "./index.css";
 import App from "./App.jsx";
 import { SpeedInsights } from "@vercel/speed-insights/react";
 import { Analytics } from "@vercel/analytics/react";
-import ErrorBoundary from "./components/ErrorBoundary";
-import NetworkBoundary from "./components/NetworkBoundary";
+import ErrorBoundary from "./components/boundaries/ErrorBoundary.jsx";
+import NetworkBoundary from "./components/boundaries/NetworkBoundary.jsx";
 
 import { registerSW } from "virtual:pwa-register";
 registerSW({ immediate: true });
