@@ -27,6 +27,7 @@ import {
   useTransform,
   animate,
 } from "framer-motion";
+import { useNavigate } from "react-router-dom";
 import { doc, updateDoc, increment, arrayUnion } from "firebase/firestore";
 import { db } from "../../firebase";
 import {
@@ -65,11 +66,11 @@ const CoverBlock = memo(({ block, textColor }) => {
   return (
     <div className="flex flex-col justify-center px-7 md:px-11 py-12 min-h-full items-center text-center">
       {block.coverUrl && (
-        <div className="w-full h-32 md:h-40 rounded-xl overflow-hidden mb-8 shrink-0 shadow-2xl relative border border-white/10">
+        <div className="w-full h-32 md:h-48 rounded-2xl overflow-hidden mb-8 shrink-0 shadow-2xl relative border border-white/10">
           <img
             src={block.coverUrl}
             alt="Cover Banner"
-            className="absolute inset-0 w-full h-full object-cover z-0"
+            className="absolute inset-0 w-full h-full object-cover z-0 opacity-90"
           />
         </div>
       )}
@@ -703,7 +704,17 @@ const ColistReader = ({
   userData,
   setShowBottomNav,
 }) => {
+  const navigate = useNavigate();
   const uid = currentUser?.uid;
+
+  // Replaces strict hardcoding: Dynamically routes back to origin (Vault or Profile)
+  const handleClose = useCallback(() => {
+    if (window.history.state && window.history.state.idx > 0) {
+      navigate(-1);
+    } else {
+      navigate("/app/vault"); // Failsafe fallback
+    }
+  }, [navigate]);
 
   /* ── Blocks (Including Title Cover Page) ────────────────────────────── */
   const blocks = useMemo(() => {
@@ -959,7 +970,7 @@ const ColistReader = ({
         navigateToIdx(currentIdx - 1);
       } else if (e.key === "Escape") {
         if (document.fullscreenElement) document.exitFullscreen();
-        else onBack();
+        else handleClose();
       }
     };
     window.addEventListener("keydown", handler);
@@ -1117,7 +1128,7 @@ const ColistReader = ({
             }}
           >
             <button
-              onClick={onBack}
+              onClick={handleClose}
               className="text-white/60 hover:text-white transition-colors p-1"
             >
               <ArrowLeft size={20} />

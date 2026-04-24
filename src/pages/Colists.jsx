@@ -16,6 +16,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   collection,
   getDocs,
+  getDoc,
   doc,
   setDoc,
   query,
@@ -344,9 +345,12 @@ const PremiumModal = memo(({ onClose, navigate }) => (
 
 /* ─── Main Page ───────────────────────────────────────────────────────────── */
 const Colists = () => {
-  const { slug } = useParams();
+  const { slug, "*": subAction } = useParams();
   const navigate = useNavigate();
-  const { currentUser } = useAuth();
+  const { currentUser, loading: authLoading } = useAuth();
+
+  // Detect if the current URL intent is to strictly edit a draft
+  const isEditorView = subAction?.includes("edit");
   const { userData } = useUserData();
   const outletContext = useOutletContext();
   const showBottomNav = outletContext?.showBottomNav ?? true;
@@ -366,32 +370,84 @@ const Colists = () => {
     userData?.tier === "ADMIN" ||
     userData?.role === "admin";
 
-  // Auto-load colist from slug
+  // Auto-load colist with strict draft awareness and auth-gating
   useEffect(() => {
+    if (authLoading) return; // Prevent premature fetches while auth hydrates
+
     if (!slug || slug === "new" || slug === "profile") {
       setTimeout(() => setActiveColist(null), 0);
       return;
     }
+
     const loadColist = async () => {
       try {
-        const snap = await getDocs(
-          query(
-            collection(db, "colists"),
-            where("slug", "==", slug),
-            where("isPublic", "==", true),
-            limit(1),
-          ),
-        );
-        if (!snap.empty) {
-          const d = snap.docs[0];
-          setActiveColist({ id: d.id, ...d.data() });
+        let colistData = null;
+        let colistId = null;
+
+        // 1. Try fetching by ID first (Drafts often route by raw ID)
+        try {
+          const docRef = doc(db, "colists", slug);
+          const docSnap = await getDoc(docRef);
+          if (docSnap.exists()) {
+            colistData = docSnap.data();
+            colistId = docSnap.id;
+          }
+        } catch (e) {
+          // Fallthrough to slug query
+        }
+
+        // 2. Try fetching by Slug if ID failed
+        if (!colistData) {
+          const snap = await getDocs(
+            query(
+              collection(db, "colists"),
+              where("slug", "==", slug),
+              limit(1),
+            ),
+          );
+          if (!snap.empty) {
+            colistData = snap.docs[0].data();
+            colistId = snap.docs[0].id;
+          }
+        }
+
+        if (colistData) {
+          // Absolute Security Gate: Block unauthorized draft access
+          if (
+            !colistData.isPublic &&
+            colistData.authorId !== currentUser?.uid
+          ) {
+            setActiveColist(null);
+            return;
+          }
+
+          // Strict URL Taxonomy Enforcer: Force drafts to /unpublished
+          if (!colistData.isPublic && !subAction?.includes("unpublished")) {
+            navigate(`/colists/${slug || colistId}/unpublished`, {
+              replace: true,
+            });
+            return;
+          }
+
+          const colistWithId = { id: colistId, ...colistData };
+          setActiveColist(colistWithId);
+
+          // Auto-launch editor ONLY if URL explicitly commands an edit
+          if (isEditorView) {
+            setEditColistTarget(colistWithId);
+            setShowEditor(true);
+          }
+        } else {
+          setActiveColist(null);
         }
       } catch (err) {
-        console.error(err);
+        console.error("Colist Load Integrity Failure:", err);
+        setActiveColist(null);
       }
     };
+
     loadColist();
-  }, [slug]);
+  }, [slug, currentUser, authLoading, isEditorView, subAction, navigate]);
 
   // Handle /colists/new & /colists/profile gates
   useEffect(() => {
@@ -429,15 +485,26 @@ const Colists = () => {
   const handleOpenReader = useCallback(
     (colist) => {
       setActiveColist(colist);
-      navigate(`/colists/${colist.slug}`, { replace: false });
+      const basePath = `/colists/${colist.slug || colist.id}`;
+      // Dynamic routing: Push to /unpublished if it's a draft
+      navigate(colist.isPublic ? basePath : `${basePath}/unpublished`);
     },
     [navigate],
   );
 
   const handleBack = useCallback(() => {
-    setActiveColist(null);
-    navigate("/colists", { replace: true });
-  }, [navigate]);
+    // Deterministic Routing: Drafts always return to the operator's profile
+    if (activeColist && !activeColist.isPublic) {
+      navigate("/colists/profile");
+    } else if (window.history.state && window.history.state.idx > 0) {
+      navigate(-1);
+    } else {
+      navigate("/colists");
+    }
+
+    // Defer state clearing slightly to allow smooth unmount animations
+    setTimeout(() => setActiveColist(null), 50);
+  }, [navigate, activeColist]);
 
   const handleEdit = useCallback((colist) => {
     setEditColistTarget(colist);
@@ -446,7 +513,7 @@ const Colists = () => {
     window.history.pushState(
       { modal: "editor" },
       "",
-      `/colists/${colist.slug || colist.id}/unpublished`,
+      `/colists/${colist.slug || colist.id}/unpublished/edit`,
     );
   }, []);
 
@@ -544,12 +611,15 @@ const Colists = () => {
               setEditColistTarget(null);
               if (slug === "new") {
                 navigate("/colists");
-              } else if (window.location.pathname.includes("/unpublished")) {
-                // Intelligent cleanup: revert URL to profile seamlessly
-                if (window.history.state?.modal === "editor") {
+              } else if (window.location.pathname.includes("/edit")) {
+                // Intelligent cleanup: pop modal state or hard navigate to profile
+                if (
+                  window.history.state &&
+                  window.history.state.modal === "editor"
+                ) {
                   window.history.back();
                 } else {
-                  window.history.replaceState(null, "", "/colists/profile");
+                  navigate("/colists/profile", { replace: true });
                 }
               }
             }}

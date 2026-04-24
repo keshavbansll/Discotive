@@ -9,6 +9,7 @@ import React, {
   useRef,
   memo,
 } from "react";
+// eslint-disable-next-line no-unused-vars
 import { motion, AnimatePresence } from "framer-motion";
 import {
   collection,
@@ -75,7 +76,6 @@ import {
   T,
   COVER_GRADIENTS,
   createBlockId,
-  generateSlug,
 } from "../../lib/colistConstants";
 
 const THEME_TEXT_COLORS = [
@@ -1145,14 +1145,6 @@ const EditorToolbar = memo(({ editor }) => {
 });
 
 /* ─── Paginated TipTap Page ──────────────────────────────────────────────── */
-const getNodeTextLength = (node) => {
-  if (!node) return 0;
-  if (node.type === "text") return (node.text || "").length;
-  return (node.content || []).reduce(
-    (sum, child) => sum + getNodeTextLength(child),
-    0,
-  );
-};
 
 const TipTapPageEditor = memo(
   ({
@@ -1166,8 +1158,11 @@ const TipTapPageEditor = memo(
     onAdvancePage,
     onBulkPaste,
     setActiveEditor,
-    shouldFocus,
+    focusTarget,
     onFocusConsumed,
+    onFocusPrevious,
+    onDeleteEmptyAndFocusPrevious,
+    onFocusNext,
   }) => {
     const onUpdateRef = useRef(onUpdate);
     const onAdvancePageRef = useRef(onAdvancePage);
@@ -1175,6 +1170,11 @@ const TipTapPageEditor = memo(
     const idxRef = useRef(idx);
     const blockRef = useRef(block);
     const onFocusConsumedRef = useRef(onFocusConsumed);
+    const onFocusPreviousRef = useRef(onFocusPrevious);
+    const onDeleteEmptyAndFocusPreviousRef = useRef(
+      onDeleteEmptyAndFocusPrevious,
+    );
+    const onFocusNextRef = useRef(onFocusNext);
 
     useEffect(() => {
       onUpdateRef.current = onUpdate;
@@ -1194,9 +1194,82 @@ const TipTapPageEditor = memo(
     useEffect(() => {
       onFocusConsumedRef.current = onFocusConsumed;
     }, [onFocusConsumed]);
+    useEffect(() => {
+      onFocusPreviousRef.current = onFocusPrevious;
+    }, [onFocusPrevious]);
+    useEffect(() => {
+      onDeleteEmptyAndFocusPreviousRef.current = onDeleteEmptyAndFocusPrevious;
+    }, [onDeleteEmptyAndFocusPrevious]);
+    useEffect(() => {
+      onFocusNextRef.current = onFocusNext;
+    }, [onFocusNext]);
 
     const isSplitting = useRef(false);
-    const MAX_SLIDE_CHARS = 600;
+    const MAX_SLIDE_HEIGHT = 420; // Exact visual DOM limit before triggering next slide
+
+    const checkAndSplitHeight = useCallback((currentEditor) => {
+      if (isSplitting.current) return;
+      const dom = currentEditor.view.dom;
+      const domChildren = Array.from(dom.children);
+      if (domChildren.length === 0) return;
+
+      const editorRect = dom.getBoundingClientRect();
+      const lastChild = domChildren[domChildren.length - 1];
+      const contentHeight =
+        lastChild.getBoundingClientRect().bottom - editorRect.top;
+
+      // Use true visual content height, bypassing the CSS flexbox stretching paradox
+      if (contentHeight <= MAX_SLIDE_HEIGHT) return;
+
+      const json = currentEditor.getJSON();
+      const nodes = json.content || [];
+
+      let splitIdx = nodes.length;
+
+      for (let i = 0; i < domChildren.length; i++) {
+        const childRect = domChildren[i].getBoundingClientRect();
+        const relativeBottom = childRect.bottom - editorRect.top;
+        if (relativeBottom > MAX_SLIDE_HEIGHT) {
+          splitIdx = Math.max(1, i);
+          break;
+        }
+      }
+
+      if (splitIdx >= nodes.length) {
+        const isAtEnd =
+          currentEditor.state.selection.from >=
+          currentEditor.state.doc.content.size - 3;
+        if (isAtEnd) {
+          onAdvancePageRef.current(idxRef.current, null);
+        }
+        return;
+      }
+
+      const keepNodes = nodes.slice(0, splitIdx);
+      const overflowNodes = nodes.slice(splitIdx);
+      if (overflowNodes.length === 0) return;
+
+      isSplitting.current = true;
+      currentEditor.commands.setContent(
+        { type: "doc", content: keepNodes },
+        false,
+      );
+
+      onUpdateRef.current(idxRef.current, {
+        ...blockRef.current,
+        content: currentEditor.getHTML(),
+        _initialJSON: null,
+      });
+
+      onAdvancePageRef.current(idxRef.current, {
+        type: "doc",
+        content: overflowNodes,
+      });
+
+      requestAnimationFrame(() => {
+        isSplitting.current = false;
+      });
+    }, []);
 
     const editor = useEditor({
       extensions: [
@@ -1208,6 +1281,53 @@ const TipTapPageEditor = memo(
       ],
       content: block._initialJSON || block.content || "",
       editorProps: {
+        handleKeyDown: (view, event) => {
+          const { selection, doc } = view.state;
+
+          // Backspace at very beginning of slide -> Fluid retreat
+          if (
+            event.key === "Backspace" &&
+            selection.empty &&
+            selection.from === 1
+          ) {
+            event.preventDefault();
+            const isEmpty = view.state.doc.textContent.trim() === "";
+            if (isEmpty && idxRef.current > 0) {
+              onDeleteEmptyAndFocusPreviousRef.current(idxRef.current);
+            } else if (idxRef.current > 0) {
+              onFocusPreviousRef.current(idxRef.current);
+            }
+            return true;
+          }
+
+          // ArrowLeft at very beginning of slide -> Retreat
+          if (
+            event.key === "ArrowLeft" &&
+            selection.empty &&
+            selection.from === 1
+          ) {
+            if (idxRef.current > 0) {
+              event.preventDefault();
+              onFocusPreviousRef.current(idxRef.current);
+              return true;
+            }
+          }
+
+          // ArrowRight at very end of slide -> Proceed
+          if (
+            event.key === "ArrowRight" &&
+            selection.empty &&
+            selection.from >= doc.content.size - 3
+          ) {
+            if (idxRef.current < total - 1) {
+              event.preventDefault();
+              onFocusNextRef.current(idxRef.current, total);
+              return true;
+            }
+          }
+
+          return false;
+        },
         handlePaste: (view, event) => {
           const text = event.clipboardData?.getData("text/plain")?.trim();
           if (!text) return false;
@@ -1259,115 +1379,48 @@ const TipTapPageEditor = memo(
               );
               return true;
             }
-          }
+          } // The checkAndSplitHeight logic calculates true DOM visual height
+          // and automatically ripples overflow nodes across as many slides as needed.
 
-          if (text.length > 3000) {
-            event.preventDefault();
-            const paragraphs = text
-              .split(/\n{2,}/)
-              .map((p) => p.trim())
-              .filter(Boolean);
-
-            const CHARS_PER_SLIDE = MAX_SLIDE_CHARS;
-            const chunkNodeArrays = [];
-            let currentNodes = [];
-            let currentLen = 0;
-
-            for (const para of paragraphs) {
-              const paraLen = para.length;
-              if (
-                currentLen + paraLen > CHARS_PER_SLIDE &&
-                currentNodes.length > 0
-              ) {
-                chunkNodeArrays.push(currentNodes);
-                currentNodes = [];
-                currentLen = 0;
-              }
-              currentNodes.push({
-                type: "paragraph",
-                content: [{ type: "text", text: para }],
-              });
-              currentLen += paraLen;
-            }
-            if (currentNodes.length > 0) chunkNodeArrays.push(currentNodes);
-
-            if (chunkNodeArrays.length > 1 && onBulkPasteRef.current) {
-              onBulkPasteRef.current(idxRef.current, chunkNodeArrays);
-              return true;
-            }
-          }
-
+          // Height-based cascaded splitting natively handles bulk text pasting now.
           return false;
         },
       },
       onUpdate: ({ editor }) => {
-        if (isSplitting.current) return;
-
-        const json = editor.getJSON();
-        const nodes = json.content || [];
-
         onUpdateRef.current(idxRef.current, {
           ...blockRef.current,
           content: editor.getHTML(),
           _initialJSON: null,
         });
-
-        const totalChars = nodes.reduce(
-          (sum, node) => sum + getNodeTextLength(node),
-          0,
-        );
-        if (totalChars <= MAX_SLIDE_CHARS) return;
-
-        let charCount = 0;
-        let splitIdx = nodes.length;
-
-        for (let i = 0; i < nodes.length; i++) {
-          const nodeLen = getNodeTextLength(nodes[i]);
-          if (charCount + nodeLen > MAX_SLIDE_CHARS && i >= 1) {
-            splitIdx = i;
-            break;
-          }
-          charCount += nodeLen;
-        }
-
-        if (splitIdx >= nodes.length) return;
-
-        const keepNodes = nodes.slice(0, splitIdx);
-        const overflowNodes = nodes.slice(splitIdx);
-        if (overflowNodes.length === 0) return;
-
-        isSplitting.current = true;
-
-        editor.commands.setContent({ type: "doc", content: keepNodes }, false);
-
-        onUpdateRef.current(idxRef.current, {
-          ...blockRef.current,
-          content: editor.getHTML(),
-          _initialJSON: null,
-        });
-
-        onAdvancePageRef.current(idxRef.current, {
-          type: "doc",
-          content: overflowNodes,
-        });
-
-        requestAnimationFrame(() => {
-          isSplitting.current = false;
-        });
+        checkAndSplitHeight(editor);
       },
       onFocus: ({ editor }) => setActiveEditor(editor),
     });
 
+    // Fire check ONLY on explicit data cascading (mount), not a perpetual timer loop
     useEffect(() => {
-      if (shouldFocus && editor) {
+      if (editor && !editor.isDestroyed && block._initialJSON) {
+        requestAnimationFrame(() => checkAndSplitHeight(editor));
+      }
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [editor]);
+
+    useEffect(() => {
+      if (focusTarget && focusTarget.idx === idx && editor) {
         requestAnimationFrame(() => {
           if (!editor.isDestroyed) {
-            editor.commands.focus("end");
+            if (focusTarget.pos === "end") {
+              editor.commands.focus("end");
+            } else if (focusTarget.pos === "start") {
+              editor.commands.focus("start");
+            } else {
+              editor.commands.focus();
+            }
             onFocusConsumedRef.current?.();
           }
         });
       }
-    }, [shouldFocus, editor]);
+    }, [focusTarget, idx, editor]);
 
     return (
       <div className="flex flex-col h-full relative z-10 w-full">
@@ -1531,7 +1584,7 @@ const ColistEditor = memo(
         // This guarantees strict MIME type headers are attached natively before Firebase payload wrapping.
         const nativeFile = new File([croppedImageBlob], fileName, {
           type: "image/jpeg",
-          lastModified: Date.now(),
+          // lastModified naturally defaults to Date.now() in the File API, satisfying linter purity
         });
 
         const metadata = {
@@ -1584,7 +1637,7 @@ const ColistEditor = memo(
     const [colorMode, setColorMode] = useState("presets"); // "presets" | "custom"
     const [activeEditor, setActiveEditor] = useState(null);
     const [error, setError] = useState("");
-    const [focusNextIdx, setFocusNextIdx] = useState(null);
+    const [focusTarget, setFocusTarget] = useState(null); // { idx: number, pos: "start" | "end" }
 
     const initialBlocks =
       initialColist?.blocks?.length > 0
@@ -1636,7 +1689,7 @@ const ColistEditor = memo(
         return next;
       });
 
-      setFocusNextIdx(nextIdx);
+      setFocusTarget({ idx: nextIdx, pos: "end" });
 
       requestAnimationFrame(() => {
         const el = document.getElementById("editor-scroll-area");
@@ -1679,20 +1732,59 @@ const ColistEditor = memo(
         return next;
       });
 
-      setFocusNextIdx(finalIdx);
+      setFocusTarget({ idx: finalIdx, pos: "end" });
 
       requestAnimationFrame(() => {
         const el = document.getElementById("editor-scroll-area");
         if (!el) return;
         const target = el.querySelector(`[data-slide-idx="${finalIdx}"]`);
-        if (target) {
+        if (target)
           target.scrollIntoView({
             behavior: "smooth",
             block: "nearest",
             inline: "center",
           });
-        }
       });
+    }, []);
+
+    const handleFocusPrevious = useCallback((idx) => {
+      if (idx > 0) {
+        setFocusTarget({ idx: idx - 1, pos: "end" });
+        requestAnimationFrame(() => {
+          const el = document.getElementById("editor-scroll-area");
+          if (!el) return;
+          const target = el.querySelector(`[data-slide-idx="${idx - 1}"]`);
+          if (target)
+            target.scrollIntoView({ behavior: "smooth", inline: "center" });
+        });
+      }
+    }, []);
+
+    const handleDeleteEmptyAndFocusPrevious = useCallback((idx) => {
+      if (idx > 0) {
+        setBlocks((prev) => prev.filter((_, i) => i !== idx));
+        setFocusTarget({ idx: idx - 1, pos: "end" });
+        requestAnimationFrame(() => {
+          const el = document.getElementById("editor-scroll-area");
+          if (!el) return;
+          const target = el.querySelector(`[data-slide-idx="${idx - 1}"]`);
+          if (target)
+            target.scrollIntoView({ behavior: "smooth", inline: "center" });
+        });
+      }
+    }, []);
+
+    const handleFocusNext = useCallback((idx, totalCount) => {
+      if (idx < totalCount - 1) {
+        setFocusTarget({ idx: idx + 1, pos: "start" });
+        requestAnimationFrame(() => {
+          const el = document.getElementById("editor-scroll-area");
+          if (!el) return;
+          const target = el.querySelector(`[data-slide-idx="${idx + 1}"]`);
+          if (target)
+            target.scrollIntoView({ behavior: "smooth", inline: "center" });
+        });
+      }
     }, []);
 
     const validBlocks = useMemo(
@@ -1872,7 +1964,7 @@ const ColistEditor = memo(
           window.history.replaceState(
             window.history.state || { modal: "editor" },
             "",
-            `/colists/${currentSlug}/unpublished`,
+            `/colists/${currentSlug}/unpublished/edit`,
           );
         }
 
@@ -2229,7 +2321,7 @@ const ColistEditor = memo(
               )}
             </AnimatePresence>
 
-            <div className="flex items-center justify-between mb-4 relative z-[60]">
+            <div className="flex items-center justify-between mb-4 relative z-[70]">
               <span
                 className="text-[10px] font-black font-mono tracking-widest"
                 style={{ color: textColor, opacity: 0.6 }}
@@ -2600,8 +2692,13 @@ const ColistEditor = memo(
                   onAdvancePage={handleAdvancePage}
                   onBulkPaste={handleBulkPaste}
                   setActiveEditor={setActiveEditor}
-                  shouldFocus={focusNextIdx === idx}
-                  onFocusConsumed={() => setFocusNextIdx(null)}
+                  focusTarget={focusTarget}
+                  onFocusConsumed={() => setFocusTarget(null)}
+                  onFocusPrevious={handleFocusPrevious}
+                  onDeleteEmptyAndFocusPrevious={
+                    handleDeleteEmptyAndFocusPrevious
+                  }
+                  onFocusNext={handleFocusNext}
                 />
               </motion.div>
             ))}
