@@ -445,5 +445,27 @@ service cloud.firestore {
 
       allow delete: if (isAuthenticated() && resource.data.authorId == request.auth.uid) || isAdmin();
     }
+    
+    // =========================================================================
+    // COLISTS V2 — LIVE POLL SUBCOLLECTION
+    // =========================================================================
+    match /colists/{colistId}/polls/{pollId} {
+      allow read: if true;
+      allow create: if isAuthenticated() && 
+        (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.tier in ["PRO", "ENTERPRISE", "ADMIN"]
+         || isAdmin());
+      
+      // Strict atomic increment enforcement for votes
+      allow update: if isAuthenticated() 
+        && request.resource.data.diff(resource.data).affectedKeys().hasAny(['optionA', 'optionB', 'totalVotes'])
+        && request.resource.data.totalVotes == resource.data.totalVotes + 1;
+    }
+    
+    match /colists/{colistId}/polls/{pollId}/userVotes/{voterId} {
+      allow read: if isAuthenticated() && request.auth.uid == voterId;
+      allow create: if isAuthenticated() && request.auth.uid == voterId
+        && request.resource.data.option in ['A', 'B'];
+      allow update, delete: if false; // Votes are immutable
+    }
   }
 }

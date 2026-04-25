@@ -64,11 +64,19 @@ import {
   NodeViewWrapper,
   ReactNodeViewRenderer,
 } from "@tiptap/react";
+import BinaryPulsePoll from "./nodes/BinaryPulsePoll";
+import ActiveRecallFlashcard from "./nodes/ActiveRecallFlashcard";
+import ZeitgeistSocial from "./nodes/ZeitgeistSocial";
+import SpatialConcept from "./nodes/SpatialConcept";
 import { Node, mergeAttributes } from "@tiptap/core";
 import { HexColorPicker } from "react-colorful";
 import StarterKit from "@tiptap/starter-kit";
 import Placeholder from "@tiptap/extension-placeholder";
 import LinkExtension from "@tiptap/extension-link";
+import { Extension } from "@tiptap/core";
+import Suggestion from "@tiptap/suggestion";
+import tippy from "tippy.js";
+import "tippy.js/dist/tippy.css";
 
 import {
   G,
@@ -729,6 +737,35 @@ export const PageBlockRenderer = memo(({ block }) => {
       return <PodcastBlock block={block} />;
     case "divider":
       return <DividerBlock />;
+    case "poll":
+      return (
+        <div className="h-full">
+          <BinaryPulsePoll
+            block={block}
+            colistId={null}
+            currentUser={null}
+            textColor={block.textColor}
+          />
+        </div>
+      );
+    case "flashcard":
+      return (
+        <div className="h-full">
+          <ActiveRecallFlashcard block={block} textColor={block.textColor} />
+        </div>
+      );
+    case "zeitgeist":
+      return (
+        <div className="h-full">
+          <ZeitgeistSocial block={block} textColor={block.textColor} />
+        </div>
+      );
+    case "spatial":
+      return (
+        <div className="h-full">
+          <SpatialConcept block={block} textColor={block.textColor} />
+        </div>
+      );
     default:
       return null;
   }
@@ -1144,6 +1181,106 @@ const EditorToolbar = memo(({ editor }) => {
   );
 });
 
+/* ─── Slash Command Menu Engine ──────────────────────────────────────────── */
+const renderSlashMenu = (addBlockType) => {
+  let component;
+  let popup;
+
+  return {
+    onStart: (props) => {
+      const { clientRect } = props;
+
+      // Create DOM element for the menu
+      component = document.createElement("div");
+      component.className =
+        "flex flex-col bg-[#0A0A0A] border border-white/10 rounded-2xl shadow-2xl p-2 w-[220px] overflow-hidden z-[9999]";
+
+      const title = document.createElement("div");
+      title.className =
+        "text-[9px] font-black uppercase tracking-widest text-white/40 px-3 py-2 mb-1";
+      title.innerText = "Insert Widget";
+      component.appendChild(title);
+
+      const items = [
+        { id: "poll", label: "Live Poll", icon: "○/●", color: "#D4AF78" },
+        {
+          id: "flashcard",
+          label: "Active Recall",
+          icon: "▤",
+          color: "#D4AF78",
+        },
+        {
+          id: "zeitgeist",
+          label: "Social Signal",
+          icon: "↗",
+          color: "#D4AF78",
+        },
+        { id: "spatial", label: "Spatial Graph", icon: "☍", color: "#D4AF78" },
+      ];
+
+      items.forEach((item, index) => {
+        const btn = document.createElement("button");
+        btn.className =
+          "flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-left hover:bg-white/10 transition-colors text-white text-xs font-bold";
+        btn.innerHTML = `<span style="color: ${item.color}; font-family: monospace; font-size: 14px;">${item.icon}</span> ${item.label}`;
+
+        btn.onclick = () => {
+          // Clear the '/' trigger text
+          props.editor.chain().focus().deleteRange(props.range).run();
+          // Fire the global add slide/block action
+          addBlockType(item.id);
+          popup[0].hide();
+        };
+        component.appendChild(btn);
+      });
+
+      popup = tippy("body", {
+        getReferenceClientRect: clientRect,
+        appendTo: () => document.body,
+        content: component,
+        showOnCreate: true,
+        interactive: true,
+        trigger: "manual",
+        placement: "bottom-start",
+        theme: "discotive-void",
+      });
+    },
+    onUpdate(props) {
+      popup[0].setProps({
+        getReferenceClientRect: props.clientRect,
+      });
+    },
+    onKeyDown(props) {
+      if (props.event.key === "Escape") {
+        popup[0].hide();
+        return true;
+      }
+      return false;
+    },
+    onExit() {
+      popup[0].destroy();
+      component.remove();
+    },
+  };
+};
+
+const SlashCommands = Extension.create({
+  name: "slashCommands",
+  addOptions() {
+    return {
+      suggestion: { char: "/", command: ({ editor, range, props }) => {} },
+    };
+  },
+  addProseMirrorPlugins() {
+    return [
+      Suggestion({
+        editor: this.editor,
+        ...this.options.suggestion,
+      }),
+    ];
+  },
+});
+
 /* ─── Paginated TipTap Page ──────────────────────────────────────────────── */
 
 const TipTapPageEditor = memo(
@@ -1163,6 +1300,7 @@ const TipTapPageEditor = memo(
     onFocusPrevious,
     onDeleteEmptyAndFocusPrevious,
     onFocusNext,
+    onAddBlock,
   }) => {
     const onUpdateRef = useRef(onUpdate);
     const onAdvancePageRef = useRef(onAdvancePage);
@@ -1277,7 +1415,12 @@ const TipTapPageEditor = memo(
         LinkExtension.configure({ openOnClick: false }),
         EnhancedYouTube,
         EnhancedPodcast,
-        Placeholder.configure({ placeholder: "Start typing..." }),
+        Placeholder.configure({ placeholder: "Type '/' for widgets..." }),
+        SlashCommands.configure({
+          suggestion: {
+            render: () => renderSlashMenu(onAddBlock),
+          },
+        }),
       ],
       content: block._initialJSON || block.content || "",
       editorProps: {
@@ -2020,6 +2163,33 @@ const ColistEditor = memo(
       }, 50);
     }, []);
 
+    const addBlockType = useCallback((type) => {
+      const baseBlock = {
+        id: createBlockId(),
+        type,
+        content: "",
+        title: "",
+        description: "",
+      };
+      const typeDefaults = {
+        poll: {
+          question: "",
+          optionA: "Option A",
+          optionB: "Option B",
+          pollId: `poll_${Date.now()}`,
+        },
+        flashcard: { prompt: "", answer: "", hint: "", difficulty: "medium" },
+        zeitgeist: { url: "", caption: "", label: "External Signal" },
+        spatial: { nodes: [], edges: [], concepts: [] },
+      };
+      const newBlock = { ...baseBlock, ...(typeDefaults[type] || {}) };
+      setBlocks((prev) => [...prev, newBlock]);
+      setTimeout(() => {
+        const el = document.getElementById("editor-scroll-area");
+        if (el) el.scrollTo({ left: el.scrollWidth, behavior: "smooth" });
+      }, 50);
+    }, []);
+
     const updateBlock = useCallback(
       (idx, updated) =>
         setBlocks((prev) => prev.map((b, i) => (i === idx ? updated : b))),
@@ -2699,32 +2869,177 @@ const ColistEditor = memo(
                     handleDeleteEmptyAndFocusPrevious
                   }
                   onFocusNext={handleFocusNext}
+                  onAddBlock={addBlockType}
                 />
               </motion.div>
             ))}
           </AnimatePresence>
 
           <motion.div
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.98 }}
-            onClick={addSlide}
-            className="w-[85vw] max-w-[400px] h-[75vh] min-h-[500px] shrink-0 snap-center rounded-[2.5rem] flex flex-col items-center justify-center cursor-pointer group transition-all"
+            whileHover={{ scale: 1.01 }}
+            className="w-[85vw] max-w-[420px] h-[75vh] min-h-[500px] shrink-0 snap-center rounded-[2.5rem] flex flex-col items-center justify-center gap-3 p-6"
             style={{
-              background: "rgba(255,255,255,0.03)",
-              border: "2px dashed rgba(255,255,255,0.1)",
+              background: "rgba(255,255,255,0.02)",
+              border: "1.5px dashed rgba(255,255,255,0.08)",
             }}
           >
-            <div className="w-16 h-16 rounded-full bg-white/5 flex items-center justify-center mb-4 group-hover:bg-white/10 group-hover:scale-110 transition-all">
-              <Plus
-                size={28}
-                className="text-white/40 group-hover:text-white transition-colors"
-              />
-            </div>
-            <span className="text-[11px] font-black uppercase tracking-widest text-white/30 group-hover:text-white/80 transition-colors">
-              Add New Page
-            </span>
+            <p
+              className="text-[9px] font-black uppercase tracking-[0.3em] mb-2"
+              style={{ color: "rgba(191,162,100,0.5)" }}
+            >
+              Add Block
+            </p>
+            {[
+              {
+                label: "Insight Page",
+                sub: "Rich text + media",
+                icon: (
+                  <svg
+                    width="18"
+                    height="18"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                  >
+                    <path strokeLinecap="round" d="M9 12h6M9 8h6M9 16h4" />
+                    <rect x="3" y="3" width="18" height="18" rx="3" />
+                  </svg>
+                ),
+                onClick: addSlide,
+                gold: false,
+              },
+              {
+                label: "Live Poll",
+                sub: "Binary sentiment engine",
+                icon: (
+                  <svg
+                    width="18"
+                    height="18"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                  >
+                    <circle cx="12" cy="12" r="4" />
+                    <circle cx="12" cy="12" r="1" fill="currentColor" />
+                    <path
+                      strokeLinecap="round"
+                      d="M12 2v3M12 19v3M2 12h3M19 12h3"
+                    />
+                  </svg>
+                ),
+                onClick: () => addBlockType("poll"),
+                gold: true,
+              },
+              {
+                label: "Active Recall",
+                sub: "Press & hold flashcard",
+                icon: (
+                  <svg
+                    width="18"
+                    height="18"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M9.663 17h4.673M12 3v1m6.364 1.636-.707.707M21 12h-1M4 12H3m3.343-5.657-.707-.707m2.828 9.9a5 5 0 1 1 7.072 0l-.548.547A3.374 3.374 0 0 0 14 18.469V19a2 2 0 1 1-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"
+                    />
+                  </svg>
+                ),
+                onClick: () => addBlockType("flashcard"),
+                gold: true,
+              },
+              {
+                label: "Social Signal",
+                sub: "External OG card",
+                icon: (
+                  <svg
+                    width="18"
+                    height="18"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244"
+                    />
+                  </svg>
+                ),
+                onClick: () => addBlockType("zeitgeist"),
+                gold: true,
+              },
+              {
+                label: "Node Graph",
+                sub: "Spatial concept map",
+                icon: (
+                  <svg
+                    width="18"
+                    height="18"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.5"
+                  >
+                    <circle cx="12" cy="5" r="2" />
+                    <circle cx="5" cy="19" r="2" />
+                    <circle cx="19" cy="19" r="2" />
+                    <line x1="12" y1="7" x2="5" y2="17" />
+                    <line x1="12" y1="7" x2="19" y2="17" />
+                    <line x1="5" y1="19" x2="19" y2="19" />
+                  </svg>
+                ),
+                onClick: () => addBlockType("spatial"),
+                gold: true,
+              },
+            ].map((item) => (
+              <motion.button
+                key={item.label}
+                whileHover={{ scale: 1.03, x: 4 }}
+                whileTap={{ scale: 0.97 }}
+                onClick={item.onClick}
+                className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-left transition-all"
+                style={{
+                  background: item.gold
+                    ? "rgba(191,162,100,0.06)"
+                    : "rgba(255,255,255,0.04)",
+                  border: item.gold
+                    ? "1px solid rgba(191,162,100,0.2)"
+                    : "1px solid rgba(255,255,255,0.06)",
+                  color: item.gold ? "#D4AF78" : "rgba(255,255,255,0.5)",
+                }}
+              >
+                <div
+                  className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0"
+                  style={{
+                    background: item.gold
+                      ? "rgba(191,162,100,0.1)"
+                      : "rgba(255,255,255,0.05)",
+                  }}
+                >
+                  {item.icon}
+                </div>
+                <div>
+                  <p className="text-[11px] font-black uppercase tracking-widest">
+                    {item.label}
+                  </p>
+                  <p
+                    className="text-[9px] font-mono mt-0.5"
+                    style={{ opacity: 0.5 }}
+                  >
+                    {item.sub}
+                  </p>
+                </div>
+              </motion.button>
+            ))}
           </motion.div>
-
           <div className="shrink-0 w-[5vw] md:w-[15vw] h-1" />
         </div>
       </motion.div>
