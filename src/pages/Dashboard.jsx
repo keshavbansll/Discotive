@@ -14,7 +14,8 @@ import React, {
 } from "react";
 import { Helmet } from "react-helmet-async";
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
-import { useNavigate, Link } from "react-router-dom";
+import { useNavigate, Link, useOutletContext } from "react-router-dom";
+import { createPortal } from "react-dom";
 import {
   collection,
   query,
@@ -121,7 +122,7 @@ const FADE_UP = (delay = 0) => ({
    DATA HOOKS
 ══════════════════════════════════════════════════════════════════════════ */
 
-const useScoreLog = (uid) => {
+export const useScoreLog = (uid) => {
   const [logs, setLogs] = useState([]);
   const fetchedRef = useRef(false);
   useEffect(() => {
@@ -250,7 +251,7 @@ const useOpportunities = (uid, domain) => {
   return opps;
 };
 
-const useLbRank = (uid, score, domain) => {
+export const useLbRank = (uid, score, domain) => {
   const [rank, setRank] = useState("?");
   const [filter, setFilter] = useState("Global");
   useEffect(() => {
@@ -929,7 +930,7 @@ const MiniRadialRing = memo(
 );
 
 /* ─── HUD Panel (Desktop right rail — animated) ──────────────────────────── */
-const HUDPanel = memo(
+export const HUDPanel = memo(
   ({
     score,
     lastScore,
@@ -2217,13 +2218,8 @@ const ProfileStatsBar = memo(({ userData, score }) => {
             borderColor: `${b.grad},0.15)`,
           }}
         >
-          {/* Subtle Granular SVG Noise Background */}
-          <div
-            className="absolute inset-0 opacity-[0.06] mix-blend-overlay pointer-events-none"
-            style={{
-              backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)'/%3E%3C/svg%3E")`,
-            }}
-          />
+          {/* Subtle Background removed per strict performance mandate to ensure 60fps animations */}
+          <div className="absolute inset-0 opacity-[0.02] bg-white pointer-events-none" />
 
           {/* Default State */}
           <div className="relative z-10 flex items-start justify-between group-hover:opacity-0 transition-opacity duration-300">

@@ -63,11 +63,13 @@ import {
   Ticket,
   Calendar,
   Newspaper,
+  Activity,
   GraduationCap,
 } from "lucide-react";
 
 import { cn } from "../lib/cn";
 import FeedbackModal from "../components/FeedbackModal";
+import TelemetryData from "../components/TelemetryData";
 
 import SupportTicketModal from "../components/SupportTicketModal";
 import UserReportModal from "../components/UserReportModal";
@@ -134,6 +136,7 @@ const GHOST_LOCKED_ROUTES = [
 const MainLayout = () => {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
 
@@ -328,6 +331,7 @@ const MainLayout = () => {
   if (location.pathname !== prevPath) {
     setPrevPath(location.pathname);
     setIsMobileMenuOpen(false);
+    setIsRightSidebarOpen(false);
     setIsSearchOpen(false);
     setIsNavigating(false); // Kill loader exactly when the new chunk finishes downloading
     setShowProfileMenu(false);
@@ -818,14 +822,20 @@ const MainLayout = () => {
 
   const handleTouchMove = (e) => {
     // Prevent triggering if a menu is already open
-    if (showProfileMenu || isMobileMenuOpen) return;
+    if (showProfileMenu || isMobileMenuOpen || isRightSidebarOpen) return;
 
     const touchEnd = e.touches[0].clientX;
     const distance = touchEnd - touchStartRef.current;
+    const windowWidth = window.innerWidth;
 
     // Trigger only if swipe starts near the very left edge (< 40px) and moves right
     if (touchStartRef.current < 40 && distance > 50) {
       setShowProfileMenu(true);
+    }
+
+    // Trigger if swipe starts near the very right edge and moves left (Global Mobile)
+    if (touchStartRef.current > windowWidth - 40 && distance < -50) {
+      setIsRightSidebarOpen(true);
     }
   };
 
@@ -1299,6 +1309,15 @@ const MainLayout = () => {
               patchLocalData={patchLocalData}
               db={db}
             />
+
+            {/* RIGHT SIDEBAR TOGGLE (Global Mobile) */}
+            <button
+              onClick={() => setIsRightSidebarOpen(true)}
+              className="md:hidden p-2 rounded-full transition-all relative border active:scale-95 duration-150 bg-[#0A0A0A] border-white/5 text-[#F5F0E8]/60 hover:text-[#BFA264] flex items-center justify-center shadow-sm ml-1"
+              aria-label="Open Telemetry"
+            >
+              <Activity className="w-4 h-4 md:w-5 md:h-5" />
+            </button>
           </div>
 
           {/* --- PROFILE DROPDOWN ENGINE (Mobile: Left, Desktop: Right) --- */}
@@ -1899,6 +1918,12 @@ const MainLayout = () => {
         isOpen={isSupportTicketOpen}
         onClose={() => setIsSupportTicketOpen(false)}
         user={auth.currentUser}
+        userData={userData}
+      />
+
+      <TelemetryData
+        isOpen={isRightSidebarOpen}
+        onClose={() => setIsRightSidebarOpen(false)}
         userData={userData}
       />
     </div>
