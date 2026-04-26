@@ -843,7 +843,7 @@ const MainLayout = () => {
         onHoverEnd={() => setIsSidebarOpen(false)}
         animate={{ width: isSidebarOpen ? 260 : 80 }}
         transition={{ type: "spring", bounce: 0, duration: 0.2 }}
-        className="hidden md:flex flex-col bg-[#0A0A0A] border-r border-white/5 h-full z-[100] relative shadow-[10px_0_50px_rgba(0,0,0,0.5)]"
+        className="hidden md:flex flex-col bg-[#0A0A0A] border-r border-white/5 h-full z-[100] relative shadow-[10px_0_50px_rgba(0,0,0,0.5)] tut-nav"
       >
         {/* Logo Section */}
         <div className="h-20 flex items-center justify-between px-6 shrink-0 border-b border-white/5">
@@ -1612,7 +1612,7 @@ const MainLayout = () => {
         initial={{ y: 0 }}
         animate={{ y: showBottomNav ? 0 : "100%" }}
         transition={{ type: "spring", stiffness: 400, damping: 30, mass: 0.8 }}
-        className="md:hidden fixed bottom-0 left-0 right-0 bg-[#050505] border-t border-white/5 z-[100] flex items-center justify-around px-2 pb-[env(safe-area-inset-bottom)] pt-1 min-h-[calc(4rem+env(safe-area-inset-bottom))] shadow-[0_-10px_40px_rgba(0,0,0,0.6)] will-change-transform"
+        className="md:hidden fixed bottom-0 left-0 right-0 bg-[#050505] border-t border-white/5 z-[100] flex items-center justify-around px-2 pb-[env(safe-area-inset-bottom)] pt-1 min-h-[calc(4rem+env(safe-area-inset-bottom))] shadow-[0_-10px_40px_rgba(0,0,0,0.6)] will-change-transform tut-nav"
       >
         {[
           { icon: LayoutDashboard, path: "/app", label: "Dashboard" },

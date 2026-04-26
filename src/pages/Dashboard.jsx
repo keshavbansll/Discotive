@@ -1005,6 +1005,7 @@ const HUDPanel = memo(
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5, delay: 0.2 }}
+          className="tut-velocity"
         >
           <SparklineChart
             tf={chartTf}
@@ -1019,6 +1020,7 @@ const HUDPanel = memo(
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5, delay: 0.3 }}
+          className="tut-position"
         >
           <SectionLabel icon={Compass} color={G.base}>
             Position Matrix
@@ -1140,6 +1142,7 @@ const HUDPanel = memo(
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5, delay: 0.45 }}
+          className="tut-consistency"
         >
           <ConsistencyMatrix userData={userData} />
         </motion.div>
@@ -1148,6 +1151,7 @@ const HUDPanel = memo(
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5, delay: 0.5 }}
+          className="tut-streak-milestones"
         >
           <div className="grid grid-cols-3 gap-2 mt-[-8px]">
             {[
@@ -1210,6 +1214,7 @@ const HUDPanel = memo(
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5, delay: 0.55 }}
+          className="tut-live-signal"
         >
           <GlobalTicker events={telemetryEvents} />
         </motion.div>
@@ -2630,7 +2635,7 @@ const MobileDashboard = ({
       </div>
 
       {/* ── CHART (compact, full width) ── */}
-      <div className="px-4 mt-2 mb-3">
+      <div className="px-4 mt-2 mb-3 tut-velocity">
         <div className="flex items-center justify-between mb-2 px-1">
           <span
             className="text-[9px] font-black uppercase tracking-widest"
@@ -2702,7 +2707,7 @@ const MobileDashboard = ({
       </div>
 
       {/* ── COMMAND ACTIONS ── */}
-      <div className="px-4 mb-5">
+      <div className="px-4 mb-5 tut-quick-actions">
         <p
           className="text-[9px] font-black uppercase tracking-widest mb-3"
           style={{ color: T.dim }}
@@ -2737,7 +2742,7 @@ const MobileDashboard = ({
       )}
 
       {/* ── OPPORTUNITIES ── */}
-      <div className="px-4 mb-6">
+      <div className="px-4 mb-6 tut-opportunities">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">
             <Star size={12} style={{ color: G.base }} />
@@ -2781,7 +2786,7 @@ const MobileDashboard = ({
       </div>
 
       {/* ── POSITION MATRIX ── */}
-      <div className="px-4 mb-6">
+      <div className="px-4 mb-6 tut-position">
         <SectionLabel icon={Compass} color={G.base}>
           Position Matrix
         </SectionLabel>
@@ -2818,7 +2823,7 @@ const MobileDashboard = ({
       </div>
 
       {/* ── RIVALS (horizontal scroll) ── */}
-      <div className="mb-6">
+      <div className="mb-6 tut-rivals">
         <div className="flex items-center justify-between mb-3 px-4">
           <div className="flex items-center gap-2">
             <Crosshair size={12} style={{ color: "#F87171" }} />
@@ -2885,7 +2890,7 @@ const MobileDashboard = ({
       </div>
 
       {/* ── ALLIANCES (horizontal scroll) ── */}
-      <div className="mb-6">
+      <div className="mb-6 tut-alliances">
         <div className="flex items-center justify-between mb-3 px-4">
           <div className="flex items-center gap-2">
             <Users size={12} style={{ color: "#8b5cf6" }} />
@@ -2968,12 +2973,12 @@ const MobileDashboard = ({
       </div>
 
       {/* ── CONSISTENCY (horizontal scroll, 44px touch) ── */}
-      <div className="px-4 mb-6">
+      <div className="px-4 mb-6 tut-consistency">
         <ConsistencyMatrix userData={userData} horizontal={true} />
       </div>
 
       {/* ── STREAK MILESTONES ── */}
-      <div className="px-4 mb-6">
+      <div className="px-4 mb-6 tut-streak-milestones">
         <SectionLabel icon={Flame} color="#f97316">
           Streak Milestones
         </SectionLabel>
@@ -3068,7 +3073,7 @@ const MobileDashboard = ({
       )}
 
       {/* ── LEARN (horizontal scroll) ── */}
-      <div className="mb-6">
+      <div className="mb-6 tut-learn">
         <div className="flex items-center justify-between mb-3 px-4">
           <div className="flex items-center gap-2">
             <GraduationCap size={12} style={{ color: "#8b5cf6" }} />
@@ -3135,12 +3140,12 @@ const MobileDashboard = ({
       </div>
 
       {/* ── LIVE SIGNAL ── */}
-      <div className="px-4 mb-6">
+      <div className="px-4 mb-6 tut-live-signal">
         <GlobalTicker events={telemetryEvents} />
       </div>
 
       {/* ── AGENDA PREVIEW (mobile) ── */}
-      <div className="px-4 mb-6">
+      <div className="px-4 mb-6 tut-agenda">
         <AgendaPreview userData={userData} isPro={isPro} navigate={navigate} />
       </div>
     </div>
@@ -3411,15 +3416,17 @@ const Dashboard = () => {
   // Push notifications
   usePushNotifications(userData?.uid);
 
-  // Tutorial gate — fires once per account, 1.2s delay for page to settle
+  // Tutorial gate — checks database directly, triggers spotlight sequence
   const [showTutorial, setShowTutorial] = useState(false);
   useEffect(() => {
     if (!userData?.uid || userLoading) return;
+    const hasSeen =
+      userData.meta?.tutorialSeen || localStorage.getItem(TUTORIAL_KEY);
     const t = setTimeout(() => {
-      if (!localStorage.getItem(TUTORIAL_KEY)) setShowTutorial(true);
+      if (!hasSeen) setShowTutorial(true);
     }, 1200);
     return () => clearTimeout(t);
-  }, [userData?.uid, userLoading]);
+  }, [userData, userLoading]);
 
   if (userLoading) return <DashboardSkeleton />;
 
@@ -3575,7 +3582,7 @@ const Dashboard = () => {
               {/* Opportunities */}
               <motion.section
                 {...FADE_UP(0.1)}
-                className="pt-4 pb-14 pr-12 pl-8 md:pl-12"
+                className="pt-4 pb-14 pr-12 pl-8 md:pl-12 tut-opportunities"
               >
                 <div className="flex items-center justify-between mb-6">
                   <div className="flex items-center gap-2">
@@ -3637,7 +3644,7 @@ const Dashboard = () => {
               {/* Rivals */}
               <motion.section
                 {...FADE_UP(0.16)}
-                className="pb-14 pl-8 md:pl-12"
+                className="pb-14 pl-8 md:pl-12 tut-rivals"
               >
                 <Swimlane
                   label="Rivals"
@@ -3668,7 +3675,7 @@ const Dashboard = () => {
               {/* Alliances */}
               <motion.section
                 {...FADE_UP(0.18)}
-                className="pb-14 pl-8 md:pl-12"
+                className="pb-14 pl-8 md:pl-12 tut-alliances"
               >
                 <Swimlane
                   label="Alliances"
@@ -3717,7 +3724,10 @@ const Dashboard = () => {
               />
 
               {/* Learn */}
-              <motion.section {...FADE_UP(0.2)} className="pb-14 pl-8 md:pl-12">
+              <motion.section
+                {...FADE_UP(0.2)}
+                className="pb-14 pl-8 md:pl-12 tut-learn"
+              >
                 <Swimlane
                   label="Discotive Learn"
                   icon={GraduationCap}
@@ -3778,7 +3788,7 @@ const Dashboard = () => {
               {/* Agenda Preview */}
               <motion.section
                 {...FADE_UP(0.28)}
-                className="pb-32 pr-12 pl-8 md:pl-12"
+                className="pb-32 pr-12 pl-8 md:pl-12 tut-agenda"
               >
                 <AgendaPreview
                   userData={userData}

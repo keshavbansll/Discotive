@@ -1,194 +1,306 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, ArrowRight } from "lucide-react";
 import { doc, updateDoc } from "firebase/firestore";
 import { db } from "../firebase";
 
-export const TUTORIAL_KEY = "disc_tut_v2";
+export const TUTORIAL_KEY = "disc_tut_v3_spotlight";
 
 const STEPS = [
   {
-    id: "welcome",
-    emoji: "⚡",
-    color: "#BFA264",
-    shadow: "rgba(191,162,100,0.25)",
-    title: "Your Command Center.",
-    body: "Every career decision, credential, and connection lives here. Discotive converts ambition into a scored, verifiable execution system visible to the world.",
-    cta: "Show me around",
+    id: "tut-consistency",
+    title: "Consistency Chart",
+    body: "This matrix tracks your daily execution. Show up consistently to maintain your velocity. Miss a day, lose points.",
   },
   {
-    id: "score",
-    emoji: "🎯",
-    color: "#D4AF78",
-    shadow: "rgba(212,175,120,0.25)",
-    title: "The Discotive Score.",
-    body: "Your global performance index — starting at 50 points. Complete tasks, verify credentials, forge alliances, and maintain streaks. Every action moves the number.",
-    cta: "Got it",
+    id: "tut-streak-milestones",
+    title: "Streak Milestones",
+    body: "Hit these milestones to unlock permanent profile badges and score multipliers.",
   },
   {
-    id: "consistency",
-    emoji: "🔥",
-    color: "#f97316",
-    shadow: "rgba(249,115,22,0.25)",
-    title: "The Consistency Engine.",
-    body: "Log in every day. Miss a day and lose 15 points. The engine exists to reward operators who show up — not those who sprint and disappear.",
-    cta: "Understood",
+    id: "tut-live-signal",
+    title: "Live Signal",
+    body: "Real-time updates from the network. System syncs, score changes, and alerts drop here.",
   },
   {
-    id: "vault",
-    emoji: "🔒",
-    color: "#4ADE80",
-    shadow: "rgba(74,222,128,0.25)",
-    title: "Your Asset Vault.",
-    body: "Upload certificates, projects, and credentials. Our team verifies each one. Verified assets earn Score points and appear on your public profile as proof of work.",
-    cta: "Continue",
+    id: "tut-agenda",
+    title: "Command Agenda",
+    body: "Your latest execution logs and plans. Document your daily moves to keep yourself accountable.",
   },
   {
-    id: "arena",
-    emoji: "🏆",
-    color: "#38bdf8",
-    shadow: "rgba(56,189,248,0.25)",
-    title: "The Global Arena.",
-    body: "Compete against operators in your domain. Track rivals, forge alliances, and climb the leaderboard. Your rank updates live as scores shift across the platform.",
-    cta: "Launch OS",
-    isLast: true,
+    id: "tut-learn",
+    title: "Discotive Learn",
+    body: "Verified courses and tactical resources specific to your domain. Complete them to earn score.",
+  },
+  {
+    id: "tut-alliances",
+    title: "Alliances",
+    body: "Your trusted network. Monitor the score velocity of your allies.",
+  },
+  {
+    id: "tut-rivals",
+    title: "Rivals",
+    body: "Keep your enemies closer. Track top operators to benchmark your performance against theirs.",
+  },
+  {
+    id: "tut-opportunities",
+    title: "Latest Opportunities",
+    body: "Domain-matched gigs, bounties, and exclusive roles directly from the Discotive network.",
+  },
+  {
+    id: "tut-velocity",
+    title: "Score Velocity",
+    body: "Your momentum mapped over time. An upward trajectory proves you are executing.",
+  },
+  {
+    id: "tut-position",
+    title: "Position Matrix",
+    body: "Your exact rank across the Global, Domain, and Path axes.",
+  },
+  {
+    id: "tut-quick-actions",
+    title: "Quick Actions",
+    body: "Fast-travel to core modules. Everything is one tap away.",
+  },
+  {
+    id: "tut-nav",
+    title: "Discotive OS",
+    body: "Navigate the full operating system. Your execution engine is ready. Let's build.",
   },
 ];
 
+const PADDING = 12;
+
 const OnboardingTutorial = ({ uid, onDismiss }) => {
   const [step, setStep] = useState(0);
+  const [targetRect, setTargetRect] = useState(null);
+  const [windowSize, setWindowSize] = useState({
+    width: window.innerWidth,
+    height: window.innerHeight,
+  });
 
-  const dismiss = useCallback(
-    async (completed = false) => {
-      localStorage.setItem(TUTORIAL_KEY, "1");
-      onDismiss?.();
-      if (uid) {
-        try {
-          await updateDoc(doc(db, "users", uid), {
-            "meta.tutorialSeen": true,
-            "meta.tutorialCompletedAt": new Date().toISOString(),
-          });
-        } catch (_) {}
-      }
-    },
-    [uid, onDismiss],
-  );
+  // O(1) DOM caching refs to prevent layout thrashing on mobile
+  const activeElementRef = useRef(null);
+  const trackingRafRef = useRef(null);
 
   const current = STEPS[step];
 
+  const dismiss = useCallback(async () => {
+    localStorage.setItem(TUTORIAL_KEY, "1");
+    onDismiss?.();
+    if (uid) {
+      try {
+        await updateDoc(doc(db, "users", uid), {
+          "meta.tutorialSeen": true,
+          "meta.tutorialCompletedAt": new Date().toISOString(),
+        });
+      } catch (_) {}
+    }
+  }, [uid, onDismiss]);
+
+  const updateSpotlight = useCallback(() => {
+    // Only query the DOM once per step change
+    const elements = document.querySelectorAll(
+      `.${current.id}, #${current.id}`,
+    );
+    let found = null;
+    for (const el of elements) {
+      const rect = el.getBoundingClientRect();
+      if (
+        rect.width > 0 &&
+        rect.height > 0 &&
+        window.getComputedStyle(el).display !== "none"
+      ) {
+        found = el;
+        break;
+      }
+    }
+
+    if (found) {
+      activeElementRef.current = found;
+      found.scrollIntoView({
+        behavior: "smooth",
+        block: "center",
+        inline: "nearest",
+      });
+
+      // Frame-perfect tracking via cached ref (Zero querySelector overhead)
+      const start = Date.now();
+      const track = () => {
+        if (activeElementRef.current) {
+          const rect = activeElementRef.current.getBoundingClientRect();
+          setTargetRect({
+            x: rect.x,
+            y: rect.y,
+            width: rect.width,
+            height: rect.height,
+          });
+        }
+        // Track fluidly during the standard 850ms browser smooth scroll window
+        if (Date.now() - start < 850) {
+          trackingRafRef.current = requestAnimationFrame(track);
+        }
+      };
+
+      if (trackingRafRef.current) cancelAnimationFrame(trackingRafRef.current);
+      trackingRafRef.current = requestAnimationFrame(track);
+    } else {
+      // Graceful fallback: If an element is totally hidden on this device size, skip it automatically
+      if (step < STEPS.length - 1) setStep((s) => s + 1);
+      else dismiss();
+    }
+  }, [current.id, step, dismiss]);
+
+  useEffect(() => {
+    updateSpotlight();
+
+    const handleResize = () => {
+      setWindowSize({ width: window.innerWidth, height: window.innerHeight });
+      updateSpotlight();
+    };
+
+    // Hardware-accelerated passive scroll throttle
+    let scrollRaf = null;
+    const handleScroll = () => {
+      if (scrollRaf) return;
+      scrollRaf = requestAnimationFrame(() => {
+        if (activeElementRef.current) {
+          const rect = activeElementRef.current.getBoundingClientRect();
+          if (rect.width > 0) {
+            setTargetRect({
+              x: rect.x,
+              y: rect.y,
+              width: rect.width,
+              height: rect.height,
+            });
+          }
+        }
+        scrollRaf = null;
+      });
+    };
+
+    window.addEventListener("resize", handleResize, { passive: true });
+    // Capture phase true to catch nested scrollable divs, passive true for 60fps scrolling
+    window.addEventListener("scroll", handleScroll, {
+      capture: true,
+      passive: true,
+    });
+
+    return () => {
+      window.removeEventListener("resize", handleResize);
+      window.removeEventListener("scroll", handleScroll, { capture: true });
+      if (trackingRafRef.current) cancelAnimationFrame(trackingRafRef.current);
+      if (scrollRaf) cancelAnimationFrame(scrollRaf);
+    };
+  }, [updateSpotlight]);
+
+  if (!targetRect)
+    return createPortal(
+      <div className="fixed inset-0 z-[99999] bg-[#030303]/95" />,
+      document.body,
+    );
+
+  const TOOLTIP_W = 300;
+  const TOOLTIP_EST_H = 280;
+
+  let tooltipX = targetRect.x + targetRect.width / 2 - TOOLTIP_W / 2;
+  if (tooltipX < 20) tooltipX = 20;
+  if (tooltipX + TOOLTIP_W > windowSize.width - 20)
+    tooltipX = windowSize.width - TOOLTIP_W - 20;
+
+  let tooltipY = targetRect.y + targetRect.height + PADDING + 24;
+  if (tooltipY + TOOLTIP_EST_H > windowSize.height) {
+    tooltipY = targetRect.y - PADDING - TOOLTIP_EST_H - 24;
+  }
+  if (tooltipY < 20) {
+    tooltipY = windowSize.height - TOOLTIP_EST_H - 20;
+  }
+
   return createPortal(
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      className="fixed inset-0 z-[99999] flex items-center justify-center p-4"
-      style={{ background: "rgba(3,3,3,0.93)", backdropFilter: "blur(24px)" }}
-    >
-      {/* Ambient glow */}
-      <AnimatePresence mode="wait">
-        <motion.div
-          key={current.id + "_bg"}
-          initial={{ opacity: 0, scale: 0.5 }}
-          animate={{ opacity: 1, scale: 1.8 }}
-          exit={{ opacity: 0 }}
-          transition={{ duration: 0.8 }}
-          className="absolute inset-0 pointer-events-none"
-          style={{
-            background: `radial-gradient(circle at 50% 45%, ${current.shadow} 0%, transparent 60%)`,
-          }}
-        />
-      </AnimatePresence>
-
-      {/* Skip */}
-      <button
-        onClick={() => dismiss(false)}
-        className="absolute top-6 right-6 flex items-center gap-1.5 text-[10px] font-black text-white/25 hover:text-white/60 uppercase tracking-widest transition-colors z-10"
-      >
-        Skip <X className="w-3 h-3" />
-      </button>
-
-      {/* Card */}
-      <AnimatePresence mode="wait">
-        <motion.div
-          key={current.id}
-          initial={{ opacity: 0, y: 40, scale: 0.94 }}
-          animate={{ opacity: 1, y: 0, scale: 1 }}
-          exit={{ opacity: 0, y: -20, scale: 0.96 }}
-          transition={{ type: "spring", damping: 26, stiffness: 280 }}
-          className="relative w-full max-w-sm flex flex-col items-center text-center z-10"
-        >
-          {/* Icon */}
-          <motion.div
-            animate={{ scale: [1, 1.08, 1] }}
-            transition={{ duration: 2.8, repeat: Infinity, ease: "easeInOut" }}
-            className="w-[100px] h-[100px] rounded-[2rem] flex items-center justify-center text-5xl mb-8 relative"
-            style={{
-              background: `rgba(${current.color === "#BFA264" ? "191,162,100" : current.color === "#D4AF78" ? "212,175,120" : current.color === "#f97316" ? "249,115,22" : current.color === "#4ADE80" ? "74,222,128" : "56,189,248"},0.08)`,
-              border: `1px solid ${current.color}30`,
-              boxShadow: `0 0 60px ${current.shadow}`,
-            }}
-          >
-            {current.emoji}
-            <motion.div
-              className="absolute inset-0 rounded-[2rem]"
-              animate={{ opacity: [0, 0.25, 0] }}
-              transition={{ duration: 2.8, repeat: Infinity }}
-              style={{
-                background: `radial-gradient(circle, ${current.color}20, transparent)`,
+    <div className="fixed inset-0 z-[99999] pointer-events-auto overflow-hidden">
+      <svg className="absolute inset-0 w-full h-full pointer-events-none">
+        <defs>
+          <mask id="spotlight-mask">
+            <rect width="100%" height="100%" fill="white" />
+            <motion.rect
+              animate={{
+                x: targetRect.x - PADDING,
+                y: targetRect.y - PADDING,
+                width: targetRect.width + PADDING * 2,
+                height: targetRect.height + PADDING * 2,
               }}
+              transition={{ type: "spring", damping: 25, stiffness: 200 }}
+              rx={16}
+              fill="black"
             />
-          </motion.div>
+          </mask>
+        </defs>
+        <rect
+          width="100%"
+          height="100%"
+          fill="rgba(3,3,3,0.92)"
+          mask="url(#spotlight-mask)"
+        />
+      </svg>
 
-          <h2
-            className="font-black text-[2rem] text-white mb-4 leading-tight"
-            style={{
-              fontFamily: "'Montserrat', sans-serif",
-              letterSpacing: "-0.03em",
-            }}
+      <motion.div
+        className="absolute pointer-events-none rounded-2xl border border-white/60 shadow-[0_0_40px_rgba(255,255,255,0.15)]"
+        animate={{
+          x: targetRect.x - PADDING,
+          y: targetRect.y - PADDING,
+          width: targetRect.width + PADDING * 2,
+          height: targetRect.height + PADDING * 2,
+        }}
+        transition={{ type: "spring", damping: 25, stiffness: 200 }}
+        style={{ willChange: "transform" }}
+      />
+
+      <motion.div
+        className="absolute bg-white rounded-2xl p-5 shadow-[0_20px_50px_rgba(0,0,0,0.8)] w-[300px] flex flex-col pointer-events-auto"
+        animate={{ x: tooltipX, y: tooltipY }}
+        transition={{ type: "spring", damping: 25, stiffness: 200 }}
+        style={{ willChange: "transform" }}
+      >
+        <div className="flex items-center justify-between mb-3">
+          {/* COLOR FIX: Changed to text-black */}
+          <span className="text-[10px] font-black uppercase tracking-widest text-black">
+            {step + 1} / {STEPS.length}
+          </span>
+          <button
+            onClick={dismiss}
+            className="w-6 h-6 rounded-full bg-black/5 hover:bg-black/10 flex items-center justify-center text-black/40 hover:text-black transition-colors"
           >
-            {current.title}
-          </h2>
-          <p className="text-[15px] text-white/45 leading-relaxed mb-10 max-w-[300px] font-light">
-            {current.body}
-          </p>
+            <X size={12} />
+          </button>
+        </div>
+        <h3 className="font-display font-black text-xl text-black leading-tight mb-2 tracking-tight">
+          {current.title}
+        </h3>
+        <p className="text-xs text-[#555] font-body leading-relaxed mb-6">
+          {current.body}
+        </p>
 
+        <div className="flex items-center justify-between mt-auto">
+          <button
+            onClick={() => step > 0 && setStep((s) => s - 1)}
+            className={`text-[10px] font-bold uppercase tracking-widest transition-colors ${step > 0 ? "text-[#888] hover:text-black" : "text-transparent pointer-events-none"}`}
+          >
+            Back
+          </button>
           <button
             onClick={() => {
-              if (current.isLast) dismiss(true);
-              else setStep((s) => s + 1);
+              if (step < STEPS.length - 1) setStep((s) => s + 1);
+              else dismiss();
             }}
-            className="flex items-center gap-3 px-8 py-4 rounded-full font-black text-sm uppercase tracking-widest transition-all hover:scale-105 active:scale-95 shadow-2xl"
-            style={{
-              background: `linear-gradient(135deg, #8B7240, #D4AF78)`,
-              color: "#000",
-              boxShadow: `0 0 40px ${current.shadow}`,
-              fontFamily: "'Poppins', sans-serif",
-            }}
+            className="flex items-center gap-2 bg-black text-white px-5 py-2.5 rounded-full text-[10px] font-black uppercase tracking-widest hover:scale-105 active:scale-95 transition-all shadow-lg"
           >
-            {current.cta}
-            {!current.isLast && <ArrowRight className="w-4 h-4" />}
+            {step < STEPS.length - 1 ? "Next" : "Finish"}{" "}
+            <ArrowRight size={12} />
           </button>
-
-          {/* Progress dots */}
-          <div className="flex items-center gap-2 mt-8">
-            {STEPS.map((_, i) => (
-              <button
-                key={i}
-                onClick={() => setStep(i)}
-                className="transition-all rounded-full"
-                style={{
-                  width: i === step ? 24 : 8,
-                  height: 8,
-                  background:
-                    i === step ? current.color : "rgba(255,255,255,0.12)",
-                }}
-              />
-            ))}
-          </div>
-        </motion.div>
-      </AnimatePresence>
-    </motion.div>,
+        </div>
+      </motion.div>
+    </div>,
     document.body,
   );
 };
