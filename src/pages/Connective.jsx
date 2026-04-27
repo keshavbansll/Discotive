@@ -1064,107 +1064,33 @@ const Connective = () => {
               exit={{ opacity: 0, y: -8 }}
               transition={{ duration: 0.18 }}
             >
-              <SideLayout
-                peekUser={peekUser}
-                competitors={competitors}
-                onRefreshTargets={handleRefreshTargets}
-                networkStats={networkStats}
+              <FeedTab
+                isAdmin={isAdmin}
+                uid={uid}
                 userData={userData}
+                posts={posts}
+                feedLoading={feedLoading}
+                feedError={feedError}
+                hasMorePosts={hasMorePosts}
+                isPosting={isPosting}
+                onPost={handlePost}
+                onLike={toggleLike}
+                onLoadMore={() => fetchFeed(false)}
+                onDelete={handleDeletePost}
+                onFetchComments={fetchComments}
+                onAddComment={addComment}
+                onDeleteComment={deleteComment}
+                onPeekOperator={handlePeekOperator}
+                // --- New Integration Telemetry & Actions ---
+                onRefresh={handleRefreshFeed}
+                allianceIds={alliances ? alliances.map((a) => a.id) : []}
+                suggestedUsers={suggestedUsers}
+                networkStats={networkStats}
                 onOpenDM={() => handleOpenDM()}
                 unreadDmCount={unreadDmCount}
-                onRefreshNetwork={handleRefreshNetwork}
-                rightChildren={
-                  suggestedUsers.slice(0, 3).length > 0 && (
-                    <div className="rounded-[1.5rem] border border-[rgba(255,255,255,0.06)] bg-[#0A0A0A] overflow-hidden">
-                      <div className="p-4 border-b border-[rgba(255,255,255,0.04)] flex items-center justify-between">
-                        <p className="text-[9px] font-black text-[rgba(245,240,232,0.35)] uppercase tracking-widest">
-                          Suggested
-                        </p>
-                        <button
-                          onClick={() => handleTabChange("network")}
-                          className="hidden md:flex text-[9px] font-black text-[#BFA264] hover:text-[#D4AF78] uppercase tracking-widest items-center gap-1"
-                        >
-                          See All <ChevronRight className="w-3 h-3" />
-                        </button>
-                      </div>
-                      <div className="p-3 space-y-2">
-                        {suggestedUsers.slice(0, 3).map((user) => {
-                          const name =
-                            `${user.identity?.firstName || ""} ${user.identity?.lastName || ""}`.trim() ||
-                            user.identity?.username ||
-                            "Operator";
-                          const isRL =
-                            networkStats.dailyRequestCount >=
-                            networkStats.dailyRequestLimit;
-                          return (
-                            <div
-                              key={user.id}
-                              className="flex items-center gap-2.5 px-1 py-1.5 cursor-pointer hover:bg-[rgba(255,255,255,0.02)] rounded-xl transition-colors"
-                              onClick={() => handlePeekOperator(user)}
-                            >
-                              <div className="w-8 h-8 rounded-full bg-[#111] border border-[rgba(255,255,255,0.07)] flex items-center justify-center text-sm font-black text-[#BFA264] shrink-0">
-                                {name.charAt(0).toUpperCase()}
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <p className="text-[11px] font-bold text-[rgba(245,240,232,0.75)] truncate">
-                                  {name}
-                                </p>
-                                <p className="text-[9px] text-[rgba(245,240,232,0.25)] truncate">
-                                  {user.identity?.domain || "General"}
-                                </p>
-                              </div>
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  !isRL && handleSendRequest(user);
-                                }}
-                                disabled={isRL}
-                                className={cn(
-                                  "w-7 h-7 flex items-center justify-center border rounded-xl transition-all",
-                                  isRL
-                                    ? "bg-[rgba(255,255,255,0.03)] border-[rgba(255,255,255,0.06)] text-[rgba(245,240,232,0.20)] cursor-not-allowed"
-                                    : "bg-[rgba(191,162,100,0.08)] border-[rgba(191,162,100,0.20)] text-[#BFA264] hover:bg-[rgba(191,162,100,0.18)]",
-                                )}
-                              >
-                                <Users className="w-3 h-3" />
-                              </button>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )
-                }
-              >
-                <div className="flex items-center justify-between mb-4">
-                  <p className="text-[10px] font-black text-[rgba(245,240,232,0.30)] uppercase tracking-widest">
-                    Execution Feed
-                  </p>
-                  <RefreshButton
-                    onRefresh={handleRefreshFeed}
-                    label="Refresh"
-                    size="md"
-                  />
-                </div>
-                <FeedTab
-                  isAdmin={isAdmin}
-                  uid={uid}
-                  userData={userData}
-                  posts={posts}
-                  feedLoading={feedLoading}
-                  feedError={feedError}
-                  hasMorePosts={hasMorePosts}
-                  isPosting={isPosting}
-                  onPost={handlePost}
-                  onLike={toggleLike}
-                  onLoadMore={() => fetchFeed(false)}
-                  onDelete={handleDeletePost}
-                  onFetchComments={fetchComments}
-                  onAddComment={addComment}
-                  onDeleteComment={deleteComment}
-                  onPeekOperator={handlePeekOperator}
-                />
-              </SideLayout>
+                onSendRequest={handleSendRequest}
+                getConnectionStatus={getConnectionStatus}
+              />
             </motion.div>
           )}
 

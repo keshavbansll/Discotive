@@ -12,6 +12,7 @@
 import React, { useState, useEffect, useCallback, memo } from "react";
 import { useParams, useNavigate, useOutletContext } from "react-router-dom";
 import { Helmet } from "react-helmet-async";
+// eslint-disable-next-line no-unused-vars
 import { motion, AnimatePresence } from "framer-motion";
 import {
   collection,
@@ -29,9 +30,9 @@ import { useAuth } from "../contexts/AuthContext";
 import { useUserData } from "../hooks/useUserData";
 import { Crown, Plus, ArrowRight, Loader2, GitFork } from "lucide-react";
 import ColistsProfile from "../components/colists/ColistsProfile";
-import ColistReader from "../components/colists/ColistsReader";
+import ColistReader from "../components/colists/Reader";
 import ColistsHome from "../components/colists/ColistsHome";
-import ColistsNew from "../components/colists/ColistsNew";
+import ColistsEditor from "../components/colists/Editor";
 import {
   G,
   V,
@@ -604,7 +605,7 @@ const Colists = () => {
       {/* Editor Modal */}
       <AnimatePresence>
         {showEditor && isPro && (
-          <ColistsNew
+          <ColistsEditor
             initialColist={editColistTarget}
             onClose={() => {
               setShowEditor(false);

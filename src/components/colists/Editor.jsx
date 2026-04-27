@@ -64,10 +64,10 @@ import {
   NodeViewWrapper,
   ReactNodeViewRenderer,
 } from "@tiptap/react";
-import BinaryPulsePoll from "./nodes/BinaryPulsePoll";
-import ActiveRecallFlashcard from "./nodes/ActiveRecallFlashcard";
-import ZeitgeistSocial from "./nodes/ZeitgeistSocial";
-import SpatialConcept from "./nodes/SpatialConcept";
+import Poll from "./widgets/Poll";
+import ActiveRecallFlashcard from "./widgets/ActiveRecallFlashcard";
+import ZeitgeistSocial from "./widgets/ZeitgeistSocial";
+import SpatialConcept from "./widgets/SpatialConcept";
 import { Node, mergeAttributes } from "@tiptap/core";
 import { HexColorPicker } from "react-colorful";
 import StarterKit from "@tiptap/starter-kit";
@@ -740,7 +740,7 @@ export const PageBlockRenderer = memo(({ block }) => {
     case "poll":
       return (
         <div className="h-full">
-          <BinaryPulsePoll
+          <Poll
             block={block}
             colistId={null}
             currentUser={null}
@@ -1182,7 +1182,7 @@ const EditorToolbar = memo(({ editor }) => {
 });
 
 /* ─── Slash Command Menu Engine ──────────────────────────────────────────── */
-const renderSlashMenu = (addBlockType) => {
+const renderSlashMenu = () => {
   let component;
   let popup;
 
@@ -1201,34 +1201,33 @@ const renderSlashMenu = (addBlockType) => {
       title.innerText = "Insert Widget";
       component.appendChild(title);
 
-      const items = [
-        { id: "poll", label: "Live Poll", icon: "○/●", color: "#D4AF78" },
-        {
-          id: "flashcard",
-          label: "Active Recall",
-          icon: "▤",
-          color: "#D4AF78",
-        },
-        {
-          id: "zeitgeist",
-          label: "Social Signal",
-          icon: "↗",
-          color: "#D4AF78",
-        },
-        { id: "spatial", label: "Spatial Graph", icon: "☍", color: "#D4AF78" },
-      ];
+      // Derive the editor's current textColor from the CSS variable.
+      // Falls back to gold when the canvas gradient sets a dark colour.
+      const editorTc =
+        getComputedStyle(document.documentElement)
+          .getPropertyValue("--editor-text-color")
+          .trim() || "#D4AF78";
 
-      items.forEach((item, index) => {
+      const items = [
+        { id: "poll", label: "Live Poll", icon: "○/●", color: editorTc },
+        { id: "flashcard", label: "Active Recall", icon: "▤", color: editorTc },
+        { id: "zeitgeist", label: "Social Signal", icon: "↗", color: editorTc },
+        { id: "spatial", label: "Spatial Graph", icon: "☍", color: editorTc },
+      ];
+      items.forEach((item) => {
         const btn = document.createElement("button");
         btn.className =
           "flex items-center gap-3 w-full px-3 py-2.5 rounded-xl text-left hover:bg-white/10 transition-colors text-white text-xs font-bold";
         btn.innerHTML = `<span style="color: ${item.color}; font-family: monospace; font-size: 14px;">${item.icon}</span> ${item.label}`;
 
         btn.onclick = () => {
-          // Clear the '/' trigger text
-          props.editor.chain().focus().deleteRange(props.range).run();
-          // Fire the global add slide/block action
-          addBlockType(item.id);
+          // Clear the '/' trigger text & Embed widget natively into the current page
+          props.editor
+            .chain()
+            .focus()
+            .deleteRange(props.range)
+            .insertContent({ type: item.id })
+            .run();
           popup[0].hide();
         };
         component.appendChild(btn);
@@ -1264,11 +1263,90 @@ const renderSlashMenu = (addBlockType) => {
   };
 };
 
+/* ─── Widget Node Extensions ─────────────────────────────────────────────── */
+const createWidgetExtension = (name, Component, defaultAttrs) => {
+  return Node.create({
+    name,
+    group: "block",
+    atom: true,
+    addAttributes() {
+      const attrs = { type: { default: name } };
+      for (const key in defaultAttrs) {
+        attrs[key] = { default: defaultAttrs[key] };
+      }
+      return attrs;
+    },
+    parseHTML() {
+      return [{ tag: `div[data-type="${name}"]` }];
+    },
+    renderHTML({ HTMLAttributes }) {
+      return ["div", mergeAttributes(HTMLAttributes, { "data-type": name })];
+    },
+    addNodeView() {
+      return ReactNodeViewRenderer(({ node, updateAttributes, deleteNode }) => (
+        <NodeViewWrapper
+          className="my-6"
+          data-drag-handle
+          style={{ height: "clamp(380px, 55vh, 500px)" }}
+        >
+          <div
+            className="relative group w-full max-w-3xl h-full mx-auto rounded-3xl border border-white/10 shadow-2xl p-0 transition-all hover:border-white/20 overflow-hidden backdrop-blur-md"
+            style={{ background: "rgba(0,0,0,0.35)" }}
+          >
+            <div className="pointer-events-auto w-full h-full">
+              <Component
+                block={node.attrs}
+                colistId={null}
+                currentUser={null}
+                textColor="var(--editor-text-color)"
+                updateBlock={updateAttributes}
+              />
+            </div>
+            <button
+              onClick={deleteNode}
+              className="absolute top-3 right-3 w-7 h-7 rounded-full bg-red-500/80 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all shadow-xl hover:scale-110 z-50 border border-white/20 backdrop-blur-md"
+              aria-label="Remove widget"
+            >
+              <X size={13} />
+            </button>
+          </div>
+        </NodeViewWrapper>
+      ));
+    },
+  });
+};
+
+const PollExtension = createWidgetExtension("poll", Poll, {
+  question: "",
+  pollOptions: [
+    { id: "A", text: "Option A" },
+    { id: "B", text: "Option B" },
+  ],
+  allowMultiple: false,
+  optionA: "", // Legacy fallback
+  optionB: "", // Legacy fallback
+});
+const FlashcardExtension = createWidgetExtension(
+  "flashcard",
+  ActiveRecallFlashcard,
+  { prompt: "", answer: "", hint: "", difficulty: "medium" },
+);
+const ZeitgeistExtension = createWidgetExtension("zeitgeist", ZeitgeistSocial, {
+  url: "",
+  caption: "",
+  label: "External Signal",
+});
+const SpatialExtension = createWidgetExtension("spatial", SpatialConcept, {
+  nodes: [],
+  edges: [],
+  concepts: [],
+});
+
 const SlashCommands = Extension.create({
   name: "slashCommands",
   addOptions() {
     return {
-      suggestion: { char: "/", command: ({ editor, range, props }) => {} },
+      suggestion: { char: "/", command: () => {} },
     };
   },
   addProseMirrorPlugins() {
@@ -1300,7 +1378,6 @@ const TipTapPageEditor = memo(
     onFocusPrevious,
     onDeleteEmptyAndFocusPrevious,
     onFocusNext,
-    onAddBlock,
   }) => {
     const onUpdateRef = useRef(onUpdate);
     const onAdvancePageRef = useRef(onAdvancePage);
@@ -1415,10 +1492,14 @@ const TipTapPageEditor = memo(
         LinkExtension.configure({ openOnClick: false }),
         EnhancedYouTube,
         EnhancedPodcast,
+        PollExtension,
+        FlashcardExtension,
+        ZeitgeistExtension,
+        SpatialExtension,
         Placeholder.configure({ placeholder: "Type '/' for widgets..." }),
         SlashCommands.configure({
           suggestion: {
-            render: () => renderSlashMenu(onAddBlock),
+            render: () => renderSlashMenu(),
           },
         }),
       ],
@@ -1579,7 +1660,8 @@ const TipTapPageEditor = memo(
           style={{
             color: textColor,
             "--tt-color": textColor,
-            maxHeight: "460px",
+            "--editor-text-color": textColor,
+            maxHeight: "100%",
           }}
         >
           <EditorContent
@@ -2157,33 +2239,6 @@ const ColistEditor = memo(
           youtubeId: "",
         },
       ]);
-      setTimeout(() => {
-        const el = document.getElementById("editor-scroll-area");
-        if (el) el.scrollTo({ left: el.scrollWidth, behavior: "smooth" });
-      }, 50);
-    }, []);
-
-    const addBlockType = useCallback((type) => {
-      const baseBlock = {
-        id: createBlockId(),
-        type,
-        content: "",
-        title: "",
-        description: "",
-      };
-      const typeDefaults = {
-        poll: {
-          question: "",
-          optionA: "Option A",
-          optionB: "Option B",
-          pollId: `poll_${Date.now()}`,
-        },
-        flashcard: { prompt: "", answer: "", hint: "", difficulty: "medium" },
-        zeitgeist: { url: "", caption: "", label: "External Signal" },
-        spatial: { nodes: [], edges: [], concepts: [] },
-      };
-      const newBlock = { ...baseBlock, ...(typeDefaults[type] || {}) };
-      setBlocks((prev) => [...prev, newBlock]);
       setTimeout(() => {
         const el = document.getElementById("editor-scroll-area");
         if (el) el.scrollTo({ left: el.scrollWidth, behavior: "smooth" });
@@ -2869,176 +2924,33 @@ const ColistEditor = memo(
                     handleDeleteEmptyAndFocusPrevious
                   }
                   onFocusNext={handleFocusNext}
-                  onAddBlock={addBlockType}
                 />
               </motion.div>
             ))}
           </AnimatePresence>
 
           <motion.div
-            whileHover={{ scale: 1.01 }}
-            className="w-[85vw] max-w-[420px] h-[75vh] min-h-[500px] shrink-0 snap-center rounded-[2.5rem] flex flex-col items-center justify-center gap-3 p-6"
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
+            onClick={addSlide}
+            className="w-[85vw] max-w-[400px] h-[75vh] min-h-[500px] shrink-0 snap-center rounded-[2.5rem] flex flex-col items-center justify-center cursor-pointer group transition-colors hover:bg-white/5"
             style={{
               background: "rgba(255,255,255,0.02)",
-              border: "1.5px dashed rgba(255,255,255,0.08)",
+              border: "1.5px dashed rgba(255,255,255,0.15)",
             }}
           >
-            <p
-              className="text-[9px] font-black uppercase tracking-[0.3em] mb-2"
-              style={{ color: "rgba(191,162,100,0.5)" }}
-            >
-              Add Block
+            <div className="w-20 h-20 rounded-full border border-white/20 flex items-center justify-center group-hover:scale-110 transition-transform group-hover:bg-white/10 group-hover:border-[#D4AF78]">
+              <Plus
+                size={32}
+                className="text-white/50 group-hover:text-[#D4AF78] transition-colors"
+              />
+            </div>
+            <p className="text-[11px] font-black uppercase tracking-[0.2em] mt-6 text-white/50 group-hover:text-white transition-colors">
+              Add New Page
             </p>
-            {[
-              {
-                label: "Insight Page",
-                sub: "Rich text + media",
-                icon: (
-                  <svg
-                    width="18"
-                    height="18"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.5"
-                  >
-                    <path strokeLinecap="round" d="M9 12h6M9 8h6M9 16h4" />
-                    <rect x="3" y="3" width="18" height="18" rx="3" />
-                  </svg>
-                ),
-                onClick: addSlide,
-                gold: false,
-              },
-              {
-                label: "Live Poll",
-                sub: "Binary sentiment engine",
-                icon: (
-                  <svg
-                    width="18"
-                    height="18"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.5"
-                  >
-                    <circle cx="12" cy="12" r="4" />
-                    <circle cx="12" cy="12" r="1" fill="currentColor" />
-                    <path
-                      strokeLinecap="round"
-                      d="M12 2v3M12 19v3M2 12h3M19 12h3"
-                    />
-                  </svg>
-                ),
-                onClick: () => addBlockType("poll"),
-                gold: true,
-              },
-              {
-                label: "Active Recall",
-                sub: "Press & hold flashcard",
-                icon: (
-                  <svg
-                    width="18"
-                    height="18"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.5"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M9.663 17h4.673M12 3v1m6.364 1.636-.707.707M21 12h-1M4 12H3m3.343-5.657-.707-.707m2.828 9.9a5 5 0 1 1 7.072 0l-.548.547A3.374 3.374 0 0 0 14 18.469V19a2 2 0 1 1-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"
-                    />
-                  </svg>
-                ),
-                onClick: () => addBlockType("flashcard"),
-                gold: true,
-              },
-              {
-                label: "Social Signal",
-                sub: "External OG card",
-                icon: (
-                  <svg
-                    width="18"
-                    height="18"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.5"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      d="M13.19 8.688a4.5 4.5 0 0 1 1.242 7.244l-4.5 4.5a4.5 4.5 0 0 1-6.364-6.364l1.757-1.757m13.35-.622 1.757-1.757a4.5 4.5 0 0 0-6.364-6.364l-4.5 4.5a4.5 4.5 0 0 0 1.242 7.244"
-                    />
-                  </svg>
-                ),
-                onClick: () => addBlockType("zeitgeist"),
-                gold: true,
-              },
-              {
-                label: "Node Graph",
-                sub: "Spatial concept map",
-                icon: (
-                  <svg
-                    width="18"
-                    height="18"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.5"
-                  >
-                    <circle cx="12" cy="5" r="2" />
-                    <circle cx="5" cy="19" r="2" />
-                    <circle cx="19" cy="19" r="2" />
-                    <line x1="12" y1="7" x2="5" y2="17" />
-                    <line x1="12" y1="7" x2="19" y2="17" />
-                    <line x1="5" y1="19" x2="19" y2="19" />
-                  </svg>
-                ),
-                onClick: () => addBlockType("spatial"),
-                gold: true,
-              },
-            ].map((item) => (
-              <motion.button
-                key={item.label}
-                whileHover={{ scale: 1.03, x: 4 }}
-                whileTap={{ scale: 0.97 }}
-                onClick={item.onClick}
-                className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl text-left transition-all"
-                style={{
-                  background: item.gold
-                    ? "rgba(191,162,100,0.06)"
-                    : "rgba(255,255,255,0.04)",
-                  border: item.gold
-                    ? "1px solid rgba(191,162,100,0.2)"
-                    : "1px solid rgba(255,255,255,0.06)",
-                  color: item.gold ? "#D4AF78" : "rgba(255,255,255,0.5)",
-                }}
-              >
-                <div
-                  className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0"
-                  style={{
-                    background: item.gold
-                      ? "rgba(191,162,100,0.1)"
-                      : "rgba(255,255,255,0.05)",
-                  }}
-                >
-                  {item.icon}
-                </div>
-                <div>
-                  <p className="text-[11px] font-black uppercase tracking-widest">
-                    {item.label}
-                  </p>
-                  <p
-                    className="text-[9px] font-mono mt-0.5"
-                    style={{ opacity: 0.5 }}
-                  >
-                    {item.sub}
-                  </p>
-                </div>
-              </motion.button>
-            ))}
+            <p className="text-[9px] font-mono text-white/30 mt-2">
+              Use "/" to insert widgets natively
+            </p>
           </motion.div>
           <div className="shrink-0 w-[5vw] md:w-[15vw] h-1" />
         </div>

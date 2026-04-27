@@ -6,6 +6,10 @@
  *
  * Flow: Topics → Sub-questions → Answer + CTA links
  * Free-form: "Ask Grace anything" → Gemini 2.5 Flash
+ *
+ * Modules covered: Score, Vault, Network/Connective, Learn, Opportunities,
+ * Agenda, Colists, Pro Features, Support/Feedback.
+ * NOTE: Execution Map / Roadmap has been removed from this platform.
  */
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
@@ -28,13 +32,17 @@ import {
   ExternalLink,
   RotateCcw,
   Loader2,
-  Map,
   Zap,
   FolderLock,
   Crown,
   Bug,
-  HelpCircle,
   MessageCircle,
+  Trophy,
+  BookOpen,
+  Briefcase,
+  Users,
+  NotebookPen,
+  Layers,
 } from "lucide-react";
 import { httpsCallable } from "firebase/functions";
 import { functions } from "../firebase";
@@ -43,16 +51,9 @@ import { cn } from "../lib/cn";
 // ─── Flow data ────────────────────────────────────────────────────────────────
 const TOPICS = [
   {
-    id: "roadmap",
-    emoji: "🗺️",
-    label: "Execution Map",
-    icon: Map,
-    color: "gold",
-  },
-  {
     id: "score",
     emoji: "⚡",
-    label: "My Score / Streak",
+    label: "My Score & Rank",
     icon: Zap,
     color: "emerald",
   },
@@ -64,11 +65,46 @@ const TOPICS = [
     color: "violet",
   },
   {
+    id: "network",
+    emoji: "🤝",
+    label: "Network & Alliances",
+    icon: Users,
+    color: "sky",
+  },
+  {
+    id: "learn",
+    emoji: "📚",
+    label: "Learn & Certificates",
+    icon: BookOpen,
+    color: "amber",
+  },
+  {
+    id: "opportunities",
+    emoji: "🎯",
+    label: "Opportunities",
+    icon: Briefcase,
+    color: "rose",
+  },
+  {
+    id: "colists",
+    emoji: "🃏",
+    label: "Colists",
+    icon: Layers,
+    color: "gold",
+  },
+  {
+    id: "agenda",
+    emoji: "📓",
+    label: "Agenda / Diary",
+    icon: NotebookPen,
+    color: "teal",
+  },
+  {
     id: "pro",
     emoji: "👑",
     label: "Pro Features",
     icon: Crown,
-    color: "sky",
+    color: "gold",
   },
   {
     id: "bug",
@@ -80,87 +116,223 @@ const TOPICS = [
 ];
 
 const FLOWS = {
-  roadmap: {
-    q: "What's the issue with your Execution Map?",
-    opts: [
-      { id: "gen", label: "Map won't generate" },
-      { id: "lost", label: "My nodes disappeared" },
-      { id: "save", label: "Changes not saving" },
-      { id: "mobile", label: "Mobile view problems" },
-    ],
-    ans: {
-      gen: {
-        text: "AI generation needs at least 3 calibration answers and a valid Gemini API key. Click the ✨ wand icon on the canvas to restart calibration. Make sure your profile domain and niche are set.",
-        links: [{ label: "Open Roadmap", to: "/app/roadmap" }],
-      },
-      lost: {
-        text: "Nodes are saved to both Firebase Cloud and IndexedDB locally. If a conflict dialog appeared, you may have chosen the older version. Refresh the page — a restore prompt will appear if local data is newer.",
-        links: [{ label: "Open Roadmap", to: "/app/roadmap" }],
-      },
-      save: {
-        text: "The amber 'Unsaved' dot means changes are queued for auto-save (10s). Press Ctrl+S to force-sync immediately. Check your internet connection if it stays stuck.",
-        links: [],
-      },
-      mobile: {
-        text: "Tap any node to open the edit sheet from the bottom. The canvas supports pinch-to-zoom. For the best mobile experience, use landscape mode or the desktop version for heavy editing.",
-        links: [],
-      },
-    },
-  },
   score: {
     q: "What do you want to understand about your score?",
     opts: [
       { id: "calc", label: "How is it calculated?" },
-      { id: "drop", label: "My score dropped" },
+      { id: "drop", label: "My score dropped unexpectedly" },
       { id: "streak", label: "Streak & consistency" },
-      { id: "rank", label: "Leaderboard ranking" },
+      { id: "rank", label: "My position matrix & percentile" },
     ],
     ans: {
       calc: {
-        text: "Score = Daily login (+10), task completion (+5-30), vault verification (+10-30), alliances (+15), node completion (+15-30), profile views (+1). Missed days deduct -15 pts each.",
+        text: "Your Discotive Score is built from: daily login (+10), task completion (+5–30), vault asset verification (+10–30 based on strength), alliance actions (+5 sent / +15 forged), and profile views (+1 unique). Missing a login day deducts -15 pts via our IST CRON at 23:59.",
         links: [{ label: "Dashboard", to: "/app" }],
       },
       drop: {
-        text: "Missing login days apply -15 pts per missed day. Unchecking a completed task also reverts its points. Your last mutation reason is shown on the Dashboard under Real-Time Telemetry.",
+        text: "The most common cause is a missed login day (-15 pts, applied automatically at 23:59 IST). Check the 'Last Mutation' field on your Dashboard under Real-Time Telemetry — it shows the exact reason and amount of your last score change.",
         links: [{ label: "Dashboard", to: "/app" }],
       },
       streak: {
-        text: "Your streak increments on every consecutive login day. Missing one day resets it to 1. The Consistency Engine heatmap on your Dashboard shows every active day.",
+        text: "Your streak increments on every consecutive login day (IST calendar). Miss a single day and your streak resets to 1 — and you lose 15 pts. The Consistency Engine heatmap on your Dashboard shows every active day in your history.",
         links: [{ label: "Dashboard", to: "/app" }],
       },
       rank: {
-        text: "Rank updates live as other operators' scores change relative to yours. Complete tasks, verify assets, and maintain streaks to climb. X-Ray competitor analysis is Pro-exclusive.",
-        links: [{ label: "Leaderboard", to: "/app/leaderboard" }],
+        text: "Your Position Matrix shows your exact percentile rank in four dimensions: Global (all operators), Domain (your field), Niche (your specialization), and Network (among your allies). This updates live as scores shift across the platform. Pro users get X-Ray competitor breakdown.",
+        links: [
+          { label: "Leaderboard", to: "/app/leaderboard" },
+          { label: "Dashboard", to: "/app" },
+        ],
       },
     },
   },
+
   vault: {
     q: "What do you need help with in your Vault?",
     opts: [
       { id: "pending", label: "Asset stuck in Pending" },
-      { id: "rejected", label: "Asset was rejected" },
+      { id: "rejected", label: "My asset was rejected" },
       { id: "upload", label: "Upload is failing" },
       { id: "how", label: "How verification works" },
     ],
     ans: {
       pending: {
-        text: "Vault assets are reviewed by Discotive admins within 2–5 business days. During beta, reviews may take slightly longer. You'll see your asset status update automatically.",
+        text: "Vault assets are reviewed by Discotive admins. During beta, reviews can take 2–5 business days. Your asset status updates automatically in the Vault — you don't need to resubmit. Pro users get priority review.",
         links: [{ label: "View Vault", to: "/app/vault" }],
       },
       rejected: {
-        text: "Assets are rejected if they appear forged, can't be verified, or contain inappropriate content. Upload a higher quality version or a direct credential link for the same achievement.",
+        text: "Assets are rejected if they appear forged, can't be independently verified, or contain inappropriate content. You can re-upload a higher-quality version, a clearer scan, or a direct URL to the credential. The same slot can be resubmitted.",
         links: [{ label: "View Vault", to: "/app/vault" }],
       },
       upload: {
-        text: "Ensure your file is under 25MB and a supported format (PDF, PNG, JPG, DOCX, ZIP). Check your internet connection. If the error persists, try signing out and back in.",
+        text: "Ensure your file is under 25MB and a supported format (PDF, PNG, JPG, DOCX, ZIP). If the upload hangs, check your internet connection. Try signing out and back in — this refreshes your Firebase Storage token.",
         links: [],
       },
       how: {
-        text: "Admins review each asset and assign Weak (+10), Medium (+20), or Strong (+30) strength. Verified assets appear on your public profile and are linked to your Discotive Score.",
-        links: [{ label: "Open Vault", to: "/app/vault" }],
+        text: "Admins review each asset manually and assign a strength: Weak (+10 pts), Medium (+20 pts), or Strong (+30 pts). Verified assets appear on your public profile as proof of work and are permanently linked to your Discotive identity. You can also connect external apps via App Connectors.",
+        links: [
+          { label: "Open Vault", to: "/app/vault" },
+          { label: "App Connectors", to: "/app/vault" },
+        ],
       },
     },
   },
+
+  network: {
+    q: "What do you need help with in Connective?",
+    opts: [
+      { id: "alliance", label: "How alliances work" },
+      { id: "competitor", label: "The Competitor Radar" },
+      { id: "feed", label: "The Execution Feed" },
+      { id: "dms", label: "Direct Messages" },
+    ],
+    ans: {
+      alliance: {
+        text: "An Alliance is a mutual connection. Send a request (+5 pts), and when accepted, both you and your ally each earn +15 pts. Alliance requests are rate-limited to 5/day on Essential and 50/day on Pro. Alliances and Competitors are mutually exclusive — you can't track an ally as a competitor.",
+        links: [{ label: "Connective", to: "/app/connective" }],
+      },
+      competitor: {
+        text: "Add any operator to your Competitor Radar to track their score. They get notified that someone is tracking them (anonymously on Essential, your identity revealed on Pro). You can have up to 50 tracked competitors. Competitors and allies are mutually exclusive.",
+        links: [
+          { label: "Leaderboard", to: "/app/leaderboard" },
+          { label: "Connective", to: "/app/connective" },
+        ],
+      },
+      feed: {
+        text: "The Execution Feed is your secure professional social space. Share achievements, discoveries, and project updates. Mention operators with @username, use #hashtags. Like, comment, and engage. The feed is visible only to authenticated users — no public noise.",
+        links: [{ label: "Feed", to: "/app/connective/feed" }],
+      },
+      dms: {
+        text: "Direct Messages use a hybrid Firebase Firestore + RTDB architecture. Typing indicators are real-time via RTDB. Messages are end-to-end stored securely in Firestore. You can only DM operators who are in your network. Messages can be edited and deleted.",
+        links: [{ label: "Connective", to: "/app/connective" }],
+      },
+    },
+  },
+
+  learn: {
+    q: "What do you need help with in Learn?",
+    opts: [
+      { id: "certs", label: "Finding courses & certificates" },
+      { id: "videos", label: "Curated videos & playlists" },
+      { id: "verify", label: "Verifying a completed course" },
+      { id: "score", label: "How learning affects my score" },
+    ],
+    ans: {
+      certs: {
+        text: "The Learn Engine has a curated database of courses and certificates, each tagged by domain, difficulty, and category. Every item has a unique Discotive Learn ID. Filter by your domain or search by keyword. Click any course to see its Learn ID and verification instructions.",
+        links: [{ label: "Learn", to: "/app/learn" }],
+      },
+      videos: {
+        text: "Curated playlists and individual videos are available in the Learn section, tagged by domain and category. Videos track your actual watch time — you earn points proportionally based on how much you watched (up to +10 pts for 95%+ completion).",
+        links: [{ label: "Learn", to: "/app/learn" }],
+      },
+      verify: {
+        text: "After completing a course: upload your certificate to the Vault and include the Discotive Learn ID in the submission. Our admin team cross-references the ID with the Learn database and verifies authenticity before awarding score points.",
+        links: [
+          { label: "Learn", to: "/app/learn" },
+          { label: "Vault", to: "/app/vault" },
+        ],
+      },
+      score: {
+        text: "Completing a verified course awards points based on admin-assigned strength (Weak/Medium/Strong). Video watch time awards up to +10 pts proportionally. Consistent learning activity also feeds into your streak and daily score.",
+        links: [{ label: "Learn", to: "/app/learn" }],
+      },
+    },
+  },
+
+  opportunities: {
+    q: "What do you need help with in Opportunities?",
+    opts: [
+      { id: "find", label: "Finding relevant opportunities" },
+      { id: "types", label: "What types are available?" },
+      { id: "selection", label: "What is the selection %?" },
+      { id: "apply", label: "How to apply" },
+    ],
+    ans: {
+      find: {
+        text: "Filter opportunities by type (Job, Internship, Freelance, Hackathon, College Fest, Mentorship), domain, location, and deadline. The Opportunities Engine surfaces matches based on your profile domain and niche automatically when you first open the page.",
+        links: [{ label: "Opportunities", to: "/app/opportunities" }],
+      },
+      types: {
+        text: "Discotive lists: full-time jobs, internships, freelance projects, hackathons, college fests, mentorship programs, and community grants — across every domain. All listings are admin-curated and verified before going live.",
+        links: [{ label: "Opportunities", to: "/app/opportunities" }],
+      },
+      selection: {
+        text: "Each opportunity shows an estimated Selection % — calculated based on the number of applicants relative to seats, your Discotive Score percentile in the relevant domain, and your profile completeness. Higher score + more complete profile = higher shown selection probability.",
+        links: [{ label: "Opportunities", to: "/app/opportunities" }],
+      },
+      apply: {
+        text: "Click any opportunity to see the full details including deadline, requirements, and the direct application link. Applications happen on the opportunity's external platform — Discotive surfaces the opportunity and gives you context, you apply directly.",
+        links: [{ label: "Opportunities", to: "/app/opportunities" }],
+      },
+    },
+  },
+
+  colists: {
+    q: "What would you like to know about Colists?",
+    opts: [
+      { id: "what", label: "What is a Colist?" },
+      { id: "create", label: "How do I create one?" },
+      { id: "score", label: "Colist Resonance & Score" },
+      { id: "fork", label: "Forking a Colist" },
+    ],
+    ans: {
+      what: {
+        text: "A Colist is a carousel-format knowledge piece — like a visual essay, one idea per page. It replaces the outdated blog format with an immersive, paginated reading experience. Each Colist has a Resonance Score that grows with views, saves, and page applause. Your reading progress is saved automatically.",
+        links: [{ label: "Browse Colists", to: "/colists" }],
+      },
+      create: {
+        text: "Creating Colists requires a Pro or Enterprise account. Go to Colists and tap the + button to open the Colist creator. Add blocks (text, image, quote, embed, poll), set a cover, choose a gradient, and publish. Your Colist gets a unique shareable URL.",
+        links: [
+          { label: "Browse Colists", to: "/colists" },
+          { label: "Upgrade to Pro", to: "/premium" },
+        ],
+      },
+      score: {
+        text: "Every Colist has a Resonance Score. It grows when readers view, save, and applaud your pages. Hit milestones at 50, 100, 250, 500, and 1000 resonance — both the author and readers who engaged get rewarded. Page Applause (double-tap any page) tracks per-page engagement.",
+        links: [{ label: "Browse Colists", to: "/colists" }],
+      },
+      fork: {
+        text: "Pro users can Fork any Colist graded 'Strong' by Discotive admins. Forking creates your own editable copy that you can build on. A fork credit is shown on your version pointing back to the original author.",
+        links: [
+          { label: "Browse Colists", to: "/colists" },
+          { label: "Upgrade to Pro", to: "/premium" },
+        ],
+      },
+    },
+  },
+
+  agenda: {
+    q: "What do you need help with in your Agenda?",
+    opts: [
+      { id: "what", label: "What is the Agenda?" },
+      { id: "access", label: "How do I access it?" },
+      { id: "privacy", label: "Is it private?" },
+      { id: "features", label: "What can I write in it?" },
+    ],
+    ans: {
+      what: {
+        text: "The Agenda is your private, in-built diary and planning tool. It's a rich-text editor for daily reviews, goal setting, strategy notes, and personal logs — directly inside Discotive. No separate app needed. Your execution journal lives next to your score.",
+        links: [{ label: "Agenda", to: "/app/agenda" }],
+      },
+      access: {
+        text: "The Agenda is a Pro and Enterprise exclusive feature. If you're on Essential, you'll see an upgrade prompt. Once on Pro, access it from the left sidebar or bottom navigation under Agenda.",
+        links: [
+          { label: "Upgrade to Pro", to: "/premium" },
+          { label: "Agenda", to: "/app/agenda" },
+        ],
+      },
+      privacy: {
+        text: "100% private. Your Agenda entries are stored in a Firestore subcollection that only you can read or write. Not even Discotive admins have read access to your journal. Zero admin visibility — it's your private execution log.",
+        links: [],
+      },
+      features: {
+        text: "The Agenda uses a TipTap rich-text editor. Write with headings, bold, italic, links, bullet lists, and quotes. Attach stats from your dashboard. Use templates for daily reviews, weekly planning, or free-form journaling. All entries are saved with a timestamp.",
+        links: [{ label: "Agenda", to: "/app/agenda" }],
+      },
+    },
+  },
+
   pro: {
     q: "What would you like to know about Pro?",
     opts: [
@@ -171,19 +343,19 @@ const FLOWS = {
     ],
     ans: {
       includes: {
-        text: "Pro includes: Unlimited execution map nodes, Daily Execution Journal, X-Ray competitor analysis (leaderboard), 100MB vault storage, priority verification, and ML data opt-out.",
+        text: "Pro includes: Agenda (private diary), X-Ray competitor analysis on the leaderboard, ability to create and fork Colists, 100MB vault storage (50 assets), 50 alliance requests/day, priority vault verification, daily comparisons (3/day), and ML data opt-out.",
         links: [{ label: "See Pro Plans", to: "/premium" }],
       },
       price: {
-        text: "₹99/month (India) · $1.99/month (Global). Annual saves 16%: ₹999/year · $19.99/year. Powered by Razorpay. Cancel anytime — features stay active until billing cycle ends.",
+        text: "₹99/month (India) · $1.99/month (Global). Annual saves ~16%: ₹999/year · $19.99/year. Powered by Razorpay. Cancel anytime — your Pro features stay active until the end of your current billing cycle.",
         links: [{ label: "Pricing Page", to: "/premium" }],
       },
       upgrade: {
-        text: "Upgrade in seconds from the Premium page. Your score, vault, and all existing data are fully preserved. Pro features activate immediately after payment.",
+        text: "Upgrade in seconds from the Premium page. Your score, vault, network, and all existing data are fully preserved. Pro features activate immediately after payment confirmation via our Razorpay webhook.",
         links: [{ label: "Upgrade to Pro →", to: "/premium" }],
       },
       cancel: {
-        text: "Manage your subscription through your Razorpay customer portal or email us at discotive@gmail.com. Your Pro features stay active until the end of your current billing period.",
+        text: "Manage your subscription through your Razorpay customer portal or email us at discotive@gmail.com. Your Pro features stay active until the end of your current billing period — no immediate cutoff.",
         links: [
           { label: "Settings", to: "/app/settings" },
           { label: "Email Support", href: "mailto:discotive@gmail.com" },
@@ -191,6 +363,7 @@ const FLOWS = {
       },
     },
   },
+
   bug: {
     q: "How can I help you?",
     opts: [
@@ -201,7 +374,7 @@ const FLOWS = {
     ],
     ans: {
       report: {
-        text: "Please include: what you were doing, what happened, and what you expected. Note your browser (Chrome/Safari) and device type. Our team triages daily.",
+        text: "Please include: what you were doing, what happened, and what you expected. Note your browser (Chrome/Safari) and device type. Our team triages daily during beta.",
         links: [{ label: "Report Bug →", action: "OPEN_FEEDBACK" }],
       },
       feedback: {
@@ -216,7 +389,7 @@ const FLOWS = {
         ],
       },
       feature: {
-        text: "Feature requests go directly to our product backlog. The most-requested ideas get built first. Describe your use case clearly — not just the feature, but why you need it.",
+        text: "Feature requests go directly to our product backlog. The most-requested ideas get built first. Describe your use case clearly — not just the feature, but why you need it and what problem it solves.",
         links: [{ label: "Request Feature →", action: "OPEN_FEEDBACK" }],
       },
     },
@@ -249,11 +422,23 @@ const COLOR = {
     text: "text-sky-400",
     glow: "shadow-[0_0_12px_rgba(56,189,248,0.15)]",
   },
+  amber: {
+    bg: "bg-amber-500/10",
+    border: "border-amber-500/20",
+    text: "text-amber-400",
+    glow: "shadow-[0_0_12px_rgba(245,158,11,0.15)]",
+  },
   rose: {
     bg: "bg-[#EF4444]/10",
     border: "border-[#EF4444]/20",
     text: "text-[#F87171]",
     glow: "shadow-[0_0_12px_rgba(248,113,113,0.15)]",
+  },
+  teal: {
+    bg: "bg-teal-500/10",
+    border: "border-teal-500/20",
+    text: "text-teal-400",
+    glow: "shadow-[0_0_12px_rgba(20,184,166,0.15)]",
   },
 };
 
@@ -287,7 +472,6 @@ const Grace = ({ userData }) => {
 
   const inputRef = useRef(null);
   const scrollRef = useRef(null);
-  const hasUnread = false; // future: badge count from notifications
 
   const name = userData?.identity?.firstName || "Operator";
 
@@ -300,7 +484,7 @@ const Grace = ({ userData }) => {
   const controls = useAnimation();
 
   const [isIdle, setIsIdle] = useState(false);
-  const [side, setSide] = useState("right"); // 'left' | 'right'
+  const [side, setSide] = useState("right");
   const idleTimeoutRef = useRef(null);
   const isDragging = useRef(false);
 
@@ -316,10 +500,9 @@ const Grace = ({ userData }) => {
     startIdleTimer();
   }, [startIdleTimer]);
 
-  // Mount initialization (sets correct screen bounds & hydration)
   useEffect(() => {
     const initX = window.innerWidth - BALL_SIZE - PADDING;
-    const initY = window.innerHeight - BALL_SIZE - 96; // Offset above bottom nav
+    const initY = window.innerHeight - BALL_SIZE - 96;
     x.set(initX);
     y.set(initY);
     controls.set({ x: initX, y: initY });
@@ -327,12 +510,10 @@ const Grace = ({ userData }) => {
     return () => clearTimeout(idleTimeoutRef.current);
   }, [controls, startIdleTimer, x, y]);
 
-  // Visual state controller (Idle dimming & morphing)
   useEffect(() => {
     if (isOpen) {
       setIsIdle(false);
       clearTimeout(idleTimeoutRef.current);
-      // Full view when panel is open
       controls.start({
         x: side === "left" ? PADDING : window.innerWidth - BALL_SIZE - PADDING,
         opacity: 1,
@@ -343,7 +524,6 @@ const Grace = ({ userData }) => {
     }
 
     if (isIdle) {
-      // Shift 40% off-screen and dim
       const targetX =
         side === "left"
           ? -(BALL_SIZE * 0.4)
@@ -371,11 +551,10 @@ const Grace = ({ userData }) => {
     isDragging.current = true;
     setIsIdle(false);
     clearTimeout(idleTimeoutRef.current);
-    controls.start({ scale: 1.1, opacity: 0.85 }); // Tactile pickup feedback
+    controls.start({ scale: 1.1, opacity: 0.85 });
   };
 
   const handleDragEnd = () => {
-    // 150ms grace period to prevent tap firing after drag
     setTimeout(() => {
       isDragging.current = false;
     }, 150);
@@ -385,12 +564,10 @@ const Grace = ({ userData }) => {
     const screenWidth = window.innerWidth;
     const screenHeight = window.innerHeight;
 
-    // Midpoint detection
     const isLeft = currentX + BALL_SIZE / 2 < screenWidth / 2;
     setSide(isLeft ? "left" : "right");
 
     const targetX = isLeft ? PADDING : screenWidth - BALL_SIZE - PADDING;
-    // Clamp Y to safe bounds (avoid notch and bottom indicators)
     const targetY = Math.max(
       PADDING,
       Math.min(currentY, screenHeight - BALL_SIZE - PADDING),
@@ -408,9 +585,9 @@ const Grace = ({ userData }) => {
   };
 
   const handleTriggerClick = () => {
-    if (isDragging.current) return; // Prevent accidental opening on drag release
+    if (isDragging.current) return;
     if (isIdle) {
-      wakeUp(); // First tap just wakes it up
+      wakeUp();
       return;
     }
     setIsOpen((v) => !v);
@@ -429,7 +606,6 @@ const Grace = ({ userData }) => {
     setTimeout(reset, 350);
   }, [reset]);
 
-  // MAANG UX: Smooth scroll to bottom when messages or loading states update
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTo({
@@ -439,7 +615,6 @@ const Grace = ({ userData }) => {
     }
   }, [aiMessages, step, activeAnswer, isAiLoading]);
 
-  // Focus input on freeform
   useEffect(() => {
     if (step === "freeform" && inputRef.current) {
       setTimeout(() => inputRef.current?.focus(), 150);
@@ -515,7 +690,7 @@ const Grace = ({ userData }) => {
 
           <div className="flex-1 overflow-y-auto custom-scrollbar px-5 space-y-2 pb-2">
             {TOPICS.map((topic) => {
-              const c = COLOR[topic.color];
+              const c = COLOR[topic.color] || COLOR.gold;
               return (
                 <button
                   key={topic.id}
@@ -561,7 +736,7 @@ const Grace = ({ userData }) => {
     // Sub-questions
     if (step === "flow" && activeTopic) {
       const flow = FLOWS[activeTopic.id];
-      const c = COLOR[activeTopic.color];
+      const c = COLOR[activeTopic.color] || COLOR.gold;
       return (
         <motion.div
           key="flow"
@@ -612,7 +787,9 @@ const Grace = ({ userData }) => {
 
     // Answer screen
     if (step === "answer" && activeAnswer) {
-      const c = activeTopic ? COLOR[activeTopic.color] : COLOR.amber;
+      const c = activeTopic
+        ? COLOR[activeTopic.color] || COLOR.gold
+        : COLOR.gold;
       return (
         <motion.div
           key="answer"
@@ -654,14 +831,13 @@ const Grace = ({ userData }) => {
                     c.text,
                   );
 
-                  // 1. Intercept Action Triggers
                   if (link.action === "OPEN_FEEDBACK") {
                     return (
                       <button
                         key={i}
                         onClick={() => {
                           setIsFeedbackModalOpen(true);
-                          close(); // Dismiss Grace gracefully
+                          close();
                         }}
                         className={linkClasses}
                       >
@@ -671,7 +847,6 @@ const Grace = ({ userData }) => {
                     );
                   }
 
-                  // 2. Standard Internal Route
                   if (link.to) {
                     return (
                       <Link
@@ -686,7 +861,6 @@ const Grace = ({ userData }) => {
                     );
                   }
 
-                  // 3. Standard External Link
                   return (
                     <a
                       key={i}
@@ -771,9 +945,9 @@ const Grace = ({ userData }) => {
                 </div>
                 <div className="flex-1 bg-[#0F0F0F] border border-white/5 rounded-2xl rounded-tl-sm p-3.5 shadow-sm">
                   <p className="text-sm text-[#F5F0E8]/80 leading-relaxed font-medium">
-                    I can answer questions about your score, execution map,
-                    vault, Pro features, or anything else on Discotive. What
-                    would you like to know?
+                    I can answer questions about your score, vault, network,
+                    learning, opportunities, agenda, colists, or anything else
+                    on Discotive. What would you like to know?
                   </p>
                 </div>
               </div>
@@ -858,6 +1032,7 @@ const Grace = ({ userData }) => {
         onClose={() => setIsFeedbackModalOpen(false)}
         user={auth.currentUser}
       />
+
       {/* ── Panel ── */}
       <AnimatePresence>
         {isOpen && (
@@ -879,11 +1054,9 @@ const Grace = ({ userData }) => {
               transition={{ type: "spring", damping: 26, stiffness: 320 }}
               className={cn(
                 "fixed z-[9999] bg-[#0A0A0A] border border-white/5 rounded-[2rem] shadow-[0_30px_80px_rgba(0,0,0,0.95)] overflow-hidden flex flex-col",
-                // Desktop: dynamic lateral placement matching ball side
-                "bottom-24 w-[380px] h-[550px]",
+                "bottom-24 w-[380px] h-[580px]",
                 side === "left" ? "left-6" : "right-6 md:right-8",
-                // Mobile: full-width bottom sheet
-                "max-md:bottom-0 max-md:right-0 max-md:left-0 max-md:w-full max-md:rounded-b-none max-md:h-[80vh]",
+                "max-md:bottom-0 max-md:right-0 max-md:left-0 max-md:w-full max-md:rounded-b-none max-md:h-[82vh]",
               )}
             >
               {/* Header */}
@@ -891,7 +1064,6 @@ const Grace = ({ userData }) => {
                 <div className="flex items-center gap-3">
                   <div className="relative w-8 h-8 rounded-full bg-gradient-to-br from-[#D4AF78] to-[#8B7240] flex items-center justify-center shadow-[0_0_14px_rgba(191,162,100,0.3)]">
                     <Sparkles className="w-4 h-4 text-[#030303]" />
-                    {/* Live pulse */}
                     <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 bg-[#4ADE80] rounded-full border-2 border-[#0A0A0A] shadow-[0_0_6px_rgba(74,222,128,0.6)]" />
                   </div>
                   <div>

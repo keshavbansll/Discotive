@@ -1,5 +1,5 @@
 /**
- * @fileoverview ColistsReader.jsx — Discotive Colists v2.0 "The Decking Paradigm"
+ * @fileoverview Reader.jsx — Discotive Colists v2.0 "The Decking Paradigm"
  * @description Full architectural rebuild. Physics-driven absolute-stacked deck engine.
  * DOM scrolling ERADICATED. Framer Motion gesture physics only.
  *
@@ -20,6 +20,7 @@ import React, {
   useMemo,
   memo,
 } from "react";
+// eslint-disable-next-line no-unused-vars
 import {
   motion,
   AnimatePresence,
@@ -41,7 +42,7 @@ import {
   Copy,
 } from "lucide-react";
 import { G, V, T, getProgress, saveProgress } from "../../lib/colistConstants";
-
+import Poll from "./widgets/Poll";
 /* ─── Physics Constants ──────────────────────────────────────────────────── */
 const SPRING = { stiffness: 300, damping: 30 };
 const DRAG_THRESHOLD_PCT = 0.2; // 20% drag to page-turn (smooth mobile swipe)
@@ -59,7 +60,10 @@ const hapticSnap = () => {
 
 /* ─── Block Renderers ────────────────────────────────────────────────────── */
 const blockPropsEqual = (prev, next) =>
-  prev.block === next.block && prev.textColor === next.textColor;
+  prev.block === next.block &&
+  prev.textColor === next.textColor &&
+  prev.colistId === next.colistId &&
+  prev.currentUser?.uid === next.currentUser?.uid;
 
 const CoverBlock = memo(({ block, textColor }) => {
   const tc = textColor || T.primary;
@@ -456,35 +460,49 @@ const DividerBlock = memo(() => (
   </div>
 ));
 
-const PageBlockRenderer = memo(({ block, textColor }) => {
-  if (!block) return null;
-  switch (block.type) {
-    case "cover":
-      return <CoverBlock block={block} textColor={textColor} />;
-    case "insight":
-      return <InsightBlock block={block} textColor={textColor} />;
-    case "quote":
-      return <QuoteBlock block={block} textColor={textColor} />;
-    case "link":
-      return <LinkBlock block={block} textColor={textColor} />;
-    case "code":
-      return <CodeBlock block={block} />;
-    case "video":
-      return <VideoBlock block={block} textColor={textColor} />;
-    case "podcast":
-      return <PodcastBlock block={block} textColor={textColor} />;
-    case "divider":
-      return <DividerBlock />;
-    default:
-      return (
-        <div
-          className="tip-tap-container h-full w-full overflow-y-auto custom-scrollbar prose-invert flex flex-col justify-center px-7 md:px-11"
-          style={{ color: textColor, "--tt-color": textColor }}
-          dangerouslySetInnerHTML={{ __html: block.content || "" }}
-        />
-      );
-  }
-}, blockPropsEqual);
+const PageBlockRenderer = memo(
+  ({ block, textColor, colistId, currentUser }) => {
+    if (!block) return null;
+    switch (block.type) {
+      case "poll":
+        return (
+          <div className="w-full h-full">
+            <Poll
+              block={block}
+              colistId={colistId}
+              currentUser={currentUser}
+              textColor={textColor}
+            />
+          </div>
+        );
+      case "cover":
+        return <CoverBlock block={block} textColor={textColor} />;
+      case "insight":
+        return <InsightBlock block={block} textColor={textColor} />;
+      case "quote":
+        return <QuoteBlock block={block} textColor={textColor} />;
+      case "link":
+        return <LinkBlock block={block} textColor={textColor} />;
+      case "code":
+        return <CodeBlock block={block} />;
+      case "video":
+        return <VideoBlock block={block} textColor={textColor} />;
+      case "podcast":
+        return <PodcastBlock block={block} textColor={textColor} />;
+      case "divider":
+        return <DividerBlock />;
+      default:
+        return (
+          <div
+            className="tip-tap-container h-full w-full overflow-y-auto custom-scrollbar prose-invert flex flex-col justify-center px-7 md:px-11 py-12"
+            style={{ color: textColor, "--tt-color": textColor }}
+            dangerouslySetInnerHTML={{ __html: block.content || "" }}
+          />
+        );
+    }
+  },
+  blockPropsEqual,
+);
 
 /* ══════════════════════════════════════════════════════════════════════════
    DECK CARD — Single absolute-positioned card with synchronized drag physics
@@ -496,7 +514,6 @@ const DeckCard = memo(
     currentIdx,
     textColor,
     coverGradient,
-    coverUrl,
     isFullscreen,
     bookmarkedPage,
     dragX,
@@ -507,6 +524,8 @@ const DeckCard = memo(
     onCardClick,
     cardWidth,
     cardHeight,
+    colistId,
+    currentUser,
   }) => {
     const distance = index - currentIdx;
     const isActive = distance === 0;
@@ -641,7 +660,7 @@ const DeckCard = memo(
 
         {/* Content Layer */}
         <div
-          className="relative z-10 w-full h-full overflow-y-auto overflow-x-hidden custom-scrollbar tip-tap-container mt-12 mb-12 select-text cursor-auto"
+          className="relative z-10 w-full h-full overflow-y-auto overflow-x-hidden custom-scrollbar tip-tap-container select-text cursor-auto flex flex-col"
           style={{ pointerEvents: isActive ? "auto" : "none" }}
           onPointerDownCapture={(e) => {
             // Intelligent selection routing: Stops drag propagation if selecting actual text
@@ -662,7 +681,12 @@ const DeckCard = memo(
             }
           }}
         >
-          <PageBlockRenderer block={block} textColor={textColor} />
+          <PageBlockRenderer
+            block={block}
+            textColor={textColor}
+            colistId={colistId}
+            currentUser={currentUser}
+          />
         </div>
 
         {/* Page Number */}
@@ -689,7 +713,9 @@ const DeckCard = memo(
       prev.bookmarkedPage === next.bookmarkedPage &&
       prev.cardWidth === next.cardWidth &&
       prev.cardHeight === next.cardHeight &&
-      prev.dragX === next.dragX
+      prev.dragX === next.dragX &&
+      prev.colistId === next.colistId &&
+      prev.currentUser?.uid === next.currentUser?.uid
     );
   },
 );
@@ -770,15 +796,17 @@ const ColistReader = ({
       const isFull = !!document.fullscreenElement;
 
       if (isFull) {
-        // Expanded Cinematic View
-        const h = vh * 0.92;
-        const w = Math.min(vw * 0.95, h * 0.65);
-        setCardDims({ width: w, height: h });
+        // Cinematic: fill the viewport while keeping 9:16 portrait max
+        const maxH = vh * 0.94;
+        const maxW = Math.min(vw * 0.96, maxH * 0.62);
+        setCardDims({ width: maxW, height: maxH });
       } else {
-        // Mobile-first standard constraints
-        const w = Math.min(vw * 0.85, 400);
-        const h = Math.min(vh * 0.75, 650);
-        setCardDims({ width: w, height: Math.max(h, 500) });
+        // Responsive: respect notch/safe-area, cap at tablet width
+        const safeVh = vh - (window.visualViewport?.offsetTop ?? 0);
+        const w = Math.min(vw * 0.86, 420);
+        // Maintain 3:5 aspect ratio — prevents squished cards on landscape mobile
+        const h = Math.min(safeVh * 0.74, Math.max(w * 1.6, 520), 680);
+        setCardDims({ width: w, height: Math.max(h, 520) });
       }
     };
     measure();
@@ -908,6 +936,84 @@ const ColistReader = ({
     );
   }, [colist.id]);
 
+  /* ── SEO / AEO: Dynamic head meta for open-graph / answer engines ───── */
+  useEffect(() => {
+    const prevTitle = document.title;
+    const prevDesc =
+      document
+        .querySelector('meta[name="description"]')
+        ?.getAttribute("content") ?? "";
+
+    document.title = `${colist.title} — Discotive Colists`;
+
+    let metaDesc = document.querySelector('meta[name="description"]');
+    if (!metaDesc) {
+      metaDesc = document.createElement("meta");
+      metaDesc.name = "description";
+      document.head.appendChild(metaDesc);
+    }
+    metaDesc.setAttribute(
+      "content",
+      colist.description
+        ? colist.description.slice(0, 155)
+        : `${colist.title} — a Discotive Colist by @${colist.authorUsername}`,
+    );
+
+    // Schema.org Article structured data for AEO
+    let sd = document.querySelector("#colist-structured-data");
+    if (!sd) {
+      sd = document.createElement("script");
+      sd.id = "colist-structured-data";
+      sd.type = "application/ld+json";
+      document.head.appendChild(sd);
+    }
+    sd.textContent = JSON.stringify({
+      "@context": "https://schema.org",
+      "@type": "Article",
+      headline: colist.title,
+      description: colist.description || "",
+      author: {
+        "@type": "Person",
+        name: colist.authorName || colist.authorUsername,
+        url: `https://www.discotive.in/@${colist.authorUsername}`,
+      },
+      publisher: {
+        "@type": "Organization",
+        name: "Discotive",
+        url: "https://www.discotive.in",
+      },
+      datePublished: colist.createdAt?.toDate?.().toISOString() ?? "",
+      dateModified: colist.updatedAt?.toDate?.().toISOString() ?? "",
+      interactionStatistic: [
+        {
+          "@type": "InteractionCounter",
+          interactionType: "https://schema.org/ReadAction",
+          userInteractionCount: colist.viewCount ?? 0,
+        },
+        {
+          "@type": "InteractionCounter",
+          interactionType: "https://schema.org/BookmarkAction",
+          userInteractionCount: colist.saveCount ?? 0,
+        },
+      ],
+    });
+
+    return () => {
+      document.title = prevTitle;
+      metaDesc?.setAttribute("content", prevDesc);
+      sd?.remove();
+    };
+  }, [
+    colist.title,
+    colist.description,
+    colist.authorUsername,
+    colist.authorName,
+    colist.viewCount,
+    colist.saveCount,
+    colist.createdAt,
+    colist.updatedAt,
+  ]);
+
   /* ── Cover Image Preload ─────────────────────────────────────────────── */
   useEffect(() => {
     if (colist.coverUrl) {
@@ -958,16 +1064,30 @@ const ColistReader = ({
   /* ── Keyboard Navigation (Spring-Linked) ────────────────────────────── */
   useEffect(() => {
     const handler = (e) => {
-      if (
-        e.key === "ArrowRight" ||
-        e.key === "ArrowDown" ||
-        (e.key === "Enter" && e.shiftKey)
-      ) {
+      // Do not intercept events that originated inside an interactive widget
+      // (Poll options, flashcard inputs, etc.)
+      const tag = e.target?.tagName;
+      const isInteractive =
+        tag === "INPUT" ||
+        tag === "TEXTAREA" ||
+        tag === "BUTTON" ||
+        e.target?.getAttribute("role") === "radio" ||
+        e.target?.getAttribute("role") === "checkbox" ||
+        e.target?.getAttribute("role") === "radiogroup" ||
+        e.target?.getAttribute("role") === "group";
+
+      if ((e.key === "ArrowRight" || e.key === "ArrowDown") && !isInteractive) {
         e.preventDefault();
         navigateToIdx(currentIdx + 1);
-      } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+      } else if (
+        (e.key === "ArrowLeft" || e.key === "ArrowUp") &&
+        !isInteractive
+      ) {
         e.preventDefault();
         navigateToIdx(currentIdx - 1);
+      } else if (e.key === "Enter" && e.shiftKey) {
+        e.preventDefault();
+        navigateToIdx(currentIdx + 1);
       } else if (e.key === "Escape") {
         if (document.fullscreenElement) document.exitFullscreen();
         else handleClose();
@@ -975,60 +1095,30 @@ const ColistReader = ({
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, [currentIdx, navigateToIdx, onBack]);
+  }, [currentIdx, navigateToIdx, handleClose]);
 
-  /* ── Trackpad Wheel Translation ─────────────────────────────────────── */
+  /* ── Trackpad Wheel Translation (debounced, dead-zone protected) ─────── */
+  const wheelLockRef = useRef(false);
   useEffect(() => {
-    let wheelTimer = null;
-    let accumulated = 0;
-    let isTurning = false;
-
     const handleWheel = (e) => {
-      // Only intercept horizontal scroll
-      if (Math.abs(e.deltaX) < Math.abs(e.deltaY) * 0.3) return;
+      // Only act on strong horizontal intention — prevents accidental swipes
+      if (Math.abs(e.deltaX) < Math.abs(e.deltaY) * 1.5) return;
+      if (Math.abs(e.deltaX) < 24) return; // dead zone: <24px = ignore
+      if (wheelLockRef.current) return;
+
       e.preventDefault();
+      wheelLockRef.current = true;
+      setTimeout(() => {
+        wheelLockRef.current = false;
+      }, 520);
 
-      if (isTurning) return;
-
-      accumulated += e.deltaX;
-      clearTimeout(wheelTimer);
-
-      const clamped = Math.max(
-        -cardDims.width,
-        Math.min(cardDims.width, -accumulated * 1.5),
-      );
-      dragX.set(clamped);
-
-      wheelTimer = setTimeout(() => {
-        const threshold = cardDims.width * 0.2;
-        if (accumulated > threshold) {
-          isTurning = true;
-          navigateToIdx(currentIdx + 1);
-          setTimeout(() => {
-            isTurning = false;
-            accumulated = 0;
-          }, 500);
-        } else if (accumulated < -threshold) {
-          isTurning = true;
-          navigateToIdx(currentIdx - 1);
-          setTimeout(() => {
-            isTurning = false;
-            accumulated = 0;
-          }, 500);
-        } else {
-          animate(dragX, 0, { type: "spring", ...SPRING });
-          accumulated = 0;
-        }
-      }, 100);
+      navigateToIdx(currentIdx + (e.deltaX > 0 ? 1 : -1));
     };
 
-    const el = containerRef.current;
-    if (el) el.addEventListener("wheel", handleWheel, { passive: false });
-    return () => {
-      if (el) el.removeEventListener("wheel", handleWheel);
-      clearTimeout(wheelTimer);
-    };
-  }, [currentIdx, cardDims.width, dragX, navigateToIdx]);
+    const el = document.querySelector(".deck-container");
+    el?.addEventListener("wheel", handleWheel, { passive: false });
+    return () => el?.removeEventListener("wheel", handleWheel);
+  }, [currentIdx, navigateToIdx]);
 
   /* ── Share & Bookmark ────────────────────────────────────────────────── */
   const handleCopyUrl = useCallback(() => {
@@ -1226,6 +1316,7 @@ const ColistReader = ({
       <div
         className="flex-1 relative deck-container overflow-hidden"
         style={{ touchAction: "pan-y" }}
+        onContextMenu={(e) => e.preventDefault()}
       >
         <div
           className="absolute inset-0 pointer-events-none"
@@ -1233,11 +1324,9 @@ const ColistReader = ({
             background: `radial-gradient(ellipse 70% 50% at 50% 50%, ${coverGradient.match(/#[0-9A-Fa-f]{6}/)?.[0] || G.deep}18 0%, transparent 70%)`,
           }}
         />
-
         {/* Cinematic Black Fade Vignettes */}
         <div className="absolute inset-y-0 left-0 w-[15vw] z-[550] pointer-events-none bg-gradient-to-r from-[#030303] to-transparent" />
         <div className="absolute inset-y-0 right-0 w-[15vw] z-[550] pointer-events-none bg-gradient-to-l from-[#030303] to-transparent" />
-
         {/* Raw Canvas Fluid Left Arrow */}
         <button
           className="hidden md:flex absolute left-4 lg:left-10 top-1/2 -translate-y-1/2 z-[600] p-4 transition-transform hover:scale-110 hover:-translate-x-2"
@@ -1274,7 +1363,6 @@ const ColistReader = ({
             <path d="m15 18-6-6 6-6" />
           </svg>
         </button>
-
         {/* Raw Canvas Fluid Right Arrow */}
         <button
           className="hidden md:flex absolute right-4 lg:right-10 top-1/2 -translate-y-1/2 z-[600] p-4 transition-transform hover:scale-110 hover:translate-x-2"
@@ -1299,7 +1387,6 @@ const ColistReader = ({
             <path d="m9 18 6-6-6-6" />
           </svg>
         </button>
-
         {blocks.map((block, idx) => {
           const distance = Math.abs(idx - currentIdx);
           if (distance > 3) return null; // Virtualization gate
@@ -1323,6 +1410,8 @@ const ColistReader = ({
               onCardClick={() => navigateToIdx(idx)}
               cardWidth={cardDims.width}
               cardHeight={cardDims.height}
+              colistId={colist.id}
+              currentUser={currentUser}
             />
           );
         })}

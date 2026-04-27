@@ -143,6 +143,26 @@ body.map-fullscreen-active #root > div {
 
 /* Custom cursors removed — OS hardware-accelerated cursors restore input latency */
 
+/* ── Bounty pulse border animation ── */
+@keyframes bountyPulse {
+  0%,
+  100% {
+    box-shadow:
+      0 0 0 0px rgba(191, 162, 100, 0),
+      0 0 0px rgba(191, 162, 100, 0);
+  }
+  20% {
+    box-shadow:
+      0 0 0 2px rgba(191, 162, 100, 0.65),
+      0 0 32px rgba(191, 162, 100, 0.16);
+  }
+  80% {
+    box-shadow:
+      0 0 0 2px rgba(191, 162, 100, 0.45),
+      0 0 24px rgba(191, 162, 100, 0.1);
+  }
+}
+
 .ProseMirror {
   outline: none;
   min-height: 100%;
