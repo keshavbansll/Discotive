@@ -312,7 +312,11 @@ service cloud.firestore {
         && request.resource.data.likedBy is list
         && request.resource.data.likedBy.size() == 0
         && request.resource.data.likesCount == 0
-        && request.resource.data.replyCount == 0;
+        && request.resource.data.replyCount == 0
+        && (!("bounty" in request.resource.data) || request.resource.data.bounty is number)
+        && (!("postType" in request.resource.data) || request.resource.data.postType is string)
+        && (!("hashtags" in request.resource.data) || request.resource.data.hashtags is list)
+        && (!("mentions" in request.resource.data) || request.resource.data.mentions is list);
       // SECURITY: No client-side likedBy array mutation allowed.
       // Likes are processed exclusively via Cloud Function (toggleLike CF).
       // Frontend dispatches an intent; CF validates, increments distributed counter, and writes.

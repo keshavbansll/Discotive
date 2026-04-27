@@ -33,12 +33,13 @@ import {
   Shield,
 } from "lucide-react";
 import { cn } from "../lib/cn";
+import { Helmet } from "react-helmet-async";
 import { useAuth } from "../contexts/AuthContext";
 import { useUserData, useOnboardingGate } from "../hooks/useUserData";
 import { useNetwork } from "../hooks/useNetwork";
 import { useConnectiveStore } from "../stores/useConnectiveStore";
 import { useRTDBPresence } from "../hooks/useRTDBPresence";
-import FeedTab from "../components/connective/FeedTab";
+import FeedTab, { FeedSidebar } from "../components/connective/FeedTab";
 import NetworkTab from "../components/connective/NetworkTab";
 import Battlefield from "../components/connective/Battlefield";
 import DMPanel from "../components/connective/DMPanel";
@@ -264,7 +265,7 @@ const IntelligenceHub = ({
   };
 
   return (
-    <div className="rounded-[1.5rem] border border-[rgba(255,255,255,0.06)] bg-[#0A0A0A] overflow-hidden flex flex-col h-full flex-1">
+    <div className="rounded-2xl border border-[rgba(255,255,255,0.06)] bg-[#161616] overflow-hidden flex flex-col h-full flex-1 shadow-sm">
       <div className="px-4 py-3 border-b border-[rgba(255,255,255,0.04)] flex items-center justify-between shrink-0">
         <div className="flex items-center gap-2">
           <Cpu className="w-4 h-4 text-[#BFA264]" />
@@ -570,7 +571,7 @@ const NetworkStatsWidget = ({
   const score = userData?.discotiveScore?.current || 0;
   const streak = userData?.discotiveScore?.streak || 0;
   return (
-    <div className="rounded-[1.5rem] border border-[rgba(255,255,255,0.06)] bg-[#0A0A0A] overflow-hidden">
+    <div className="rounded-2xl border border-[rgba(255,255,255,0.06)] bg-[#161616] overflow-hidden shadow-sm">
       <div className="p-4 border-b border-[rgba(255,255,255,0.04)] flex items-center justify-between">
         <div>
           <p className="text-[9px] font-black text-[rgba(245,240,232,0.30)] uppercase tracking-widest mb-1">
@@ -694,7 +695,7 @@ const NetworkStatsWidget = ({
   );
 };
 
-// ─── Shared Side Layout ───────────────────────────────────────────────────────
+// ─── Shared Side Layout (Dense 2-Column PC Native) ──────────────────────────────────
 const SideLayout = ({
   children,
   rightChildren,
@@ -708,41 +709,45 @@ const SideLayout = ({
   onRefreshNetwork,
   isExpanded = false,
   expandedContent = null,
+  overrideSidebar = null,
 }) => (
-  <div className="flex flex-col gap-4 xl:gap-5 w-full max-w-[1600px] mx-auto">
+  <div className="flex flex-col gap-4 w-full max-w-[1440px] mx-auto pt-6 px-4 md:px-8">
     {/* TOP COMMAND ROW */}
-    <div className="grid grid-cols-1 lg:grid-cols-[300px_1fr_320px] xl:grid-cols-[340px_1fr_360px] 2xl:grid-cols-[380px_1fr_360px] gap-4 xl:gap-5">
-      <aside className="hidden lg:flex flex-col sticky top-24 self-start w-full z-20">
-        <IntelligenceHub
-          peekUser={peekUser}
-          competitors={competitors}
-          onRefreshTargets={onRefreshTargets}
-          isCollapsed={isExpanded}
-        />
-      </aside>
-
+    <div className="grid grid-cols-1 xl:grid-cols-[1fr_380px] gap-8 items-start w-full">
       <div className="min-w-0 flex flex-col z-20 w-full h-full">{children}</div>
 
-      <aside className="hidden lg:flex flex-col gap-4 sticky top-24 self-start w-full z-20">
-        <NetworkStatsWidget
-          stats={networkStats}
-          userData={userData}
-          onOpenDM={onOpenDM}
-          unreadDmCount={unreadDmCount}
-          onRefresh={onRefreshNetwork}
-          isCollapsed={isExpanded}
-        />
-        <AnimatePresence>
-          {!isExpanded && rightChildren && (
-            <motion.div
-              initial={{ opacity: 0, height: 0 }}
-              animate={{ opacity: 1, height: "auto" }}
-              exit={{ opacity: 0, height: 0 }}
-            >
-              {rightChildren}
-            </motion.div>
-          )}
-        </AnimatePresence>
+      <aside className="hidden xl:flex flex-col gap-6 sticky top-[88px] self-start w-full z-20 max-h-[calc(100vh-100px)] overflow-y-auto hide-scrollbar pb-12">
+        {overrideSidebar ? (
+          overrideSidebar
+        ) : (
+          <>
+            <IntelligenceHub
+              peekUser={peekUser}
+              competitors={competitors}
+              onRefreshTargets={onRefreshTargets}
+              isCollapsed={isExpanded}
+            />
+            <NetworkStatsWidget
+              stats={networkStats}
+              userData={userData}
+              onOpenDM={onOpenDM}
+              unreadDmCount={unreadDmCount}
+              onRefresh={onRefreshNetwork}
+              isCollapsed={isExpanded}
+            />
+            <AnimatePresence>
+              {!isExpanded && rightChildren && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: "auto" }}
+                  exit={{ opacity: 0, height: 0 }}
+                >
+                  {rightChildren}
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </>
+        )}
       </aside>
     </div>
 
@@ -802,6 +807,16 @@ const Connective = () => {
 
   const [peekUser, setPeekUser] = useState(null);
   const [isBattlefieldExpanded, setIsBattlefieldExpanded] = useState(false);
+
+  // FIX: Intercept legacy operators and prevent unauthorized redirects to Command Center
+  const isLegacyUser =
+    userData &&
+    typeof userData.onboardingComplete === "undefined" &&
+    !userData.isGhostUser;
+  const safeRequireOnboarding = (action) => {
+    if (isLegacyUser) return true;
+    return requireOnboarding(action);
+  };
 
   const dmConvoId = searchParams.get("dm");
   const newDmUserId = searchParams.get("new_dm");
@@ -876,7 +891,7 @@ const Connective = () => {
   }, []); // eslint-disable-line
 
   const handlePost = async (text, meta) => {
-    if (!requireOnboarding("network_post")) return null;
+    if (!safeRequireOnboarding("network_post")) return null;
     const id = await createPost(text, meta);
     if (id) addToast("Signal transmitted.", "success");
     else addToast("Transmission failed.", "error");
@@ -890,13 +905,13 @@ const Connective = () => {
   };
 
   const handleAccept = async (connectionId, requesterId) => {
-    if (!requireOnboarding("network_accept")) return;
+    if (!safeRequireOnboarding("network_accept")) return;
     await acceptAllianceRequest(connectionId, requesterId);
     addToast("+15 pts: Alliance Formed! ⚡", "success");
   };
 
   const handleSendRequest = async (targetUser) => {
-    if (!requireOnboarding("network_connect")) return;
+    if (!safeRequireOnboarding("network_connect")) return;
     const result = await sendAllianceRequest(targetUser);
     if (result.success) {
       addToast(
@@ -917,7 +932,7 @@ const Connective = () => {
   };
 
   const handleMarkCompetitor = async (targetUser) => {
-    if (!requireOnboarding("network_competitor")) return;
+    if (!safeRequireOnboarding("network_competitor")) return;
     const result = await markAsCompetitor(targetUser);
     if (result?.error) addToast(result.error, "warning");
     else if (result?.untracked) addToast("Removed from Radar.", "info");
@@ -925,7 +940,7 @@ const Connective = () => {
   };
 
   const handleOpenDM = (targetId = null, targetUser = null) => {
-    if (!requireOnboarding("network_dm")) return;
+    if (!safeRequireOnboarding("network_dm")) return;
     if (targetUser) setSearchParams({ new_dm: targetUser.id });
     else setSearchParams({ dm: "menu" });
   };
@@ -942,11 +957,28 @@ const Connective = () => {
   const userTier = userData?.tier || "ESSENTIAL";
 
   return (
-    <div className="min-h-screen bg-[#030303] text-white selection:bg-[rgba(191,162,100,0.30)] selection:text-[#F5F0E8]">
-      <div className="fixed inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-[0.025] pointer-events-none z-0" />
+    <div className="min-h-screen bg-[#050505] text-white selection:bg-[rgba(191,162,100,0.30)] selection:text-[#F5F0E8]">
+      <Helmet>
+        <title>
+          {activeTab === "network"
+            ? "Kinetic Network | Discotive"
+            : "Execution Feed | Discotive"}
+        </title>
+        <meta
+          name="description"
+          content="Monitor your alliances, track competitors, and view global market execution telemetry. Proof of Work engine."
+        />
+        <meta property="og:title" content="Kinetic Arena | Discotive" />
+        <meta
+          property="og:description"
+          content="View global market execution telemetry and outpace your competitors."
+        />
+        <meta name="robots" content="index, follow" />
+      </Helmet>
+      <div className="fixed inset-0 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-[0.015] pointer-events-none z-0" />
 
       {/* Header */}
-      <div className="sticky top-0 z-50 bg-[rgba(3,3,3,0.92)] backdrop-blur-xl border-b border-[rgba(255,255,255,0.04)]">
+      <div className="sticky top-0 z-50 bg-[rgba(17,17,17,0.95)] backdrop-blur-xl border-b border-[rgba(255,255,255,0.06)] shadow-sm">
         <div className="max-w-[1600px] mx-auto px-4 md:px-8">
           <div className="flex items-center justify-between h-14 md:h-16">
             <div className="flex items-center gap-6">
@@ -1064,33 +1096,53 @@ const Connective = () => {
               exit={{ opacity: 0, y: -8 }}
               transition={{ duration: 0.18 }}
             >
-              <FeedTab
-                isAdmin={isAdmin}
-                uid={uid}
-                userData={userData}
-                posts={posts}
-                feedLoading={feedLoading}
-                feedError={feedError}
-                hasMorePosts={hasMorePosts}
-                isPosting={isPosting}
-                onPost={handlePost}
-                onLike={toggleLike}
-                onLoadMore={() => fetchFeed(false)}
-                onDelete={handleDeletePost}
-                onFetchComments={fetchComments}
-                onAddComment={addComment}
-                onDeleteComment={deleteComment}
-                onPeekOperator={handlePeekOperator}
-                // --- New Integration Telemetry & Actions ---
-                onRefresh={handleRefreshFeed}
-                allianceIds={alliances ? alliances.map((a) => a.id) : []}
-                suggestedUsers={suggestedUsers}
+              <SideLayout
+                peekUser={peekUser}
+                competitors={competitors}
+                onRefreshTargets={handleRefreshTargets}
                 networkStats={networkStats}
+                userData={userData}
                 onOpenDM={() => handleOpenDM()}
                 unreadDmCount={unreadDmCount}
-                onSendRequest={handleSendRequest}
-                getConnectionStatus={getConnectionStatus}
-              />
+                onRefreshNetwork={handleRefreshNetwork}
+                overrideSidebar={
+                  <FeedSidebar
+                    posts={posts}
+                    suggestedUsers={suggestedUsers}
+                    onSendRequest={handleSendRequest}
+                    getConnectionStatus={getConnectionStatus}
+                    userData={userData}
+                  />
+                }
+              >
+                <FeedTab
+                  isAdmin={isAdmin}
+                  uid={uid}
+                  userData={userData}
+                  posts={posts}
+                  feedLoading={feedLoading}
+                  feedError={feedError}
+                  hasMorePosts={hasMorePosts}
+                  isPosting={isPosting}
+                  onPost={handlePost}
+                  onLike={toggleLike}
+                  onLoadMore={() => fetchFeed(false)}
+                  onDelete={handleDeletePost}
+                  onFetchComments={fetchComments}
+                  onAddComment={addComment}
+                  onDeleteComment={deleteComment}
+                  onPeekOperator={handlePeekOperator}
+                  // --- New Integration Telemetry & Actions ---
+                  onRefresh={handleRefreshFeed}
+                  allianceIds={alliances ? alliances.map((a) => a.id) : []}
+                  suggestedUsers={suggestedUsers}
+                  networkStats={networkStats}
+                  onOpenDM={() => handleOpenDM()}
+                  unreadDmCount={unreadDmCount}
+                  onSendRequest={handleSendRequest}
+                  getConnectionStatus={getConnectionStatus}
+                />
+              </SideLayout>
             </motion.div>
           )}
 

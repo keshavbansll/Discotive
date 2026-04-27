@@ -38,6 +38,7 @@ import { auth, db, functions } from "../../firebase";
 import { createPortal } from "react-dom";
 import { awardOnboardingComplete } from "../../lib/scoreEngine";
 import { useOnboardingStore } from "../../stores/useOnboardingStore";
+import { Helmet } from "react-helmet-async";
 
 // ─────────────────────────────────────────────────────────────────────────────
 // DATA STORES
@@ -3691,6 +3692,15 @@ export default function AuthOrchestrator() {
 
   return (
     <div className="ob-root">
+      <Helmet>
+        <title>Secure Gateway | Discotive</title>
+        <meta
+          name="description"
+          content="Authenticate into the Discotive Global Arena. Secure gateway for operators."
+        />
+        <meta name="robots" content="index, follow" />
+        <link rel="canonical" href="https://discotive.com/auth" />
+      </Helmet>
       <LeftPanel stepIndex={leftIdx} onBack={handleGlobalBack} />
 
       <div className="ob-right" style={{ position: "relative" }}>
