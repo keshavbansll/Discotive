@@ -1,20 +1,20 @@
-import { useState, useEffect, useRef, Suspense } from "react";
+/**
+ * @fileoverview Main Layout
+ * Sidebar and Navbar for PC
+ * Mobile: Native-app bottom bar and navbar.
+ */
+
+import { useState, useEffect, useRef, useMemo, Suspense } from "react";
 import { Link, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
 
 import { auth, db } from "../firebase";
 import { signOut } from "firebase/auth";
-import {
-  collection,
-  query,
-  where,
-  limit,
-  getDocs,
-  doc,
-  updateDoc,
-} from "firebase/firestore";
+import { collection, query, where, limit, getDocs } from "firebase/firestore";
 import { useUserData } from "../hooks/useUserData";
 import { ShortcutsPanel } from "../components/ShortcutsPanel";
+import { useScoreHistory, usePercentiles } from "../hooks/useDashboardData";
+import { AreaChart, Area, ResponsiveContainer, YAxis } from "recharts";
 import Grace from "../components/Grace";
 import {
   LayoutDashboard,
@@ -65,6 +65,9 @@ import {
   Newspaper,
   Activity,
   GraduationCap,
+  TrendingUp,
+  TrendingDown,
+  RefreshCw,
 } from "lucide-react";
 
 import { cn } from "../lib/cn";
@@ -104,6 +107,9 @@ const lowerContentNavItems = [
   { icon: FolderOpen, label: "Asset Vault", path: "/app/vault" },
   { icon: GraduationCap, label: "Learn", path: "/app/learn" },
   { icon: Calendar, label: "Agenda", path: "/app/agenda" },
+];
+
+const moreNavItems = [
   { icon: BookOpen, label: "Colists", path: "/colists", external: true },
 ];
 
@@ -111,6 +117,124 @@ const bottomNavItems = [
   // { icon: LineChart, label: "Financial Ledger", path: "/app/finance" },
   { icon: Settings, label: "Settings", path: "/app/settings" },
 ];
+
+// --- ACTIVITY WIDGET COMPONENT ---
+const ActivityWidget = ({ userData }) => {
+  const [expanded, setExpanded] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const score = userData?.discotiveScore?.current ?? 0;
+  const lastScore = userData?.discotiveScore?.last24h ?? score;
+  const delta = score - lastScore;
+
+  const { data: percentilesData } = usePercentiles(score, userData);
+  const globalPct = percentilesData?.global ?? 100;
+
+  const { data: rawHistory = [] } = useScoreHistory("1W");
+  const chartData = useMemo(
+    () => rawHistory.map((e) => ({ day: e.date, score: e.score })),
+    [rawHistory],
+  );
+
+  const handleRefresh = (e) => {
+    e.stopPropagation();
+    setIsRefreshing(true);
+    setRefreshKey((k) => k + 1);
+    setTimeout(() => setIsRefreshing(false), 800);
+  };
+
+  return (
+    <div className="hidden md:flex items-center ml-1 h-[40px]">
+      <motion.div
+        animate={{ width: expanded ? 320 : 40 }}
+        transition={{ type: "tween", duration: 0.3, ease: "easeInOut" }}
+        className={cn(
+          "h-full bg-[#0A0A0A] rounded-full flex items-center overflow-hidden border border-white/5 transition-colors",
+          expanded
+            ? "shadow-[0_0_15px_rgba(191,162,100,0.1)] border-[rgba(191,162,100,0.3)]"
+            : "justify-center cursor-pointer hover:bg-[#111] hover:text-[#BFA264] text-[#F5F0E8]/60 active:scale-95",
+        )}
+        onClick={() => !expanded && setExpanded(true)}
+      >
+        {expanded ? (
+          <div className="flex items-center w-[320px] px-2 h-full justify-between">
+            <button
+              onClick={handleRefresh}
+              className="p-1.5 hover:bg-white/5 rounded-full transition-colors shrink-0"
+            >
+              <RefreshCw
+                size={14}
+                className={cn(
+                  "text-[#888]",
+                  isRefreshing && "animate-spin text-[#BFA264]",
+                )}
+              />
+            </button>
+            <div className="flex flex-col ml-2 shrink-0">
+              <div className="flex items-center gap-1.5">
+                <span className="font-display font-black text-[#F5F0E8] text-sm leading-none">
+                  {score.toLocaleString()}
+                </span>
+                {delta !== 0 && (
+                  <span
+                    className={cn(
+                      "text-[9px] font-bold flex items-center gap-0.5 leading-none",
+                      delta > 0 ? "text-[#4ADE80]" : "text-[#F87171]",
+                    )}
+                  >
+                    {delta > 0 ? (
+                      <TrendingUp size={10} />
+                    ) : (
+                      <TrendingDown size={10} />
+                    )}
+                    {Math.abs(delta)}
+                  </span>
+                )}
+              </div>
+              <span className="text-[8px] font-bold text-[#888] uppercase tracking-widest mt-0.5">
+                Global Top {globalPct}%
+              </span>
+            </div>
+            <div className="flex-1 h-6 mx-2 min-w-[60px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={chartData}>
+                  <defs>
+                    <linearGradient id="actSparkG" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#BFA264" stopOpacity={0.4} />
+                      <stop offset="100%" stopColor="#BFA264" stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <YAxis domain={["dataMin - 10", "dataMax + 10"]} hide />
+                  <Area
+                    type="monotone"
+                    dataKey="score"
+                    stroke="#BFA264"
+                    strokeWidth={1.5}
+                    fill="url(#actSparkG)"
+                    dot={false}
+                    isAnimationActive={false}
+                  />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setExpanded(false);
+              }}
+              className="p-1.5 hover:bg-white/5 rounded-full transition-colors shrink-0 border border-white/5"
+            >
+              <ArrowRight size={14} className="text-[#888]" />
+            </button>
+          </div>
+        ) : (
+          <Activity className="w-[18px] h-[18px]" />
+        )}
+      </motion.div>
+    </div>
+  );
+};
 
 /**
  * @constant GHOST_LOCKED_ROUTES
@@ -139,9 +263,17 @@ const MainLayout = () => {
   const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const [isFeedbackOpen, setIsFeedbackOpen] = useState(false);
+  const [isMobileViewport, setIsMobileViewport] = useState(
+    window.innerWidth < 768,
+  );
+
+  useEffect(() => {
+    const handleResize = () => setIsMobileViewport(window.innerWidth < 768);
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
 
   const [isSupportTicketOpen, setIsSupportTicketOpen] = useState(false);
-  const [isReportOpen, setIsReportOpen] = useState(false);
 
   const [deferredPrompt, setDeferredPrompt] = useState(null);
   const [isInstallable, setIsInstallable] = useState(false);
@@ -245,7 +377,8 @@ const MainLayout = () => {
         const snap = await getDocs(q);
         if (active)
           setSearchResults(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
-      } catch (_) {
+      } catch {
+        // Handle error silently
       } finally {
         if (active) setSearchLoading(false);
       }
@@ -360,6 +493,7 @@ const MainLayout = () => {
 
   // Dashboard is partially visible for ghost users — not locked, but shows banner
   const isCommandCenter = location.pathname === "/app";
+  const isPro = userData?.tier === "PRO" || userData?.tier === "ENTERPRISE";
 
   // Track if DM Panel is currently open via URL query params
   const isDMOpen =
@@ -440,7 +574,7 @@ const MainLayout = () => {
           ),
         );
         setIsAdmin(!snap.empty);
-      } catch (_) {
+      } catch {
         /* silent */
       }
     };
@@ -480,14 +614,14 @@ const MainLayout = () => {
     return (
       <div className="flex flex-col gap-1 w-full">
         <a
-          href={item.subItems ? item.path + "/feed" : item.path} // Default to feed if clicking connective
+          href={item.subItems ? "#" : item.path}
           onClick={
             isItemLocked
               ? (e) => handleInstantNav(item.path, e)
               : item.subItems
                 ? (e) => {
-                    if (!isCollapsed) setIsSubMenuOpen(true);
-                    handleInstantNav(item.path + "/feed", e);
+                    e.preventDefault();
+                    if (!isCollapsed) setIsSubMenuOpen(!isSubMenuOpen);
                   }
                 : (e) => handleInstantNav(item.path, e)
           }
@@ -502,8 +636,9 @@ const MainLayout = () => {
           {isParentActive && !item.subItems && !isItemLocked && (
             <motion.div
               layoutId="desktop-nav-indicator"
+              layout="position"
               className="absolute inset-0 bg-[#1A1A1A] border border-white/5 rounded-xl z-0"
-              transition={{ type: "spring", bounce: 0, duration: 0.15 }}
+              transition={{ type: "tween", ease: "circOut", duration: 0.15 }}
             />
           )}
           <Icon
@@ -573,10 +708,11 @@ const MainLayout = () => {
                     {isSubActive && (
                       <motion.div
                         layoutId="desktop-subnav-indicator"
+                        layout="position"
                         className="absolute inset-0 bg-[rgba(191,162,100,0.08)] border border-[rgba(191,162,100,0.25)] rounded-lg shadow-[0_0_10px_rgba(191,162,100,0.05)] z-0"
                         transition={{
-                          type: "spring",
-                          bounce: 0,
+                          type: "tween",
+                          ease: "circOut",
                           duration: 0.15,
                         }}
                       />
@@ -785,7 +921,7 @@ const MainLayout = () => {
     </>
   );
 
-  const renderLanguageMenuContent = (isMobile = false) => (
+  const renderLanguageMenuContent = () => (
     <>
       <div className="flex items-center gap-2 px-2 pb-2 border-b border-[#222] shrink-0">
         <button
@@ -848,93 +984,242 @@ const MainLayout = () => {
       {/* ========================================================= */}
       {/* DESKTOP SIDEBAR (Strict z-[100] to overlay content)       */}
       {/* ========================================================= */}
-      <motion.aside
-        onHoverStart={() => setIsSidebarOpen(true)}
-        onHoverEnd={() => setIsSidebarOpen(false)}
-        animate={{ width: isSidebarOpen ? 260 : 80 }}
-        transition={{ type: "spring", bounce: 0, duration: 0.2 }}
-        className="hidden md:flex flex-col bg-[#0A0A0A] border-r border-white/5 h-full z-[100] relative shadow-[10px_0_50px_rgba(0,0,0,0.5)] tut-nav"
-      >
-        {/* Logo Section */}
-        <div className="h-20 flex items-center justify-between px-6 shrink-0 border-b border-white/5">
-          <Link to="/app" className="flex items-center gap-3 overflow-hidden">
-            <div className="w-8 h-8 flex items-center justify-center shrink-0">
-              <img
-                src={
-                  userData?.tier === "PRO" || userData?.tier === "ENTERPRISE"
-                    ? "/logo-premium.png"
-                    : "/logo.png"
-                }
-                alt="Discotive Logo"
-                width={32}
-                height={32}
-                fetchPriority="high"
-                decoding="async"
-                className="w-full h-full object-contain transition-all duration-300"
-              />
-            </div>
-            <AnimatePresence>
-              {isSidebarOpen && (
-                <motion.span
-                  initial={{ opacity: 0, x: -10 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: -10 }}
-                  className="font-extrabold text-lg tracking-tight whitespace-nowrap"
-                >
-                  DISCOTIVE
-                </motion.span>
-              )}
-            </AnimatePresence>
-          </Link>
-        </div>
+      <div className="hidden md:block relative w-[80px] shrink-0 h-full z-[100]">
+        <motion.aside
+          onHoverStart={() => setIsSidebarOpen(true)}
+          onHoverEnd={() => setIsSidebarOpen(false)}
+          animate={{ width: isSidebarOpen ? 260 : 80 }}
+          transition={{ type: "spring", bounce: 0, duration: 0.2 }}
+          style={{ willChange: "width" }}
+          className="absolute top-0 left-0 bottom-0 flex flex-col bg-[#0A0A0A] border-r border-white/5 h-full z-[100] shadow-[10px_0_50px_rgba(0,0,0,0.5)] tut-nav overflow-x-hidden"
+        >
+          {/* Logo Section */}
+          <div className="h-20 flex items-center justify-between px-6 shrink-0 border-b border-white/5">
+            <Link to="/app" className="flex items-center gap-3 overflow-hidden">
+              <div className="w-8 h-8 flex items-center justify-center shrink-0">
+                <img
+                  src={
+                    userData?.tier === "PRO" || userData?.tier === "ENTERPRISE"
+                      ? "/logo-premium.png"
+                      : "/logo.png"
+                  }
+                  alt="Discotive Logo"
+                  width={32}
+                  height={32}
+                  fetchPriority="high"
+                  decoding="async"
+                  className="w-full h-full object-contain transition-all duration-300"
+                />
+              </div>
+              <AnimatePresence>
+                {isSidebarOpen && (
+                  <motion.span
+                    initial={{ opacity: 0, x: -10 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: -10 }}
+                    className="font-extrabold text-lg tracking-tight whitespace-nowrap"
+                  >
+                    DISCOTIVE
+                  </motion.span>
+                )}
+              </AnimatePresence>
+            </Link>
+          </div>
 
-        {/* Ghost Onboarding Banner — only shown to unboarded users */}
-        {isGhostUser && isSidebarOpen && (
-          <div className="mx-3 mt-3 p-3 bg-amber-500/8 border border-amber-500/20 rounded-xl">
-            <div className="flex items-start gap-2.5">
-              <AlertTriangle className="w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5" />
-              <div>
-                <p className="text-[10px] font-black text-amber-400 uppercase tracking-widest mb-1">
-                  Onboarding Required
-                </p>
-                <p className="text-[9px] text-[#666] leading-relaxed mb-2">
-                  Complete your profile to unlock all Career Engine modules.
-                </p>
-                <button
-                  onClick={() => navigate("/auth?step=2")}
-                  className="flex items-center gap-1 text-[9px] font-black text-amber-500 hover:text-amber-400 uppercase tracking-widest transition-colors"
-                >
-                  Start Onboarding <ArrowRight className="w-2.5 h-2.5" />
-                </button>
+          {/* Ghost Onboarding Banner — only shown to unboarded users */}
+          {isGhostUser && isSidebarOpen && (
+            <div className="mx-3 mt-3 p-3 bg-amber-500/8 border border-amber-500/20 rounded-xl">
+              <div className="flex items-start gap-2.5">
+                <AlertTriangle className="w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5" />
+                <div>
+                  <p className="text-[10px] font-black text-amber-400 uppercase tracking-widest mb-1">
+                    Onboarding Required
+                  </p>
+                  <p className="text-[9px] text-[#666] leading-relaxed mb-2">
+                    Complete your profile to unlock all Career Engine modules.
+                  </p>
+                  <button
+                    onClick={() => navigate("/auth?step=2")}
+                    className="flex items-center gap-1 text-[9px] font-black text-amber-500 hover:text-amber-400 uppercase tracking-widest transition-colors"
+                  >
+                    Start Onboarding <ArrowRight className="w-2.5 h-2.5" />
+                  </button>
+                </div>
               </div>
             </div>
+          )}
+          {isGhostUser && !isSidebarOpen && (
+            <div className="mx-3 mt-3 flex items-center justify-center">
+              <div
+                title="Complete Onboarding to unlock all modules"
+                className="w-8 h-8 bg-amber-500/10 border border-amber-500/20 rounded-full flex items-center justify-center cursor-pointer"
+                onClick={() => navigate("/auth?step=2")}
+              >
+                <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
+              </div>
+            </div>
+          )}
+
+          {/* Navigation Sections */}
+          <div className="flex-1 overflow-y-auto custom-scrollbar px-3 py-6 space-y-6">
+            <div className="space-y-1">
+              {isSidebarOpen ? (
+                <p className="px-3 text-[10px] font-bold text-[#555] uppercase tracking-[0.2em] mb-2">
+                  Home
+                </p>
+              ) : (
+                <div className="flex justify-center mb-2 px-2">
+                  <div className="w-6 h-[1px] bg-white/10 rounded-full" />
+                </div>
+              )}
+              {topNavItems.map((item) => (
+                <NavItem
+                  key={item.path}
+                  item={item}
+                  isCollapsed={!isSidebarOpen}
+                />
+              ))}
+            </div>
+
+            <div className="space-y-1">
+              {isSidebarOpen ? (
+                <p className="px-3 text-[10px] font-bold text-[#555] uppercase tracking-[0.2em] mb-2 mt-4">
+                  Execution
+                </p>
+              ) : (
+                <div className="flex justify-center mb-2 mt-4 px-2">
+                  <div className="w-6 h-[1px] bg-white/10 rounded-full" />
+                </div>
+              )}
+              {upperMiddleNavItems.map((item) => (
+                <NavItem
+                  key={item.path}
+                  item={item}
+                  isCollapsed={!isSidebarOpen}
+                />
+              ))}
+            </div>
+
+            <div className="space-y-1">
+              {isSidebarOpen ? (
+                <p className="px-3 text-[10px] font-bold text-[#555] uppercase tracking-[0.2em] mb-2 mt-4">
+                  Social
+                </p>
+              ) : (
+                <div className="flex justify-center mb-2 mt-4 px-2">
+                  <div className="w-6 h-[1px] bg-white/10 rounded-full" />
+                </div>
+              )}
+              {upperContentNavItems.map((item) => (
+                <NavItem
+                  key={item.path}
+                  item={item}
+                  isCollapsed={!isSidebarOpen}
+                />
+              ))}
+            </div>
+
+            <div className="space-y-1">
+              {isSidebarOpen ? (
+                <p className="px-3 text-[10px] font-bold text-[#555] uppercase tracking-[0.2em] mb-2 mt-4">
+                  Content
+                </p>
+              ) : (
+                <div className="flex justify-center mb-2 mt-4 px-2">
+                  <div className="w-6 h-[1px] bg-white/10 rounded-full" />
+                </div>
+              )}
+              {lowerContentNavItems.map((item) => (
+                <NavItem
+                  key={item.path}
+                  item={item}
+                  isCollapsed={!isSidebarOpen}
+                />
+              ))}
+            </div>
+
+            <div className="space-y-1">
+              {isSidebarOpen ? (
+                <p className="px-3 text-[10px] font-bold text-[#555] uppercase tracking-[0.2em] mb-2 mt-4">
+                  More from Discotive
+                </p>
+              ) : (
+                <div className="flex justify-center mb-2 mt-4 px-2">
+                  <div className="w-6 h-[1px] bg-white/10 rounded-full" />
+                </div>
+              )}
+              {moreNavItems.map((item) => (
+                <NavItem
+                  key={item.path}
+                  item={item}
+                  isCollapsed={!isSidebarOpen}
+                />
+              ))}
+            </div>
+
+            {/* Discotive Premium Widget */}
+            {!isPro && isSidebarOpen && (
+              <div className="mt-8 mb-4 px-2">
+                <div className="relative bg-gradient-to-b from-[#1a1a1a] to-[#0A0A0A] border border-white/5 rounded-2xl p-4 overflow-hidden group">
+                  <h4 className="font-display font-black text-sm text-white mb-1 relative z-10">
+                    Discotive Pro
+                  </h4>
+                  <p className="text-[10px] text-[#888] leading-relaxed mb-3 relative z-10">
+                    Get the max capability of your career through advanced
+                    intelligence.
+                  </p>
+                  <div className="w-full aspect-square bg-[#0A0A0A] rounded-xl mb-3 overflow-hidden border border-white/5 relative z-10">
+                    <img
+                      src="/pro-promo.png"
+                      alt="Discotive Pro"
+                      className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity"
+                    />
+                  </div>
+                  <button
+                    onClick={() => navigate("/premium")}
+                    className="w-full py-2 rounded-lg font-black text-[11px] uppercase tracking-widest text-center relative z-10 hover:opacity-90 transition-opacity shadow-[0_0_15px_rgba(191,162,100,0.1)]"
+                    style={{
+                      background:
+                        "linear-gradient(135deg, #D4AF78 0%, #BFA264 100%)",
+                      color: "#000",
+                    }}
+                  >
+                    Explore
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
-        )}
-        {isGhostUser && !isSidebarOpen && (
-          <div className="mx-3 mt-3 flex items-center justify-center">
-            <div
-              title="Complete Onboarding to unlock all modules"
-              className="w-8 h-8 bg-amber-500/10 border border-amber-500/20 rounded-full flex items-center justify-center cursor-pointer"
-              onClick={() => navigate("/auth?step=2")}
+
+          {/* Bottom Section */}
+          <div className="p-3 border-t border-white/5 bg-[#0A0A0A] shrink-0 space-y-1">
+            {/* How it works? */}
+            <button
+              onClick={(e) => {
+                e.preventDefault();
+                handleInstantNav("/docs", e);
+              }}
+              className={cn(
+                "flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 group border border-transparent w-full cursor-pointer",
+                "text-[#F5F0E8]/60 hover:bg-[rgba(191,162,100,0.04)] hover:text-[#E8D5A3] font-medium",
+              )}
+              title={!isSidebarOpen ? "How it works?" : undefined}
             >
-              <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
-            </div>
-          </div>
-        )}
-
-        {/* Navigation Sections */}
-        <div className="flex-1 overflow-y-auto custom-scrollbar px-3 py-6 space-y-6">
-          <div className="space-y-1">
-            {isSidebarOpen ? (
-              <p className="px-3 text-[10px] font-bold text-[#555] uppercase tracking-[0.2em] mb-2">
-                Home
-              </p>
-            ) : (
-              <div className="flex justify-center mb-2 px-2">
-                <div className="w-6 h-[1px] bg-white/10 rounded-full" />
-              </div>
-            )}
-            {topNavItems.map((item) => (
+              <HelpCircle className="w-5 h-5 shrink-0 text-[#F5F0E8]/40 group-hover:text-[#BFA264] transition-colors" />
+              <AnimatePresence>
+                {isSidebarOpen && (
+                  <motion.span
+                    initial={{ opacity: 0, x: -6 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    exit={{ opacity: 0, x: -6 }}
+                    className="truncate text-sm tracking-wide flex-1 text-left"
+                  >
+                    How it works?
+                  </motion.span>
+                )}
+              </AnimatePresence>
+            </button>
+            {bottomNavItems.map((item) => (
               <NavItem
                 key={item.path}
                 item={item}
@@ -942,96 +1227,8 @@ const MainLayout = () => {
               />
             ))}
           </div>
-
-          <div className="space-y-1">
-            {isSidebarOpen ? (
-              <p className="px-3 text-[10px] font-bold text-[#555] uppercase tracking-[0.2em] mb-2 mt-4">
-                Execution
-              </p>
-            ) : (
-              <div className="flex justify-center mb-2 mt-4 px-2">
-                <div className="w-6 h-[1px] bg-white/10 rounded-full" />
-              </div>
-            )}
-            {upperMiddleNavItems.map((item) => (
-              <NavItem
-                key={item.path}
-                item={item}
-                isCollapsed={!isSidebarOpen}
-              />
-            ))}
-          </div>
-
-          <div className="space-y-1">
-            {isSidebarOpen ? (
-              <p className="px-3 text-[10px] font-bold text-[#555] uppercase tracking-[0.2em] mb-2 mt-4">
-                Social
-              </p>
-            ) : (
-              <div className="flex justify-center mb-2 mt-4 px-2">
-                <div className="w-6 h-[1px] bg-white/10 rounded-full" />
-              </div>
-            )}
-            {upperContentNavItems.map((item) => (
-              <NavItem
-                key={item.path}
-                item={item}
-                isCollapsed={!isSidebarOpen}
-              />
-            ))}
-          </div>
-
-          <div className="space-y-1">
-            {isSidebarOpen ? (
-              <p className="px-3 text-[10px] font-bold text-[#555] uppercase tracking-[0.2em] mb-2 mt-4">
-                Content
-              </p>
-            ) : (
-              <div className="flex justify-center mb-2 mt-4 px-2">
-                <div className="w-6 h-[1px] bg-white/10 rounded-full" />
-              </div>
-            )}
-            {lowerContentNavItems.map((item) => (
-              <NavItem
-                key={item.path}
-                item={item}
-                isCollapsed={!isSidebarOpen}
-              />
-            ))}
-          </div>
-        </div>
-
-        {/* Bottom Section */}
-        <div className="p-3 border-t border-white/5 bg-[#0A0A0A] shrink-0 space-y-1">
-          {/* How it works? */}
-          <a
-            href="/about"
-            onClick={(e) => handleInstantNav("/about", e)}
-            className={cn(
-              "flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 group relative border border-transparent w-full",
-              "text-[#F5F0E8]/60 hover:bg-[rgba(191,162,100,0.04)] hover:text-[#E8D5A3] font-medium",
-            )}
-            title={!isSidebarOpen ? "How it works?" : undefined}
-          >
-            <HelpCircle className="w-5 h-5 shrink-0 text-[#F5F0E8]/40 group-hover:text-[#BFA264] transition-colors" />
-            <AnimatePresence>
-              {isSidebarOpen && (
-                <motion.span
-                  initial={{ opacity: 0, x: -6 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: -6 }}
-                  className="truncate text-sm tracking-wide flex-1"
-                >
-                  How it works?
-                </motion.span>
-              )}
-            </AnimatePresence>
-          </a>
-          {bottomNavItems.map((item) => (
-            <NavItem key={item.path} item={item} isCollapsed={!isSidebarOpen} />
-          ))}
-        </div>
-      </motion.aside>
+        </motion.aside>
+      </div>
 
       {/* ========================================================= */}
       {/* MAIN CONTENT WRAPPER                                      */}
@@ -1056,7 +1253,7 @@ const MainLayout = () => {
               className={cn(
                 "relative bg-[#111]/50 rounded-full md:rounded-xl overflow-hidden border transition-all z-[91]",
                 isSearchOpen
-                  ? "border-[rgba(191,162,100,0.3)] bg-[#1a1a1a] shadow-[0_0_20px_rgba(191,162,100,0.1)]"
+                  ? "border-white/10 bg-[#1a1a1a]"
                   : "border-white/5 hover:border-white/10",
               )}
             >
@@ -1064,13 +1261,15 @@ const MainLayout = () => {
                 <Search
                   className={cn(
                     "w-4 h-4 transition-colors",
-                    isSearchOpen ? "text-[#BFA264]" : "text-[#888]",
+                    isSearchOpen ? "text-[#F5F0E8]" : "text-[#888]",
                   )}
                 />
               </div>
               <input
                 type="text"
-                placeholder="Search operators, companies..."
+                placeholder={
+                  isMobileViewport ? "Search" : "Search operators, companies..."
+                }
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 onKeyDown={handleSearch}
@@ -1287,6 +1486,7 @@ const MainLayout = () => {
           <div className="flex items-center gap-2 order-3 md:order-4 shrink-0">
             {/* MESSAGES BUTTON */}
             <button
+              title="DM Panel"
               onClick={() => navigate("/app/connective?dm=menu")}
               className={cn(
                 "p-2 md:p-2.5 rounded-full transition-all relative border active:scale-95 duration-150",
@@ -1304,11 +1504,16 @@ const MainLayout = () => {
             </button>
 
             {/* NEW COMPONENT-BASED NOTIFICATION BELL */}
-            <NotificationBell
-              userData={userData}
-              patchLocalData={patchLocalData}
-              db={db}
-            />
+            <div title="Notifications">
+              <NotificationBell
+                userData={userData}
+                patchLocalData={patchLocalData}
+                db={db}
+              />
+            </div>
+
+            {/* PC ACTIVITY WIDGET */}
+            {!isGhostUser && <ActivityWidget userData={userData} />}
 
             {/* RIGHT SIDEBAR TOGGLE (Global Mobile) */}
             <button
@@ -1438,7 +1643,7 @@ const MainLayout = () => {
                 transition={{ type: "spring", damping: 25, stiffness: 200 }}
                 className="fixed inset-y-0 left-0 w-[85vw] max-w-[320px] bg-[#0A0A0A] border-r border-white/5 shadow-2xl z-[9999] flex flex-col py-6 overflow-hidden"
               >
-                {renderLanguageMenuContent(true)}
+                {renderLanguageMenuContent()}
               </motion.div>
             </motion.div>
           )}
@@ -1478,7 +1683,7 @@ const MainLayout = () => {
                 transition={{ duration: 0.15 }}
                 className="fixed right-4 md:right-8 top-[calc(5rem+env(safe-area-inset-top)+12px)] w-[320px] bg-[#0A0A0A] border border-white/5 rounded-2xl shadow-[0_30px_80px_rgba(0,0,0,0.95)] z-[9999] flex-col py-2 max-h-[80vh] overflow-hidden"
               >
-                {renderLanguageMenuContent(false)}
+                {renderLanguageMenuContent()}
               </motion.div>
             </motion.div>
           )}
@@ -1635,14 +1840,14 @@ const MainLayout = () => {
       >
         {[
           { icon: LayoutDashboard, path: "/app", label: "Dashboard" },
-          { icon: Users, path: "/app/connective/network", label: "Connective" },
+          { icon: Users, path: "/app/connective/feed", label: "Connective" },
           { icon: Trophy, path: "/app/leaderboard", label: "Arena" },
           { icon: FolderOpen, path: "/app/vault", label: "Vault" },
         ].map((item) => {
           const Icon = item.icon;
           // MAANG-Grade: Intelligent route matching for parent-child pathing on mobile
           const isActive =
-            item.path === "/app/connective/network"
+            item.path === "/app/connective/feed"
               ? location.pathname.startsWith("/app/connective")
               : location.pathname === item.path;
 
@@ -1657,7 +1862,7 @@ const MainLayout = () => {
               href={item.path}
               onClick={(e) => handleInstantNav(item.path, e)}
               className={cn(
-                "flex flex-col items-center justify-center w-[4.5rem] h-full gap-1 transition-all active:scale-95 duration-150 relative",
+                "flex flex-col items-center justify-center flex-1 h-full gap-1 transition-all active:scale-95 duration-150 relative",
                 isMobileItemLocked
                   ? "text-[#444]"
                   : "text-[#F5F0E8]/40 hover:text-white",
@@ -1666,8 +1871,13 @@ const MainLayout = () => {
               {isActive && !isMobileItemLocked && (
                 <motion.div
                   layoutId="mobile-nav-indicator"
-                  className="absolute bottom-1 left-1/2 -translate-x-1/2 w-4 h-[3px] bg-[#BFA264] rounded-full shadow-[0_0_8px_rgba(191,162,100,0.6)] z-0"
-                  transition={{ type: "spring", bounce: 0, duration: 0.2 }}
+                  layout="position"
+                  className="absolute -bottom-1 inset-x-0 mx-auto w-10 h-[2px] bg-[#BFA264] rounded-full shadow-[0_0_8px_rgba(191,162,100,0.6)] z-0"
+                  transition={{
+                    type: "tween",
+                    duration: 0.15,
+                    ease: "circOut",
+                  }}
                 />
               )}
               <div className="relative z-10">
@@ -1697,14 +1907,28 @@ const MainLayout = () => {
         <button
           onClick={() => setIsMobileMenuOpen(true)}
           className={cn(
-            "flex flex-col items-center justify-center w-14 h-full gap-1 transition-colors",
+            "flex flex-col items-center justify-center flex-1 h-full gap-1 transition-colors relative",
             isMobileMenuOpen
               ? "text-[#D4AF78]"
               : "text-[#F5F0E8]/40 active:text-[#F5F0E8]/80",
           )}
         >
-          <Menu className="w-5 h-5" />
-          <span className="text-[9px] font-bold tracking-wider">Menu</span>
+          {isMobileMenuOpen && (
+            <motion.div
+              layoutId="mobile-nav-indicator"
+              layout="position"
+              className="absolute -bottom-1 inset-x-0 mx-auto w-10 h-[2px] bg-[#BFA264] rounded-full shadow-[0_0_8px_rgba(191,162,100,0.6)] z-0"
+              transition={{
+                type: "tween",
+                duration: 0.15,
+                ease: "circOut",
+              }}
+            />
+          )}
+          <Menu className="w-5 h-5 relative z-10" />
+          <span className="text-[9px] font-bold tracking-wider relative z-10">
+            Menu
+          </span>
         </button>
       </motion.nav>
 
@@ -1828,19 +2052,21 @@ const MainLayout = () => {
 
                 {/* Premium & Admin */}
                 <div className="space-y-2">
-                  <a
-                    href="/premium"
-                    onClick={(e) => handleInstantNav("/premium", e)}
-                    className="flex items-center justify-between p-4 bg-gradient-to-r from-[rgba(191,162,100,0.15)] to-transparent border border-[rgba(191,162,100,0.25)] rounded-2xl active:bg-[rgba(191,162,100,0.2)]"
-                  >
-                    <div className="flex items-center gap-4">
-                      <Shield className="w-5 h-5 text-[#D4AF78]" />
-                      <span className="text-sm font-bold text-[#D4AF78]">
-                        Discotive Pro
-                      </span>
-                    </div>
-                    <Zap className="w-4 h-4 text-[#D4AF78]" />
-                  </a>
+                  {!isPro && (
+                    <a
+                      href="/premium"
+                      onClick={(e) => handleInstantNav("/premium", e)}
+                      className="flex items-center justify-between p-4 bg-gradient-to-r from-[rgba(191,162,100,0.15)] to-transparent border border-[rgba(191,162,100,0.25)] rounded-2xl active:bg-[rgba(191,162,100,0.2)]"
+                    >
+                      <div className="flex items-center gap-4">
+                        <Shield className="w-5 h-5 text-[#D4AF78]" />
+                        <span className="text-sm font-bold text-[#D4AF78]">
+                          Discotive Pro
+                        </span>
+                      </div>
+                      <Zap className="w-4 h-4 text-[#D4AF78]" />
+                    </a>
+                  )}
                   {isAdmin && (
                     <a
                       href="/app/admin"

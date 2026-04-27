@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
-import { motion, AnimatePresence } from "framer-motion";
+// eslint-disable-next-line no-unused-vars
+import { motion } from "framer-motion";
 import { X, ArrowRight } from "lucide-react";
 import { doc, updateDoc } from "firebase/firestore";
 import { db } from "../firebase";
@@ -71,16 +72,17 @@ const STEPS = [
 ];
 
 const PADDING = 12;
+const ANIM_EASE = [0.22, 1, 0.36, 1]; // Absolute precision, zero spring jitter
 
 const OnboardingTutorial = ({ uid, onDismiss }) => {
   const [step, setStep] = useState(0);
   const [targetRect, setTargetRect] = useState(null);
+  const [shutterOpen, setShutterOpen] = useState(true); // Cinematic camera-shutter transition state
   const [windowSize, setWindowSize] = useState({
     width: window.innerWidth,
     height: window.innerHeight,
   });
 
-  // O(1) DOM caching refs to prevent layout thrashing on mobile
   const activeElementRef = useRef(null);
   const trackingRafRef = useRef(null);
 
@@ -95,12 +97,13 @@ const OnboardingTutorial = ({ uid, onDismiss }) => {
           "meta.tutorialSeen": true,
           "meta.tutorialCompletedAt": new Date().toISOString(),
         });
-      } catch (_) {}
+      } catch (error) {
+        console.debug("Tutorial marker update skipped:", error);
+      }
     }
   }, [uid, onDismiss]);
 
   const updateSpotlight = useCallback(() => {
-    // Only query the DOM once per step change
     const elements = document.querySelectorAll(
       `.${current.id}, #${current.id}`,
     );
@@ -125,7 +128,7 @@ const OnboardingTutorial = ({ uid, onDismiss }) => {
         inline: "nearest",
       });
 
-      // Frame-perfect tracking via cached ref (Zero querySelector overhead)
+      // Frame-perfect mechanical tracking
       const start = Date.now();
       const track = () => {
         if (activeElementRef.current) {
@@ -137,7 +140,6 @@ const OnboardingTutorial = ({ uid, onDismiss }) => {
             height: rect.height,
           });
         }
-        // Track fluidly during the standard 850ms browser smooth scroll window
         if (Date.now() - start < 850) {
           trackingRafRef.current = requestAnimationFrame(track);
         }
@@ -146,13 +148,19 @@ const OnboardingTutorial = ({ uid, onDismiss }) => {
       if (trackingRafRef.current) cancelAnimationFrame(trackingRafRef.current);
       trackingRafRef.current = requestAnimationFrame(track);
     } else {
-      // Graceful fallback: If an element is totally hidden on this device size, skip it automatically
       if (step < STEPS.length - 1) setStep((s) => s + 1);
       else dismiss();
     }
   }, [current.id, step, dismiss]);
 
+  // Initial Shutter Sequence
   useEffect(() => {
+    const t = setTimeout(() => setShutterOpen(false), 300);
+    return () => clearTimeout(t);
+  }, []);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     updateSpotlight();
 
     const handleResize = () => {
@@ -160,7 +168,6 @@ const OnboardingTutorial = ({ uid, onDismiss }) => {
       updateSpotlight();
     };
 
-    // Hardware-accelerated passive scroll throttle
     let scrollRaf = null;
     const handleScroll = () => {
       if (scrollRaf) return;
@@ -181,7 +188,6 @@ const OnboardingTutorial = ({ uid, onDismiss }) => {
     };
 
     window.addEventListener("resize", handleResize, { passive: true });
-    // Capture phase true to catch nested scrollable divs, passive true for 60fps scrolling
     window.addEventListener("scroll", handleScroll, {
       capture: true,
       passive: true,
@@ -194,6 +200,38 @@ const OnboardingTutorial = ({ uid, onDismiss }) => {
       if (scrollRaf) cancelAnimationFrame(scrollRaf);
     };
   }, [updateSpotlight]);
+
+  const handleNext = () => {
+    if (shutterOpen) return;
+    if (step < STEPS.length - 1) {
+      setShutterOpen(true);
+      setTimeout(() => {
+        setStep((s) => s + 1);
+        setTimeout(() => setShutterOpen(false), 500); // Allow scroll to securely anchor
+      }, 400); // Shutter expansion sequence
+    } else {
+      handleDismiss();
+    }
+  };
+
+  const handleBack = () => {
+    if (shutterOpen) return;
+    if (step > 0) {
+      setShutterOpen(true);
+      setTimeout(() => {
+        setStep((s) => s - 1);
+        setTimeout(() => setShutterOpen(false), 500);
+      }, 400);
+    }
+  };
+
+  const handleDismiss = () => {
+    if (shutterOpen) return;
+    setShutterOpen(true);
+    setTimeout(() => {
+      dismiss();
+    }, 450); // Fluid exit sequence
+  };
 
   if (!targetRect)
     return createPortal(
@@ -217,6 +255,23 @@ const OnboardingTutorial = ({ uid, onDismiss }) => {
     tooltipY = windowSize.height - TOOLTIP_EST_H - 20;
   }
 
+  // Camera Shutter Cutout Geometry
+  const cutoutAnim = shutterOpen
+    ? {
+        x: -(windowSize.width * 0.5),
+        y: -(windowSize.height * 0.5),
+        width: windowSize.width * 2,
+        height: windowSize.height * 2,
+        rx: Math.max(windowSize.width, windowSize.height), // Enforce pure circle during expansion
+      }
+    : {
+        x: targetRect.x - PADDING,
+        y: targetRect.y - PADDING,
+        width: targetRect.width + PADDING * 2,
+        height: targetRect.height + PADDING * 2,
+        rx: 16,
+      };
+
   return createPortal(
     <div className="fixed inset-0 z-[99999] pointer-events-auto overflow-hidden">
       <svg className="absolute inset-0 w-full h-full pointer-events-none">
@@ -224,14 +279,9 @@ const OnboardingTutorial = ({ uid, onDismiss }) => {
           <mask id="spotlight-mask">
             <rect width="100%" height="100%" fill="white" />
             <motion.rect
-              animate={{
-                x: targetRect.x - PADDING,
-                y: targetRect.y - PADDING,
-                width: targetRect.width + PADDING * 2,
-                height: targetRect.height + PADDING * 2,
-              }}
-              transition={{ type: "spring", damping: 25, stiffness: 200 }}
-              rx={16}
+              initial={cutoutAnim}
+              animate={cutoutAnim}
+              transition={{ duration: 0.65, ease: ANIM_EASE }}
               fill="black"
             />
           </mask>
@@ -239,37 +289,31 @@ const OnboardingTutorial = ({ uid, onDismiss }) => {
         <rect
           width="100%"
           height="100%"
-          fill="rgba(3,3,3,0.92)"
+          fill="rgba(3,3,3,0.94)"
           mask="url(#spotlight-mask)"
         />
       </svg>
 
       <motion.div
-        className="absolute pointer-events-none rounded-2xl border border-white/60 shadow-[0_0_40px_rgba(255,255,255,0.15)]"
+        className="absolute bg-white rounded-2xl p-5 shadow-[0_20px_50px_rgba(0,0,0,0.8)] w-[300px] flex flex-col"
         animate={{
-          x: targetRect.x - PADDING,
-          y: targetRect.y - PADDING,
-          width: targetRect.width + PADDING * 2,
-          height: targetRect.height + PADDING * 2,
+          x: tooltipX,
+          y: tooltipY,
+          opacity: shutterOpen ? 0 : 1,
+          scale: shutterOpen ? 0.94 : 1,
+          pointerEvents: shutterOpen ? "none" : "auto",
         }}
-        transition={{ type: "spring", damping: 25, stiffness: 200 }}
-        style={{ willChange: "transform" }}
-      />
-
-      <motion.div
-        className="absolute bg-white rounded-2xl p-5 shadow-[0_20px_50px_rgba(0,0,0,0.8)] w-[300px] flex flex-col pointer-events-auto"
-        animate={{ x: tooltipX, y: tooltipY }}
-        transition={{ type: "spring", damping: 25, stiffness: 200 }}
-        style={{ willChange: "transform" }}
+        transition={{ duration: 0.5, ease: ANIM_EASE }}
+        style={{ willChange: "transform, opacity" }}
       >
         <div className="flex items-center justify-between mb-3">
-          {/* COLOR FIX: Changed to text-black */}
           <span className="text-[10px] font-black uppercase tracking-widest text-black">
             {step + 1} / {STEPS.length}
           </span>
           <button
-            onClick={dismiss}
-            className="w-6 h-6 rounded-full bg-black/5 hover:bg-black/10 flex items-center justify-center text-black/40 hover:text-black transition-colors"
+            onClick={handleDismiss}
+            disabled={shutterOpen}
+            className="w-6 h-6 rounded-full bg-black/5 hover:bg-black/10 flex items-center justify-center text-black/40 hover:text-black transition-colors disabled:opacity-50"
           >
             <X size={12} />
           </button>
@@ -283,17 +327,16 @@ const OnboardingTutorial = ({ uid, onDismiss }) => {
 
         <div className="flex items-center justify-between mt-auto">
           <button
-            onClick={() => step > 0 && setStep((s) => s - 1)}
+            onClick={handleBack}
+            disabled={shutterOpen}
             className={`text-[10px] font-bold uppercase tracking-widest transition-colors ${step > 0 ? "text-[#888] hover:text-black" : "text-transparent pointer-events-none"}`}
           >
             Back
           </button>
           <button
-            onClick={() => {
-              if (step < STEPS.length - 1) setStep((s) => s + 1);
-              else dismiss();
-            }}
-            className="flex items-center gap-2 bg-black text-white px-5 py-2.5 rounded-full text-[10px] font-black uppercase tracking-widest hover:scale-105 active:scale-95 transition-all shadow-lg"
+            onClick={handleNext}
+            disabled={shutterOpen}
+            className="flex items-center gap-2 bg-black text-white px-5 py-2.5 rounded-full text-[10px] font-black uppercase tracking-widest hover:scale-105 active:scale-95 transition-all shadow-lg disabled:opacity-50 disabled:pointer-events-none"
           >
             {step < STEPS.length - 1 ? "Next" : "Finish"}{" "}
             <ArrowRight size={12} />
