@@ -2228,7 +2228,7 @@ function StepIntent({ onSubmit, onBack, loading, error }) {
         total={7}
         overline="Step 4 of 7"
         title="Your domain."
-        subtitle="Where does your ambition live? This powers your execution map."
+        subtitle="Where does your ambition live? This powers your global ranking and opportunity feed."
       />
 
       <ErrorBox msg={error} />
@@ -2829,7 +2829,7 @@ function StepExecution({ onComplete }) {
 
   const tasks = [
     "Initializing command center",
-    "Compiling your execution map",
+    "Calibrating your baseline Discotive Score",
     "Connecting to the global arena",
     "Seeding your operator network",
     "Securing your asset vault",

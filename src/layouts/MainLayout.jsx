@@ -1725,18 +1725,18 @@ const MainLayout = () => {
                 </h2>
                 <p className="text-[#555] text-sm leading-relaxed mb-8 max-w-sm mx-auto">
                   This module requires a complete operator profile. Finish your
-                  8-step onboarding to unlock the full Career Engine — execution
-                  map, asset vault, networking, and more.
+                  8-step onboarding to unlock the full Career Engine — global
+                  leaderboard, asset vault, networking, and more.
                 </p>
 
                 {/* What they unlock */}
                 <div className="mb-8 p-4 bg-[#0a0a0c] border border-[#1a1a1a] rounded-2xl text-left space-y-2.5">
                   {[
-                    "Execution Map — AI-generated career DAG",
                     "Asset Vault — credential & proof storage",
                     "Leaderboard — compete in your domain",
                     "Networking — alliances & operator discovery",
                     "Opportunities — curated roles & gigs",
+                    "Discotive Learn — verified domain resources",
                   ].map((item) => (
                     <div key={item} className="flex items-center gap-2.5">
                       <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
@@ -1782,7 +1782,7 @@ const MainLayout = () => {
                       <p className="text-xs text-[#666] leading-relaxed">
                         You're signed in but your operator profile is empty.
                         Complete the 8-step setup to activate all modules, enter
-                        the leaderboard, and generate your execution map.
+                        the leaderboard, and secure your asset vault.
                       </p>
                     </div>
                   </div>

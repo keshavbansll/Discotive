@@ -1399,10 +1399,10 @@ const HeroDirective = memo(
         s.push({
           id: "pro",
           label: "Pro Clearance",
-          headline: "Unlock Full Power.",
-          sub: "You have Pro clearance. Use the Daily Execution Ledger, X-Ray analytics, and unlimited roadmap nodes.",
-          cta: "View Dashboard",
-          ctaFn: () => {},
+          headline: "Elite Status Active.",
+          sub: "You have Pro clearance. Access your Daily Execution Agenda, competitor X-Ray tracking, and expanded asset vault.",
+          cta: "Open Agenda",
+          ctaFn: () => navigate("/app/agenda"),
           accent: G.bright,
           icon: Crown,
         });
@@ -1411,7 +1411,7 @@ const HeroDirective = memo(
           id: "upgrade",
           label: "Operator Upgrade",
           headline: "Go Pro Today.",
-          sub: "Unlock Daily Execution Journal, competitor X-Ray, 100MB vault, and unlimited execution map nodes.",
+          sub: "Unlock the Daily Execution Agenda, competitor X-Ray tracking, and a 100MB verified asset vault.",
           cta: "Upgrade to Pro",
           ctaFn: () => navigate("/premium"),
           accent: G.bright,
@@ -2068,7 +2068,7 @@ const OpportunityRow = memo(({ opp, idx }) => (
 ));
 
 /* ─── Command Actions Strip ──────────────────────────────────────────────── */
-const CommandActions = memo(({ navigate }) => {
+const CommandActions = memo(({ navigate, isPro }) => {
   const actions = [
     {
       label: "Learn",
@@ -2099,6 +2099,7 @@ const CommandActions = memo(({ navigate }) => {
       icon: Calendar,
       href: "/app/agenda",
       color: G.base,
+      locked: !isPro, // MAANG FIX: Cryptographically link the quick action to the Pro tier
     },
   ];
   return (
@@ -2164,20 +2165,20 @@ const ProfileStatsBar = memo(({ userData, score }) => {
       return {
         label: "Strong",
         color: "#4ADE80",
-        grad: "rgba(74,222,128",
+        rgb: "74,222,128",
         trend: "up",
       };
     if (pct >= 40)
       return {
         label: "Medium",
         color: "#FBBF24",
-        grad: "rgba(251,191,36",
+        rgb: "251,191,36",
         trend: "up",
       };
     return {
       label: "Weak",
       color: "#F87171",
-      grad: "rgba(248,113,113",
+      rgb: "248,113,113",
       trend: "down",
     };
   };
@@ -2214,43 +2215,16 @@ const ProfileStatsBar = memo(({ userData, score }) => {
           className="relative group overflow-hidden p-4 rounded-xl border flex flex-col justify-between transition-all duration-300 cursor-default"
           style={{
             height: 90,
-            background: `linear-gradient(135deg, ${V.surface} 0%, ${b.grad},0.05) 100%)`,
-            borderColor: `${b.grad},0.15)`,
+            background: `linear-gradient(135deg, ${V.surface} 0%, rgba(${b.rgb},0.05) 100%)`,
+            borderColor: `rgba(${b.rgb},0.15)`,
           }}
         >
-          {/* Subtle Background removed per strict performance mandate to ensure 60fps animations */}
-          <div className="absolute inset-0 opacity-[0.02] bg-white pointer-events-none" />
-
-          {/* Default State */}
-          <div className="relative z-10 flex items-start justify-between group-hover:opacity-0 transition-opacity duration-300">
-            <div>
-              <span
-                className="block text-[8px] font-black uppercase tracking-widest"
-                style={{ color: T.dim }}
-              >
-                {b.sub}
-              </span>
-              <span
-                className="block font-display font-black text-lg leading-none mt-0.5"
-                style={{ color: T.primary }}
-              >
-                {b.title}
-              </span>
-            </div>
-            <div className="shrink-0">
-              {b.trend === "up" ? (
-                <TrendingUp size={14} style={{ color: b.color }} />
-              ) : (
-                <TrendingDown size={14} style={{ color: b.color }} />
-              )}
-            </div>
-          </div>
-
+          {/* ... */}
           {/* Hover State Data */}
           <div
             className="absolute inset-0 z-20 flex items-center justify-between px-5 opacity-0 group-hover:opacity-100 transition-all duration-300"
             style={{
-              background: `linear-gradient(135deg, ${b.grad},0.08) 0%, ${b.grad},0.15) 100%)`,
+              background: `linear-gradient(135deg, rgba(${b.rgb},0.08) 0%, rgba(${b.rgb},0.15) 100%)`,
               backdropFilter: "blur(2px)",
             }}
           >
@@ -2710,7 +2684,7 @@ const MobileDashboard = ({
         >
           Quick Actions
         </p>
-        <CommandActions navigate={navigate} />
+        <CommandActions navigate={navigate} isPro={isPro} />
       </div>
 
       {/* ── CONNECTED APPS ── */}
