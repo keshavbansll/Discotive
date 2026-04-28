@@ -2288,11 +2288,21 @@ const Vault = () => {
     async (asset) => {
       if (!uid) return;
       try {
+        // MAANG Cost-Control Fix: Ensure Storage deletion succeeds BEFORE dropping the DB reference.
+        // Otherwise, failed storage deletions become expensive, permanent orphan files.
         if (asset.storagePath) {
           try {
             await deleteObject(ref(storage, asset.storagePath));
-          } catch (_) {}
+          } catch (storageErr) {
+            console.error("Storage deletion failed:", storageErr);
+            addToast(
+              "Failed to delete the file from storage. Try again.",
+              "red",
+            );
+            return; // Abort DB deletion so we don't orphan the file
+          }
         }
+
         const updatedVault = (userData?.vault || []).filter(
           (a) => a.id !== asset.id,
         );

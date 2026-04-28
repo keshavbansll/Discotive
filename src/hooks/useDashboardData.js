@@ -14,15 +14,12 @@ import { db } from "../firebase";
 import { useAuth } from "../contexts/AuthContext";
 
 const fetchDashboardCore = async (uid) => {
-  const [userSnap, mapSnap] = await Promise.all([
-    getDoc(doc(db, "users", uid)),
-    getDoc(doc(db, "users", uid, "execution_map", "current")),
-  ]);
+  // MAANG Fix: Execution Map is deprecated. Do not waste a read.
+  const userSnap = await getDoc(doc(db, "users", uid));
   const user = userSnap.exists() ? { uid, ...userSnap.data() } : null;
-  const nodes = mapSnap.exists() ? mapSnap.data().nodes || [] : [];
   return {
     user,
-    nodesCount: nodes.filter((n) => n.type === "executionNode").length,
+    nodesCount: 0, // Deprecated
   };
 };
 
@@ -118,6 +115,8 @@ export const usePercentiles = (score, userData) => {
     queryKey: ["percentiles", currentUser?.uid, score],
     queryFn: () => fetchPercentiles(currentUser.uid, score, userData),
     enabled: !!currentUser?.uid && score >= 0,
-    staleTime: 1000 * 60 * 10,
+    // MAANG Fix: Set to 12 hours. Prevents getCountFromServer from destroying our Firebase quota.
+    staleTime: 1000 * 60 * 60 * 12,
+    gcTime: 1000 * 60 * 60 * 24,
   });
 };

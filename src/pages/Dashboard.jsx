@@ -13,9 +13,9 @@ import React, {
   memo,
 } from "react";
 import { Helmet } from "react-helmet-async";
+// eslint-disable-next-line no-unused-vars
 import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
-import { useNavigate, Link, useOutletContext } from "react-router-dom";
-import { createPortal } from "react-dom";
+import { useNavigate, Link } from "react-router-dom";
 import {
   collection,
   query,
@@ -27,7 +27,7 @@ import {
   documentId,
 } from "firebase/firestore";
 import { db } from "../firebase";
-import { useUserData, useOnboardingGate } from "../hooks/useUserData";
+import { useUserData } from "../hooks/useUserData";
 import { useScoreHistory, usePercentiles } from "../hooks/useDashboardData";
 import { useTelemetryStream } from "../hooks/useTelemetryStream";
 import TierGate from "../components/TierGate";
@@ -122,7 +122,7 @@ const FADE_UP = (delay = 0) => ({
    DATA HOOKS
 ══════════════════════════════════════════════════════════════════════════ */
 
-export const useScoreLog = (uid) => {
+const useScoreLog = (uid) => {
   const [logs, setLogs] = useState([]);
   const fetchedRef = useRef(false);
   useEffect(() => {
@@ -145,14 +145,15 @@ export const useScoreLog = (uid) => {
 
 const useLearnPreview = (domain) => {
   const [items, setItems] = useState([]);
-  const [loading, setLoading] = useState(true); // Default to true
+  const [loading, setLoading] = useState(true);
   const fetchedRef = useRef(false);
   useEffect(() => {
     if (fetchedRef.current) return;
     fetchedRef.current = true;
     const constraints = [limit(6)];
     if (domain) constraints.unshift(where("domains", "array-contains", domain));
-    getDocs(query(collection(db, "discotive_videos"), ...constraints))
+    // MAANG Fix: Enforcing the Credibility Protocol. The dashboard only pushes high-signal COURSES.
+    getDocs(query(collection(db, "discotive_courses"), ...constraints))
       .then((snap) =>
         setItems(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
       )
@@ -251,7 +252,7 @@ const useOpportunities = (uid, domain) => {
   return opps;
 };
 
-export const useLbRank = (uid, score, domain) => {
+const useLbRank = (uid, score, domain) => {
   const [rank, setRank] = useState("?");
   const [filter, setFilter] = useState("Global");
   useEffect(() => {
@@ -642,7 +643,7 @@ const GlobalTicker = memo(({ events }) => {
 });
 
 /* ─── Locked Mini Ring (Pro gate) ───────────────────────────────────────── */
-const LockedMiniRing = memo(({ label, color, size = 48, navigate }) => (
+const LockedMiniRing = memo(({ label, size = 48, navigate }) => (
   <motion.div
     className="flex flex-col items-center gap-1.5 cursor-pointer group"
     whileHover={{ scale: 1.06 }}
@@ -781,12 +782,9 @@ const ScoreTooltip = memo(({ active, payload, label, scoreLogs }) => {
   const reasons = [
     ...new Set(dayLogs.map((l) => l.reason).filter(Boolean)),
   ].slice(0, 3);
+  // MAANG Fix: Removed Framer Motion to prevent severe layout thrashing during Recharts pointer events
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 4 }}
-      animate={{ opacity: 1, y: 0 }}
-      className="bg-[#080808] border border-[#BFA264]/30 rounded-xl px-4 py-3 shadow-2xl text-xs font-mono max-w-[180px]"
-    >
+    <div className="bg-[#080808] border border-[#BFA264]/30 rounded-xl px-4 py-3 shadow-2xl text-xs font-mono max-w-[180px] animate-in fade-in slide-in-from-bottom-1 duration-200">
       <p className="text-[#888] mb-1 text-[9px]">{label}</p>
       <p className="font-black text-sm" style={{ color: G.bright }}>
         {payload[0].value?.toLocaleString()} pts
@@ -806,7 +804,7 @@ const ScoreTooltip = memo(({ active, payload, label, scoreLogs }) => {
           • {r}
         </p>
       ))}
-    </motion.div>
+    </div>
   );
 });
 
@@ -930,7 +928,7 @@ const MiniRadialRing = memo(
 );
 
 /* ─── HUD Panel (Desktop right rail — animated) ──────────────────────────── */
-export const HUDPanel = memo(
+const HUDPanel = memo(
   ({
     score,
     lastScore,
@@ -1333,7 +1331,7 @@ const HERO_BG = [
 ];
 
 const HeroDirective = memo(
-  ({ userData, vaultCount, isPro, navigate, score, last24h }) => {
+  ({ vaultCount, isPro, navigate, score, last24h }) => {
     const [activeIdx, setActiveIdx] = useState(0);
     const delta = score - (last24h || score);
     const rankDropped = delta < -5;
@@ -2149,7 +2147,7 @@ const CommandActions = memo(({ navigate, isPro }) => {
 });
 
 /* ─── Profile Stats Bar ──────────────────────────────────────────────────── */
-const ProfileStatsBar = memo(({ userData, score }) => {
+const ProfileStatsBar = memo(({ userData }) => {
   const views = userData?.profileViews || 0;
   const alliesCount = (userData?.allies || []).length;
   const vaultCount = (userData?.vault || []).length;
@@ -2315,7 +2313,8 @@ const AgendaPreview = memo(({ userData, isPro, navigate }) => {
         const snap = await getDocs(
           query(
             collection(db, "users", userData.uid, "agenda"),
-            orderBy(documentId(), "desc"),
+            // MAANG Fix: UUIDs are non-sequential. We must strictly order by the creation timestamp.
+            orderBy("createdAt", "desc"),
             limit(1),
           ),
         );
@@ -2441,7 +2440,6 @@ const MobileDashboard = ({
   isPro,
   navigate,
 }) => {
-  const [activeSection, setActiveSection] = useState(0);
   const vaultCount = vaultAssets.length;
   const alliesCount = (userData?.allies || []).length;
   const profileViews = userData?.profileViews || 0;
@@ -3346,10 +3344,8 @@ const Dashboard = () => {
   const { data: percentilesData } = usePercentiles(score, userData);
   const globalPct = percentilesData?.global ?? 100;
   const domainPct = percentilesData?.domain ?? 100;
-  const { rivals: rawRivals, loading: rivalsLoading } = useTrackedRivals(
-    userData?.uid,
-  );
-  const { allies, loading: alliesLoading } = useAlliances(userData?.allies);
+  const { rivals: rawRivals } = useTrackedRivals(userData?.uid);
+  const { allies } = useAlliances(userData?.allies);
 
   // Filter out allies from rivals just in case they bled over
   const rivals = useMemo(() => {
@@ -3497,7 +3493,6 @@ const Dashboard = () => {
           >
             <div className="relative z-10 w-full pb-32">
               <HeroDirective
-                userData={userData}
                 vaultCount={vaultCount}
                 isPro={isPro}
                 navigate={navigate}
@@ -3520,7 +3515,7 @@ const Dashboard = () => {
                 <SectionLabel icon={Activity} color={G.base}>
                   Operator Stats
                 </SectionLabel>
-                <ProfileStatsBar userData={userData} score={score} />
+                <ProfileStatsBar userData={userData} />
               </motion.section>
 
               {/* Latest Activity Connector */}

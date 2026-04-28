@@ -280,6 +280,92 @@ const SidebarItem = memo(
   },
 );
 
+// ─── Inline Disconnect Button ────────────────────────────────────────────────
+const DisconnectButton = memo(
+  ({ activeKey, activeConnector, userData, connectorStates, addToast }) => {
+    const [confirming, setConfirming] = useState(false);
+
+    const handleDisconnect = async () => {
+      if (!confirming) {
+        setConfirming(true);
+        setTimeout(() => setConfirming(false), 3000); // Reset after 3s
+        return;
+      }
+
+      try {
+        const { updateDoc, doc } = await import("firebase/firestore");
+        const { db } = await import("../../../firebase");
+        await updateDoc(doc(db, "users", userData.uid), {
+          [`connectors.${activeKey}`]: null,
+        });
+        addToast(`${activeConnector.label} disconnected.`, "grey");
+        setConfirming(false);
+      } catch (err) {
+        addToast("Failed to disconnect.", "red");
+      }
+    };
+
+    return (
+      <motion.div
+        className="relative group cursor-pointer shrink-0"
+        onClick={handleDisconnect}
+      >
+        <div
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-full transition-all duration-300 group-hover:opacity-0"
+          style={
+            connectorStates[activeKey]?.pending
+              ? {
+                  background: "rgba(245,158,11,0.1)",
+                  border: "1px solid rgba(245,158,11,0.25)",
+                }
+              : {
+                  background: "rgba(16,185,129,0.1)",
+                  border: "1px solid rgba(16,185,129,0.25)",
+                }
+          }
+        >
+          <div
+            className="w-1.5 h-1.5 rounded-full animate-pulse"
+            style={{
+              background: connectorStates[activeKey]?.pending
+                ? "#f59e0b"
+                : "#10b981",
+            }}
+          />
+          <span
+            className="text-[10px] font-black uppercase tracking-widest"
+            style={{
+              color: connectorStates[activeKey]?.pending
+                ? "#f59e0b"
+                : "#10b981",
+            }}
+          >
+            {connectorStates[activeKey]?.pending ? "Pending" : "Connected"}
+          </span>
+        </div>
+
+        <div
+          className="absolute inset-0 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-full opacity-0 group-hover:opacity-100 transition-all duration-300"
+          style={{
+            background: confirming ? "#ef4444" : "rgba(248,113,113,0.15)",
+            border: confirming
+              ? "1px solid #ef4444"
+              : "1px solid rgba(248,113,113,0.4)",
+          }}
+        >
+          {!confirming && <X className="w-3 h-3 text-[#f87171]" />}
+          <span
+            className="text-[10px] font-black uppercase tracking-widest transition-colors"
+            style={{ color: confirming ? "#ffffff" : "#f87171" }}
+          >
+            {confirming ? "Confirm?" : "Disconnect"}
+          </span>
+        </div>
+      </motion.div>
+    );
+  },
+);
+
 // ─── MAIN CONNECTOR HUB ───────────────────────────────────────────────────────
 const ConnectorHub = () => {
   const { connectorId } = useParams();
@@ -288,9 +374,12 @@ const ConnectorHub = () => {
 
   const activeKey = connectorId || "github";
 
-  const addToast = useCallback((msg, type) => {
-    // Optional: Sync this with your global Toast context if applicable
-    console.log(`[Toast ${type}]: ${msg}`);
+  // MAANG Fix: Real toast engine for the Connector Hub
+  const [toasts, setToasts] = useState([]);
+  const addToast = useCallback((msg, type = "grey") => {
+    const id = Date.now() + Math.random();
+    setToasts((p) => [...p.slice(-3), { id, msg, type }]);
+    setTimeout(() => setToasts((p) => p.filter((t) => t.id !== id)), 3800);
   }, []);
 
   const onVaultAssetAdded = useCallback(
@@ -442,73 +531,62 @@ const ConnectorHub = () => {
                   <RefreshCw className="w-4 h-4" style={{ color: T.dim }} />
                 </motion.button>
 
-                <motion.div
-                  className="relative group cursor-pointer shrink-0"
-                  onClick={async () => {
-                    if (
-                      window.confirm(
-                        `Are you sure you want to disconnect ${activeConnector.label}? Discotive score rewarded from this app will be deducted.`,
-                      )
-                    ) {
-                      const { updateDoc, doc } =
-                        await import("firebase/firestore");
-                      const { db } = await import("../../../firebase");
-                      await updateDoc(doc(db, "users", userData.uid), {
-                        [`connectors.${activeKey}`]: null,
-                      });
-                      addToast?.(`${activeConnector.label} disconnected.`);
-                    }
-                  }}
+                {/* MAANG UX Fix: Inline 2-step confirmation instead of thread-blocking window.confirm */}
+                <DisconnectButton
+                  activeKey={activeKey}
+                  activeConnector={activeConnector}
+                  userData={userData}
+                  connectorStates={connectorStates}
+                  addToast={addToast}
+                />
+                <div
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-full transition-all duration-300 group-hover:opacity-0"
+                  style={
+                    connectorStates[activeKey]?.pending
+                      ? {
+                          background: "rgba(245,158,11,0.1)",
+                          border: "1px solid rgba(245,158,11,0.25)",
+                        }
+                      : {
+                          background: "rgba(16,185,129,0.1)",
+                          border: "1px solid rgba(16,185,129,0.25)",
+                        }
+                  }
                 >
                   <div
-                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-full transition-all duration-300 group-hover:opacity-0"
-                    style={
-                      connectorStates[activeKey]?.pending
-                        ? {
-                            background: "rgba(245,158,11,0.1)",
-                            border: "1px solid rgba(245,158,11,0.25)",
-                          }
-                        : {
-                            background: "rgba(16,185,129,0.1)",
-                            border: "1px solid rgba(16,185,129,0.25)",
-                          }
-                    }
-                  >
-                    <div
-                      className="w-1.5 h-1.5 rounded-full animate-pulse"
-                      style={{
-                        background: connectorStates[activeKey]?.pending
-                          ? "#f59e0b"
-                          : "#10b981",
-                      }}
-                    />
-                    <span
-                      className="text-[10px] font-black uppercase tracking-widest"
-                      style={{
-                        color: connectorStates[activeKey]?.pending
-                          ? "#f59e0b"
-                          : "#10b981",
-                      }}
-                    >
-                      {connectorStates[activeKey]?.pending
-                        ? "Pending"
-                        : "Connected"}
-                    </span>
-                  </div>
-
-                  <div
-                    className="absolute inset-0 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-full opacity-0 group-hover:opacity-100 transition-all duration-300"
+                    className="w-1.5 h-1.5 rounded-full animate-pulse"
                     style={{
-                      background: "rgba(248,113,113,0.15)",
-                      border: "1px solid rgba(248,113,113,0.4)",
+                      background: connectorStates[activeKey]?.pending
+                        ? "#f59e0b"
+                        : "#10b981",
+                    }}
+                  />
+                  <span
+                    className="text-[10px] font-black uppercase tracking-widest"
+                    style={{
+                      color: connectorStates[activeKey]?.pending
+                        ? "#f59e0b"
+                        : "#10b981",
                     }}
                   >
-                    <X className="w-3 h-3 text-[#f87171]" />
-                    <span className="text-[10px] font-black uppercase tracking-widest text-[#f87171]">
-                      Disconnect
-                    </span>
-                  </div>
-                </motion.div>
+                    {connectorStates[activeKey]?.pending
+                      ? "Pending"
+                      : "Connected"}
+                  </span>
+                </div>
+
+                <div
+                  className="absolute inset-0 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-full opacity-0 group-hover:opacity-100 transition-all duration-300"
+                  style={{
+                    background: "rgba(248,113,113,0.15)",
+                    border: "1px solid rgba(248,113,113,0.4)",
+                  }}
+                >
+                  <X className="w-3 h-3 text-[#f87171]" />
+                  <span className="text-[10px] font-black uppercase tracking-widest text-[#f87171]">
+                    Disconnect
+                  </span>
+                </div>
               </>
             )}
             <button
@@ -604,6 +682,60 @@ const ConnectorHub = () => {
           </div>
         </div>
       </div>
+
+      {/* ── TOAST STACK ── */}
+      {createPortal(
+        <div
+          className="fixed bottom-5 left-4 z-[9999] flex flex-col gap-2 pointer-events-none"
+          style={{ maxWidth: 360 }}
+        >
+          <AnimatePresence>
+            {toasts.map((t) => (
+              <motion.div
+                key={t.id}
+                initial={{ opacity: 0, x: -16, y: 8 }}
+                animate={{ opacity: 1, x: 0, y: 0 }}
+                exit={{ opacity: 0, x: -16 }}
+                className="flex items-center gap-3 px-4 py-3 rounded-xl shadow-2xl border text-xs font-bold pointer-events-auto"
+                style={
+                  t.type === "green"
+                    ? {
+                        background: "#041f10",
+                        borderColor: "rgba(16,185,129,0.25)",
+                        color: "#4ADE80",
+                      }
+                    : t.type === "red"
+                      ? {
+                          background: "#1a0505",
+                          borderColor: "rgba(239,68,68,0.25)",
+                          color: "#f87171",
+                        }
+                      : {
+                          background: V.elevated,
+                          borderColor: "rgba(255,255,255,0.07)",
+                          color: T.secondary,
+                        }
+                }
+              >
+                {t.type === "green" && (
+                  <Check className="w-3.5 h-3.5 shrink-0" />
+                )}
+                {t.type === "red" && (
+                  <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
+                )}
+                {t.type === "grey" && (
+                  <Zap
+                    className="w-3.5 h-3.5 shrink-0"
+                    style={{ color: T.dim }}
+                  />
+                )}
+                <span className="truncate">{t.msg}</span>
+              </motion.div>
+            ))}
+          </AnimatePresence>
+        </div>,
+        document.body,
+      )}
     </div>
   );
 };

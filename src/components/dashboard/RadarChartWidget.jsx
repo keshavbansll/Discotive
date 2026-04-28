@@ -60,8 +60,8 @@ const RadarChartWidget = ({ rawSkills = [], alignedSkills = [] }) => {
           Calibrating Sensors
         </span>
         <span className="text-[9px] text-[#444] mt-2 max-w-[200px] leading-relaxed uppercase tracking-widest">
-          Insufficient skill telemetry. Complete technical nodes to map your
-          vector.
+          Insufficient skill telemetry. Verify assets in your Vault to establish
+          your competency vector.
         </span>
       </div>
     );
@@ -93,14 +93,14 @@ const RadarChartWidget = ({ rawSkills = [], alignedSkills = [] }) => {
           <Radar
             name="Operator Vector"
             dataKey="score"
-            stroke="#f59e0b" // Amber 500
+            stroke="#BFA264" // The Gold Protocol
             strokeWidth={2}
-            fill="#f59e0b"
+            fill="#BFA264"
             fillOpacity={0.15}
-            dot={{ r: 3, fill: "#000", strokeWidth: 2, stroke: "#f59e0b" }}
+            dot={{ r: 3, fill: "#030303", strokeWidth: 2, stroke: "#BFA264" }}
             activeDot={{
               r: 5,
-              fill: "#f59e0b",
+              fill: "#D4AF78",
               strokeWidth: 0,
               className: "animate-pulse",
             }}
