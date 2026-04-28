@@ -1170,7 +1170,7 @@ const MainLayout = () => {
                   </p>
                   <div className="w-full aspect-square bg-[#0A0A0A] rounded-xl mb-3 overflow-hidden border border-white/5 relative z-10">
                     <img
-                      src="/pro-promo.png"
+                      src="/pro-promo.jpg"
                       alt="Discotive Pro"
                       className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity"
                     />

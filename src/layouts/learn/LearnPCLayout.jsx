@@ -50,8 +50,8 @@ import {
   Filter,
 } from "lucide-react";
 
-import BorderlessAssetCard from "./BorderlessAssetCard";
-import PremiumAlgoFeed from "./PremiumAlgoFeed";
+import BorderlessAssetCard from "../../components/learn/BorderlessAssetCard";
+import PremiumAlgoFeed from "../../components/learn/PremiumAlgoFeed";
 import {
   DOMAINS,
   CERTIFICATE_CATEGORIES,
