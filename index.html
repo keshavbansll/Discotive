@@ -94,22 +94,56 @@
   </head>
   <body>
     <script>
+      // Clear loop-prevention lock on successful execution
+      sessionStorage.removeItem("pwa_chunk_reload");
+
       window.onload = function () {
         setTimeout(function () {
           const root = document.getElementById("root");
           if (!root || root.innerHTML.trim() === "") {
             const crashScreen = document.getElementById("native-crash-screen");
             if (crashScreen) {
-              // Add this check
               crashScreen.style.display = "flex";
             }
           }
         }, 4000);
       };
 
+      // MAANG-grade failover for detached dynamic chunks
+      function handleStaleChunkError() {
+        const reloadKey = "pwa_chunk_reload";
+        if (!sessionStorage.getItem(reloadKey)) {
+          sessionStorage.setItem(reloadKey, "true");
+          console.warn(
+            "[PWA] Stale chunk detected. Executing hard recovery reload.",
+          );
+          window.location.reload(true);
+        } else {
+          console.error(
+            "[PWA] Chunk reload loop prevented. Application may require manual refresh.",
+          );
+        }
+      }
+
       window.addEventListener("error", function (event) {
-        if (event.message && event.message.includes("Loading chunk")) {
-          window.location.reload();
+        const msg = event.message || "";
+        const isChunkError =
+          msg.includes("Loading chunk") ||
+          msg.includes("fetch dynamically imported module") ||
+          msg.includes("Importing a module script failed");
+
+        if (isChunkError) handleStaleChunkError();
+      });
+
+      // Catch async Vite import rejections
+      window.addEventListener("unhandledrejection", function (event) {
+        const msg = event.reason ? event.reason.message || event.reason : "";
+        if (
+          typeof msg === "string" &&
+          (msg.includes("fetch dynamically imported module") ||
+            msg.includes("Failed to fetch dynamically imported module"))
+        ) {
+          handleStaleChunkError();
         }
       });
     </script>

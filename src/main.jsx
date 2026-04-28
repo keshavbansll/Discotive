@@ -22,7 +22,51 @@ import ErrorBoundary from "./components/boundaries/ErrorBoundary.jsx";
 import NetworkBoundary from "./components/boundaries/NetworkBoundary.jsx";
 
 import { registerSW } from "virtual:pwa-register";
-registerSW({ immediate: true });
+
+// 1. MAANG-grade PWA Update Strategy: Seamless Controller Swap
+let refreshing = false;
+if ("serviceWorker" in navigator) {
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (!refreshing) {
+      refreshing = true;
+      // The new SW has taken control. Force a reload to map new assets.
+      window.location.reload();
+    }
+  });
+}
+
+// 2. Register SW with Background Sync & Cache-Busting Polling
+registerSW({
+  immediate: true,
+  onRegisteredSW(swUrl, registration) {
+    if (!registration) return;
+
+    // Background polling: Check for updates every 1 hour
+    setInterval(
+      async () => {
+        if (!(!registration.installing && navigator)) return;
+        if ("connection" in navigator && !navigator.onLine) return;
+
+        try {
+          // Fetch SW file natively, bypassing browser HTTP cache to force freshness
+          const resp = await fetch(swUrl, {
+            cache: "no-store",
+            headers: { cache: "no-store", pragma: "no-cache" },
+          });
+          if (resp?.status === 200) {
+            await registration.update();
+          }
+        } catch (err) {
+          console.warn("[PWA] SW Update Check Failed:", err);
+        }
+      },
+      60 * 60 * 1000,
+    ); // 1 Hour
+  },
+  onRegisterError(error) {
+    console.error("[PWA] Registration failed:", error);
+  },
+});
 
 // ─────────────────────────────────────────────────────────────────────────────
 // SECURE TELEMETRY INITIALIZATION
