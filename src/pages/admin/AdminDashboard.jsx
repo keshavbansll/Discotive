@@ -98,8 +98,11 @@ import {
   Bell,
   Sidebar,
   ChevronLeft,
+  Mic,
 } from "lucide-react";
 import { cn } from "../../lib/cn";
+
+import LearnAdminModal from "../../components/Learn/LearnAdminModal";
 
 // ── Design tokens ─────────────────────────────────────────────────────────────
 const G = {
@@ -1768,123 +1771,74 @@ const VaultPanel = memo(() => {
 });
 
 // ══════════════════════════════════════════════════════════════════════════════
-// LEARN DATABASE PANEL
+// LEARN DATABASE PANEL (V3.0)
 // ══════════════════════════════════════════════════════════════════════════════
 const LearnPanel = memo(() => {
-  const [tab, setTab] = useState("certs");
-  const [certs, setCerts] = useState([]);
+  const [tab, setTab] = useState("courses");
+  const [courses, setCourses] = useState([]);
   const [videos, setVideos] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [addingVideo, setAddingVideo] = useState(false);
-  const [addingCert, setAddingCert] = useState(false);
-  const [videoForm, setVideoForm] = useState({ title: "", url: "" });
-  const [certForm, setCertForm] = useState({
-    title: "",
-    link: "",
-    provider: "",
-    strength: "Medium",
-  });
+
+  // Modal & Dropdown logic
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [modalType, setModalType] = useState("course");
+  const [editItem, setEditItem] = useState(null);
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const dropdownRef = useRef(null);
+
+  const fetch = async () => {
+    setLoading(true);
+    try {
+      const [cs, vs] = await Promise.all([
+        getDocs(
+          query(
+            collection(db, "discotive_courses"),
+            orderBy("createdAt", "desc"),
+            limit(50),
+          ),
+        ),
+        getDocs(
+          query(
+            collection(db, "discotive_videos"),
+            orderBy("createdAt", "desc"),
+            limit(50),
+          ),
+        ),
+      ]);
+      setCourses(cs.docs.map((d) => ({ id: d.id, ...d.data() })));
+      setVideos(vs.docs.map((d) => ({ id: d.id, ...d.data() })));
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const fetch = async () => {
-      setLoading(true);
-      try {
-        const [cs, vs] = await Promise.all([
-          getDocs(
-            query(
-              collection(db, "discotive_certificates"),
-              orderBy("createdAt", "desc"),
-              limit(50),
-            ),
-          ),
-          getDocs(
-            query(
-              collection(db, "discotive_videos"),
-              orderBy("createdAt", "desc"),
-              limit(50),
-            ),
-          ),
-        ]);
-        setCerts(cs.docs.map((d) => ({ id: d.id, ...d.data() })));
-        setVideos(vs.docs.map((d) => ({ id: d.id, ...d.data() })));
-      } finally {
-        setLoading(false);
-      }
-    };
     fetch();
   }, []);
 
-  const addVideo = async () => {
-    if (!videoForm.title.trim() || !videoForm.url.trim()) return;
-    const suffix = Math.floor(100000 + Math.random() * 900000);
-    const ytId =
-      videoForm.url.match(
-        /(?:youtu\.be\/|youtube\.com\/(?:watch\?v=|embed\/))([\w-]{11})/i,
-      )?.[1] || videoForm.url;
-    const ref = await addDoc(collection(db, "discotive_videos"), {
-      title: videoForm.title,
-      youtubeId: ytId,
-      thumbnailUrl: `https://img.youtube.com/vi/${ytId}/maxresdefault.jpg`,
-      discotiveLearnId: `discotive_video_${suffix}`,
-      createdAt: serverTimestamp(),
-      createdBy: auth.currentUser?.email,
-      category: "educational",
-      scoreReward: 10,
-    });
-    setVideos((p) => [
-      {
-        id: ref.id,
-        title: videoForm.title,
-        youtubeId: ytId,
-        discotiveLearnId: `discotive_video_${suffix}`,
-      },
-      ...p,
-    ]);
-    setVideoForm({ title: "", url: "" });
-    setAddingVideo(false);
-  };
-
-  const addCert = async () => {
-    if (!certForm.title.trim() || !certForm.link.trim()) return;
-    const suffix = Math.floor(100000 + Math.random() * 900000);
-    const ref = await addDoc(collection(db, "discotive_certificates"), {
-      ...certForm,
-      discotiveLearnId: `discotive_certificate_${suffix}`,
-      createdAt: serverTimestamp(),
-      createdBy: auth.currentUser?.email,
-      scoreReward:
-        certForm.strength === "Strong"
-          ? 30
-          : certForm.strength === "Medium"
-            ? 20
-            : 10,
-    });
-    setCerts((p) => [
-      {
-        id: ref.id,
-        ...certForm,
-        discotiveLearnId: `discotive_certificate_${suffix}`,
-      },
-      ...p,
-    ]);
-    setCertForm({ title: "", link: "", provider: "", strength: "Medium" });
-    setAddingCert(false);
-  };
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
+        setDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   const deleteResource = async (id, col) => {
     if (!window.confirm("Permanently delete this resource?")) return;
     await deleteDoc(doc(db, col, id));
-    if (col === "discotive_certificates")
-      setCerts((p) => p.filter((c) => c.id !== id));
+    if (col === "discotive_courses")
+      setCourses((p) => p.filter((c) => c.id !== id));
     else setVideos((p) => p.filter((v) => v.id !== id));
   };
 
-  const inputCls =
-    "w-full px-4 py-2.5 rounded-xl text-sm focus:outline-none transition-colors placeholder-white/20";
-  const inputStyle = {
-    background: V.elevated,
-    border: "1px solid rgba(255,255,255,0.08)",
-    color: T.primary,
+  const openModal = (type, item = null) => {
+    setModalType(type);
+    setEditItem(item);
+    setIsModalOpen(true);
+    setDropdownOpen(false);
   };
 
   return (
@@ -1892,7 +1846,7 @@ const LearnPanel = memo(() => {
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="flex gap-2">
           {[
-            { key: "certs", label: "Certificates", count: certs.length },
+            { key: "courses", label: "Courses", count: courses.length },
             { key: "videos", label: "Videos", count: videos.length },
           ].map(({ key, label, count }) => (
             <button
@@ -1905,168 +1859,64 @@ const LearnPanel = memo(() => {
                   : "border-white/[0.06] text-white/40 hover:text-white",
               )}
             >
-              {label}
+              {label}{" "}
               <span className="font-mono opacity-60 ml-1">({count})</span>
             </button>
           ))}
         </div>
-        <button
-          onClick={() =>
-            tab === "certs" ? setAddingCert(true) : setAddingVideo(true)
-          }
-          className="flex items-center gap-2 px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all"
-          style={{
-            background: G.dim,
-            border: `1px solid ${G.border}`,
-            color: G.bright,
-          }}
-        >
-          <Plus className="w-3.5 h-3.5" /> Add
-          {tab === "certs" ? "Certificate" : "Video"}
-        </button>
-      </div>
 
-      {/* Quick Add Forms */}
-      <AnimatePresence>
-        {addingVideo && (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: "auto" }}
-            exit={{ opacity: 0, height: 0 }}
-            className="rounded-2xl p-5 space-y-3 overflow-hidden"
-            style={{
-              background: V.surface,
-              border: "1px solid rgba(255,255,255,0.06)",
-            }}
+        {/* ADD NEW DROPDOWN - Fixed MainLayout Overlap with high Z-Index */}
+        <div className="relative" ref={dropdownRef}>
+          <button
+            onClick={() => setDropdownOpen(!dropdownOpen)}
+            className="flex items-center gap-2 px-4 py-2.5 bg-[#BFA264] text-black font-extrabold text-[10px] uppercase tracking-widest rounded-xl hover:bg-[#D4AF78] transition-all shadow-[0_0_20px_rgba(191,162,100,0.2)] active:scale-95"
           >
-            <h3 className="text-sm font-black" style={{ color: T.primary }}>
-              Add YouTube Video
-            </h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <input
-                value={videoForm.url}
-                onChange={(e) =>
-                  setVideoForm((p) => ({ ...p, url: e.target.value }))
-                }
-                placeholder="YouTube URL or ID"
-                className={inputCls}
-                style={inputStyle}
-              />
-              <input
-                value={videoForm.title}
-                onChange={(e) =>
-                  setVideoForm((p) => ({ ...p, title: e.target.value }))
-                }
-                placeholder="Video Title"
-                className={inputCls}
-                style={inputStyle}
-              />
-            </div>
-            <div className="flex gap-2">
-              <button
-                onClick={addVideo}
-                className="px-5 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest"
-                style={{
-                  background: G.dim,
-                  border: `1px solid ${G.border}`,
-                  color: G.bright,
-                }}
+            <Plus className="w-4 h-4" />
+            <span className="hidden sm:inline">Add New</span>
+          </button>
+
+          <AnimatePresence>
+            {dropdownOpen && (
+              <motion.div
+                initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 10, scale: 0.95 }}
+                transition={{ duration: 0.15, ease: "easeOut" }}
+                className="absolute right-0 top-full mt-2 w-52 bg-[#0A0A0A] border border-white/10 rounded-xl shadow-2xl z-[9999] overflow-hidden flex flex-col"
               >
-                Add Video
-              </button>
-              <button
-                onClick={() => setAddingVideo(false)}
-                className="px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest"
-                style={{ background: V.elevated, color: T.dim }}
-              >
-                Cancel
-              </button>
-            </div>
-          </motion.div>
-        )}
-        {addingCert && (
-          <motion.div
-            initial={{ opacity: 0, height: 0 }}
-            animate={{ opacity: 1, height: "auto" }}
-            exit={{ opacity: 0, height: 0 }}
-            className="rounded-2xl p-5 space-y-3 overflow-hidden"
-            style={{
-              background: V.surface,
-              border: "1px solid rgba(255,255,255,0.06)",
-            }}
-          >
-            <h3 className="text-sm font-black" style={{ color: T.primary }}>
-              Add Certificate
-            </h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <input
-                value={certForm.title}
-                onChange={(e) =>
-                  setCertForm((p) => ({ ...p, title: e.target.value }))
-                }
-                placeholder="Certificate Title"
-                className={inputCls}
-                style={inputStyle}
-              />
-              <input
-                value={certForm.provider}
-                onChange={(e) =>
-                  setCertForm((p) => ({ ...p, provider: e.target.value }))
-                }
-                placeholder="Provider (e.g. Coursera)"
-                className={inputCls}
-                style={inputStyle}
-              />
-              <input
-                value={certForm.link}
-                onChange={(e) =>
-                  setCertForm((p) => ({ ...p, link: e.target.value }))
-                }
-                placeholder="Enrollment URL"
-                type="url"
-                className={inputCls}
-                style={inputStyle}
-              />
-              <select
-                value={certForm.strength}
-                onChange={(e) =>
-                  setCertForm((p) => ({ ...p, strength: e.target.value }))
-                }
-                className={cn(inputCls, "appearance-none")}
-                style={inputStyle}
-              >
-                <option value="Weak">Weak</option>
-                <option value="Medium">Medium</option>
-                <option value="Strong">Strong</option>
-              </select>
-            </div>
-            <div className="flex gap-2">
-              <button
-                onClick={addCert}
-                className="px-5 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest"
-                style={{
-                  background: G.dim,
-                  border: `1px solid ${G.border}`,
-                  color: G.bright,
-                }}
-              >
-                Add Certificate
-              </button>
-              <button
-                onClick={() => setAddingCert(false)}
-                className="px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest"
-                style={{ background: V.elevated, color: T.dim }}
-              >
-                Cancel
-              </button>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+                <button
+                  onClick={() => openModal("course")}
+                  className="px-4 py-3 text-left text-[11px] font-bold text-[#F5F0E8] hover:bg-white/5 transition-colors border-b border-white/5 flex items-center gap-3 uppercase tracking-widest"
+                >
+                  <Award className="w-4 h-4 text-[#BFA264]" /> Add Course
+                </button>
+                <button
+                  onClick={() => openModal("video")}
+                  className="px-4 py-3 text-left text-[11px] font-bold text-[#F5F0E8] hover:bg-white/5 transition-colors border-b border-white/5 flex items-center gap-3 uppercase tracking-widest"
+                >
+                  <Youtube className="w-4 h-4 text-red-500" /> Add YouTube
+                </button>
+                <button className="px-4 py-3 text-left text-[11px] font-bold text-[#888] cursor-not-allowed flex items-center gap-3 border-b border-white/5 uppercase tracking-widest">
+                  <Mic className="w-4 h-4" /> Podcast{" "}
+                  <span className="text-[8px] text-[#BFA264] ml-auto">
+                    SOON
+                  </span>
+                </button>
+                <button className="px-4 py-3 text-left text-[11px] font-bold text-[#888] cursor-not-allowed flex items-center gap-3 uppercase tracking-widest">
+                  <FileText className="w-4 h-4" /> Resources{" "}
+                  <span className="text-[8px] text-[#BFA264] ml-auto">
+                    SOON
+                  </span>
+                </button>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+      </div>
 
       {loading ? (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 animate-pulse">
-          {[1, 2, 3, 4, 5, 6].map((i) => (
+          {[1, 2, 3, 4].map((i) => (
             <div
               key={i}
               className="h-28 rounded-2xl"
@@ -2076,7 +1926,7 @@ const LearnPanel = memo(() => {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {(tab === "certs" ? certs : videos).map((item) => {
+          {(tab === "courses" ? courses : videos).map((item) => {
             const isVideo = tab === "videos";
             const ytId = item.youtubeId;
             return (
@@ -2106,23 +1956,31 @@ const LearnPanel = memo(() => {
                     >
                       {item.title}
                     </p>
-                    <button
-                      onClick={() =>
-                        deleteResource(
-                          item.id,
-                          isVideo
-                            ? "discotive_videos"
-                            : "discotive_certificates",
-                        )
-                      }
-                      className="w-6 h-6 rounded-lg flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all shrink-0"
-                      style={{
-                        background: "rgba(239,68,68,0.1)",
-                        color: "#f87171",
-                      }}
-                    >
-                      <Trash2 className="w-3 h-3" />
-                    </button>
+                    <div className="flex gap-1.5 opacity-0 group-hover:opacity-100 transition-all shrink-0">
+                      <button
+                        onClick={() =>
+                          openModal(isVideo ? "video" : "course", item)
+                        }
+                        className="w-6 h-6 rounded-lg flex items-center justify-center bg-white/5 hover:bg-white/10 text-white/60 hover:text-white transition-all"
+                      >
+                        <Pencil className="w-3 h-3" />
+                      </button>
+                      <button
+                        onClick={() =>
+                          deleteResource(
+                            item.id,
+                            isVideo ? "discotive_videos" : "discotive_courses",
+                          )
+                        }
+                        className="w-6 h-6 rounded-lg flex items-center justify-center transition-all"
+                        style={{
+                          background: "rgba(239,68,68,0.1)",
+                          color: "#f87171",
+                        }}
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    </div>
                   </div>
                   {!isVideo && (
                     <p className="text-[9px]" style={{ color: T.dim }}>
@@ -2142,6 +2000,20 @@ const LearnPanel = memo(() => {
             );
           })}
         </div>
+      )}
+
+      {/* RENDER DYNAMIC MODAL HERE */}
+      {isModalOpen && (
+        <LearnAdminModal
+          type={modalType}
+          item={editItem}
+          onClose={() => setIsModalOpen(false)}
+          onSaved={() => {
+            setIsModalOpen(false);
+            fetch();
+          }}
+          adminEmail={auth.currentUser?.email}
+        />
       )}
     </div>
   );

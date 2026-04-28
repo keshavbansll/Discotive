@@ -1,76 +1,44 @@
 /**
- * @fileoverview LearnPCLayout — Discotive Learn PC-Native Interface
- * @module Components/Learn/LearnPCLayout
- *
- * DOM STRUCTURE:
- * ┌──────────────────────────────────────────────────────────────────┐
- * │  TOP BAR: Search · Sort · Tab (Certs | Videos) · Admin actions  │
- * ├────────────────┬─────────────────────────────────────────────────┤
- * │                │  PremiumAlgoFeed strip                          │
- * │  FILTER PANEL  │  ─────────────────────────────────────────────  │
- * │  (260px fixed) │  Content grid — BorderlessAssetCard             │
- * │  Domain        │  (5-col XL, 4-col LG, 3-col MD)                │
- * │  Category      │                                                 │
- * │  Difficulty    │  Load more (cursor paginated)                   │
- * │  Free/Paid     │                                                 │
- * │  Relevance     │                                                 │
- * └────────────────┴─────────────────────────────────────────────────┘
- *
- * PC-NATIVE FEATURES:
- * - Keyboard: '/' focuses search · 'Esc' clears · arrow keys navigate grid
- * - Hover: Expansion metadata panel via BorderlessAssetCard
- * - Sidebar: Sticky filter column with collapsible sections
- * - Grid: Truly borderless — depth only via background contrast
- * - Stagger: Entry animation with 40ms delay between items
+ * @fileoverview LearnPCLayout.jsx — Desktop Orchestrator for Learn Engine
+ * @description
+ * Implements the Netflix-style fluid UI for the Discotive Learn Engine.
+ * Features:
+ * - Cinematic Auto-rotating Hero Billboard
+ * - Dynamic Z-Indexed horizontal carousels (prevents dropdown clipping)
+ * - Infinite Canvas gradients (V.bg blending)
+ * - Glassmorphism sticky headers
  */
 
-import React, {
-  useState,
-  useCallback,
-  useEffect,
-  useRef,
-  useMemo,
-  memo,
-} from "react";
+import React, { useState, useEffect, useRef, useCallback, memo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Search,
-  X,
-  SlidersHorizontal,
-  ChevronDown,
-  ChevronUp,
-  BookOpen,
-  Video,
+  ChevronLeft,
+  ChevronRight,
+  Play,
+  Info,
+  FolderLock,
   Plus,
-  RefreshCw,
-  Loader2,
-  BarChart2,
-  Database,
-  Check,
-  Filter,
+  Zap,
+  Lock,
+  Crown,
 } from "lucide-react";
+import LearnCard from "../../components/learn/LearnCard";
+import { TYPE_CONFIG } from "../../lib/discotiveLearn";
 
-import BorderlessAssetCard from "../../components/learn/BorderlessAssetCard";
-import PremiumAlgoFeed from "../../components/learn/PremiumAlgoFeed";
-import {
-  DOMAINS,
-  CERTIFICATE_CATEGORIES,
-  DIFFICULTY_LEVELS,
-  VIDEO_CATEGORIES,
-} from "../../lib/discotiveLearn";
-
-// ── Design Tokens ─────────────────────────────────────────────────────────────
+// ─── Design Tokens ─────────────────────────────────────────────────────────────
 const G = {
   base: "#BFA264",
   bright: "#D4AF78",
   dimBg: "rgba(191,162,100,0.08)",
-  border: "rgba(191,162,100,0.25)",
+  border: "rgba(191,162,100,0.2)",
 };
 const V = {
   bg: "#030303",
   depth: "#0A0A0A",
   surface: "#0F0F0F",
   elevated: "#141414",
+  border: "rgba(255,255,255,0.06)",
 };
 const T = {
   primary: "#F5F0E8",
@@ -78,653 +46,905 @@ const T = {
   dim: "rgba(245,240,232,0.28)",
 };
 
-// ── Filter Section (collapsible) ──────────────────────────────────────────────
-const FilterSection = memo(({ title, open, onToggle, children }) => (
-  <div className="border-b" style={{ borderColor: "rgba(255,255,255,0.04)" }}>
-    <button
-      onClick={onToggle}
-      className="w-full flex items-center justify-between py-2.5 px-4 text-left transition-all hover:bg-white/[0.02]"
-    >
-      <span
-        className="text-[9px] font-black uppercase tracking-[0.18em]"
-        style={{ color: open ? G.bright : T.dim }}
-      >
-        {title}
-      </span>
-      {open ? (
-        <ChevronUp className="w-3 h-3" style={{ color: T.dim }} />
-      ) : (
-        <ChevronDown className="w-3 h-3" style={{ color: T.dim }} />
-      )}
-    </button>
-    <AnimatePresence initial={false}>
-      {open && (
-        <motion.div
-          initial={{ height: 0, opacity: 0 }}
-          animate={{ height: "auto", opacity: 1 }}
-          exit={{ height: 0, opacity: 0 }}
-          transition={{ duration: 0.2, ease: "easeInOut" }}
-          className="overflow-hidden"
-        >
-          <div className="px-4 pb-3 flex flex-col gap-1">{children}</div>
-        </motion.div>
-      )}
-    </AnimatePresence>
-  </div>
-));
+// ─── Hero Banner Component (The Billboard) ───────────────────────────────────
+const LearnHero = memo(({ items, onSelect }) => {
+  const [currentIndex, setCurrentIndex] = useState(0);
 
-// ── Filter Option Row ─────────────────────────────────────────────────────────
-const FilterOpt = memo(({ label, active, onClick, color }) => (
-  <button
-    onClick={onClick}
-    className="w-full flex items-center justify-between py-1.5 px-2 rounded transition-all text-left group"
-    style={{
-      background: active ? G.dimBg : "transparent",
-    }}
-  >
-    <span
-      className="text-[10px] font-medium transition-colors"
-      style={{
-        color: active ? color || G.bright : T.secondary,
-        fontFamily: "'Poppins', sans-serif",
-      }}
-    >
-      {label}
-    </span>
-    {active && (
-      <div
-        className="w-3.5 h-3.5 flex items-center justify-center rounded-sm"
-        style={{ background: G.base }}
-      >
-        <Check className="w-2.5 h-2.5 text-black" strokeWidth={3} />
-      </div>
-    )}
-  </button>
-));
-
-// ── Loading skeleton grid ─────────────────────────────────────────────────────
-const SkeletonGrid = memo(({ count = 12 }) => (
-  <div className="grid grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-0">
-    {Array.from({ length: count }).map((_, i) => (
-      <div
-        key={i}
-        className="animate-pulse"
-        style={{ aspectRatio: "16/9", background: V.depth }}
-      >
-        <div className="w-full h-full bg-white/[0.02]" />
-      </div>
-    ))}
-  </div>
-));
-
-// ── Empty State ───────────────────────────────────────────────────────────────
-const EmptyState = memo(({ type, isAdmin, onAdminAdd }) => (
-  <div className="flex flex-col items-center justify-center py-32 text-center col-span-full">
-    <div
-      className="w-20 h-20 flex items-center justify-center mb-6"
-      style={{
-        background: V.depth,
-        border: "1px solid rgba(255,255,255,0.04)",
-      }}
-    >
-      {type === "videos" ? (
-        <Video
-          className="w-8 h-8"
-          style={{ color: "rgba(255,255,255,0.06)" }}
-        />
-      ) : (
-        <BookOpen
-          className="w-8 h-8"
-          style={{ color: "rgba(255,255,255,0.06)" }}
-        />
-      )}
-    </div>
-    <p
-      className="text-xl font-black mb-2"
-      style={{ color: T.primary, fontFamily: "'Montserrat', sans-serif" }}
-    >
-      No {type === "videos" ? "Videos" : "Courses"} Found
-    </p>
-    <p className="text-sm mb-6" style={{ color: T.dim }}>
-      {isAdmin
-        ? `Add the first ${type === "videos" ? "video" : "course"} to the library.`
-        : "Try adjusting your filters."}
-    </p>
-    {isAdmin && (
-      <button
-        onClick={onAdminAdd}
-        className="flex items-center gap-2 px-4 py-2 text-[9px] font-black uppercase tracking-widest"
-        style={{
-          background: G.dimBg,
-          color: G.bright,
-          border: `1px solid ${G.border}`,
-        }}
-      >
-        <Plus className="w-3 h-3" /> Add{" "}
-        {type === "videos" ? "Video" : "Course"}
-      </button>
-    )}
-  </div>
-));
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// MAIN COMPONENT
-// ═══════════════════════════════════════════════════════════════════════════════
-const LearnPCLayout = ({
-  // Data
-  certs,
-  videos,
-  rawCerts,
-  rawVideos,
-  loadingCerts,
-  loadingVideos,
-  isPaging,
-  hasMoreCerts,
-  hasMoreVideos,
-  error,
-  // Filters
-  filters,
-  applyFilters,
-  resetFilters,
-  setSearch,
-  // Pagination
-  loadMoreCerts,
-  loadMoreVideos,
-  // Interaction
-  completionMap,
-  onSelect,
-  // Admin
-  isAdmin,
-  onAdminAdd,
-  onAdminEdit,
-  // User
-  userData,
-  isPremium,
-}) => {
-  const searchRef = useRef(null);
-
-  // ── Local UI state ────────────────────────────────────────────────────────
-  const [sectionOpen, setSectionOpen] = useState({
-    domain: true,
-    category: true,
-    difficulty: false,
-    paid: false,
-    relevance: false,
-    sort: false,
-  });
-
-  const activeTab = filters.activeTab || "certs";
-
-  // ── Keyboard shortcuts ─────────────────────────────────────────────────────
   useEffect(() => {
-    const handler = (e) => {
-      if (
-        e.key === "/" &&
-        document.activeElement?.tagName !== "INPUT" &&
-        document.activeElement?.tagName !== "TEXTAREA"
-      ) {
-        e.preventDefault();
-        searchRef.current?.focus();
-      }
-      if (e.key === "Escape" && document.activeElement === searchRef.current) {
-        searchRef.current?.blur();
-        setSearch("");
-      }
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [setSearch]);
+    if (!items || items.length <= 1) return;
+    const timer = setInterval(() => {
+      setCurrentIndex((prev) => (prev + 1) % items.length);
+    }, 8000);
+    return () => clearInterval(timer);
+  }, [items]);
 
-  const toggleSection = useCallback((key) => {
-    setSectionOpen((prev) => ({ ...prev, [key]: !prev[key] }));
-  }, []);
+  if (!items || items.length === 0) return null;
 
-  // ── Active filter count (for indicator) ───────────────────────────────────
-  const activeFilterCount = useMemo(() => {
-    let count = 0;
-    if (filters.domain) count++;
-    if (filters.category) count++;
-    if (filters.difficulty) count++;
-    if (filters.isPaid !== "any") count++;
-    if (filters.industryRelevance) count++;
-    if (filters.sort !== "newest") count++;
-    return count;
-  }, [filters]);
-
-  const displayItems = activeTab === "certs" ? certs : videos;
-  const isLoading = activeTab === "certs" ? loadingCerts : loadingVideos;
-  const hasMore = activeTab === "certs" ? hasMoreCerts : hasMoreVideos;
-  const loadMore = activeTab === "certs" ? loadMoreCerts : loadMoreVideos;
-
-  const categoryOptions =
-    activeTab === "certs"
-      ? CERTIFICATE_CATEGORIES
-      : VIDEO_CATEGORIES.map((c) => c.label);
+  const current = items[currentIndex];
+  const typeConfig = TYPE_CONFIG[current.type] || TYPE_CONFIG.course;
 
   return (
     <div
-      className="flex h-full min-h-screen"
-      style={{ background: V.bg, fontFamily: "'Poppins', sans-serif" }}
+      style={{
+        position: "relative",
+        width: "100%",
+        height: "75vh", // Taller for cinematic feel
+        minHeight: 500,
+        backgroundColor: V.bg,
+        overflow: "hidden",
+      }}
     >
-      {/* ── FILTER SIDEBAR ─────────────────────────────────────────────────── */}
-      <aside
-        className="shrink-0 flex flex-col sticky top-0 h-screen overflow-y-auto custom-scrollbar"
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={current.id}
+          initial={{ opacity: 0, scale: 1.05 }}
+          animate={{ opacity: 1, scale: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 1.2, ease: "easeInOut" }}
+          style={{
+            position: "absolute",
+            inset: 0,
+            backgroundImage: `url(${current.thumbnailUrl})`,
+            backgroundSize: "cover",
+            backgroundPosition: "center 20%",
+          }}
+        />
+      </AnimatePresence>
+
+      {/* Cinematic Overlays */}
+      <div
         style={{
-          width: 220,
-          background: V.depth,
-          borderRight: "1px solid rgba(255,255,255,0.04)",
+          position: "absolute",
+          inset: 0,
+          background:
+            "linear-gradient(to right, rgba(3,3,3,0.95) 0%, rgba(3,3,3,0.5) 40%, transparent 100%)",
+        }}
+      />
+      {/* Bottom fade into V.bg for infinite scroll illusion */}
+      <div
+        style={{
+          position: "absolute",
+          inset: 0,
+          background: `linear-gradient(to top, ${V.bg} 0%, rgba(3,3,3,0.8) 10%, transparent 40%)`,
+        }}
+      />
+
+      {/* Content */}
+      <div
+        style={{
+          position: "absolute",
+          bottom: "20%",
+          left: "5%",
+          maxWidth: "45%",
+          zIndex: 10,
         }}
       >
-        {/* Sidebar header */}
-        <div
-          className="flex items-center justify-between px-4 py-4 sticky top-0 z-10"
-          style={{
-            background: V.depth,
-            borderBottom: "1px solid rgba(255,255,255,0.04)",
-          }}
+        <motion.div
+          key={`content-${current.id}`}
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.8, delay: 0.2 }}
         >
-          <div className="flex items-center gap-1.5">
-            <Filter className="w-3 h-3" style={{ color: G.base }} />
-            <span
-              className="text-[9px] font-black uppercase tracking-[0.18em]"
-              style={{
-                color: G.bright,
-                fontFamily: "'Montserrat', sans-serif",
-              }}
-            >
-              Filters
-            </span>
-          </div>
-          {activeFilterCount > 0 && (
-            <button
-              onClick={resetFilters}
-              className="flex items-center gap-1 text-[8px] font-black uppercase tracking-widest transition-colors"
-              style={{ color: T.dim }}
-            >
-              <X className="w-2.5 h-2.5" /> Clear ({activeFilterCount})
-            </button>
-          )}
-        </div>
-
-        {/* Sort */}
-        <FilterSection
-          title="Sort By"
-          open={sectionOpen.sort}
-          onToggle={() => toggleSection("sort")}
-        >
-          {[
-            { value: "newest", label: "Newest First" },
-            { value: "score", label: "Score Reward" },
-            { value: "title", label: "A → Z" },
-          ].map((opt) => (
-            <FilterOpt
-              key={opt.value}
-              label={opt.label}
-              active={filters.sort === opt.value}
-              onClick={() => applyFilters({ sort: opt.value })}
-            />
-          ))}
-        </FilterSection>
-
-        {/* Domain */}
-        <FilterSection
-          title="Domain"
-          open={sectionOpen.domain}
-          onToggle={() => toggleSection("domain")}
-        >
-          <FilterOpt
-            label="All Domains"
-            active={!filters.domain}
-            onClick={() => applyFilters({ domain: "" })}
-          />
-          {DOMAINS.map((d) => (
-            <FilterOpt
-              key={d}
-              label={d}
-              active={filters.domain === d}
-              onClick={() =>
-                applyFilters({ domain: filters.domain === d ? "" : d })
-              }
-            />
-          ))}
-        </FilterSection>
-
-        {/* Category */}
-        <FilterSection
-          title="Category"
-          open={sectionOpen.category}
-          onToggle={() => toggleSection("category")}
-        >
-          <FilterOpt
-            label="All Categories"
-            active={!filters.category}
-            onClick={() => applyFilters({ category: "" })}
-          />
-          {categoryOptions.slice(0, 10).map((cat) => (
-            <FilterOpt
-              key={cat}
-              label={cat}
-              active={filters.category === cat}
-              onClick={() =>
-                applyFilters({ category: filters.category === cat ? "" : cat })
-              }
-            />
-          ))}
-        </FilterSection>
-
-        {/* Difficulty */}
-        <FilterSection
-          title="Difficulty"
-          open={sectionOpen.difficulty}
-          onToggle={() => toggleSection("difficulty")}
-        >
-          <FilterOpt
-            label="Any Level"
-            active={!filters.difficulty}
-            onClick={() => applyFilters({ difficulty: "" })}
-          />
-          {DIFFICULTY_LEVELS.map((d) => (
-            <FilterOpt
-              key={d}
-              label={d}
-              active={filters.difficulty === d}
-              onClick={() =>
-                applyFilters({
-                  difficulty: filters.difficulty === d ? "" : d,
-                })
-              }
-            />
-          ))}
-        </FilterSection>
-
-        {/* Paid / Free */}
-        <FilterSection
-          title="Access"
-          open={sectionOpen.paid}
-          onToggle={() => toggleSection("paid")}
-        >
-          {[
-            { value: "any", label: "All" },
-            { value: "free", label: "Free Only" },
-            { value: "paid", label: "Paid Only" },
-          ].map((opt) => (
-            <FilterOpt
-              key={opt.value}
-              label={opt.label}
-              active={filters.isPaid === opt.value}
-              onClick={() => applyFilters({ isPaid: opt.value })}
-            />
-          ))}
-        </FilterSection>
-
-        {/* Industry Relevance */}
-        <FilterSection
-          title="Industry Relevance"
-          open={sectionOpen.relevance}
-          onToggle={() => toggleSection("relevance")}
-        >
-          <FilterOpt
-            label="Any"
-            active={!filters.industryRelevance}
-            onClick={() => applyFilters({ industryRelevance: "" })}
-          />
-          {["Strong", "Medium", "Weak"].map((r) => (
-            <FilterOpt
-              key={r}
-              label={r}
-              active={filters.industryRelevance === r}
-              onClick={() =>
-                applyFilters({
-                  industryRelevance: filters.industryRelevance === r ? "" : r,
-                })
-              }
-              color={
-                r === "Strong" ? "#4ADE80" : r === "Medium" ? G.bright : T.dim
-              }
-            />
-          ))}
-        </FilterSection>
-
-        {/* Spacer */}
-        <div className="flex-1" />
-
-        {/* Bottom keyboard hint */}
-        <div
-          className="px-4 py-3 flex items-center gap-2"
-          style={{ borderTop: "1px solid rgba(255,255,255,0.04)" }}
-        >
-          <kbd
-            className="text-[8px] font-mono px-1.5 py-0.5"
-            style={{
-              background: "rgba(255,255,255,0.05)",
-              border: "1px solid rgba(255,255,255,0.08)",
-              color: T.dim,
-            }}
-          >
-            /
-          </kbd>
-          <span className="text-[8px]" style={{ color: T.dim }}>
-            to search
-          </span>
-        </div>
-      </aside>
-
-      {/* ── MAIN CONTENT ───────────────────────────────────────────────────── */}
-      <div className="flex-1 flex flex-col min-w-0">
-        {/* ── TOP BAR ──────────────────────────────────────────────────────── */}
-        <div
-          className="flex items-center gap-4 px-6 py-3 sticky top-0 z-20"
-          style={{
-            background: V.bg,
-            borderBottom: "1px solid rgba(255,255,255,0.04)",
-          }}
-        >
-          {/* Tab switcher */}
           <div
-            className="flex items-center"
             style={{
-              background: V.depth,
-              border: "1px solid rgba(255,255,255,0.05)",
+              display: "flex",
+              alignItems: "center",
+              gap: 12,
+              marginBottom: 16,
             }}
           >
-            {[
-              { id: "certs", icon: BookOpen, label: "Courses" },
-              { id: "videos", icon: Video, label: "Videos" },
-            ].map((tab) => {
-              const Icon = tab.icon;
-              const active = activeTab === tab.id;
-              return (
-                <button
-                  key={tab.id}
-                  onClick={() => applyFilters({ activeTab: tab.id })}
-                  className="flex items-center gap-1.5 px-4 py-2 text-[10px] font-black uppercase tracking-widest transition-all"
-                  style={{
-                    background: active ? G.dimBg : "transparent",
-                    color: active ? G.bright : T.dim,
-                    borderRight:
-                      tab.id === "certs"
-                        ? "1px solid rgba(255,255,255,0.04)"
-                        : "none",
-                    fontFamily: "'Montserrat', sans-serif",
-                  }}
-                >
-                  <Icon className="w-3 h-3" />
-                  {tab.label}
-                  {tab.id === "certs" && certs.length > 0 && (
-                    <span
-                      style={{
-                        color: T.dim,
-                        fontFamily: "'Poppins', sans-serif",
-                      }}
-                    >
-                      {certs.length}
-                    </span>
-                  )}
-                  {tab.id === "videos" && videos.length > 0 && (
-                    <span
-                      style={{
-                        color: T.dim,
-                        fontFamily: "'Poppins', sans-serif",
-                      }}
-                    >
-                      {videos.length}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Search */}
-          <div className="flex-1 relative max-w-md">
-            <Search
-              className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5"
-              style={{ color: T.dim }}
-            />
-            <input
-              ref={searchRef}
-              type="text"
-              value={filters.search || ""}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search titles, providers, tags…"
-              className="w-full pl-9 pr-9 py-2 text-[11px] outline-none transition-all"
+            <span
               style={{
-                background: V.depth,
-                border: "1px solid rgba(255,255,255,0.06)",
-                color: T.primary,
-                fontFamily: "'Poppins', sans-serif",
-                "::placeholder": { color: T.dim },
+                fontSize: 11,
+                fontWeight: 800,
+                color: typeConfig.color,
+                letterSpacing: "0.15em",
+                textTransform: "uppercase",
+                fontFamily: "'Montserrat', sans-serif",
+                background: typeConfig.dimBg,
+                padding: "6px 12px",
+                borderRadius: 4,
+                border: `1px solid ${typeConfig.border}`,
+                boxShadow: `0 0 15px ${typeConfig.dimBg}`,
               }}
-            />
-            {filters.search && (
-              <button
-                onClick={() => setSearch("")}
-                className="absolute right-3 top-1/2 -translate-y-1/2"
-                style={{ color: T.dim }}
+            >
+              {current.isFeatured ? "Featured" : typeConfig.label}
+            </span>
+            {current.isNew && (
+              <span
+                style={{
+                  fontSize: 11,
+                  fontWeight: 800,
+                  color: "#4ADE80",
+                  letterSpacing: "0.1em",
+                  fontFamily: "'Montserrat', sans-serif",
+                }}
               >
-                <X className="w-3 h-3" />
-              </button>
+                NEW RELEASE
+              </span>
             )}
           </div>
 
-          {/* Admin controls */}
-          {isAdmin && (
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() =>
-                  onAdminAdd(activeTab === "certs" ? "cert" : "video")
-                }
-                className="flex items-center gap-1.5 px-3 py-2 text-[9px] font-black uppercase tracking-widest transition-all"
-                style={{
-                  background: G.dimBg,
-                  color: G.bright,
-                  border: `1px solid ${G.border}`,
-                }}
-              >
-                <Plus className="w-3 h-3" />
-                Add {activeTab === "certs" ? "Course" : "Video"}
-              </button>
-              <button
-                onClick={() => window.location.reload()}
-                className="w-8 h-8 flex items-center justify-center transition-all"
-                style={{
-                  background: V.depth,
-                  border: "1px solid rgba(255,255,255,0.06)",
-                  color: T.dim,
-                }}
-              >
-                <RefreshCw className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          )}
+          <h1
+            style={{
+              fontSize: 52,
+              fontWeight: 900,
+              color: T.primary,
+              fontFamily: "'Montserrat', sans-serif",
+              lineHeight: 1.1,
+              marginBottom: 20,
+              textShadow: "0 10px 30px rgba(0,0,0,0.9)",
+              letterSpacing: "-0.02em",
+            }}
+          >
+            {current.title}
+          </h1>
 
-          {/* Error */}
-          {error && (
-            <span className="text-[10px]" style={{ color: "#F87171" }}>
-              {error}
-            </span>
-          )}
-        </div>
+          <p
+            style={{
+              fontSize: 16,
+              color: T.secondary,
+              fontFamily: "'Poppins', sans-serif",
+              lineHeight: 1.6,
+              marginBottom: 32,
+              display: "-webkit-box",
+              WebkitLineClamp: 3,
+              WebkitBoxOrient: "vertical",
+              overflow: "hidden",
+              textShadow: "0 2px 10px rgba(0,0,0,0.8)",
+            }}
+          >
+            {current.description}
+          </p>
 
-        {/* ── PREMIUM ALGO FEED ─────────────────────────────────────────────── */}
-        {!filters.search && (
-          <PremiumAlgoFeed
-            rawCerts={rawCerts}
-            rawVideos={rawVideos}
-            userData={userData}
-            completionMap={completionMap}
-            onSelect={onSelect}
-            isPremium={isPremium}
-            isMobile={false}
-          />
-        )}
-
-        {/* ── CONTENT GRID ─────────────────────────────────────────────────── */}
-        <div className="flex-1">
-          {isLoading ? (
-            <SkeletonGrid count={16} />
-          ) : displayItems.length === 0 ? (
-            <EmptyState
-              type={activeTab}
-              isAdmin={isAdmin}
-              onAdminAdd={() =>
-                onAdminAdd(activeTab === "certs" ? "cert" : "video")
+          <div style={{ display: "flex", gap: 16 }}>
+            <button
+              onClick={() => onSelect(current)}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                background: T.primary,
+                color: "#000",
+                border: "none",
+                padding: "14px 32px",
+                borderRadius: 6,
+                fontSize: 15,
+                fontWeight: 800,
+                fontFamily: "'Montserrat', sans-serif",
+                cursor: "pointer",
+                transition: "all 0.2s",
+              }}
+              onMouseEnter={(e) =>
+                (e.currentTarget.style.filter = "brightness(0.9)")
               }
-            />
-          ) : (
-            <>
-              <div className="grid grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-0">
-                <AnimatePresence mode="popLayout">
-                  {displayItems.map((item, idx) => (
-                    <BorderlessAssetCard
-                      key={item.id}
-                      item={item}
-                      type={activeTab === "certs" ? "cert" : "video"}
-                      completion={completionMap[item.discotiveLearnId]}
-                      onSelect={onSelect}
-                      isMobile={false}
-                      index={idx}
-                    />
-                  ))}
-                </AnimatePresence>
+              onMouseLeave={(e) =>
+                (e.currentTarget.style.filter = "brightness(1)")
+              }
+            >
+              <Play fill="#000" size={20} /> Watch Now
+            </button>
+            <button
+              onClick={() => onSelect(current)}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                background: "rgba(255,255,255,0.15)",
+                backdropFilter: "blur(12px)",
+                color: T.primary,
+                border: "1px solid rgba(255,255,255,0.2)",
+                padding: "14px 32px",
+                borderRadius: 6,
+                fontSize: 15,
+                fontWeight: 700,
+                fontFamily: "'Montserrat', sans-serif",
+                cursor: "pointer",
+                transition: "all 0.2s",
+              }}
+              onMouseEnter={(e) =>
+                (e.currentTarget.style.background = "rgba(255,255,255,0.25)")
+              }
+              onMouseLeave={(e) =>
+                (e.currentTarget.style.background = "rgba(255,255,255,0.15)")
+              }
+            >
+              <Info size={20} /> More Info
+            </button>
+          </div>
+        </motion.div>
+      </div>
+
+      {/* Hero Indicators */}
+      <div
+        style={{
+          position: "absolute",
+          bottom: "5%",
+          right: "5%",
+          display: "flex",
+          gap: 8,
+          zIndex: 10,
+        }}
+      >
+        {items.map((_, idx) => (
+          <div
+            key={idx}
+            onClick={() => setCurrentIndex(idx)}
+            style={{
+              width: idx === currentIndex ? 24 : 8,
+              height: 4,
+              borderRadius: 2,
+              background:
+                idx === currentIndex ? T.primary : "rgba(255,255,255,0.3)",
+              cursor: "pointer",
+              transition: "all 0.3s ease",
+            }}
+          />
+        ))}
+      </div>
+    </div>
+  );
+});
+
+// ─── Carousel Row Component ──────────────────────────────────────────────────
+const CarouselRow = memo(
+  ({
+    title,
+    items,
+    progressMap,
+    completionMap,
+    onSelect,
+    compact = false,
+    showMatch = false,
+  }) => {
+    const rowRef = useRef(null);
+    const [showLeft, setShowLeft] = useState(false);
+    const [showRight, setShowRight] = useState(true);
+    const [isHovered, setIsHovered] = useState(false);
+
+    const handleScroll = () => {
+      if (!rowRef.current) return;
+      const { scrollLeft, scrollWidth, clientWidth } = rowRef.current;
+      setShowLeft(scrollLeft > 10);
+      setShowRight(scrollLeft < scrollWidth - clientWidth - 10);
+    };
+
+    const scroll = (dir) => {
+      if (rowRef.current) {
+        const { clientWidth } = rowRef.current;
+        const scrollAmount =
+          dir === "left" ? -clientWidth * 0.75 : clientWidth * 0.75;
+        rowRef.current.scrollBy({ left: scrollAmount, behavior: "smooth" });
+      }
+    };
+
+    useEffect(() => {
+      handleScroll();
+      window.addEventListener("resize", handleScroll);
+      return () => window.removeEventListener("resize", handleScroll);
+    }, [items]);
+
+    if (!items || items.length === 0) return null;
+
+    // The Z-Index Dance: Rows must stack properly so dropdowns fall *over* the row beneath them.
+    return (
+      <div
+        style={{
+          position: "relative",
+          marginBottom: 30,
+          zIndex: isHovered ? 40 : 1,
+        }}
+        onMouseEnter={() => setIsHovered(true)}
+        onMouseLeave={() => setIsHovered(false)}
+      >
+        <h2
+          style={{
+            fontSize: 20,
+            fontWeight: 800,
+            color: T.primary,
+            fontFamily: "'Montserrat', sans-serif",
+            marginLeft: "5%",
+            marginBottom: 16,
+            letterSpacing: "0.02em",
+          }}
+        >
+          {title}
+        </h2>
+
+        <div style={{ position: "relative" }}>
+          {/* Left Nav Gradient Fade */}
+          <AnimatePresence>
+            {showLeft && isHovered && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => scroll("left")}
+                style={{
+                  position: "absolute",
+                  left: 0,
+                  top: 0,
+                  bottom: 220,
+                  width: "5%",
+                  background: `linear-gradient(to right, ${V.bg} 20%, transparent)`,
+                  zIndex: 30,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  cursor: "pointer",
+                }}
+              >
+                <ChevronLeft
+                  size={42}
+                  color={T.primary}
+                  style={{ filter: "drop-shadow(0 0 8px rgba(0,0,0,0.8))" }}
+                />
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          {/* Scroll Container */}
+          {/* MAGIC CSS: paddingBottom/marginBottom trick prevents overflow clipping of the absolute hover cards */}
+          <div
+            ref={rowRef}
+            onScroll={handleScroll}
+            style={{
+              display: "flex",
+              gap: 16,
+              overflowX: "auto",
+              overflowY: "visible",
+              padding: "0 5%",
+              paddingBottom: 220,
+              marginBottom: -220,
+              scrollBehavior: "smooth",
+              scrollbarWidth: "none",
+              msOverflowStyle: "none",
+            }}
+            className="hide-scrollbar"
+          >
+            {items.map((item, index) => (
+              <div
+                key={item.id}
+                style={{ flex: "0 0 auto", width: compact ? 240 : 300 }}
+              >
+                <LearnCard
+                  item={item}
+                  progress={progressMap[item.discotiveLearnId]}
+                  completion={completionMap[item.discotiveLearnId]}
+                  onSelect={onSelect}
+                  isMobile={false}
+                  compact={compact}
+                  index={index}
+                  algoScore={item.algoScore}
+                  showMatchScore={showMatch}
+                />
               </div>
+            ))}
+          </div>
 
-              {/* Load more */}
-              {hasMore && !filters.search && (
-                <div
-                  className="flex justify-center py-8"
-                  style={{ borderTop: "1px solid rgba(255,255,255,0.03)" }}
-                >
-                  <button
-                    onClick={loadMore}
-                    disabled={isPaging}
-                    className="flex items-center gap-2 px-8 py-3 text-[9px] font-black uppercase tracking-[0.18em] transition-all"
-                    style={{
-                      background: V.depth,
-                      color: isPaging ? T.dim : T.secondary,
-                      border: "1px solid rgba(255,255,255,0.06)",
-                      fontFamily: "'Montserrat', sans-serif",
-                    }}
-                  >
-                    {isPaging ? (
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                    ) : (
-                      <ChevronDown className="w-3.5 h-3.5" />
-                    )}
-                    {isPaging ? "Loading…" : "Load More"}
-                  </button>
-                </div>
-              )}
-
-              {/* Bottom padding */}
-              <div className="h-12" />
-            </>
-          )}
+          {/* Right Nav Gradient Fade */}
+          <AnimatePresence>
+            {showRight && isHovered && (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => scroll("right")}
+                style={{
+                  position: "absolute",
+                  right: 0,
+                  top: 0,
+                  bottom: 220,
+                  width: "5%",
+                  background: `linear-gradient(to left, ${V.bg} 20%, transparent)`,
+                  zIndex: 30,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  cursor: "pointer",
+                }}
+              >
+                <ChevronRight
+                  size={42}
+                  color={T.primary}
+                  style={{ filter: "drop-shadow(0 0 8px rgba(0,0,0,0.8))" }}
+                />
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
       </div>
+    );
+  },
+);
+
+// ─── Pro Gated Row (The Tease) ───────────────────────────────────────────────
+const ProGatedRow = ({ title }) => (
+  <div style={{ marginBottom: 50, padding: "0 5%" }}>
+    <h2
+      style={{
+        fontSize: 20,
+        fontWeight: 800,
+        color: T.primary,
+        fontFamily: "'Montserrat', sans-serif",
+        marginBottom: 16,
+      }}
+    >
+      {title}{" "}
+      <Lock
+        size={16}
+        color={G.base}
+        style={{ marginLeft: 6, display: "inline" }}
+      />
+    </h2>
+    <motion.div
+      whileHover={{ scale: 1.01, borderColor: G.base }}
+      style={{
+        width: "100%",
+        height: 180,
+        background: `linear-gradient(135deg, ${V.surface} 0%, rgba(191,162,100,0.05) 100%)`,
+        border: `1px dashed rgba(191,162,100,0.3)`,
+        borderRadius: 12,
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        cursor: "pointer",
+        position: "relative",
+        overflow: "hidden",
+      }}
+      onClick={() => (window.location.href = "/premium")}
+    >
+      <div
+        style={{
+          position: "absolute",
+          inset: 0,
+          background: `radial-gradient(circle at center, rgba(191,162,100,0.1) 0%, transparent 60%)`,
+          pointerEvents: "none",
+        }}
+      />
+      <div
+        style={{
+          width: 48,
+          height: 48,
+          borderRadius: "50%",
+          background: G.dimBg,
+          border: `1px solid ${G.border}`,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          marginBottom: 16,
+          zIndex: 1,
+        }}
+      >
+        <Crown size={24} color={G.bright} />
+      </div>
+      <span
+        style={{
+          fontSize: 16,
+          fontWeight: 800,
+          color: T.primary,
+          fontFamily: "'Montserrat', sans-serif",
+          letterSpacing: "0.05em",
+          zIndex: 1,
+        }}
+      >
+        UNLOCK PERSONALIZED TOP PICKS
+      </span>
+      <span
+        style={{
+          fontSize: 13,
+          color: T.secondary,
+          fontFamily: "'Poppins', sans-serif",
+          marginTop: 6,
+          zIndex: 1,
+        }}
+      >
+        Upgrade to Pro to see the best courses and videos matched exactly to
+        your skills.
+      </span>
+    </motion.div>
+  </div>
+);
+
+// ─── Browse Grid (Search Results) ────────────────────────────────────────────
+const BrowseGrid = ({
+  items,
+  hasMore,
+  loadMore,
+  progressMap,
+  completionMap,
+  onSelect,
+  isPaging,
+}) => {
+  return (
+    <div style={{ padding: "40px 5%", minHeight: "80vh" }}>
+      <h2
+        style={{
+          fontSize: 28,
+          fontWeight: 900,
+          color: T.primary,
+          fontFamily: "'Montserrat', sans-serif",
+          marginBottom: 32,
+        }}
+      >
+        Search Results
+      </h2>
+
+      {items.length === 0 && !isPaging ? (
+        <div
+          style={{
+            textAlign: "center",
+            padding: "120px 0",
+            color: T.secondary,
+            fontSize: 16,
+            fontFamily: "'Poppins', sans-serif",
+          }}
+        >
+          No content matches your specific criteria.
+        </div>
+      ) : (
+        <div
+          style={{
+            display: "grid",
+            gridTemplateColumns: "repeat(auto-fill, minmax(280px, 1fr))",
+            gap: "40px 20px",
+            paddingBottom: 250,
+          }}
+        >
+          {items.map((item, idx) => (
+            <div
+              key={item.id}
+              style={{ position: "relative", zIndex: 100 - idx }}
+            >
+              <LearnCard
+                item={item}
+                progress={progressMap[item.discotiveLearnId]}
+                completion={completionMap[item.discotiveLearnId]}
+                onSelect={onSelect}
+                isMobile={false}
+                index={idx}
+              />
+            </div>
+          ))}
+        </div>
+      )}
+
+      {hasMore && (
+        <div style={{ textAlign: "center", marginTop: 20, paddingBottom: 100 }}>
+          <button
+            onClick={loadMore}
+            disabled={isPaging}
+            style={{
+              background: "transparent",
+              border: `1px solid ${V.border}`,
+              color: T.primary,
+              padding: "14px 40px",
+              borderRadius: 8,
+              fontSize: 13,
+              fontWeight: 800,
+              textTransform: "uppercase",
+              letterSpacing: "0.1em",
+              fontFamily: "'Montserrat', sans-serif",
+              cursor: isPaging ? "wait" : "pointer",
+              transition: "background 0.2s",
+            }}
+            onMouseEnter={(e) =>
+              !isPaging &&
+              (e.currentTarget.style.background = "rgba(255,255,255,0.05)")
+            }
+            onMouseLeave={(e) =>
+              !isPaging && (e.currentTarget.style.background = "transparent")
+            }
+          >
+            {isPaging ? "Analyzing..." : "Load More"}
+          </button>
+        </div>
+      )}
     </div>
   );
 };
 
-LearnPCLayout.displayName = "LearnPCLayout";
+// ═════════════════════════════════════════════════════════════════════════════
+// MAIN LAYOUT
+// ═════════════════════════════════════════════════════════════════════════════
+const LearnPCLayout = (props) => {
+  const {
+    heroItems,
+    algoFeed,
+    continueItems,
+    trendingDomain,
+    newCourses,
+    topVideos,
+    podcasts,
+    resources,
+    browseMode,
+    browseItems,
+    hasMore,
+    filters,
+    applyFilters,
+    setSearch,
+    enterBrowse,
+    exitBrowse,
+    loadMore,
+    isPaging,
+    progressMap,
+    completionMap,
+    onSelect,
+    onOpenPortfolio,
+    isAdmin,
+    onAdminAdd,
+    isPremium,
+    userData,
+  } = props;
+
+  const [localSearch, setLocalSearch] = useState(filters.search || "");
+
+  // Debounce search intent
+  useEffect(() => {
+    const timer = setTimeout(() => setSearch(localSearch), 400);
+    return () => clearTimeout(timer);
+  }, [localSearch, setSearch]);
+
+  const navTypes = [
+    { id: "all", label: "Home" },
+    { id: "course", label: "Courses" },
+    { id: "video", label: "Masterclasses" },
+    { id: "podcast", label: "Podcasts" },
+    { id: "resource", label: "Resources" },
+  ];
+
+  return (
+    <div style={{ background: V.bg, minHeight: "100%", overflowX: "hidden" }}>
+      {/* CSS fix for hide-scrollbar */}
+      <style>{` .hide-scrollbar::-webkit-scrollbar { display: none; } `}</style>
+
+      {/* ─── The Glassmorphism Navigation Bar ──────────────────────────────── */}
+      <div
+        style={{
+          position: "sticky",
+          top: 0,
+          zIndex: 900,
+          background: `linear-gradient(to bottom, ${V.bg} 0%, rgba(3,3,3,0.8) 60%, transparent 100%)`,
+          padding: "24px 5%",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 20,
+          pointerEvents: "none", // Let clicks pass through the gradient fade at the bottom
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 40,
+            pointerEvents: "auto",
+          }}
+        >
+          <div style={{ display: "flex", gap: 24 }}>
+            {navTypes.map((t) => {
+              const active = browseMode
+                ? filters.type === t.id
+                : t.id === "all";
+              return (
+                <button
+                  key={t.id}
+                  onClick={() =>
+                    t.id === "all" ? exitBrowse() : enterBrowse(t.id)
+                  }
+                  style={{
+                    background: "none",
+                    border: "none",
+                    color: active ? T.primary : T.secondary,
+                    fontSize: 14,
+                    fontWeight: active ? 800 : 500,
+                    fontFamily: "'Montserrat', sans-serif",
+                    cursor: "pointer",
+                    transition: "all 0.2s",
+                    textShadow: active
+                      ? "0 0 10px rgba(255,255,255,0.3)"
+                      : "none",
+                  }}
+                >
+                  {t.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 20,
+            pointerEvents: "auto",
+          }}
+        >
+          {/* Search Bar */}
+          <div style={{ position: "relative", width: 280 }}>
+            <Search
+              size={16}
+              color={T.dim}
+              style={{ position: "absolute", left: 16, top: 12 }}
+            />
+            <input
+              type="text"
+              placeholder="Titles, skills, creators..."
+              value={localSearch}
+              onChange={(e) => setLocalSearch(e.target.value)}
+              style={{
+                width: "100%",
+                height: 40,
+                background: "rgba(0,0,0,0.6)",
+                backdropFilter: "blur(10px)",
+                border: `1px solid ${V.border}`,
+                borderRadius: 20,
+                padding: "0 16px 0 44px",
+                color: T.primary,
+                fontSize: 13,
+                fontFamily: "'Poppins', sans-serif",
+                outline: "none",
+                transition: "all 0.2s",
+              }}
+              onFocus={(e) => (
+                (e.target.style.border = `1px solid rgba(255,255,255,0.2)`),
+                (e.target.style.background = "rgba(0,0,0,0.8)")
+              )}
+              onBlur={(e) => (
+                (e.target.style.border = `1px solid ${V.border}`),
+                (e.target.style.background = "rgba(0,0,0,0.6)")
+              )}
+            />
+          </div>
+
+          {/* Portfolio Hook */}
+          <button
+            onClick={onOpenPortfolio}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              background: "rgba(0,0,0,0.6)",
+              backdropFilter: "blur(10px)",
+              border: `1px solid ${isPremium ? G.border : V.border}`,
+              color: isPremium ? G.bright : T.primary,
+              height: 40,
+              padding: "0 20px",
+              borderRadius: 20,
+              fontSize: 13,
+              fontWeight: 800,
+              fontFamily: "'Montserrat', sans-serif",
+              cursor: "pointer",
+              transition: "background 0.2s",
+            }}
+            onMouseEnter={(e) =>
+              (e.currentTarget.style.background = "rgba(255,255,255,0.1)")
+            }
+            onMouseLeave={(e) =>
+              (e.currentTarget.style.background = "rgba(0,0,0,0.6)")
+            }
+          >
+            <FolderLock size={16} color={isPremium ? G.base : T.dim} />{" "}
+            Portfolio
+          </button>
+
+          {/* Admin Tool */}
+          {isAdmin && (
+            <button
+              onClick={() => onAdminAdd("course")}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                background: G.dimBg,
+                border: `1px solid ${G.border}`,
+                color: G.base,
+                height: 40,
+                width: 40,
+                borderRadius: "50%",
+                cursor: "pointer",
+              }}
+              title="Ingest Asset"
+            >
+              <Plus size={20} />
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* ─── Page Body ───────────────────────────────────────────────────────── */}
+      {browseMode ? (
+        <BrowseGrid
+          items={browseItems}
+          hasMore={hasMore}
+          loadMore={loadMore}
+          progressMap={progressMap}
+          completionMap={completionMap}
+          onSelect={onSelect}
+          isPaging={isPaging}
+        />
+      ) : (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.5 }}
+        >
+          <LearnHero items={heroItems} onSelect={onSelect} />
+
+          {/* Overlapping Content Rows (Pulls up over the Hero gradient fade) */}
+          <div style={{ marginTop: -120, position: "relative", zIndex: 10 }}>
+            <CarouselRow
+              title="Continue Learning"
+              items={continueItems}
+              progressMap={progressMap}
+              completionMap={completionMap}
+              onSelect={onSelect}
+            />
+
+            {isPremium ? (
+              <CarouselRow
+                title="Top Picks for You"
+                items={algoFeed}
+                progressMap={progressMap}
+                completionMap={completionMap}
+                onSelect={onSelect}
+                showMatch={true}
+              />
+            ) : (
+              <ProGatedRow title="Top Picks for You" />
+            )}
+
+            <CarouselRow
+              title={
+                userData?.identity?.domain
+                  ? `Trending in ${userData.identity.domain}`
+                  : "Trending Now"
+              }
+              items={trendingDomain}
+              progressMap={progressMap}
+              completionMap={completionMap}
+              onSelect={onSelect}
+            />
+            <CarouselRow
+              title="New Releases"
+              items={newCourses}
+              progressMap={progressMap}
+              completionMap={completionMap}
+              onSelect={onSelect}
+            />
+            <CarouselRow
+              title="Must-Watch Masterclasses"
+              items={topVideos}
+              progressMap={progressMap}
+              completionMap={completionMap}
+              onSelect={onSelect}
+            />
+            <CarouselRow
+              title="Operator Podcasts"
+              items={podcasts}
+              progressMap={progressMap}
+              completionMap={completionMap}
+              onSelect={onSelect}
+              compact={true}
+            />
+            <CarouselRow
+              title="Technical Resources"
+              items={resources}
+              progressMap={progressMap}
+              completionMap={completionMap}
+              onSelect={onSelect}
+              compact={true}
+            />
+
+            {/* Bottom Padding explicitly for the final row's drop downs */}
+            <div style={{ height: 100 }} />
+          </div>
+        </motion.div>
+      )}
+    </div>
+  );
+};
+
 export default LearnPCLayout;

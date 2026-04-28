@@ -1,859 +1,792 @@
 /**
- * @fileoverview LearnAssetSheet.jsx — Discotive Learn Asset Detail Overlay
- * @module Components/Learn/LearnAssetSheet
- *
- * Handles deep-dive view for both certificates and videos.
- *
- * CERT MODE:
- *  - Full metadata display (skills, domains, industry relevance)
- *  - External course link CTA
- *  - "Upload Certificate" CTA → routes to /app/vault with prefill
- *  - Completion state display
- *
- * VIDEO MODE:
- *  - Embedded YouTube player via useYouTubePlayer hook
- *  - Live watch progress bar (gold)
- *  - Proportional score calculation (calculateVideoScore)
- *  - Snapshot on close (awards proportional points)
- *
- * LAYOUT:
- *  Mobile: full-screen bottom sheet, swipe-to-dismiss
- *  PC: centered overlay modal (max-w-3xl), click-outside to close
- *
- * DESIGN RULES (SKILL.md):
- *  - NO floating pills in negative space
- *  - NO rounded bento boxes
- *  - Background depth hierarchy, not borders
- *  - Gold (#BFA264) accent system
- *  - Edge-to-edge on mobile
+ * @fileoverview LearnAssetSheet.jsx — Netflix-Style Detail View Overlay
+ * @description
+ * High-fidelity immersive overlay for inspecting learning assets.
+ * Features: Cinematic gradient overlaps, YouTube embedding, contextual actions,
+ * and seamless transitions from the browse view. Adapts to PC (modal) and Mobile (bottom sheet).
  */
 
-import React, {
-  useState,
-  useCallback,
-  useEffect,
-  useRef,
-  useMemo,
-  memo,
-} from "react";
+import React, { useState, useEffect, useRef, memo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { useNavigate } from "react-router-dom";
 import {
   X,
-  ExternalLink,
-  Upload,
-  Check,
-  Clock,
-  Zap,
-  Award,
   Play,
-  AlertTriangle,
-  ChevronRight,
-  TrendingUp,
-  BookOpen,
+  ExternalLink,
+  Plus,
+  Check,
+  Award,
+  Clock,
+  BarChart2,
   Lock,
-  Headphones,
+  Tag,
+  Layers,
+  Edit3,
 } from "lucide-react";
+import { TYPE_CONFIG, getYouTubeThumbnail } from "../../lib/discotiveLearn";
 
-import { useYouTubePlayer, YT_STATE } from "../../hooks/useYouTubePlayer";
-import { calculateVideoScore } from "../../lib/discotiveLearn";
+// ─── Custom SVG for exact visual match with Cards ──────────────────────────────
+const SvgZap = ({ size = 16, color = "currentColor" }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="currentColor"
+    stroke="transparent"
+  >
+    <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+  </svg>
+);
 
-// ── Design Tokens ─────────────────────────────────────────────────────────────
+// ─── Design Tokens ─────────────────────────────────────────────────────────────
 const G = {
   base: "#BFA264",
   bright: "#D4AF78",
-  deep: "#8B7240",
   dimBg: "rgba(191,162,100,0.08)",
-  border: "rgba(191,162,100,0.25)",
+  border: "rgba(191,162,100,0.3)",
 };
 const V = {
   bg: "#030303",
   depth: "#0A0A0A",
   surface: "#0F0F0F",
   elevated: "#141414",
+  border: "rgba(255,255,255,0.06)",
 };
 const T = {
   primary: "#F5F0E8",
   secondary: "rgba(245,240,232,0.60)",
   dim: "rgba(245,240,232,0.28)",
+  success: "#4ADE80",
 };
 
-// ── Industry relevance config ─────────────────────────────────────────────────
-const RELEVANCE_CFG = {
-  Strong: { color: "#4ADE80", width: "100%" },
-  Medium: { color: G.bright, width: "60%" },
-  Weak: { color: T.dim, width: "25%" },
-};
+// ─── YouTube Embedded Player ───────────────────────────────────────────────────
+const YouTubeEmbed = memo(({ youtubeId, onTrackProgress, item }) => {
+  const [isLoaded, setIsLoaded] = useState(false);
 
-// ── Skill tag list ────────────────────────────────────────────────────────────
-const SkillList = memo(({ label, skills = [], color }) => {
-  if (!skills?.length) return null;
-  return (
-    <div>
-      <p
-        className="text-[8px] font-black uppercase tracking-[0.2em] mb-2"
-        style={{ color: T.dim }}
-      >
-        {label}
-      </p>
-      <div className="flex flex-wrap gap-1.5">
-        {skills.slice(0, 6).map((s) => (
-          <span
-            key={s}
-            className="text-[9px] font-bold px-2 py-1"
-            style={{
-              color,
-              background: `${color}10`,
-              border: `1px solid ${color}20`,
-            }}
-          >
-            {s}
-          </span>
-        ))}
-        {skills.length > 6 && (
-          <span className="text-[9px] px-2 py-1" style={{ color: T.dim }}>
-            +{skills.length - 6} more
-          </span>
-        )}
-      </div>
-    </div>
-  );
-});
+  useEffect(() => {
+    // Simulated watch-time tracking hook integration.
+    const interval = setInterval(() => {
+      onTrackProgress?.(item.discotiveLearnId, 10, 10);
+    }, 10000);
+    return () => clearInterval(interval);
+  }, [youtubeId, onTrackProgress, item]);
 
-// ── Score reward chip ─────────────────────────────────────────────────────────
-const ScoreChip = memo(({ amount, earned, total }) => {
-  const display = earned != null ? earned : amount;
-  const isPartial = earned != null && earned < (total || amount);
   return (
     <div
-      className="flex items-center gap-1.5 px-3 py-2"
-      style={{
-        background: G.dimBg,
-        border: `1px solid ${G.border}`,
-      }}
+      style={{ position: "absolute", inset: 0, background: "#000", zIndex: 10 }}
     >
-      <Zap className="w-3.5 h-3.5" style={{ color: G.bright }} />
-      <span
-        className="text-[11px] font-black"
-        style={{ color: G.bright, fontFamily: "'Montserrat', sans-serif" }}
-      >
-        +{display}
-      </span>
-      <span className="text-[9px]" style={{ color: T.dim }}>
-        {isPartial ? `/ ${total} pts` : "pts"}
-      </span>
+      <motion.iframe
+        initial={{ opacity: 0 }}
+        animate={{ opacity: isLoaded ? 1 : 0 }}
+        transition={{ duration: 0.8 }}
+        onLoad={() => setIsLoaded(true)}
+        src={`https://www.youtube-nocookie.com/embed/${youtubeId}?autoplay=1&rel=0&modestbranding=1&showinfo=0`}
+        title="YouTube video player"
+        frameBorder="0"
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+        allowFullScreen
+        style={{ width: "100%", height: "100%" }}
+      />
     </div>
   );
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// VIDEO PLAYER PANEL
-// ─────────────────────────────────────────────────────────────────────────────
-const VideoPlayerPanel = memo(({ item, completion, isPremium }) => {
-  const [earnedScore, setEarnedScore] = useState(null);
-  const [watchPct, setWatchPct] = useState(0);
-
-  const handleProgress = useCallback((prog) => {
-    setWatchPct(prog.percentage);
-    const result = calculateVideoScore(prog.percentage);
-    setEarnedScore(result.earned);
-  }, []);
-
-  const { containerRef, isReady, playerState, progress } = useYouTubePlayer(
-    item.youtubeId,
-    { onProgress: handleProgress, autoplay: false },
-  );
-
-  const scoreResult = useMemo(() => calculateVideoScore(watchPct), [watchPct]);
-
-  const isPlaying = playerState === YT_STATE.PLAYING;
-  const isCompleted = completion?.verified;
-
-  return (
-    <div className="flex flex-col gap-0">
-      {/* Player container — 16/9 */}
-      <div
-        className="relative w-full"
-        style={{
-          aspectRatio: "16/9",
-          background: "#000",
-        }}
-      >
-        {/* YouTube iframe target */}
-        <div ref={containerRef} className="w-full h-full" />
-
-        {/* Loading overlay */}
-        {!isReady && (
-          <div
-            className="absolute inset-0 flex items-center justify-center"
-            style={{ background: "#000" }}
-          >
-            <div
-              className="relative"
-              style={{
-                backgroundImage: item.youtubeId
-                  ? `url(https://img.youtube.com/vi/${item.youtubeId}/maxresdefault.jpg)`
-                  : "none",
-                backgroundSize: "cover",
-                backgroundPosition: "center",
-              }}
-            >
-              <div
-                className="absolute inset-0"
-                style={{ background: "rgba(0,0,0,0.6)" }}
-              />
-              <div className="relative flex items-center justify-center w-16 h-16">
-                <Play className="w-8 h-8" style={{ color: G.bright }} />
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* Completed overlay */}
-        {isCompleted && (
-          <div
-            className="absolute top-3 right-3 flex items-center gap-1.5 px-2.5 py-1.5"
-            style={{
-              background: "rgba(16,185,129,0.15)",
-              border: "1px solid rgba(16,185,129,0.35)",
-              backdropFilter: "blur(8px)",
-            }}
-          >
-            <Check className="w-3 h-3 text-emerald-400" />
-            <span className="text-[8px] font-black uppercase tracking-widest text-emerald-400">
-              Verified
-            </span>
-          </div>
-        )}
-      </div>
-
-      {/* Watch progress bar */}
-      <div
-        className="h-1 w-full"
-        style={{ background: "rgba(255,255,255,0.04)" }}
-      >
-        <motion.div
-          className="h-full"
-          animate={{ width: `${watchPct}%` }}
-          transition={{ duration: 0.4, ease: "easeOut" }}
-          style={{
-            background:
-              watchPct >= 95
-                ? "#4ADE80"
-                : `linear-gradient(90deg, ${G.deep}, ${G.bright})`,
-          }}
-        />
-      </div>
-
-      {/* Watch stats */}
-      <div
-        className="flex items-center justify-between px-5 py-3"
-        style={{ background: V.depth }}
-      >
-        <div className="flex items-center gap-2">
-          <TrendingUp className="w-3.5 h-3.5" style={{ color: T.dim }} />
-          <span className="text-[10px]" style={{ color: T.secondary }}>
-            {Math.floor(watchPct)}% watched
-          </span>
-        </div>
-        <ScoreChip
-          amount={item.scoreReward || 10}
-          earned={scoreResult.earned}
-          total={item.scoreReward || 10}
-        />
-      </div>
-
-      {/* Score tier message */}
-      {watchPct > 0 && (
-        <div className="px-5 py-2" style={{ background: V.surface }}>
-          <p
-            className="text-[9px]"
-            style={{ color: scoreResult.earned > 0 ? G.bright : T.dim }}
-          >
-            {scoreResult.message}
-          </p>
-        </div>
-      )}
-    </div>
-  );
-});
-
-// ─────────────────────────────────────────────────────────────────────────────
-// CERT DETAIL PANEL
-// ─────────────────────────────────────────────────────────────────────────────
-const CertDetailPanel = memo(
-  ({ item, completion, isPremium, onNavigateVault }) => {
-    const isCompleted = completion?.verified;
-    const isPending = completion?.pending;
-
-    const relevanceCfg = RELEVANCE_CFG[item.industryRelevance];
-
-    return (
-      <div className="flex flex-col gap-0">
-        {/* Thumbnail hero */}
-        <div className="relative w-full" style={{ aspectRatio: "16/7" }}>
-          {item.thumbnailUrl ? (
-            <img
-              src={item.thumbnailUrl}
-              alt={item.title}
-              className="w-full h-full object-cover opacity-70"
-            />
-          ) : (
-            <div
-              className="w-full h-full flex items-center justify-center"
-              style={{ background: V.depth }}
-            >
-              <Award
-                className="w-12 h-12"
-                style={{ color: "rgba(255,255,255,0.04)" }}
-              />
-            </div>
-          )}
-          <div
-            className="absolute inset-0"
-            style={{
-              background:
-                "linear-gradient(to bottom, transparent 30%, rgba(3,3,3,0.95) 100%)",
-            }}
-          />
-
-          {/* Completion overlay */}
-          {isCompleted && (
-            <div className="absolute inset-0 flex items-center justify-center bg-emerald-950/40">
-              <div
-                className="w-16 h-16 flex items-center justify-center"
-                style={{
-                  background: "#10b981",
-                  boxShadow: "0 0 40px rgba(16,185,129,0.5)",
-                }}
-              >
-                <Check className="w-8 h-8 text-white" strokeWidth={3} />
-              </div>
-            </div>
-          )}
-
-          {/* Bottom overlay chips */}
-          <div className="absolute bottom-3 left-4 right-4 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              {item.difficulty && (
-                <span
-                  className="text-[8px] font-black uppercase tracking-widest px-2 py-1"
-                  style={{
-                    background: "rgba(0,0,0,0.75)",
-                    color: G.bright,
-                    border: `1px solid ${G.border}`,
-                    backdropFilter: "blur(4px)",
-                  }}
-                >
-                  {item.difficulty}
-                </span>
-              )}
-              {item.isPaid ? (
-                <span
-                  className="text-[8px] font-black uppercase tracking-widest px-2 py-1"
-                  style={{
-                    background: "rgba(0,0,0,0.75)",
-                    color: "#a78bfa",
-                    border: "1px solid rgba(167,139,250,0.3)",
-                    backdropFilter: "blur(4px)",
-                  }}
-                >
-                  Paid
-                </span>
-              ) : (
-                <span
-                  className="text-[8px] font-black uppercase tracking-widest px-2 py-1"
-                  style={{
-                    background: "rgba(0,0,0,0.75)",
-                    color: "#4ADE80",
-                    border: "1px solid rgba(74,222,128,0.3)",
-                    backdropFilter: "blur(4px)",
-                  }}
-                >
-                  Free
-                </span>
-              )}
-            </div>
-            {item.scoreReward > 0 && (
-              <span
-                className="flex items-center gap-1 px-2 py-1 text-[8px] font-black"
-                style={{
-                  background: "rgba(0,0,0,0.75)",
-                  color: G.bright,
-                  border: `1px solid ${G.border}`,
-                  backdropFilter: "blur(4px)",
-                }}
-              >
-                <Zap className="w-2.5 h-2.5" />+{item.scoreReward}
-              </span>
-            )}
-          </div>
-        </div>
-
-        {/* Industry relevance bar */}
-        {relevanceCfg && (
-          <div
-            className="px-5 py-3 flex items-center gap-3"
-            style={{
-              background: V.depth,
-              borderBottom: "1px solid rgba(255,255,255,0.04)",
-            }}
-          >
-            <div
-              className="flex-1 h-0.5 rounded-full overflow-hidden"
-              style={{ background: "rgba(255,255,255,0.05)" }}
-            >
-              <motion.div
-                initial={{ width: 0 }}
-                animate={{ width: relevanceCfg.width }}
-                transition={{ duration: 0.8, delay: 0.2 }}
-                className="h-full"
-                style={{ background: relevanceCfg.color }}
-              />
-            </div>
-            <span
-              className="text-[8px] font-black uppercase tracking-widest shrink-0"
-              style={{ color: relevanceCfg.color }}
-            >
-              {item.industryRelevance} Industry Relevance
-            </span>
-          </div>
-        )}
-
-        {/* Status bar */}
-        {(isCompleted || isPending) && (
-          <div
-            className="px-5 py-3 flex items-center gap-2"
-            style={{
-              background: isCompleted
-                ? "rgba(16,185,129,0.06)"
-                : "rgba(191,162,100,0.06)",
-              borderBottom: "1px solid rgba(255,255,255,0.04)",
-            }}
-          >
-            {isCompleted ? (
-              <>
-                <Check className="w-3.5 h-3.5 text-emerald-400" />
-                <span className="text-[10px] font-black text-emerald-400 uppercase tracking-widest">
-                  Certificate Verified
-                </span>
-              </>
-            ) : (
-              <>
-                <Clock className="w-3.5 h-3.5" style={{ color: G.bright }} />
-                <span
-                  className="text-[10px] font-black uppercase tracking-widest"
-                  style={{ color: G.bright }}
-                >
-                  Pending Vault Verification
-                </span>
-              </>
-            )}
-          </div>
-        )}
-      </div>
-    );
-  },
-);
-
-// =============================================================================
-// LEARN ASSET SHEET
-// =============================================================================
+// ─── Main Sheet Component ──────────────────────────────────────────────────────
 const LearnAssetSheet = ({
   item,
-  type, // 'cert' | 'video'
   completion,
+  progress,
   onClose,
+  onTrackProgress,
+  onAddToPortfolio,
   userData,
   isPremium,
-  isMobile = false,
+  isMobile,
+  isAdmin,
+  onAdminEdit,
 }) => {
-  const navigate = useNavigate();
-  const isCompleted = completion?.verified;
-  const isPending = completion?.pending;
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [isAddingToPortfolio, setIsAddingToPortfolio] = useState(false);
+  const [addedSuccess, setAddedSuccess] = useState(false);
+  const sheetRef = useRef(null);
 
-  const handleOpenCourse = useCallback(() => {
-    if (item.link) {
+  // Close on Escape key
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
+
+  if (!item) return null;
+
+  const typeConfig = TYPE_CONFIG[item.type] || TYPE_CONFIG.course;
+  const isVideoOrPodcast =
+    (item.type === "video" || item.type === "podcast") && item.youtubeId;
+  const hasExternalLink = !!item.link;
+  const isCompleted = completion?.verified;
+  const progressPct = progress?.progressPct || 0;
+
+  // Formatting
+  const durationText = item.estimatedHours
+    ? `${item.estimatedHours} Hours`
+    : item.durationMinutes
+      ? `${Math.floor(item.durationMinutes / 60) > 0 ? `${Math.floor(item.durationMinutes / 60)}h ` : ""}${item.durationMinutes % 60}m`
+      : null;
+
+  // Actions
+  const handlePrimaryAction = () => {
+    if (isVideoOrPodcast) {
+      setIsPlaying(true);
+      if (progressPct === 0) onTrackProgress(item.discotiveLearnId, 5, 0); // Immediate 5% bump for starting
+    } else if (hasExternalLink) {
+      onTrackProgress(item.discotiveLearnId, 100, 0); // External courses rely on Vault verification later
       window.open(item.link, "_blank", "noopener,noreferrer");
     }
-  }, [item.link]);
+  };
 
-  const handleUploadCert = useCallback(() => {
-    onClose();
-    // Navigate to vault with learn ID prefill
-    navigate(
-      `/app/vault?learnId=${item.discotiveLearnId}&title=${encodeURIComponent(item.title)}`,
-    );
-  }, [item, navigate, onClose]);
-
-  // ── Duration display ──────────────────────────────────────────────────────
-  const durationDisplay = useMemo(() => {
-    if (type === "video" && item.durationMinutes) {
-      const h = Math.floor(item.durationMinutes / 60);
-      const m = item.durationMinutes % 60;
-      return h > 0 ? `${h}h ${m > 0 ? m + "m" : ""}`.trim() : `${m}m`;
+  const handlePortfolioAdd = async () => {
+    if (!isPremium) {
+      window.location.href = "/premium";
+      return;
     }
-    return item.duration || null;
-  }, [type, item]);
-
-  // ── Backdrop + sheet motion variants ─────────────────────────────────────
-  const mobileVariants = {
-    initial: { y: "100%" },
-    animate: { y: 0 },
-    exit: { y: "100%" },
+    setIsAddingToPortfolio(true);
+    const success = await onAddToPortfolio(item);
+    setIsAddingToPortfolio(false);
+    if (success) {
+      setAddedSuccess(true);
+      setTimeout(() => setAddedSuccess(false), 3000);
+    }
   };
 
-  const pcVariants = {
-    initial: { opacity: 0, scale: 0.97, y: 8 },
-    animate: { opacity: 1, scale: 1, y: 0 },
-    exit: { opacity: 0, scale: 0.97, y: 4 },
-  };
+  // Viewport-specific animation variants
+  const variants = isMobile
+    ? {
+        hidden: { y: "100%", opacity: 0 },
+        visible: {
+          y: 0,
+          opacity: 1,
+          transition: { type: "spring", damping: 25, stiffness: 200 },
+        },
+        exit: { y: "100%", opacity: 0, transition: { duration: 0.2 } },
+      }
+    : {
+        hidden: { opacity: 0, scale: 0.95, y: 20 },
+        visible: {
+          opacity: 1,
+          scale: 1,
+          y: 0,
+          transition: { type: "spring", damping: 25, stiffness: 300 },
+        },
+        exit: { opacity: 0, scale: 0.95, y: 20, transition: { duration: 0.2 } },
+      };
+
+  const heroImage =
+    item.thumbnailUrl ||
+    (item.youtubeId
+      ? getYouTubeThumbnail(item.youtubeId, "maxresdefault")
+      : "");
 
   return (
     <AnimatePresence>
-      <div className="fixed inset-0 z-[400] flex">
-        {/* ── Backdrop ───────────────────────────────────────────────────── */}
+      <div
+        style={{
+          position: "fixed",
+          inset: 0,
+          zIndex: 9999,
+          display: "flex",
+          alignItems: isMobile ? "flex-end" : "center",
+          justifyContent: "center",
+        }}
+      >
+        {/* Backdrop */}
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           onClick={onClose}
-          className="absolute inset-0"
           style={{
+            position: "absolute",
+            inset: 0,
             background: "rgba(0,0,0,0.85)",
             backdropFilter: "blur(12px)",
+            WebkitBackdropFilter: "blur(12px)",
           }}
         />
 
-        {/* ── Sheet / Modal ───────────────────────────────────────────────── */}
+        {/* Modal/Sheet Container */}
         <motion.div
-          {...(isMobile ? mobileVariants : pcVariants)}
-          transition={{ type: "spring", damping: 30, stiffness: 380 }}
-          drag={isMobile ? "y" : false}
-          dragConstraints={isMobile ? { top: 0, bottom: 0 } : undefined}
-          dragElastic={isMobile ? { top: 0, bottom: 0.3 } : undefined}
-          onDragEnd={
-            isMobile
-              ? (_, info) => {
-                  if (info.offset.y > 120) onClose();
-                }
-              : undefined
-          }
-          className={
-            isMobile
-              ? "absolute bottom-0 left-0 right-0 flex flex-col overflow-hidden"
-              : "relative m-auto flex flex-col overflow-hidden w-full"
-          }
+          ref={sheetRef}
+          variants={variants}
+          initial="hidden"
+          animate="visible"
+          exit="exit"
           style={{
-            background: V.depth,
-            maxHeight: isMobile ? "92dvh" : "88vh",
-            maxWidth: isMobile ? undefined : 768,
-            borderTop: isMobile
-              ? `1px solid rgba(255,255,255,0.07)`
-              : undefined,
-            border: !isMobile ? `1px solid rgba(255,255,255,0.07)` : undefined,
+            position: "relative",
+            width: "100%",
+            maxWidth: isMobile ? "100%" : 900,
+            maxHeight: isMobile ? "92vh" : "85vh",
+            height: isMobile ? "auto" : "auto",
+            background: V.surface,
+            borderRadius: isMobile ? "24px 24px 0 0" : 16,
+            overflow: "hidden",
+            boxShadow: "0 25px 50px -12px rgba(0, 0, 0, 0.8)",
+            border: isMobile ? "none" : `1px solid ${V.border}`,
+            display: "flex",
+            flexDirection: "column",
           }}
-          onClick={(e) => e.stopPropagation()}
         >
-          {/* Mobile drag handle */}
-          {isMobile && (
-            <div className="flex justify-center pt-3 pb-1 shrink-0">
-              <div
-                className="w-10 h-1 rounded-full"
-                style={{ background: "rgba(255,255,255,0.12)" }}
-              />
-            </div>
-          )}
-
-          {/* ── HEADER ────────────────────────────────────────────────────── */}
-          <div
-            className="flex items-start justify-between px-5 py-4 shrink-0"
-            style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}
+          {/* Close Button (Floating Glassmorphism) */}
+          <button
+            onClick={onClose}
+            style={{
+              position: "absolute",
+              top: 16,
+              right: 16,
+              zIndex: 50,
+              background: "rgba(0,0,0,0.5)",
+              border: "1px solid rgba(255,255,255,0.15)",
+              borderRadius: "50%",
+              width: 36,
+              height: 36,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              color: "#fff",
+              cursor: "pointer",
+              backdropFilter: "blur(8px)",
+              transition: "background 0.2s",
+            }}
+            onMouseEnter={(e) =>
+              (e.currentTarget.style.background = "rgba(0,0,0,0.8)")
+            }
+            onMouseLeave={(e) =>
+              (e.currentTarget.style.background = "rgba(0,0,0,0.5)")
+            }
           >
-            <div className="flex-1 pr-4 min-w-0">
-              {/* Provider / category */}
-              <p
-                className="text-[8px] font-bold uppercase tracking-[0.2em] mb-1.5"
-                style={{ color: T.dim }}
-              >
-                {item.provider || item.category || "Discotive Learn"}
-              </p>
-              {/* Title */}
-              <h2
-                className="text-[15px] font-black leading-snug"
+            <X size={20} />
+          </button>
+
+          {/* ─── SCROLLABLE CONTENT AREA ─── */}
+          <div
+            style={{ flex: 1, overflowY: "auto", overflowX: "hidden" }}
+            className="hide-scrollbar"
+          >
+            {/* ─── CINEMATIC HERO SECTION ─── */}
+            <div
+              style={{
+                position: "relative",
+                width: "100%",
+                backgroundColor: V.depth,
+                aspectRatio: isMobile ? "4/5" : "16/9",
+                maxHeight: isMobile ? "55vh" : "500px",
+              }}
+            >
+              {isPlaying && isVideoOrPodcast ? (
+                <YouTubeEmbed
+                  youtubeId={item.youtubeId}
+                  onTrackProgress={onTrackProgress}
+                  item={item}
+                />
+              ) : (
+                <>
+                  <img
+                    src={heroImage}
+                    alt={item.title}
+                    style={{
+                      position: "absolute",
+                      top: 0,
+                      left: 0,
+                      width: "100%",
+                      height: "100%",
+                      objectFit: "cover",
+                      opacity: 0.85,
+                    }}
+                  />
+
+                  {/* The Netflix Overlap Gradients */}
+                  <div
+                    style={{
+                      position: "absolute",
+                      inset: 0,
+                      background: `linear-gradient(to top, ${V.surface} 0%, rgba(15,15,15,0.8) 15%, transparent 50%)`,
+                    }}
+                  />
+                  {!isMobile && (
+                    <div
+                      style={{
+                        position: "absolute",
+                        inset: 0,
+                        background:
+                          "linear-gradient(to right, rgba(15,15,15,0.9) 0%, rgba(15,15,15,0.4) 40%, transparent 100%)",
+                      }}
+                    />
+                  )}
+
+                  {/* Title and Actions (Floating inside the Hero) */}
+                  <div
+                    style={{
+                      position: "absolute",
+                      bottom: 0,
+                      left: 0,
+                      right: 0,
+                      padding: isMobile ? "24px 20px" : "40px 48px",
+                      display: "flex",
+                      flexDirection: "column",
+                      justifyContent: "flex-end",
+                      zIndex: 5,
+                    }}
+                  >
+                    {/* Top Meta Row */}
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 12,
+                        marginBottom: 12,
+                        flexWrap: "wrap",
+                      }}
+                    >
+                      {item.algoScore && isPremium && (
+                        <span
+                          style={{
+                            color: T.success,
+                            fontWeight: 900,
+                            fontSize: 14,
+                            fontFamily: "'Montserrat', sans-serif",
+                            textShadow: "0 2px 10px rgba(0,0,0,0.8)",
+                          }}
+                        >
+                          {Math.round(item.algoScore)}% Match
+                        </span>
+                      )}
+                      {item.isNew && (
+                        <span
+                          style={{
+                            color: "#4ADE80",
+                            border: "1px solid #4ADE80",
+                            padding: "2px 6px",
+                            borderRadius: 4,
+                            fontSize: 10,
+                            fontWeight: 900,
+                            fontFamily: "'Montserrat', sans-serif",
+                          }}
+                        >
+                          NEW
+                        </span>
+                      )}
+                      <span
+                        style={{
+                          color: T.primary,
+                          fontSize: 13,
+                          fontWeight: 600,
+                          fontFamily: "'Poppins', sans-serif",
+                          textShadow: "0 2px 10px rgba(0,0,0,0.8)",
+                        }}
+                      >
+                        {item.platform || typeConfig.label}
+                      </span>
+                      {durationText && (
+                        <span
+                          style={{
+                            color: T.primary,
+                            fontSize: 13,
+                            fontWeight: 600,
+                            fontFamily: "'Poppins', sans-serif",
+                            textShadow: "0 2px 10px rgba(0,0,0,0.8)",
+                          }}
+                        >
+                          {durationText}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Hero Title */}
+                    <h1
+                      style={{
+                        fontSize: isMobile ? 32 : 48,
+                        fontWeight: 900,
+                        color: T.primary,
+                        fontFamily: "'Montserrat', sans-serif",
+                        lineHeight: 1.1,
+                        marginBottom: 24,
+                        textShadow: "0 4px 24px rgba(0,0,0,0.9)",
+                        letterSpacing: "-0.02em",
+                        maxWidth: isMobile ? "100%" : "70%",
+                      }}
+                    >
+                      {item.title}
+                    </h1>
+
+                    {/* Action Buttons */}
+                    <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+                      <button
+                        onClick={handlePrimaryAction}
+                        style={{
+                          flex: isMobile ? "1 1 100%" : "0 0 auto",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          gap: 10,
+                          background: T.primary,
+                          color: "#000",
+                          border: "none",
+                          padding: "12px 32px",
+                          borderRadius: 6,
+                          fontSize: 15,
+                          fontWeight: 800,
+                          fontFamily: "'Montserrat', sans-serif",
+                          cursor: "pointer",
+                          transition: "all 0.2s",
+                        }}
+                        onMouseEnter={(e) =>
+                          (e.currentTarget.style.filter = "brightness(0.9)")
+                        }
+                        onMouseLeave={(e) =>
+                          (e.currentTarget.style.filter = "brightness(1)")
+                        }
+                      >
+                        {isVideoOrPodcast ? (
+                          <>
+                            <Play fill="#000" size={18} />{" "}
+                            {progressPct > 0 ? "Resume" : "Play"}
+                          </>
+                        ) : (
+                          <>
+                            <ExternalLink size={18} /> Open Course
+                          </>
+                        )}
+                      </button>
+
+                      <button
+                        onClick={handlePortfolioAdd}
+                        disabled={isAddingToPortfolio || addedSuccess}
+                        style={{
+                          flex: isMobile ? "1 1 100%" : "0 0 auto",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          gap: 8,
+                          background: addedSuccess
+                            ? "rgba(74,222,128,0.15)"
+                            : "rgba(255,255,255,0.15)",
+                          backdropFilter: "blur(12px)",
+                          color: addedSuccess ? "#4ADE80" : T.primary,
+                          border: `1px solid ${addedSuccess ? "rgba(74,222,128,0.4)" : "rgba(255,255,255,0.2)"}`,
+                          padding: "12px 28px",
+                          borderRadius: 6,
+                          fontSize: 14,
+                          fontWeight: 700,
+                          fontFamily: "'Montserrat', sans-serif",
+                          cursor:
+                            isAddingToPortfolio || addedSuccess
+                              ? "default"
+                              : "pointer",
+                          transition: "all 0.2s",
+                        }}
+                        onMouseEnter={(e) => {
+                          if (!addedSuccess && !isAddingToPortfolio)
+                            e.currentTarget.style.background =
+                              "rgba(255,255,255,0.25)";
+                        }}
+                        onMouseLeave={(e) => {
+                          if (!addedSuccess && !isAddingToPortfolio)
+                            e.currentTarget.style.background =
+                              "rgba(255,255,255,0.15)";
+                        }}
+                      >
+                        {addedSuccess ? (
+                          <>
+                            <Check size={18} /> Added
+                          </>
+                        ) : isAddingToPortfolio ? (
+                          "Adding..."
+                        ) : (
+                          <>
+                            <Plus size={18} /> Portfolio{" "}
+                            {!isPremium && (
+                              <Lock
+                                size={12}
+                                color={G.base}
+                                style={{ marginLeft: 4 }}
+                              />
+                            )}
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {/* The Zeigarnik Glowing Progress Bar */}
+              {progressPct > 0 && !isCompleted && !isPlaying && (
+                <div
+                  style={{
+                    position: "absolute",
+                    bottom: 0,
+                    left: 0,
+                    right: 0,
+                    height: 4,
+                    background: "rgba(255,255,255,0.1)",
+                    zIndex: 20,
+                  }}
+                >
+                  <div
+                    style={{
+                      height: "100%",
+                      width: `${progressPct}%`,
+                      background: typeConfig.color,
+                      boxShadow: `0 0 12px ${typeConfig.color}`,
+                    }}
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* ─── DESCRIPTION & METADATA ─── */}
+            <div
+              style={{
+                padding: isMobile ? "24px 20px 40px" : "32px 48px 48px",
+                display: "flex",
+                flexDirection: isMobile ? "col" : "row",
+                flexWrap: "wrap",
+                gap: 32,
+              }}
+            >
+              {/* Left Column (Description) */}
+              <div style={{ flex: isMobile ? "1 1 100%" : "2 1 0%" }}>
+                <p
+                  style={{
+                    fontSize: 15,
+                    color: T.primary,
+                    fontFamily: "'Poppins', sans-serif",
+                    lineHeight: 1.7,
+                    opacity: 0.9,
+                    margin: 0,
+                    marginBottom: 24,
+                  }}
+                >
+                  {item.description ||
+                    "No detailed description provided for this asset."}
+                </p>
+
+                {/* Dopamine Score Reward (Hyper-Visible) */}
+                {item.type === "course" && item.scoreReward > 0 && (
+                  <div
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      gap: 8,
+                      padding: "10px 16px",
+                      background: `linear-gradient(135deg, ${G.dimBg} 0%, rgba(191,162,100,0.02) 100%)`,
+                      border: `1px solid ${G.border}`,
+                      borderRadius: 8,
+                    }}
+                  >
+                    <SvgZap size={18} color={G.bright} />
+                    <div>
+                      <span
+                        style={{
+                          display: "block",
+                          fontSize: 10,
+                          fontWeight: 800,
+                          color: G.base,
+                          textTransform: "uppercase",
+                          letterSpacing: "0.1em",
+                          fontFamily: "'Montserrat', sans-serif",
+                        }}
+                      >
+                        Potential Reward
+                      </span>
+                      <span
+                        style={{
+                          display: "block",
+                          fontSize: 16,
+                          fontWeight: 900,
+                          color: G.bright,
+                          fontFamily: "'Montserrat', sans-serif",
+                          textShadow: `0 0 12px ${G.dimBg}`,
+                        }}
+                      >
+                        +{item.scoreReward} Discotive Points
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Right Column (Tags & Details) */}
+              <div
                 style={{
-                  color: T.primary,
-                  fontFamily: "'Montserrat', sans-serif",
+                  flex: isMobile ? "1 1 100%" : "1 1 0%",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 20,
                 }}
               >
-                {item.title}
-              </h2>
-              {/* Meta row */}
-              <div className="flex items-center gap-3 mt-2">
-                {durationDisplay && (
-                  <span
-                    className="flex items-center gap-1 text-[9px]"
-                    style={{ color: T.dim }}
-                  >
-                    <Clock className="w-3 h-3" /> {durationDisplay}
-                  </span>
+                {/* Provider & Difficulty */}
+                <div
+                  style={{
+                    display: "flex",
+                    flexWrap: "wrap",
+                    gap: "16px 32px",
+                  }}
+                >
+                  {item.provider && (
+                    <div>
+                      <span
+                        style={{
+                          fontSize: 11,
+                          color: T.dim,
+                          textTransform: "uppercase",
+                          letterSpacing: "0.05em",
+                          fontFamily: "'Montserrat', sans-serif",
+                          display: "block",
+                          marginBottom: 4,
+                        }}
+                      >
+                        Creator
+                      </span>
+                      <span
+                        style={{
+                          fontSize: 14,
+                          color: T.primary,
+                          fontFamily: "'Poppins', sans-serif",
+                          fontWeight: 500,
+                        }}
+                      >
+                        {item.provider || item.channelName}
+                      </span>
+                    </div>
+                  )}
+                  {item.difficulty && (
+                    <div>
+                      <span
+                        style={{
+                          fontSize: 11,
+                          color: T.dim,
+                          textTransform: "uppercase",
+                          letterSpacing: "0.05em",
+                          fontFamily: "'Montserrat', sans-serif",
+                          display: "block",
+                          marginBottom: 4,
+                        }}
+                      >
+                        Difficulty
+                      </span>
+                      <span
+                        style={{
+                          fontSize: 14,
+                          color: T.primary,
+                          fontFamily: "'Poppins', sans-serif",
+                          fontWeight: 500,
+                        }}
+                      >
+                        {item.difficulty}
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Skills Acquired */}
+                {item.skillsGained?.length > 0 && (
+                  <div>
+                    <span
+                      style={{
+                        fontSize: 11,
+                        color: T.dim,
+                        textTransform: "uppercase",
+                        letterSpacing: "0.05em",
+                        fontFamily: "'Montserrat', sans-serif",
+                        display: "block",
+                        marginBottom: 8,
+                      }}
+                    >
+                      Skills Acquired
+                    </span>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                      {item.skillsGained.map((skill, i) => (
+                        <span
+                          key={i}
+                          style={{
+                            fontSize: 12,
+                            color: T.secondary,
+                            background: "rgba(255,255,255,0.05)",
+                            padding: "4px 10px",
+                            borderRadius: 4,
+                            fontFamily: "'Poppins', sans-serif",
+                          }}
+                        >
+                          {skill}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
                 )}
-                {item.discotiveLearnId && (
-                  <span
-                    className="text-[8px] font-mono"
-                    style={{ color: T.dim }}
-                  >
-                    {item.discotiveLearnId}
-                  </span>
+
+                {/* Tags */}
+                {item.tags?.length > 0 && (
+                  <div>
+                    <span
+                      style={{
+                        fontSize: 11,
+                        color: T.dim,
+                        textTransform: "uppercase",
+                        letterSpacing: "0.05em",
+                        fontFamily: "'Montserrat', sans-serif",
+                        display: "block",
+                        marginBottom: 8,
+                      }}
+                    >
+                      Tags
+                    </span>
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                      {item.tags.map((tag, i) => (
+                        <span
+                          key={i}
+                          style={{
+                            fontSize: 12,
+                            color: T.dim,
+                            fontFamily: "'Poppins', sans-serif",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 4,
+                          }}
+                        >
+                          #{tag}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Admin Quick Edit */}
+                {isAdmin && (
+                  <div style={{ marginTop: "auto", paddingTop: 16 }}>
+                    <button
+                      onClick={() => {
+                        onClose();
+                        onAdminEdit(item);
+                      }}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 6,
+                        background: "transparent",
+                        color: T.dim,
+                        border: "none",
+                        fontSize: 12,
+                        cursor: "pointer",
+                        padding: 0,
+                      }}
+                    >
+                      <Edit3 size={14} /> Edit Metadata (Admin)
+                    </button>
+                  </div>
                 )}
               </div>
             </div>
-
-            {/* Close */}
-            <button
-              onClick={onClose}
-              className="w-9 h-9 flex items-center justify-center shrink-0 transition-all"
-              style={{
-                color: T.dim,
-                border: "1px solid rgba(255,255,255,0.07)",
-              }}
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-
-          {/* ── SCROLLABLE BODY ────────────────────────────────────────────── */}
-          <div className="flex-1 overflow-y-auto custom-scrollbar">
-            {/* Media section */}
-            {type === "video" ? (
-              <VideoPlayerPanel
-                item={item}
-                completion={completion}
-                isPremium={isPremium}
-              />
-            ) : (
-              <CertDetailPanel
-                item={item}
-                completion={completion}
-                isPremium={isPremium}
-                onNavigateVault={handleUploadCert}
-              />
-            )}
-
-            {/* ── METADATA BODY ─────────────────────────────────────────── */}
-            <div className="flex flex-col gap-6 px-5 py-6">
-              {/* Description */}
-              {item.description && (
-                <div>
-                  <p
-                    className="text-[9px] font-black uppercase tracking-[0.2em] mb-2"
-                    style={{ color: T.dim }}
-                  >
-                    About
-                  </p>
-                  <p
-                    className="text-[12px] leading-relaxed"
-                    style={{ color: T.secondary }}
-                  >
-                    {item.description}
-                  </p>
-                </div>
-              )}
-
-              {/* Domains */}
-              {item.domains?.length > 0 && (
-                <div>
-                  <p
-                    className="text-[9px] font-black uppercase tracking-[0.2em] mb-2"
-                    style={{ color: T.dim }}
-                  >
-                    Domains
-                  </p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {item.domains.map((d) => (
-                      <span
-                        key={d}
-                        className="text-[9px] font-bold px-2 py-1"
-                        style={{
-                          color: G.bright,
-                          background: G.dimBg,
-                          border: `1px solid ${G.border}`,
-                        }}
-                      >
-                        {d}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Skills */}
-              <SkillList
-                label="Skills Gained"
-                skills={item.skillsGained}
-                color="#4ADE80"
-              />
-              <SkillList
-                label="Prerequisites"
-                skills={item.skillsRequired}
-                color={G.bright}
-              />
-
-              {/* Tags */}
-              {item.tags?.length > 0 && (
-                <div>
-                  <p
-                    className="text-[9px] font-black uppercase tracking-[0.2em] mb-2"
-                    style={{ color: T.dim }}
-                  >
-                    Tags
-                  </p>
-                  <div className="flex flex-wrap gap-1.5">
-                    {item.tags.map((tag) => (
-                      <span
-                        key={tag}
-                        className="text-[9px] px-2 py-1"
-                        style={{
-                          color: T.dim,
-                          background: "rgba(255,255,255,0.03)",
-                          border: "1px solid rgba(255,255,255,0.06)",
-                        }}
-                      >
-                        #{tag}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Expiry warning */}
-              {item.expiresAt && (
-                <div
-                  className="flex items-center gap-2 px-3 py-2"
-                  style={{
-                    background: "rgba(245,158,11,0.06)",
-                    border: "1px solid rgba(245,158,11,0.2)",
-                  }}
-                >
-                  <AlertTriangle className="w-3.5 h-3.5 text-amber-500 shrink-0" />
-                  <span
-                    className="text-[9px]"
-                    style={{ color: "rgba(245,158,11,0.8)" }}
-                  >
-                    Certificate expires{" "}
-                    {new Date(
-                      item.expiresAt?.seconds
-                        ? item.expiresAt.seconds * 1000
-                        : item.expiresAt,
-                    ).toLocaleDateString("en-US", {
-                      month: "long",
-                      year: "numeric",
-                    })}
-                  </span>
-                </div>
-              )}
-
-              {/* Portfolio lock notice */}
-              {!isPremium && type === "cert" && (
-                <div
-                  className="flex items-center gap-3 px-4 py-3"
-                  style={{
-                    background: G.dimBg,
-                    border: `1px solid ${G.border}`,
-                  }}
-                >
-                  <Lock
-                    className="w-4 h-4 shrink-0"
-                    style={{ color: G.bright }}
-                  />
-                  <div>
-                    <p
-                      className="text-[10px] font-black"
-                      style={{ color: G.bright }}
-                    >
-                      Learn Portfolio
-                    </p>
-                    <p className="text-[9px] mt-0.5" style={{ color: T.dim }}>
-                      Track all verified certificates in one place. Pro feature.
-                    </p>
-                  </div>
-                </div>
-              )}
-
-              {/* Bottom padding */}
-              <div className="h-2" />
-            </div>
-          </div>
-
-          {/* ── STICKY CTA BAR ────────────────────────────────────────────── */}
-          <div
-            className="shrink-0 px-5 py-4 flex gap-3"
-            style={{
-              borderTop: "1px solid rgba(255,255,255,0.05)",
-              background: V.depth,
-              paddingBottom: isMobile
-                ? "calc(env(safe-area-inset-bottom) + 16px)"
-                : 16,
-            }}
-          >
-            {type === "cert" ? (
-              <>
-                {/* Open course */}
-                <button
-                  onClick={handleOpenCourse}
-                  className="flex-1 h-13 flex items-center justify-center gap-2 text-[10px] font-black uppercase tracking-[0.15em] transition-all"
-                  style={{
-                    background: G.base,
-                    color: "#030303",
-                    fontFamily: "'Montserrat', sans-serif",
-                    minHeight: 52,
-                  }}
-                >
-                  <ExternalLink className="w-4 h-4" />
-                  Open Course
-                </button>
-
-                {/* Upload cert */}
-                {!isCompleted && (
-                  <button
-                    onClick={handleUploadCert}
-                    className="flex-1 h-13 flex items-center justify-center gap-2 text-[10px] font-black uppercase tracking-[0.15em] transition-all"
-                    style={{
-                      background: V.surface,
-                      color: T.secondary,
-                      border: "1px solid rgba(255,255,255,0.08)",
-                      fontFamily: "'Montserrat', sans-serif",
-                      minHeight: 52,
-                    }}
-                  >
-                    <Upload className="w-4 h-4" />
-                    {isPending ? "Check Status" : "Upload Cert"}
-                  </button>
-                )}
-              </>
-            ) : (
-              /* Video: open on YouTube */
-              <button
-                onClick={() =>
-                  window.open(
-                    `https://www.youtube.com/watch?v=${item.youtubeId}`,
-                    "_blank",
-                    "noopener,noreferrer",
-                  )
-                }
-                className="flex items-center gap-2 px-5 text-[10px] font-black uppercase tracking-[0.15em] transition-all"
-                style={{
-                  background: V.surface,
-                  color: T.dim,
-                  border: "1px solid rgba(255,255,255,0.07)",
-                  fontFamily: "'Montserrat', sans-serif",
-                  minHeight: 52,
-                }}
-              >
-                <ExternalLink className="w-3.5 h-3.5" />
-                YouTube
-              </button>
-            )}
           </div>
         </motion.div>
       </div>
@@ -861,5 +794,4 @@ const LearnAssetSheet = ({
   );
 };
 
-LearnAssetSheet.displayName = "LearnAssetSheet";
 export default LearnAssetSheet;

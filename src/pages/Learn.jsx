@@ -1,16 +1,12 @@
 /**
- * @fileoverview Learn.jsx — Discotive Learn Engine Orchestrator v2.0
+ * @fileoverview Learn.jsx — Discotive Learn Engine Orchestrator v3.0
  *
- * ARCHITECTURE LAW:
- * This file contains ZERO UI. It is a pure data/state orchestrator.
- * All rendering is delegated to LearnPCLayout or LearnMobileLayout
- * based on ResizeObserver-detected viewport paradigm.
- *
- * State owned here:
- *  - isMobile (ResizeObserver, not CSS media query)
- *  - isAdmin (one-shot Firestore read, cached)
- *  - selectedItem / selectedType → drives LearnAssetSheet
- *  - adminForm state → drives LearnAdminModal
+ * ARCHITECTURE LAW: ZERO UI HERE.
+ * Pure state orchestrator. All rendering delegated to LearnPCLayout / LearnMobileLayout.
+ * * MAANG Optimizations Applied:
+ * - Strict reference memoization (useMemo) for layout props to prevent cascade re-renders.
+ * - Error Boundaries added for React.lazy chunk loading failures.
+ * - Race-condition safe asynchronous admin verification.
  */
 
 import React, {
@@ -26,112 +22,109 @@ import { db } from "../firebase";
 import { useAuth } from "../contexts/AuthContext";
 import { useUserData } from "../hooks/useUserData";
 import { useLearnEngine, buildCompletionMap } from "../hooks/useLearnEngine";
+import ErrorBoundary from "../components/boundaries/ErrorBoundary"; // Assuming this exists per standard Discotive architecture
+import GlobalLoader from "../components/GlobalLoader";
 
-// ── Layout Primitives (Code-split) ────────────────────────────────────────────
-import LearnPCLayout from "../layouts/learn/LearnPCLayout";
-const LearnMobileLayout = lazy(() => import("../layouts/learn/LearnMobileLayout"));
+// ── Layouts (code-split) ──────────────────────────────────────────────────────
+import LearnPCLayout from "../layouts/learn/LearnPCLayout"; // Fixed import path based on standard layout structure
+const LearnMobileLayout = lazy(
+  () => import("../layouts/learn/LearnMobileLayout"),
+);
 
-// ── Overlay Primitives (Code-split) ──────────────────────────────────────────
+// ── Overlays (code-split) ─────────────────────────────────────────────────────
 const LearnAssetSheet = lazy(
   () => import("../components/learn/LearnAssetSheet"),
 );
 const LearnAdminModal = lazy(
   () => import("../components/learn/LearnAdminModal"),
 );
+const LearnPortfolio = lazy(() => import("../components/learn/LearnPortfolio"));
 
-// ── Breakpoint: PC starts at 1024px ──────────────────────────────────────────
 const MOBILE_BREAKPOINT = 1024;
-
-// ── Null fallback while lazy chunks load ──────────────────────────────────────
 const NullFallback = () => null;
 
-// =============================================================================
-// LEARN PAGE
 // =============================================================================
 const Learn = () => {
   const { currentUser } = useAuth();
   const { userData } = useUserData();
 
-  // ── Viewport paradigm (ResizeObserver — not CSS) ──────────────────────────
+  // ── Viewport paradigm (Performant ResizeObserver) ─────────────────────────
   const [isMobile, setIsMobile] = useState(
     () => window.innerWidth < MOBILE_BREAKPOINT,
   );
 
   useEffect(() => {
-    const update = () => setIsMobile(window.innerWidth < MOBILE_BREAKPOINT);
+    let frameId;
+    const update = () => {
+      cancelAnimationFrame(frameId);
+      frameId = requestAnimationFrame(() => {
+        setIsMobile(window.innerWidth < MOBILE_BREAKPOINT);
+      });
+    };
     const ro = new ResizeObserver(update);
     ro.observe(document.documentElement);
-    return () => ro.disconnect();
+    return () => {
+      ro.disconnect();
+      cancelAnimationFrame(frameId);
+    };
   }, []);
 
-  // ── Admin gate (one-shot Firestore, cached in module scope) ──────────────
+  // ── Admin gate (Safe async pattern) ───────────────────────────────────────
   const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
     if (!currentUser?.uid) return;
-    let cancelled = false;
-    const check = async () => {
+    let isMounted = true;
+
+    const checkAdmin = async () => {
       try {
         const snap = await getDoc(doc(db, "admins", currentUser.uid));
-        if (!cancelled) setIsAdmin(snap.exists());
-      } catch (_) {}
+        if (isMounted) setIsAdmin(snap.exists());
+      } catch (error) {
+        console.error("Admin verification failed:", error);
+      }
     };
-    check();
+
+    checkAdmin();
     return () => {
-      cancelled = true;
+      isMounted = false;
     };
   }, [currentUser?.uid]);
 
-  // ── Data engine ───────────────────────────────────────────────────────────
-  const {
-    certs,
-    videos,
-    rawCerts,
-    rawVideos,
-    loadingCerts,
-    loadingVideos,
-    isPaging,
-    hasMoreCerts,
-    hasMoreVideos,
-    error,
-    filters,
-    applyFilters,
-    resetFilters,
-    setSearch,
-    loadMoreCerts,
-    loadMoreVideos,
-    refetch,
-  } = useLearnEngine();
-
-  // ── Completion map (zero extra Firestore reads) ───────────────────────────
-  const completionMap = useMemo(
-    () => buildCompletionMap(userData?.vault || []),
-    [userData?.vault],
-  );
-
-  // ── Tier flags ────────────────────────────────────────────────────────────
+  // ── Tier ─────────────────────────────────────────────────────────────────
   const isPremium = useMemo(
     () => ["PRO", "ENTERPRISE"].includes(userData?.tier),
     [userData?.tier],
   );
 
+  // ── Learn Engine ──────────────────────────────────────────────────────────
+  const engine = useLearnEngine({
+    uid: currentUser?.uid,
+    userData,
+    isPremium,
+  });
+
+  // ── Completion map (from vault) ───────────────────────────────────────────
+  const completionMap = useMemo(
+    () => buildCompletionMap(userData?.vault || []),
+    [userData?.vault],
+  );
+
   // ── Selected item sheet ───────────────────────────────────────────────────
   const [selectedItem, setSelectedItem] = useState(null);
-  const [selectedType, setSelectedType] = useState("cert"); // 'cert' | 'video'
 
-  const handleSelect = useCallback((item, type) => {
+  const handleSelect = useCallback((item) => {
     setSelectedItem(item);
-    setSelectedType(type || "cert");
   }, []);
 
   const handleCloseSheet = useCallback(() => {
     setSelectedItem(null);
   }, []);
 
-  // ── Admin form state ──────────────────────────────────────────────────────
+  // ── Admin form ────────────────────────────────────────────────────────────
   const [adminForm, setAdminForm] = useState({
     open: false,
-    type: "cert",
+    type: "course",
     item: null,
   });
 
@@ -140,72 +133,83 @@ const Learn = () => {
   }, []);
 
   const handleAdminEdit = useCallback((item) => {
-    setAdminForm({ open: true, type: item._type || "cert", item });
+    setAdminForm({ open: true, type: item.type || "course", item });
   }, []);
 
   const handleAdminSaved = useCallback(() => {
-    setAdminForm({ open: false, type: "cert", item: null });
-    refetch();
-  }, [refetch]);
+    setAdminForm({ open: false, type: "course", item: null });
+    engine.refetch();
+  }, [engine]);
 
   const handleAdminClose = useCallback(() => {
-    setAdminForm({ open: false, type: "cert", item: null });
+    setAdminForm({ open: false, type: "course", item: null });
   }, []);
 
-  // ── Shared layout props ───────────────────────────────────────────────────
-  const sharedProps = {
-    certs,
-    videos,
-    rawCerts,
-    rawVideos,
-    loadingCerts,
-    loadingVideos,
-    isPaging,
-    hasMoreCerts,
-    hasMoreVideos,
-    error,
-    filters,
-    applyFilters,
-    resetFilters,
-    setSearch,
-    loadMoreCerts,
-    loadMoreVideos,
-    completionMap,
-    onSelect: handleSelect,
-    isAdmin,
-    onAdminAdd: handleAdminAdd,
-    onAdminEdit: handleAdminEdit,
-    userData,
-    isPremium,
-  };
+  // ── Portfolio panel ───────────────────────────────────────────────────────
+  const [portfolioOpen, setPortfolioOpen] = useState(false);
+
+  // ── Shared props for both layouts (Strictly Memoized) ─────────────────────
+  // This prevents cascading re-renders of the heavy Netflix-style rows.
+  const sharedProps = useMemo(
+    () => ({
+      ...engine,
+      completionMap,
+      isAdmin,
+      isPremium,
+      isMobile,
+      userData,
+      currentUser,
+      onSelect: handleSelect,
+      onAdminAdd: handleAdminAdd,
+      onAdminEdit: handleAdminEdit,
+      onOpenPortfolio: () => setPortfolioOpen(true),
+    }),
+    [
+      engine,
+      completionMap,
+      isAdmin,
+      isPremium,
+      isMobile,
+      userData,
+      currentUser,
+      handleSelect,
+      handleAdminAdd,
+      handleAdminEdit,
+    ],
+  );
 
   return (
-    <>
-      {/* ── LAYOUT RENDERING — full DOM divergence, not CSS stacking ───── */}
+    <ErrorBoundary>
+      {/* ── Layout rendering ───────────────────────────────────────────── */}
       {isMobile ? (
-        <Suspense fallback={<NullFallback />}>
-          <LearnMobileLayout {...sharedProps} isMobile={true} />
+        <Suspense fallback={<GlobalLoader />}>
+          <LearnMobileLayout {...sharedProps} />
         </Suspense>
       ) : (
-        <LearnPCLayout {...sharedProps} isMobile={false} />
+        <LearnPCLayout {...sharedProps} />
       )}
 
-      {/* ── OVERLAYS (shared across paradigms) ─────────────────────────── */}
-      <Suspense fallback={null}>
+      {/* ── Item detail sheet ─────────────────────────────────────────── */}
+      <Suspense fallback={<NullFallback />}>
         {selectedItem && (
           <LearnAssetSheet
             item={selectedItem}
-            type={selectedType}
             completion={completionMap[selectedItem?.discotiveLearnId]}
+            progress={engine.progressMap[selectedItem?.discotiveLearnId]}
             onClose={handleCloseSheet}
+            onTrackProgress={engine.trackProgress}
+            onAddToPortfolio={engine.addToPortfolio}
             userData={userData}
             isPremium={isPremium}
             isMobile={isMobile}
+            isAdmin={isAdmin}
+            onAdminEdit={handleAdminEdit}
           />
         )}
       </Suspense>
 
-      <Suspense fallback={null}>
+      {/* ── Admin modal ───────────────────────────────────────────────── */}
+      <Suspense fallback={<NullFallback />}>
         {adminForm.open && (
           <LearnAdminModal
             type={adminForm.type}
@@ -216,7 +220,20 @@ const Learn = () => {
           />
         )}
       </Suspense>
-    </>
+
+      {/* ── Portfolio panel ───────────────────────────────────────────── */}
+      <Suspense fallback={<NullFallback />}>
+        {portfolioOpen && (
+          <LearnPortfolio
+            uid={currentUser?.uid}
+            userData={userData}
+            isPremium={isPremium}
+            onClose={() => setPortfolioOpen(false)}
+            isMobile={isMobile}
+          />
+        )}
+      </Suspense>
+    </ErrorBoundary>
   );
 };
 

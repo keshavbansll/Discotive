@@ -50,15 +50,28 @@ service cloud.firestore {
     }
 
     // =========================================================================
-    // 2. DISCOTIVE LEARN ENGINE
+    // 2. DISCOTIVE LEARN ENGINE V3
     // =========================================================================
+    match /discotive_courses/{document=**} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
     match /discotive_videos/{document=**} {
       allow read: if isAuthenticated();
       allow write: if isAdmin();
     }
-    match /discotive_certificates/{document=**} {
+    match /discotive_podcasts/{document=**} {
       allow read: if isAuthenticated();
       allow write: if isAdmin();
+    }
+    match /discotive_resources/{document=**} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
+    }
+    match /learn_algo_cache/{document=**} {
+      // Users can read their own generated AI feed cache
+      allow read: if isAuthenticated() && document.split('/')[4] == request.auth.uid;
+      allow write: if false; // Only securely written by Cloud Functions
     }
     match /learn_suggestions/{suggestionId} {
       allow read: if isAdmin();
@@ -146,6 +159,14 @@ service cloud.firestore {
           'pushTokens', 'meta'
         ]))
         ||
+        // Discotive Learn V3 User Tracking
+          match /learn_progress/{learnId} {
+            allow read, write: if isOwner(userId);
+          }
+          match /learn_portfolio/{itemId} {
+            allow read: if true; // Portfolios are public
+            allow write: if isOwner(userId);
+          }
         // Pipeline B: One-Time OS Boot Sequence (Airtight Score Minting)
         (request.resource.data.diff(resource.data).affectedKeys().hasAny(['discotiveScore', 'tier'])
           && resource.data.onboardingComplete != true

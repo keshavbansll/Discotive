@@ -1,88 +1,40 @@
 /**
- * @fileoverview LearnMobileLayout.jsx — Discotive Learn Mobile-Native Interface
- * @module Layouts/LearnMobileLayout
- *
- * MOBILE ARCHITECTURE MANDATE — STRUCTURAL DIVERGENCE:
- * This is NOT a stacked version of the PC layout.
- * It is a completely separate DOM tree with mobile-native paradigms:
- *
- * DOM STRUCTURE (thumb-reachability prioritized):
- * ┌─────────────────────────────────┐
- * │  STICKY HEADER: Logo + Search   │
- * ├─────────────────────────────────┤
- * │  STICKY TAB ROW: Certs|Videos   │  44px touch targets
- * ├─────────────────────────────────┤
- * │  DOMAIN SNAP STRIP (scroll-x)   │  snap mandatory
- * ├─────────────────────────────────┤
- * │  PREMIUM ALGO FEED (horiz)      │  locked silhouette for free
- * ├─────────────────────────────────┤
- * │  2-COL BORDERLESS CARD GRID     │
- * │  (vertically scrollable body)   │
- * ├─────────────────────────────────┤
- * │  LOAD MORE BUTTON               │
- * └─────────────────────────────────┘
- * └── FILTER FAB (bottom-right) ────┘  thumb zone
- * └── FILTER BOTTOM SHEET ──────────┘  slides from bottom
- *
- * Rules:
- * - ALL touch targets ≥ 44×44px
- * - Horizontal domain strip: scroll-snap-type: x mandatory
- * - Filter sheet: Framer Motion bottom sheet, swipe-to-dismiss
- * - No hover states (touch paradigm)
- * - Stagger entry animations on card grid
+ * @fileoverview LearnMobileLayout.jsx — Mobile-Native Orchestrator for Learn Engine
+ * @description
+ * Implements a strictly mobile-optimized Netflix-style fluid UI.
+ * Features: Native momentum scrolling, strict scroll-snap carousels, 48px tap targets,
+ * thumb-friendly ergonomics, and deep immersive gradients.
  */
 
-import React, {
-  useState,
-  useCallback,
-  useEffect,
-  useRef,
-  useMemo,
-  memo,
-} from "react";
-import {
-  motion,
-  AnimatePresence,
-  useMotionValue,
-  useTransform,
-} from "framer-motion";
+import React, { useState, useEffect, useCallback, memo } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   Search,
-  X,
-  SlidersHorizontal,
-  BookOpen,
-  Video,
-  Plus,
-  Loader2,
-  ChevronDown,
-  Check,
   Play,
-  Award,
+  Info,
+  FolderLock,
+  Plus,
   Zap,
-  Clock,
+  Lock,
+  X,
+  Crown,
 } from "lucide-react";
+import LearnCard from "../../components/learn/LearnCard";
+import { TYPE_CONFIG } from "../../lib/discotiveLearn";
 
-import BorderlessAssetCard from "../../components/learn/BorderlessAssetCard";
-import PremiumAlgoFeed from "../../components/learn/PremiumAlgoFeed";
-import {
-  DOMAINS,
-  CERTIFICATE_CATEGORIES,
-  VIDEO_CATEGORIES,
-  DIFFICULTY_LEVELS,
-} from "../../lib/discotiveLearn";
-
-// ── Design Tokens (Strict per SKILL.md) ──────────────────────────────────────
+// ─── Design Tokens ─────────────────────────────────────────────────────────────
 const G = {
   base: "#BFA264",
   bright: "#D4AF78",
-  deep: "#8B7240",
   dimBg: "rgba(191,162,100,0.08)",
-  border: "rgba(191,162,100,0.25)",
+  border: "rgba(191,162,100,0.2)",
 };
 const V = {
   bg: "#030303",
   depth: "#0A0A0A",
   surface: "#0F0F0F",
+  elevated: "#141414",
+  border: "rgba(255,255,255,0.06)",
 };
 const T = {
   primary: "#F5F0E8",
@@ -90,683 +42,801 @@ const T = {
   dim: "rgba(245,240,232,0.28)",
 };
 
-// ── Domain Snap Chip ──────────────────────────────────────────────────────────
-const DomainChip = memo(({ label, active, onClick }) => (
-  <button
-    onClick={onClick}
-    className="shrink-0 flex items-center px-4 h-11 text-[10px] font-black uppercase tracking-[0.15em] transition-all select-none"
-    style={{
-      scrollSnapAlign: "start",
-      background: active ? G.dimBg : "transparent",
-      color: active ? G.bright : T.dim,
-      borderBottom: active ? `2px solid ${G.bright}` : "2px solid transparent",
-      fontFamily: "'Montserrat', sans-serif",
-      minWidth: 44,
-    }}
-  >
-    {label}
-  </button>
-));
+// ─── Native Scrollbar Hiding & Snapping ────────────────────────────────────────
+const HideScrollbarStyles = () => (
+  <style>{`
+    .mobile-scroll-row::-webkit-scrollbar { display: none; }
+    .mobile-scroll-row {
+      scrollbar-width: none;
+      -ms-overflow-style: none;
+      scroll-snap-type: x mandatory;
+      scroll-padding-left: 20px;
+      scroll-padding-right: 20px;
+      -webkit-overflow-scrolling: touch;
+    }
+    .snap-item { scroll-snap-align: start; }
+  `}</style>
+);
 
-// ── Filter Bottom Sheet ───────────────────────────────────────────────────────
-const FilterSheet = memo(
-  ({ open, onClose, filters, applyFilters, resetFilters, activeTab }) => {
-    const y = useMotionValue(0);
+// ─── Mobile Hero Component (The Billboard) ───────────────────────────────────
+const MobileHero = memo(({ items, onSelect }) => {
+  const [currentIndex, setCurrentIndex] = useState(0);
 
-    const [localFilters, setLocalFilters] = useState(filters);
+  useEffect(() => {
+    if (!items || items.length <= 1) return;
+    const timer = setInterval(() => {
+      setCurrentIndex((prev) => (prev + 1) % items.length);
+    }, 7000);
+    return () => clearInterval(timer);
+  }, [items]);
 
-    useEffect(() => {
-      if (open) setLocalFilters(filters);
-    }, [open, filters]);
+  if (!items || items.length === 0) return null;
 
-    const patch = (key, value) =>
-      setLocalFilters((p) => ({ ...p, [key]: value }));
+  const current = items[currentIndex];
+  const typeConfig = TYPE_CONFIG[current.type] || TYPE_CONFIG.course;
 
-    const handleApply = () => {
-      applyFilters(localFilters);
-      onClose();
-    };
+  return (
+    <div
+      style={{
+        position: "relative",
+        width: "100%",
+        height: "70vh", // Deep cinematic mobile aspect
+        minHeight: 500,
+        backgroundColor: V.bg,
+        overflow: "hidden",
+      }}
+    >
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={current.id}
+          initial={{ opacity: 0, scale: 1.05 }}
+          animate={{ opacity: 1, scale: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.8, ease: "easeInOut" }}
+          style={{
+            position: "absolute",
+            inset: 0,
+            backgroundImage: `url(${current.thumbnailUrl})`,
+            backgroundSize: "cover",
+            backgroundPosition: "center 20%",
+          }}
+        />
+      </AnimatePresence>
 
-    const handleReset = () => {
-      resetFilters();
-      onClose();
-    };
+      {/* Deep gradients for text legibility and seamless background blending */}
+      <div
+        style={{
+          position: "absolute",
+          inset: 0,
+          background:
+            "linear-gradient(to top, #030303 0%, rgba(3,3,3,0.8) 25%, transparent 65%)",
+        }}
+      />
 
-    const categoryOptions =
-      activeTab === "certs"
-        ? CERTIFICATE_CATEGORIES.slice(0, 10)
-        : VIDEO_CATEGORIES.map((c) => c.label);
-
-    // Active filter count
-    const activeCount = useMemo(() => {
-      let n = 0;
-      if (localFilters.difficulty) n++;
-      if (localFilters.isPaid !== "any") n++;
-      if (localFilters.industryRelevance) n++;
-      if (localFilters.sort !== "newest") n++;
-      if (localFilters.category) n++;
-      return n;
-    }, [localFilters]);
-
-    return (
-      <AnimatePresence>
-        {open && (
-          <>
-            {/* Backdrop */}
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={onClose}
-              className="fixed inset-0 z-[300]"
+      {/* Content pinned to bottom */}
+      <div
+        style={{
+          position: "absolute",
+          bottom: "10%", // Leaves room for the overlap
+          left: 0,
+          right: 0,
+          padding: "24px 20px",
+          display: "flex",
+          flexDirection: "column",
+          alignItems: "center",
+          textAlign: "center",
+          zIndex: 10,
+        }}
+      >
+        <motion.div
+          key={`content-${current.id}`}
+          initial={{ opacity: 0, y: 15 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, delay: 0.1 }}
+          style={{ width: "100%" }}
+        >
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "center",
+              gap: 8,
+              marginBottom: 12,
+            }}
+          >
+            <span
               style={{
-                background: "rgba(0,0,0,0.7)",
-                backdropFilter: "blur(8px)",
-              }}
-            />
-
-            {/* Sheet */}
-            <motion.div
-              initial={{ y: "100%" }}
-              animate={{ y: 0 }}
-              exit={{ y: "100%" }}
-              transition={{ type: "spring", damping: 32, stiffness: 400 }}
-              drag="y"
-              dragConstraints={{ top: 0, bottom: 0 }}
-              dragElastic={{ top: 0, bottom: 0.3 }}
-              onDragEnd={(_, info) => {
-                if (info.offset.y > 100) onClose();
-              }}
-              className="fixed bottom-0 left-0 right-0 z-[301] flex flex-col"
-              style={{
-                background: V.depth,
-                maxHeight: "80vh",
-                borderTop: `1px solid rgba(255,255,255,0.06)`,
+                fontSize: 10,
+                fontWeight: 800,
+                color: typeConfig.color,
+                letterSpacing: "0.15em",
+                textTransform: "uppercase",
+                fontFamily: "'Montserrat', sans-serif",
+                background: typeConfig.dimBg,
+                padding: "4px 10px",
+                border: `1px solid ${typeConfig.border}`,
+                borderRadius: 4,
               }}
             >
-              {/* Drag handle */}
-              <div className="flex justify-center pt-3 pb-1 shrink-0">
-                <div
-                  className="w-10 h-1 rounded-full"
-                  style={{ background: "rgba(255,255,255,0.12)" }}
-                />
-              </div>
-
-              {/* Header */}
-              <div
-                className="flex items-center justify-between px-5 py-4 shrink-0"
-                style={{ borderBottom: "1px solid rgba(255,255,255,0.05)" }}
+              {current.isFeatured ? "Featured" : typeConfig.label}
+            </span>
+            {current.isNew && (
+              <span
+                style={{
+                  fontSize: 10,
+                  fontWeight: 800,
+                  color: "#4ADE80",
+                  letterSpacing: "0.1em",
+                  fontFamily: "'Montserrat', sans-serif",
+                  background: "rgba(74,222,128,0.1)",
+                  padding: "4px 10px",
+                  border: "1px solid rgba(74,222,128,0.25)",
+                  borderRadius: 4,
+                }}
               >
-                <span
-                  className="text-[11px] font-black uppercase tracking-[0.2em]"
-                  style={{
-                    color: G.bright,
-                    fontFamily: "'Montserrat', sans-serif",
-                  }}
-                >
-                  Filters
-                  {activeCount > 0 && (
-                    <span
-                      className="ml-2 px-1.5 py-0.5 text-[8px]"
-                      style={{
-                        background: G.dimBg,
-                        border: `1px solid ${G.border}`,
-                        color: G.bright,
-                      }}
-                    >
-                      {activeCount}
-                    </span>
-                  )}
-                </span>
-                <button
-                  onClick={handleReset}
-                  className="text-[9px] font-black uppercase tracking-widest"
-                  style={{ color: T.dim }}
-                >
-                  Reset
-                </button>
-              </div>
+                NEW
+              </span>
+            )}
+          </div>
 
-              {/* Scrollable filter body */}
-              <div className="flex-1 overflow-y-auto px-5 py-4 space-y-6">
-                {/* Sort */}
-                <div>
-                  <p
-                    className="text-[9px] font-black uppercase tracking-[0.2em] mb-3"
-                    style={{ color: T.dim }}
-                  >
-                    Sort By
-                  </p>
-                  <div className="grid grid-cols-3 gap-2">
-                    {[
-                      { v: "newest", l: "Newest" },
-                      { v: "score", l: "Score" },
-                      { v: "title", l: "A–Z" },
-                    ].map((opt) => (
-                      <button
-                        key={opt.v}
-                        onClick={() => patch("sort", opt.v)}
-                        className="h-11 flex items-center justify-center text-[9px] font-black uppercase tracking-widest transition-all"
-                        style={{
-                          background:
-                            localFilters.sort === opt.v ? G.dimBg : V.surface,
-                          color: localFilters.sort === opt.v ? G.bright : T.dim,
-                          border: `1px solid ${localFilters.sort === opt.v ? G.border : "rgba(255,255,255,0.04)"}`,
-                          fontFamily: "'Montserrat', sans-serif",
-                        }}
-                      >
-                        {opt.l}
-                      </button>
-                    ))}
-                  </div>
-                </div>
+          <h1
+            style={{
+              fontSize: 32,
+              fontWeight: 900,
+              color: T.primary,
+              fontFamily: "'Montserrat', sans-serif",
+              lineHeight: 1.1,
+              marginBottom: 12,
+              display: "-webkit-box",
+              WebkitLineClamp: 3,
+              WebkitBoxOrient: "vertical",
+              overflow: "hidden",
+              textShadow: "0 4px 20px rgba(0,0,0,0.8)",
+            }}
+          >
+            {current.title}
+          </h1>
 
-                {/* Difficulty */}
-                <div>
-                  <p
-                    className="text-[9px] font-black uppercase tracking-[0.2em] mb-3"
-                    style={{ color: T.dim }}
-                  >
-                    Difficulty
-                  </p>
-                  <div className="grid grid-cols-2 gap-2">
-                    {["Any", ...DIFFICULTY_LEVELS].map((d) => {
-                      const v = d === "Any" ? "" : d;
-                      const active = localFilters.difficulty === v;
-                      return (
-                        <button
-                          key={d}
-                          onClick={() => patch("difficulty", v)}
-                          className="h-11 flex items-center justify-center text-[9px] font-black uppercase tracking-widest transition-all"
-                          style={{
-                            background: active ? G.dimBg : V.surface,
-                            color: active ? G.bright : T.dim,
-                            border: `1px solid ${active ? G.border : "rgba(255,255,255,0.04)"}`,
-                            fontFamily: "'Montserrat', sans-serif",
-                          }}
-                        >
-                          {d}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "center",
+              gap: 12,
+              marginTop: 20,
+              width: "100%",
+            }}
+          >
+            <button
+              onClick={() => onSelect(current)}
+              style={{
+                flex: 1,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 8,
+                background: T.primary,
+                color: "#000",
+                border: "none",
+                height: 48,
+                borderRadius: 6,
+                fontSize: 15,
+                fontWeight: 800,
+                fontFamily: "'Montserrat', sans-serif",
+                boxShadow: "0 0 20px rgba(245,240,232,0.15)",
+              }}
+            >
+              <Play fill="#000" size={18} /> Play
+            </button>
+            <button
+              onClick={() => onSelect(current)}
+              style={{
+                flex: 1,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 8,
+                background: "rgba(255,255,255,0.15)",
+                backdropFilter: "blur(12px)",
+                color: T.primary,
+                border: `1px solid rgba(255,255,255,0.2)`,
+                height: 48,
+                borderRadius: 6,
+                fontSize: 15,
+                fontWeight: 700,
+                fontFamily: "'Montserrat', sans-serif",
+              }}
+            >
+              <Info size={18} /> Info
+            </button>
+          </div>
+        </motion.div>
+      </div>
 
-                {/* Access */}
-                <div>
-                  <p
-                    className="text-[9px] font-black uppercase tracking-[0.2em] mb-3"
-                    style={{ color: T.dim }}
-                  >
-                    Access
-                  </p>
-                  <div className="grid grid-cols-3 gap-2">
-                    {[
-                      { v: "any", l: "All" },
-                      { v: "free", l: "Free" },
-                      { v: "paid", l: "Paid" },
-                    ].map((opt) => (
-                      <button
-                        key={opt.v}
-                        onClick={() => patch("isPaid", opt.v)}
-                        className="h-11 flex items-center justify-center text-[9px] font-black uppercase tracking-widest transition-all"
-                        style={{
-                          background:
-                            localFilters.isPaid === opt.v ? G.dimBg : V.surface,
-                          color:
-                            localFilters.isPaid === opt.v ? G.bright : T.dim,
-                          border: `1px solid ${localFilters.isPaid === opt.v ? G.border : "rgba(255,255,255,0.04)"}`,
-                          fontFamily: "'Montserrat', sans-serif",
-                        }}
-                      >
-                        {opt.l}
-                      </button>
-                    ))}
-                  </div>
-                </div>
+      {/* Hero Indicators */}
+      <div
+        style={{
+          position: "absolute",
+          bottom: "5%",
+          left: 0,
+          right: 0,
+          display: "flex",
+          justifyContent: "center",
+          gap: 6,
+          zIndex: 10,
+        }}
+      >
+        {items.map((_, idx) => (
+          <div
+            key={idx}
+            style={{
+              width: idx === currentIndex ? 20 : 6,
+              height: 4,
+              borderRadius: 2,
+              background:
+                idx === currentIndex ? T.primary : "rgba(255,255,255,0.3)",
+              transition: "all 0.3s ease",
+            }}
+          />
+        ))}
+      </div>
+    </div>
+  );
+});
 
-                {/* Industry Relevance */}
-                <div>
-                  <p
-                    className="text-[9px] font-black uppercase tracking-[0.2em] mb-3"
-                    style={{ color: T.dim }}
-                  >
-                    Industry Relevance
-                  </p>
-                  <div className="grid grid-cols-2 gap-2">
-                    {["Any", "Strong", "Medium", "Weak"].map((r) => {
-                      const v = r === "Any" ? "" : r;
-                      const active = localFilters.industryRelevance === v;
-                      const color =
-                        r === "Strong"
-                          ? "#4ADE80"
-                          : r === "Medium"
-                            ? G.bright
-                            : T.dim;
-                      return (
-                        <button
-                          key={r}
-                          onClick={() => patch("industryRelevance", v)}
-                          className="h-11 flex items-center justify-center text-[9px] font-black uppercase tracking-widest transition-all"
-                          style={{
-                            background: active ? `${color}10` : V.surface,
-                            color: active ? color : T.dim,
-                            border: `1px solid ${active ? `${color}30` : "rgba(255,255,255,0.04)"}`,
-                            fontFamily: "'Montserrat', sans-serif",
-                          }}
-                        >
-                          {r}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
+// ─── Mobile Carousel Row ──────────────────────────────────────────────────────
+const MobileCarouselRow = memo(
+  ({
+    title,
+    items,
+    progressMap,
+    completionMap,
+    onSelect,
+    compact = true,
+    showMatch = false,
+  }) => {
+    if (!items || items.length === 0) return null;
 
-                {/* Bottom padding for safe area */}
-                <div className="h-4" />
-              </div>
+    return (
+      <div style={{ marginBottom: 36 }}>
+        <h2
+          style={{
+            fontSize: 18,
+            fontWeight: 800,
+            color: T.primary,
+            fontFamily: "'Montserrat', sans-serif",
+            marginLeft: 20,
+            marginBottom: 14,
+            letterSpacing: "0.02em",
+          }}
+        >
+          {title}
+        </h2>
 
-              {/* Apply CTA — bottom, thumb-reachable */}
-              <div
-                className="shrink-0 px-5 pb-8 pt-4"
-                style={{ borderTop: "1px solid rgba(255,255,255,0.05)" }}
-              >
-                <button
-                  onClick={handleApply}
-                  className="w-full h-14 flex items-center justify-center text-[10px] font-black uppercase tracking-[0.2em] transition-all"
-                  style={{
-                    background: G.base,
-                    color: "#030303",
-                    fontFamily: "'Montserrat', sans-serif",
-                  }}
-                >
-                  Apply Filters
-                  {activeCount > 0 && ` (${activeCount})`}
-                </button>
-              </div>
-            </motion.div>
-          </>
-        )}
-      </AnimatePresence>
+        <div
+          className="mobile-scroll-row"
+          style={{
+            display: "flex",
+            gap: 14,
+            overflowX: "auto",
+            padding: "0 20px",
+            paddingBottom: 12,
+          }}
+        >
+          {items.map((item, index) => (
+            <div
+              key={item.id}
+              className="snap-item"
+              style={{ flex: "0 0 auto", width: compact ? 160 : 260 }}
+            >
+              <LearnCard
+                item={item}
+                progress={progressMap[item.discotiveLearnId]}
+                completion={completionMap[item.discotiveLearnId]}
+                onSelect={onSelect}
+                isMobile={true}
+                compact={compact}
+                index={index}
+                algoScore={item.algoScore}
+                showMatchScore={showMatch}
+              />
+            </div>
+          ))}
+          {/* Spacer to allow full scroll of last item */}
+          <div className="snap-item" style={{ flex: "0 0 1px" }} />
+        </div>
+      </div>
     );
   },
 );
 
-// ── Mobile Skeleton Cards ─────────────────────────────────────────────────────
-const MobileSkeleton = memo(({ count = 8 }) => (
-  <div className="grid grid-cols-2 gap-0">
-    {Array.from({ length: count }).map((_, i) => (
-      <div
-        key={i}
-        className="animate-pulse"
-        style={{
-          aspectRatio: "9/14",
-          background: i % 2 === 0 ? V.depth : V.surface,
-        }}
-      />
-    ))}
-  </div>
-));
-
-// ── Empty State ───────────────────────────────────────────────────────────────
-const MobileEmpty = memo(({ activeTab, isAdmin, onAdminAdd }) => (
-  <div className="flex flex-col items-center justify-center py-24 px-8 text-center">
-    <div
-      className="w-16 h-16 flex items-center justify-center mb-5"
+// ─── Mobile Pro Gated Row ───────────────────────────────────────────────────
+const MobileProGatedRow = ({ title }) => (
+  <div style={{ marginBottom: 36, padding: "0 20px" }}>
+    <h2
       style={{
-        background: V.depth,
-        border: "1px solid rgba(255,255,255,0.04)",
+        fontSize: 18,
+        fontWeight: 800,
+        color: T.primary,
+        fontFamily: "'Montserrat', sans-serif",
+        marginBottom: 14,
       }}
     >
-      {activeTab === "videos" ? (
-        <Video
-          className="w-7 h-7"
-          style={{ color: "rgba(255,255,255,0.05)" }}
-        />
-      ) : (
-        <BookOpen
-          className="w-7 h-7"
-          style={{ color: "rgba(255,255,255,0.05)" }}
-        />
-      )}
-    </div>
-    <p
-      className="text-lg font-black mb-2"
-      style={{ color: T.primary, fontFamily: "'Montserrat', sans-serif" }}
+      {title}{" "}
+      <Lock
+        size={14}
+        color={G.base}
+        style={{ marginLeft: 4, display: "inline" }}
+      />
+    </h2>
+    <div
+      style={{
+        width: "100%",
+        height: 140,
+        background: `linear-gradient(135deg, ${V.surface}, rgba(191,162,100,0.05))`,
+        border: `1px dashed ${G.border}`,
+        borderRadius: 12,
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        textAlign: "center",
+        padding: 16,
+        position: "relative",
+        overflow: "hidden",
+      }}
+      onClick={() => (window.location.href = "/premium")}
     >
-      Nothing Found
-    </p>
-    <p className="text-xs mb-6 leading-relaxed" style={{ color: T.dim }}>
-      {isAdmin
-        ? "Add the first item to the library."
-        : "Try adjusting your filters."}
-    </p>
-    {isAdmin && (
-      <button
-        onClick={() => onAdminAdd(activeTab === "certs" ? "cert" : "video")}
-        className="flex items-center gap-2 h-12 px-6 text-[9px] font-black uppercase tracking-widest"
+      <div
         style={{
+          position: "absolute",
+          inset: 0,
+          background: `radial-gradient(circle at center, rgba(191,162,100,0.1) 0%, transparent 60%)`,
+        }}
+      />
+      <div
+        style={{
+          width: 40,
+          height: 40,
+          borderRadius: "50%",
           background: G.dimBg,
-          color: G.bright,
           border: `1px solid ${G.border}`,
-          fontFamily: "'Montserrat', sans-serif",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          marginBottom: 10,
+          zIndex: 1,
         }}
       >
-        <Plus className="w-3.5 h-3.5" />
-        Add {activeTab === "certs" ? "Course" : "Video"}
-      </button>
-    )}
+        <Crown size={20} color={G.bright} />
+      </div>
+      <span
+        style={{
+          fontSize: 14,
+          fontWeight: 800,
+          color: T.primary,
+          fontFamily: "'Montserrat', sans-serif",
+          zIndex: 1,
+        }}
+      >
+        Unlock Top Picks
+      </span>
+      <span
+        style={{
+          fontSize: 11,
+          color: T.secondary,
+          fontFamily: "'Poppins', sans-serif",
+          marginTop: 4,
+          zIndex: 1,
+        }}
+      >
+        Get personalized recommendations
+      </span>
+    </div>
   </div>
-));
+);
 
-// =============================================================================
-// LEARN MOBILE LAYOUT
-// =============================================================================
-const LearnMobileLayout = ({
-  certs,
-  videos,
-  rawCerts,
-  rawVideos,
-  loadingCerts,
-  loadingVideos,
-  isPaging,
-  hasMoreCerts,
-  hasMoreVideos,
-  error,
-  filters,
-  applyFilters,
-  resetFilters,
-  setSearch,
-  loadMoreCerts,
-  loadMoreVideos,
+// ─── Mobile Browse Grid ──────────────────────────────────────────────────────
+const MobileBrowseGrid = ({
+  items,
+  hasMore,
+  loadMore,
+  progressMap,
   completionMap,
   onSelect,
-  isAdmin,
-  onAdminAdd,
-  userData,
-  isPremium,
+  isPaging,
 }) => {
-  const [filterOpen, setFilterOpen] = useState(false);
-  const [searchFocused, setSearchFocused] = useState(false);
-  const searchRef = useRef(null);
-
-  const activeTab = filters.activeTab || "certs";
-  const displayItems = activeTab === "certs" ? certs : videos;
-  const isLoading = activeTab === "certs" ? loadingCerts : loadingVideos;
-  const hasMore = activeTab === "certs" ? hasMoreCerts : hasMoreVideos;
-  const loadMore = activeTab === "certs" ? loadMoreCerts : loadMoreVideos;
-
-  // Domain strip: "All" + DOMAINS
-  const domainOptions = useMemo(() => ["All", ...DOMAINS], []);
-
-  const handleDomainTap = useCallback(
-    (d) => {
-      applyFilters({ domain: d === "All" ? "" : d });
-    },
-    [applyFilters],
-  );
-
-  const handleTabSwitch = useCallback(
-    (tab) => {
-      applyFilters({ activeTab: tab });
-    },
-    [applyFilters],
-  );
-
-  // Active filter badge count (excludes domain/search/tab)
-  const filterBadgeCount = useMemo(() => {
-    let n = 0;
-    if (filters.difficulty) n++;
-    if (filters.isPaid !== "any") n++;
-    if (filters.industryRelevance) n++;
-    if (filters.sort !== "newest") n++;
-    if (filters.category) n++;
-    return n;
-  }, [filters]);
-
   return (
     <div
-      className="flex flex-col"
-      style={{
-        background: V.bg,
-        minHeight: "100dvh",
-        fontFamily: "'Poppins', sans-serif",
-      }}
+      style={{ padding: "20px 20px", minHeight: "80vh", paddingBottom: 120 }}
     >
-      {/* ── STICKY HEADER ──────────────────────────────────────────────── */}
-      <div
-        className="sticky top-0 z-20 shrink-0"
-        style={{
-          background: V.bg,
-          borderBottom: "1px solid rgba(255,255,255,0.04)",
-        }}
-      >
-        {/* Search bar row */}
-        <div className="flex items-center gap-3 px-4 py-3">
-          {/* Search input — full width */}
-          <div className="flex-1 relative">
-            <Search
-              className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 pointer-events-none"
-              style={{ color: searchFocused ? G.base : T.dim }}
-            />
-            <input
-              ref={searchRef}
-              type="search"
-              inputMode="search"
-              autoCapitalize="none"
-              value={filters.search || ""}
-              onChange={(e) => setSearch(e.target.value)}
-              onFocus={() => setSearchFocused(true)}
-              onBlur={() => setSearchFocused(false)}
-              placeholder="Search courses, videos, tags…"
-              className="w-full h-11 pl-10 pr-9 text-[12px] outline-none transition-all"
-              style={{
-                background: V.depth,
-                border: `1px solid ${searchFocused ? G.border : "rgba(255,255,255,0.06)"}`,
-                color: T.primary,
-                borderRadius: 0,
-              }}
-            />
-            {filters.search && (
-              <button
-                onClick={() => setSearch("")}
-                className="absolute right-3 top-1/2 -translate-y-1/2 w-5 h-5 flex items-center justify-center"
-                style={{ color: T.dim }}
-              >
-                <X className="w-3.5 h-3.5" />
-              </button>
-            )}
-          </div>
-
-          {/* Admin Add button */}
-          {isAdmin && (
-            <button
-              onClick={() =>
-                onAdminAdd(activeTab === "certs" ? "cert" : "video")
-              }
-              className="w-11 h-11 flex items-center justify-center shrink-0 transition-all"
-              style={{
-                background: G.dimBg,
-                border: `1px solid ${G.border}`,
-                color: G.bright,
-              }}
-            >
-              <Plus className="w-4 h-4" />
-            </button>
-          )}
-        </div>
-
-        {/* Tab row — Certs | Videos, 44px touch targets */}
+      {items.length === 0 && !isPaging ? (
         <div
-          className="flex"
-          style={{ borderTop: "1px solid rgba(255,255,255,0.04)" }}
-        >
-          {[
-            { id: "certs", icon: BookOpen, label: "Courses" },
-            { id: "videos", icon: Video, label: "Videos" },
-          ].map((tab) => {
-            const Icon = tab.icon;
-            const active = activeTab === tab.id;
-            return (
-              <button
-                key={tab.id}
-                onClick={() => handleTabSwitch(tab.id)}
-                className="flex-1 h-11 flex items-center justify-center gap-2 text-[9px] font-black uppercase tracking-widest transition-all select-none"
-                style={{
-                  background: active ? G.dimBg : "transparent",
-                  color: active ? G.bright : T.dim,
-                  borderBottom: active
-                    ? `2px solid ${G.bright}`
-                    : "2px solid transparent",
-                  fontFamily: "'Montserrat', sans-serif",
-                }}
-              >
-                <Icon className="w-3.5 h-3.5" />
-                {tab.label}
-                {active && displayItems.length > 0 && (
-                  <span className="text-[8px] opacity-60">
-                    ({displayItems.length})
-                  </span>
-                )}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* ── DOMAIN SNAP STRIP ─────────────────────────────────────────────── */}
-      <div
-        className="flex overflow-x-auto hide-scrollbar shrink-0"
-        style={{
-          scrollSnapType: "x mandatory",
-          WebkitOverflowScrolling: "touch",
-          borderBottom: "1px solid rgba(255,255,255,0.04)",
-          background: V.depth,
-        }}
-      >
-        {domainOptions.map((domain) => {
-          const val = domain === "All" ? "" : domain;
-          return (
-            <DomainChip
-              key={domain}
-              label={domain === "All" ? "All" : domain.split(" ")[0]}
-              active={filters.domain === val}
-              onClick={() => handleDomainTap(domain)}
-            />
-          );
-        })}
-        {/* Right padding ghost element */}
-        <div className="shrink-0 w-4" />
-      </div>
-
-      {/* ── PREMIUM ALGO FEED ─────────────────────────────────────────────── */}
-      {!filters.search && (
-        <PremiumAlgoFeed
-          rawCerts={rawCerts}
-          rawVideos={rawVideos}
-          userData={userData}
-          completionMap={completionMap}
-          onSelect={onSelect}
-          isPremium={isPremium}
-          isMobile={true}
-        />
-      )}
-
-      {/* ── CONTENT GRID ──────────────────────────────────────────────────── */}
-      <div className="flex-1">
-        {isLoading ? (
-          <MobileSkeleton count={8} />
-        ) : displayItems.length === 0 ? (
-          <MobileEmpty
-            activeTab={activeTab}
-            isAdmin={isAdmin}
-            onAdminAdd={onAdminAdd}
-          />
-        ) : (
-          <>
-            {/* 2-col borderless grid */}
-            <div className="grid grid-cols-2 gap-0">
-              {displayItems.map((item, idx) => (
-                <BorderlessAssetCard
-                  key={item.id}
-                  item={item}
-                  type={activeTab === "certs" ? "cert" : "video"}
-                  completion={completionMap[item.discotiveLearnId]}
-                  onSelect={onSelect}
-                  isMobile={true}
-                  index={idx}
-                />
-              ))}
-            </div>
-
-            {/* Load more — full-width, 56px touch target */}
-            {hasMore && !filters.search && (
-              <button
-                onClick={loadMore}
-                disabled={isPaging}
-                className="w-full h-14 flex items-center justify-center gap-2 text-[9px] font-black uppercase tracking-[0.18em] transition-all"
-                style={{
-                  background: V.depth,
-                  color: isPaging ? T.dim : T.secondary,
-                  borderTop: "1px solid rgba(255,255,255,0.04)",
-                  fontFamily: "'Montserrat', sans-serif",
-                }}
-              >
-                {isPaging ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <ChevronDown className="w-4 h-4" />
-                )}
-                {isPaging ? "Loading…" : "Load More"}
-              </button>
-            )}
-
-            {/* Bottom safe area for FAB */}
-            <div className="h-24" />
-          </>
-        )}
-      </div>
-
-      {/* ── FILTER FAB — thumb zone, bottom-right ─────────────────────────── */}
-      <div className="fixed bottom-20 right-4 z-[200]">
-        <motion.button
-          whileTap={{ scale: 0.93 }}
-          onClick={() => setFilterOpen(true)}
-          className="w-14 h-14 flex items-center justify-center relative"
           style={{
-            background: G.base,
-            color: "#030303",
-            boxShadow: `0 8px 32px rgba(191,162,100,0.35)`,
+            textAlign: "center",
+            padding: "100px 0",
+            color: T.secondary,
+            fontSize: 14,
+            fontFamily: "'Poppins', sans-serif",
           }}
         >
-          <SlidersHorizontal className="w-5 h-5" />
-          {filterBadgeCount > 0 && (
-            <div
-              className="absolute -top-1 -right-1 w-5 h-5 flex items-center justify-center text-[8px] font-black"
-              style={{
-                background: "#030303",
-                color: G.bright,
-                border: `1px solid ${G.border}`,
-              }}
-            >
-              {filterBadgeCount}
-            </div>
-          )}
-        </motion.button>
-      </div>
+          No content matches your search.
+        </div>
+      ) : (
+        <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 20 }}>
+          {items.map((item, idx) => (
+            <LearnCard
+              key={item.id}
+              item={item}
+              progress={progressMap[item.discotiveLearnId]}
+              completion={completionMap[item.discotiveLearnId]}
+              onSelect={onSelect}
+              isMobile={true}
+              index={idx}
+            />
+          ))}
+        </div>
+      )}
 
-      {/* ── FILTER BOTTOM SHEET ───────────────────────────────────────────── */}
-      <FilterSheet
-        open={filterOpen}
-        onClose={() => setFilterOpen(false)}
-        filters={filters}
-        applyFilters={applyFilters}
-        resetFilters={resetFilters}
-        activeTab={activeTab}
-      />
+      {hasMore && (
+        <div style={{ textAlign: "center", marginTop: 32 }}>
+          <button
+            onClick={loadMore}
+            disabled={isPaging}
+            style={{
+              background: V.surface,
+              border: `1px solid ${V.border}`,
+              color: T.primary,
+              height: 48,
+              width: "100%",
+              borderRadius: 6,
+              fontSize: 14,
+              fontWeight: 800,
+              fontFamily: "'Montserrat', sans-serif",
+              textTransform: "uppercase",
+              letterSpacing: "0.1em",
+            }}
+          >
+            {isPaging ? "Analyzing..." : "Load More"}
+          </button>
+        </div>
+      )}
     </div>
   );
 };
 
-LearnMobileLayout.displayName = "LearnMobileLayout";
+// ═════════════════════════════════════════════════════════════════════════════
+// MAIN LAYOUT
+// ═════════════════════════════════════════════════════════════════════════════
+const LearnMobileLayout = (props) => {
+  const {
+    heroItems,
+    algoFeed,
+    continueItems,
+    trendingDomain,
+    newCourses,
+    topVideos,
+    podcasts,
+    resources,
+    browseMode,
+    browseItems,
+    hasMore,
+    filters,
+    applyFilters,
+    setSearch,
+    enterBrowse,
+    exitBrowse,
+    loadMore,
+    isPaging,
+    progressMap,
+    completionMap,
+    onSelect,
+    onOpenPortfolio,
+    isAdmin,
+    onAdminAdd,
+    isPremium,
+    userData,
+  } = props;
+
+  const [localSearch, setLocalSearch] = useState(filters.search || "");
+  const [showSearch, setShowSearch] = useState(false);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setSearch(localSearch), 400);
+    return () => clearTimeout(timer);
+  }, [localSearch, setSearch]);
+
+  const navTypes = [
+    { id: "all", label: "Home" },
+    { id: "course", label: "Courses" },
+    { id: "video", label: "Masterclasses" },
+    { id: "podcast", label: "Podcasts" },
+    { id: "resource", label: "Resources" },
+  ];
+
+  return (
+    <div style={{ background: V.bg, minHeight: "100%", overflowX: "hidden" }}>
+      <HideScrollbarStyles />
+
+      {/* ─── Mobile Sticky Top Bar (Glassmorphism) ─────────────────────────── */}
+      <div
+        style={{
+          position: "sticky",
+          top: 0,
+          zIndex: 900,
+          background: "rgba(3,3,3,0.75)",
+          backdropFilter: "blur(20px)",
+          WebkitBackdropFilter: "blur(20px)",
+          borderBottom: `1px solid ${showSearch ? V.border : "transparent"}`,
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "12px 20px",
+            height: 64,
+          }}
+        >
+          {showSearch ? (
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                width: "100%",
+                gap: 12,
+              }}
+            >
+              <div style={{ position: "relative", flex: 1 }}>
+                <Search
+                  size={16}
+                  color={T.dim}
+                  style={{ position: "absolute", left: 16, top: 12 }}
+                />
+                <input
+                  type="text"
+                  placeholder="Search..."
+                  autoFocus
+                  value={localSearch}
+                  onChange={(e) => setLocalSearch(e.target.value)}
+                  style={{
+                    width: "100%",
+                    height: 40,
+                    background: "rgba(0,0,0,0.5)",
+                    border: `1px solid ${V.border}`,
+                    borderRadius: 20,
+                    padding: "0 16px 0 40px",
+                    color: T.primary,
+                    fontSize: 14,
+                    fontFamily: "'Poppins', sans-serif",
+                    outline: "none",
+                  }}
+                />
+              </div>
+              <button
+                onClick={() => {
+                  setShowSearch(false);
+                  setLocalSearch("");
+                  setSearch("");
+                }}
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: T.secondary,
+                  padding: 8,
+                }}
+              >
+                <X size={20} />
+              </button>
+            </div>
+          ) : (
+            <>
+              <h1
+                style={{
+                  fontSize: 22,
+                  fontWeight: 900,
+                  color: T.primary,
+                  fontFamily: "'Montserrat', sans-serif",
+                  margin: 0,
+                  letterSpacing: "-0.02em",
+                }}
+              >
+                Learn
+              </h1>
+              <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                <button
+                  onClick={() => setShowSearch(true)}
+                  style={{
+                    width: 40,
+                    height: 40,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    background: "none",
+                    border: "none",
+                    color: T.primary,
+                  }}
+                >
+                  <Search size={22} />
+                </button>
+                <button
+                  onClick={onOpenPortfolio}
+                  style={{
+                    width: 40,
+                    height: 40,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    background: "rgba(0,0,0,0.5)",
+                    border: `1px solid ${isPremium ? G.border : V.border}`,
+                    borderRadius: "50%",
+                    color: isPremium ? G.bright : T.dim,
+                  }}
+                >
+                  <FolderLock size={18} />
+                </button>
+                {isAdmin && (
+                  <button
+                    onClick={() => onAdminAdd("course")}
+                    style={{
+                      width: 40,
+                      height: 40,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      background: G.dimBg,
+                      border: `1px solid ${G.border}`,
+                      borderRadius: "50%",
+                      color: G.base,
+                    }}
+                  >
+                    <Plus size={20} />
+                  </button>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* Scrollable Navigation Pills */}
+        {!showSearch && (
+          <div
+            className="mobile-scroll-row"
+            style={{
+              display: "flex",
+              gap: 10,
+              padding: "0 20px 14px 20px",
+              overflowX: "auto",
+            }}
+          >
+            {navTypes.map((t) => {
+              const active = browseMode
+                ? filters.type === t.id
+                : t.id === "all";
+              return (
+                <button
+                  key={t.id}
+                  onClick={() =>
+                    t.id === "all" ? exitBrowse() : enterBrowse(t.id)
+                  }
+                  className="snap-item"
+                  style={{
+                    whiteSpace: "nowrap",
+                    padding: "8px 18px",
+                    borderRadius: 20,
+                    fontSize: 13,
+                    fontWeight: active ? 800 : 500,
+                    fontFamily: "'Montserrat', sans-serif",
+                    background: active ? T.primary : "rgba(255,255,255,0.05)",
+                    color: active ? "#000" : T.secondary,
+                    border: `1px solid ${active ? "transparent" : V.border}`,
+                    transition: "all 0.2s",
+                  }}
+                >
+                  {t.label}
+                </button>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* ─── Main Content Area ─────────────────────────────────────────────── */}
+      {browseMode || showSearch ? (
+        <MobileBrowseGrid
+          items={browseItems}
+          hasMore={hasMore}
+          loadMore={loadMore}
+          progressMap={progressMap}
+          completionMap={completionMap}
+          onSelect={onSelect}
+          isPaging={isPaging}
+        />
+      ) : (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.4 }}
+          style={{ paddingBottom: 100 }}
+        >
+          {/* Hero Banner shifts up behind header for immersion */}
+          <div style={{ marginTop: -110 }}>
+            <MobileHero items={heroItems} onSelect={onSelect} />
+          </div>
+
+          {/* Overlapping Content Rows */}
+          <div style={{ marginTop: -60, position: "relative", zIndex: 10 }}>
+            <MobileCarouselRow
+              title="Continue Learning"
+              items={continueItems}
+              progressMap={progressMap}
+              completionMap={completionMap}
+              onSelect={onSelect}
+              compact={false}
+            />
+
+            {isPremium ? (
+              <MobileCarouselRow
+                title="Top Picks for You"
+                items={algoFeed}
+                progressMap={progressMap}
+                completionMap={completionMap}
+                onSelect={onSelect}
+                compact={false}
+                showMatch={true}
+              />
+            ) : (
+              <MobileProGatedRow title="Top Picks for You" />
+            )}
+
+            <MobileCarouselRow
+              title={
+                userData?.identity?.domain
+                  ? `Trending in ${userData.identity.domain}`
+                  : "Trending Now"
+              }
+              items={trendingDomain}
+              progressMap={progressMap}
+              completionMap={completionMap}
+              onSelect={onSelect}
+              compact={false}
+            />
+            <MobileCarouselRow
+              title="New Releases"
+              items={newCourses}
+              progressMap={progressMap}
+              completionMap={completionMap}
+              onSelect={onSelect}
+              compact={true}
+            />
+            <MobileCarouselRow
+              title="Must-Watch Masterclasses"
+              items={topVideos}
+              progressMap={progressMap}
+              completionMap={completionMap}
+              onSelect={onSelect}
+              compact={false}
+            />
+            <MobileCarouselRow
+              title="Operator Podcasts"
+              items={podcasts}
+              progressMap={progressMap}
+              completionMap={completionMap}
+              onSelect={onSelect}
+              compact={true}
+            />
+            <MobileCarouselRow
+              title="Technical Resources"
+              items={resources}
+              progressMap={progressMap}
+              completionMap={completionMap}
+              onSelect={onSelect}
+              compact={true}
+            />
+          </div>
+        </motion.div>
+      )}
+    </div>
+  );
+};
+
 export default LearnMobileLayout;

@@ -29,6 +29,10 @@ admin.initializeApp();
 const db = admin.firestore();
 const { FieldValue } = require("firebase-admin/firestore");
 
+// Mount Modularized Engines
+const learnEngine = require("./learnEngineAlgo");
+exports.computeLearnAlgorithm = learnEngine.computeLearnAlgorithm;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // 1. CREATE PRO SUBSCRIPTION (HTTP endpoint, called from frontend)
 // ─────────────────────────────────────────────────────────────────────────────
