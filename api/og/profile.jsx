@@ -237,6 +237,13 @@ export default async function handler(req) {
         </div>
       </div>
     </div>,
-    { width: 1200, height: 630 },
+    {
+      width: 1200,
+      height: 630,
+      headers: {
+        "Cache-Control":
+          "public, immutable, no-transform, s-maxage=86400, max-age=86400",
+      },
+    },
   );
 }

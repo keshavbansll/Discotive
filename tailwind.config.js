@@ -32,9 +32,30 @@ export default {
           border: "rgba(255, 255, 255, 0.07)",
         },
       },
+      boxShadow: {
+        // Psychological depth: Ambient glows instead of harsh Web 2.0 drop shadows
+        "gold-glow": "0 0 20px rgba(191, 162, 100, 0.15)",
+        "gold-glow-intense": "0 0 30px rgba(212, 175, 120, 0.3)",
+        "void-elevation": "0 10px 40px -10px rgba(0,0,0,0.8)",
+      },
       fontFamily: {
         display: ["Montserrat", "sans-serif"],
         body: ["Poppins", "sans-serif"],
+      },
+      animation: {
+        // 60fps GPU accelerated fluid animations
+        "fade-in": "fadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards",
+        "slide-up": "slideUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards",
+      },
+      keyframes: {
+        fadeIn: {
+          "0%": { opacity: "0" },
+          "100%": { opacity: "1" },
+        },
+        slideUp: {
+          "0%": { opacity: "0", transform: "translateY(15px)" },
+          "100%": { opacity: "1", transform: "translateY(0)" },
+        },
       },
     },
   },

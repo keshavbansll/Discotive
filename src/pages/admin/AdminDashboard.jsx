@@ -102,7 +102,7 @@ import {
 } from "lucide-react";
 import { cn } from "../../lib/cn";
 
-import LearnAdminModal from "../../components/Learn/LearnAdminModal";
+import LearnAdminModal from "../../components/learn/LearnAdminModal";
 
 // ── Design tokens ─────────────────────────────────────────────────────────────
 const G = {

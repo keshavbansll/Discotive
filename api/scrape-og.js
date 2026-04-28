@@ -106,7 +106,7 @@ export default async function handler(req) {
   if (req.method === "OPTIONS") {
     return new Response(null, {
       headers: {
-        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Origin": "https://www.discotive.in",
         "Access-Control-Allow-Methods": "GET",
         "Access-Control-Allow-Headers": "Content-Type",
       },
@@ -211,6 +211,6 @@ function responseHeaders() {
   return {
     "Content-Type": "application/json",
     "Cache-Control": "public, s-maxage=86400, stale-while-revalidate=3600",
-    "Access-Control-Allow-Origin": "*",
+    "Access-Control-Allow-Origin": "https://www.discotive.in",
   };
 }
