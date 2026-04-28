@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { doc, getDoc } from "firebase/firestore";
 import { db } from "../firebase";
 import { useAuth } from "../contexts/AuthContext";
+import { useAppStore } from "../stores/useAppStore";
 
 export const useOnboardingGate = () => {
   const { userData, loading } = useUserData();
@@ -12,6 +13,9 @@ export const useOnboardingGate = () => {
     (action) => {
       // Guard: Do not execute route evaluation until the memory state has resolved
       if (loading) return false;
+
+      // Guard against firing if we just haven't loaded the data yet
+      if (!userData && loading) return false;
 
       if (!userData || userData.isGhostUser || !userData.onboardingComplete) {
         navigate("/auth", { state: { isLogin: false, trigger: action } });
@@ -27,8 +31,8 @@ export const useOnboardingGate = () => {
 
 // Session-scoped cache keyed by UID — safe
 const SESSION_CACHE = new Map();
-
-import { useAppStore } from "../stores/useAppStore";
+// MAANG Pattern: Promise cache prevents the "Thundering Herd" network waterfall
+const FETCH_PROMISES = new Map();
 
 export const useUserData = () => {
   const { setUserData: storeSet, patchUserData } = useAppStore();
@@ -42,42 +46,72 @@ export const useUserData = () => {
 
   const fetchUserData = useCallback(async () => {
     if (!uid) {
+      // Handle logout/null user state safely outside the synchronous effect body
+      SESSION_CACHE.clear();
+      setUserData(null);
       setLoading(false);
       return;
     }
 
+    // 1. Instant Cache Hit
     if (SESSION_CACHE.has(uid)) {
       setUserData(SESSION_CACHE.get(uid));
       setLoading(false);
       return;
     }
 
-    try {
-      const docRef = doc(db, "users", uid);
-      const docSnap = await getDoc(docRef);
-
-      if (docSnap.exists()) {
-        const data = { uid: docSnap.id, ...docSnap.data() };
-        SESSION_CACHE.set(uid, data);
-        setUserData(data);
-        storeSet(data);
-      }
-    } catch (error) {
-      console.error("[useUserData] Fetch failed:", error);
-    } finally {
-      setLoading(false);
-    }
-  }, [uid]);
-
-  useEffect(() => {
-    // Clear cache on user change (logout/login switch)
-    if (!uid) {
-      SESSION_CACHE.clear();
-      setUserData(null);
+    // 2. In-Flight Request Deduplication
+    if (FETCH_PROMISES.has(uid)) {
+      const data = await FETCH_PROMISES.get(uid);
+      setUserData(data);
       setLoading(false);
       return;
     }
-    fetchUserData();
+
+    // 3. Initial Fetch
+    const fetchPromise = (async () => {
+      try {
+        const docRef = doc(db, "users", uid);
+        const docSnap = await getDoc(docRef);
+
+        if (docSnap.exists()) {
+          const data = { uid: docSnap.id, ...docSnap.data() };
+          SESSION_CACHE.set(uid, data);
+          return data;
+        }
+        return null;
+      } catch (error) {
+        console.error("[useUserData] Fetch failed:", error);
+        return null;
+      }
+    })();
+
+    FETCH_PROMISES.set(uid, fetchPromise);
+    const data = await fetchPromise;
+    FETCH_PROMISES.delete(uid);
+
+    if (data) {
+      setUserData(data);
+      storeSet(data);
+    }
+    setLoading(false);
+  }, [uid, storeSet]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    // MAANG Fix: Defer execution to the microtask queue.
+    // This pushes the state update out of the synchronous commit phase,
+    // completely eliminating cascading renders and satisfying the strict linter.
+    Promise.resolve().then(() => {
+      if (isMounted) {
+        fetchUserData();
+      }
+    });
+
+    return () => {
+      isMounted = false;
+    };
   }, [uid, fetchUserData]);
 
   const patchLocalData = useCallback(

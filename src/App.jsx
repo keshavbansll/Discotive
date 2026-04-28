@@ -92,7 +92,8 @@ const NotificationRouteHandler = () => {
 
 const RouteChunkLoader = () => (
   <div className="fixed inset-0 z-[9998] bg-[#030303] flex items-center justify-center">
-    <div className="w-8 h-8 border-2 border-amber-500 border-t-transparent rounded-full animate-spin drop-shadow-[0_0_10px_rgba(245,158,11,0.5)]" />
+    {/* Enforcing the Gold & Void Protocol for micro-interactions */}
+    <div className="w-8 h-8 border-2 border-[#BFA264] border-t-transparent rounded-full animate-spin drop-shadow-[0_0_15px_rgba(191,162,100,0.4)]" />
   </div>
 );
 

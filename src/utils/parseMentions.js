@@ -37,9 +37,12 @@ export const renderAST = (ast, navigate) => {
     if (seg.type === "mention") {
       return (
         <span
-          key={i}
-          className="text-[#BFA264] font-semibold cursor-pointer hover:underline"
-          onClick={() => navigate?.(`/@${seg.handle}`)}
+          key={`mention-${i}`}
+          className="text-[var(--gold-1)] font-semibold cursor-pointer hover:text-[var(--gold-2)] transition-colors duration-200"
+          onClick={(e) => {
+            e.stopPropagation(); // CRITICAL: Prevents triggering the parent Post Card click
+            navigate?.(`/@${seg.handle}`);
+          }}
         >
           {seg.value}
         </span>
@@ -48,14 +51,17 @@ export const renderAST = (ast, navigate) => {
     if (seg.type === "hashtag") {
       return (
         <span
-          key={i}
-          className="text-sky-400 cursor-pointer hover:underline font-medium"
-          onClick={() => navigate?.(`/app/connective?tag=${seg.tag}`)}
+          key={`hashtag-${i}`}
+          className="text-sky-400 cursor-pointer hover:text-sky-300 transition-colors duration-200 font-medium"
+          onClick={(e) => {
+            e.stopPropagation(); // CRITICAL: Prevents triggering the parent Post Card click
+            navigate?.(`/app/connective?tag=${seg.tag}`);
+          }}
         >
           {seg.value}
         </span>
       );
     }
-    return <span key={i}>{seg.value}</span>;
+    return <span key={`text-${i}`}>{seg.value}</span>;
   });
 };

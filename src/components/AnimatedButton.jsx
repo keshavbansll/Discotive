@@ -42,18 +42,17 @@ const AnimatedButton = ({
 
   const activeVariant = variants[variant];
 
+  // Lifted event handlers out of the inner motion.div
   const content = (
     <motion.div
       initial="rest"
       whileHover="hover"
       animate="rest"
       className={cn(
-        "relative flex items-center justify-center font-bold text-sm tracking-wide",
+        "relative flex items-center justify-center font-bold text-sm tracking-wide w-full h-full",
         activeVariant.container,
         className,
       )}
-      onMouseEnter={onMouseEnter}
-      onClick={onClick}
     >
       {/* Liquid Fill Element (Bottom to Top) */}
       {(variant === "outline" || variant === "solid") && (
@@ -111,9 +110,39 @@ const AnimatedButton = ({
     </motion.div>
   );
 
-  if (to) return <Link to={to}>{content}</Link>;
-  if (href) return <a href={href}>{content}</a>;
-  return <button>{content}</button>;
+  // Bound handlers to the semantic interactive root
+  if (to)
+    return (
+      <Link
+        to={to}
+        onClick={onClick}
+        onMouseEnter={onMouseEnter}
+        className="block"
+      >
+        {content}
+      </Link>
+    );
+  if (href)
+    return (
+      <a
+        href={href}
+        onClick={onClick}
+        onMouseEnter={onMouseEnter}
+        className="block"
+      >
+        {content}
+      </a>
+    );
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      onMouseEnter={onMouseEnter}
+      className="block w-full"
+    >
+      {content}
+    </button>
+  );
 };
 
 export default AnimatedButton;

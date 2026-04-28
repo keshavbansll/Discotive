@@ -5,17 +5,13 @@
 import React, {
   useState,
   useEffect,
+  useLayoutEffect,
   useRef,
   useCallback,
-  useMemo,
 } from "react";
-import { useNavigate, Link, useLocation } from "react-router-dom";
-import {
-  motion,
-  AnimatePresence,
-  useMotionValue,
-  useSpring,
-} from "framer-motion";
+import { useNavigate, useLocation } from "react-router-dom";
+// eslint-disable-next-line no-unused-vars
+import { motion, AnimatePresence } from "framer-motion";
 import { httpsCallable } from "firebase/functions";
 import {
   createUserWithEmailAndPassword,
@@ -36,7 +32,6 @@ import {
 } from "firebase/firestore";
 import { auth, db, functions } from "../../firebase";
 import { createPortal } from "react-dom";
-import { awardOnboardingComplete } from "../../lib/scoreEngine";
 import { useOnboardingStore } from "../../stores/useOnboardingStore";
 import { Helmet } from "react-helmet-async";
 
@@ -1590,6 +1585,7 @@ function StepVerifyEmail({ email, firstName, onVerified, onBack }) {
             ref={(el) => (refs.current[i] = el)}
             type="text"
             inputMode="numeric"
+            autoComplete="one-time-code"
             maxLength={1}
             value={d}
             onChange={(e) => handleChange(i, e.target.value)}
@@ -1664,10 +1660,10 @@ function StepIdentity({ onSubmit, onBack, loading, error }) {
 
   useEffect(() => {
     if (debouncedUN.length < 3) {
-      setAvailable(null);
+      // Bail early. State resets are already handled instantly by the onChange handler.
       return;
     }
-    setChecking(true);
+
     let active = true;
     (async () => {
       try {
@@ -1678,7 +1674,8 @@ function StepIdentity({ onSubmit, onBack, loading, error }) {
           ),
         );
         if (active) setAvailable(snap.empty);
-      } catch {
+      } catch (err) {
+        console.warn("[Identity] Availability check failed:", err);
       } finally {
         if (active) setChecking(false);
       }
@@ -1737,12 +1734,19 @@ function StepIdentity({ onSubmit, onBack, loading, error }) {
               style={{ paddingLeft: 34, paddingRight: 44 }}
               type="text"
               value={username}
-              onChange={(e) =>
-                setField(
-                  "username",
-                  e.target.value.replace(/[^a-zA-Z0-9_]/g, "").toLowerCase(),
-                )
-              }
+              onChange={(e) => {
+                const val = e.target.value
+                  .replace(/[^a-zA-Z0-9_]/g, "")
+                  .toLowerCase();
+                setField("username", val);
+                if (val.length < 3) {
+                  setAvailable(null);
+                  setChecking(false);
+                } else {
+                  setAvailable(null);
+                  setChecking(true); // Instant feedback while debouncing
+                }
+              }}
               placeholder=" "
               required
               maxLength={30}
@@ -2817,7 +2821,7 @@ function StepPremium({ firstName, onUpgrade, onSkip, loading }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // STEP 8 — EXECUTION SEQUENCE (Final boot animation + Firestore write)
 // ─────────────────────────────────────────────────────────────────────────────
-function StepExecution({ uid, onComplete }) {
+function StepExecution({ onComplete }) {
   const [phase, setPhase] = useState("tasks"); // tasks | bonus | done
   const [taskIdx, setTaskIdx] = useState(0);
   const [score, setScore] = useState(0);
@@ -2845,6 +2849,7 @@ function StepExecution({ uid, onComplete }) {
       setScore(cur);
       if (cur >= to) clearInterval(iv);
     }, ms);
+    return () => clearInterval(iv); // Prevent memory leaks and double-firing in Strict Mode
   }, []);
 
   useEffect(() => {
@@ -2863,11 +2868,12 @@ function StepExecution({ uid, onComplete }) {
   }, [taskIdx, phase, tasks.length]);
 
   useEffect(() => {
+    let clearAnim = () => {};
     if (phase === "bonus") {
       // Defer state updates to the next macro-task to prevent synchronous cascading renders
       const initTimer = setTimeout(() => {
         addToast("Initialization bonus: +50 pts", "green");
-        animScore(0, 50, 20);
+        clearAnim = animScore(0, 50, 20);
       }, 0);
 
       const phaseTimer = setTimeout(() => setPhase("done"), 2600);
@@ -2875,6 +2881,7 @@ function StepExecution({ uid, onComplete }) {
       return () => {
         clearTimeout(initTimer);
         clearTimeout(phaseTimer);
+        clearAnim();
       };
     }
   }, [phase, animScore, addToast]);
@@ -3212,8 +3219,8 @@ export default function AuthOrchestrator() {
   const [showExecution, setShowExecution] = useState(false);
   const [signupsOpen, setSignupsOpen] = useState(true);
 
-  // Inject CSS
-  useEffect(() => {
+  // Inject CSS BEFORE the browser paints to prevent a jarring white flash (FOUC)
+  useLayoutEffect(() => {
     const el = document.createElement("style");
     el.textContent = GLOBAL_CSS;
     document.head.appendChild(el);
@@ -3256,7 +3263,7 @@ export default function AuthOrchestrator() {
           setSignupsOpen(false);
         }
       })
-      .catch(() => {});
+      .catch((err) => console.warn("[Config] System fetch bypassed:", err));
   }, []);
 
   // Global Auth Guard: Username is the absolute source of truth.
@@ -3270,7 +3277,9 @@ export default function AuthOrchestrator() {
         if (snap.exists() && dbUsername && dbUsername.trim().length >= 3) {
           navigate("/app", { replace: true });
         }
-      } catch {}
+      } catch (err) {
+        console.warn("[Auth Guard] Check bypassed:", err);
+      }
     });
     return unsub;
   }, [navigate]);
@@ -3331,7 +3340,9 @@ export default function AuthOrchestrator() {
 
       // Prevent New Google Signups if locked
       if (!snap.exists() && !signupsOpen) {
-        await user.delete().catch(() => {});
+        await user
+          .delete()
+          .catch((err) => console.warn("Ghost deletion skipped:", err));
         setErr("New signups are currently locked for early testing.");
         setLocalLoading(false);
         return;
@@ -3467,7 +3478,7 @@ export default function AuthOrchestrator() {
       await sendFn({ email, firstName });
       store.setStep("verify");
     } catch (err) {
-      setErr("Failed to send verification email. Please try again.");
+      console.warn("Email dispatch failed:", err);
     } finally {
       // Ensure loading drops if we didn't early return
       if (store.step !== "login") {
@@ -3843,10 +3854,7 @@ export default function AuthOrchestrator() {
 
       <AnimatePresence>
         {showExecution && (
-          <StepExecution
-            uid={store.uid || auth.currentUser?.uid}
-            onComplete={handleExecutionComplete}
-          />
+          <StepExecution onComplete={handleExecutionComplete} />
         )}
       </AnimatePresence>
     </div>

@@ -15,28 +15,30 @@ export const usePushNotifications = (uid) => {
     if (!uid || !("Notification" in window) || !("serviceWorker" in navigator))
       return;
 
-    const setup = async () => {
-      // Only ask once per browser
-      const alreadyAsked = localStorage.getItem(PUSH_ASKED_KEY);
-      if (alreadyAsked) {
-        if (Notification.permission === "granted") await registerToken(uid);
-        return;
-      }
-
-      // Ask after 30s on first visit to reduce permission fatigue
-      const timer = setTimeout(async () => {
-        localStorage.setItem(PUSH_ASKED_KEY, "1");
-        try {
-          const permission = await Notification.requestPermission();
-          if (permission === "granted") await registerToken(uid);
-        } catch (_) {}
-      }, 30000);
-
-      return () => clearTimeout(timer);
-    };
-
-    setup();
+    // Silent check: If they already granted permission previously, boot up the worker
+    if (Notification.permission === "granted") {
+      registerToken(uid).catch(console.warn);
+    }
   }, [uid]);
+
+  // MAANG Fix: Export a manual trigger to be called strictly via onClick (Required for Apple/Safari)
+  const requestPushPermission = async () => {
+    if (!uid || !("Notification" in window)) return false;
+    try {
+      localStorage.setItem(PUSH_ASKED_KEY, "1");
+      const permission = await Notification.requestPermission();
+      if (permission === "granted") {
+        await registerToken(uid);
+        return true;
+      }
+      return false;
+    } catch (err) {
+      console.warn("Push permission failed:", err);
+      return false;
+    }
+  };
+
+  return { requestPushPermission };
 };
 
 const registerToken = async (uid) => {

@@ -17,19 +17,20 @@ import { db } from "../firebase";
 
 // ── Default scoring config (overridden by system/scoring_config) ─────────────
 export const SCORE_DEFAULTS = {
-  vaultVerifiedStrong: 30,
-  vaultVerifiedMedium: 20,
-  vaultVerifiedWeak: 10,
-  allianceForged: 15,
-  allianceRequestSent: 5,
-  taskCompleted: 5,
-  taskReverted: -15,
-  nodeCoreCompleted: 30,
-  nodeBranchCompleted: 15,
-  videoWatchFull: 10,
-  appVerified: 25,
-  githubRepoVerified: 25,
-  onboardingBonus: 50,
+  // THE NEW STANDARD OF HIRING (Strict Credibility Protocol)
+  vaultVerifiedStrong: 100, // High-signal proof of work
+  vaultVerifiedMedium: 50, // Vetted proof
+  vaultVerifiedWeak: 0, // No inflation for weak assets
+  allianceForged: 25, // Mutual credibility established
+  allianceRequestSent: 0, // Zero points. Prevents spamming connection requests.
+  nodeCoreCompleted: 50, // Major execution milestone
+  nodeBranchCompleted: 20, // Minor execution step
+  taskCompleted: 0, // Basic to-dos do not inflate FICO score
+  taskReverted: 0,
+  videoWatchFull: 0, // Engagement does NOT equal execution
+  appVerified: 0, // Connecting an app is standard, not an achievement
+  githubRepoVerified: 0, // (Assets from Github should be Vault-verified for points instead)
+  onboardingBonus: 50, // OS Initialization
 };
 
 // ── Cached config ─────────────────────────────────────────────────────────────

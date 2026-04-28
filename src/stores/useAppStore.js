@@ -12,7 +12,11 @@ export const useAppStore = create((set, get) => ({
     try {
       indexedDB.deleteDatabase("discotive-cache");
       localStorage.removeItem("discotive-query-cache");
-    } catch {}
+      // Ensure all persisted Zustand stores are nuked on logout
+      localStorage.removeItem("discotive-onboarding-v2");
+    } catch (err) {
+      console.warn("[System] Cache flush interrupted:", err);
+    }
     set({ sessionCache: {} });
   },
 }));

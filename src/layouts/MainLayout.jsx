@@ -196,27 +196,51 @@ const ActivityWidget = ({ userData }) => {
                 Global Top {globalPct}%
               </span>
             </div>
-            <div className="flex-1 h-6 mx-2 min-w-[60px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={chartData}>
-                  <defs>
-                    <linearGradient id="actSparkG" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#BFA264" stopOpacity={0.4} />
-                      <stop offset="100%" stopColor="#BFA264" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <YAxis domain={["dataMin - 10", "dataMax + 10"]} hide />
-                  <Area
-                    type="monotone"
-                    dataKey="score"
-                    stroke="#BFA264"
-                    strokeWidth={1.5}
-                    fill="url(#actSparkG)"
-                    dot={false}
-                    isAnimationActive={false}
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
+            <div className="flex-1 h-6 mx-2 min-w-[60px] relative">
+              {/* Only render the heavy SVG chart when fully expanded to prevent ResizeObserver layout thrashing */}
+              {expanded && (
+                <motion.div
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  transition={{ delay: 0.2, duration: 0.2 }}
+                  className="absolute inset-0"
+                >
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={chartData}>
+                      <defs>
+                        <linearGradient
+                          id="actSparkG"
+                          x1="0"
+                          y1="0"
+                          x2="0"
+                          y2="1"
+                        >
+                          <stop
+                            offset="0%"
+                            stopColor="#BFA264"
+                            stopOpacity={0.4}
+                          />
+                          <stop
+                            offset="100%"
+                            stopColor="#BFA264"
+                            stopOpacity={0}
+                          />
+                        </linearGradient>
+                      </defs>
+                      <YAxis domain={["dataMin - 10", "dataMax + 10"]} hide />
+                      <Area
+                        type="monotone"
+                        dataKey="score"
+                        stroke="#BFA264"
+                        strokeWidth={1.5}
+                        fill="url(#actSparkG)"
+                        dot={false}
+                        isAnimationActive={false}
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </motion.div>
+              )}
             </div>
             <button
               onClick={(e) => {
@@ -508,24 +532,6 @@ const MainLayout = () => {
   // Boot sequence no longer triggers processDailyConsistency.
 
   // ── CORE OS BOOT: Daily Consistency Check [DEPRECATED] ───────────────────
-  // --- STRICT CLICK-OUTSIDE REFS ---
-  const profileMenuRef = useRef(null);
-
-  useEffect(() => {
-    const handleClickOutside = (event) => {
-      // Close profile menu if clicked outside
-      if (
-        profileMenuRef.current &&
-        !profileMenuRef.current.contains(event.target)
-      ) {
-        setShowProfileMenu(false);
-        setShowLanguageMenu(false); // Reset nested menu
-      }
-    };
-
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
 
   // MAANG-GRADE FIX: Pre-emptive Navigation State Override
   // React 18 holds Suspense transitions in the background by default, causing
@@ -977,7 +983,7 @@ const MainLayout = () => {
 
   return (
     <div
-      className="flex h-[100ddvh] bg-[#030303] overflow-hidden text-white selection:bg-white selection:text-black w-full fixed inset-0"
+      className="flex h-[100dvh] bg-[#030303] overflow-hidden text-white selection:bg-white selection:text-black w-full fixed inset-0"
       onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}
     >
@@ -1526,10 +1532,7 @@ const MainLayout = () => {
           </div>
 
           {/* --- PROFILE DROPDOWN ENGINE (Mobile: Left, Desktop: Right) --- */}
-          <div
-            className="relative order-1 md:order-5 shrink-0"
-            ref={profileMenuRef}
-          >
+          <div className="relative order-1 md:order-5 shrink-0">
             <button
               onClick={() => {
                 setShowProfileMenu(!showProfileMenu);

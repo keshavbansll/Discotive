@@ -33,7 +33,7 @@ import {
   MICRO_NICHES,
   LANGUAGES,
   RAW_SKILLS,
-} from "../../pages/Auth/constants/taxonomy";
+} from "../../lib/constants/taxonomy";
 
 // ── Design Tokens ─────────────────────────────────────────────────────────────
 const G = {

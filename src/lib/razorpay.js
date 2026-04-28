@@ -5,6 +5,17 @@
 
 export const loadRazorpay = () => {
   return new Promise((resolve) => {
+    if (window.Razorpay) return resolve(true); // Already loaded
+
+    const existingScript = document.querySelector(
+      'script[src="https://checkout.razorpay.com/v1/checkout.js"]',
+    );
+    if (existingScript) {
+      existingScript.onload = () => resolve(true);
+      existingScript.onerror = () => resolve(false);
+      return;
+    }
+
     const script = document.createElement("script");
     script.src = "https://checkout.razorpay.com/v1/checkout.js";
     script.onload = () => resolve(true);

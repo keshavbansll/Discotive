@@ -34,8 +34,11 @@ const TierGate = ({
 
   return (
     <div className="relative w-full h-full group overflow-hidden rounded-2xl border border-[#222] bg-[#050505]">
-      {/* The Blurred Background Feature */}
-      <div className="absolute inset-0 opacity-20 blur-sm pointer-events-none select-none grayscale">
+      {/* The Blurred Background Feature - Hardened Paywall */}
+      <div
+        className="absolute inset-0 opacity-20 blur-md pointer-events-none select-none grayscale overflow-hidden"
+        style={{ userSelect: "none", WebkitUserSelect: "none" }}
+      >
         {children}
       </div>
 

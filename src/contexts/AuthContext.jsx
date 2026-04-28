@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useState, useMemo } from "react";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth } from "../firebase";
 
@@ -16,12 +16,13 @@ export const AuthProvider = ({ children }) => {
     return unsubscribe;
   }, []);
 
-  // CRITICAL FIX: Export loading in context value
-  return (
-    <AuthContext.Provider value={{ currentUser, loading }}>
-      {children}
-    </AuthContext.Provider>
+  // MAANG Optimization: Memoize the context value to prevent global re-render cascades
+  const value = useMemo(
+    () => ({ currentUser, loading }),
+    [currentUser, loading],
   );
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
 
 export const useAuth = () => useContext(AuthContext);

@@ -9,7 +9,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { ChevronDown, X, Loader2 } from "lucide-react";
 
 export const inputClass =
-  "w-full bg-[#121212] border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-white/40 transition-all placeholder-[#555] text-sm";
+  "w-full bg-[#121212] border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-[#BFA264]/50 focus:bg-[#161616] focus:shadow-[0_0_15px_rgba(191,162,100,0.1)] transition-all placeholder-[#555] text-sm";
 export const labelClass =
   "block text-[10px] font-bold text-[#888] uppercase tracking-[0.2em] mb-2 px-1";
 
@@ -32,12 +32,19 @@ export const CustomSearchSelect = React.memo(
 
     useEffect(() => {
       const handler = (e) => {
-        if (wrapperRef.current && !wrapperRef.current.contains(e.target))
+        if (wrapperRef.current && !wrapperRef.current.contains(e.target)) {
           setIsOpen(false);
+          // MAANG UX Fix: Auto-commit custom text if they click away, or revert if custom isn't allowed
+          if (allowCustom && query.trim() !== "" && query !== value) {
+            onChange(query.trim());
+          } else if (!allowCustom && query !== value) {
+            setQuery(value || ""); // Revert to last valid selected state
+          }
+        }
       };
       document.addEventListener("mousedown", handler);
       return () => document.removeEventListener("mousedown", handler);
-    }, []);
+    }, [query, value, allowCustom, onChange]);
 
     const filtered = useMemo(
       () =>

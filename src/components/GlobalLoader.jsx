@@ -1,13 +1,17 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 
 const GlobalLoader = ({ isReady, onComplete }) => {
+  // MAANG Fix: Use a lazy initializer callback to strictly adhere to React purity rules.
+  // This ensures performance.now() is executed exactly once upon mounting, never during re-renders.
+  const [mountTime] = useState(() => performance.now());
+
   useEffect(() => {
     if (!isReady) return;
 
     const MIN_DISPLAY_MS = 500;
-    const timeElapsed = performance.now();
-    const remainingTime = Math.max(0, MIN_DISPLAY_MS - timeElapsed);
+    const elapsed = performance.now() - mountTime;
+    const remainingTime = Math.max(0, MIN_DISPLAY_MS - elapsed);
 
     const timer = setTimeout(() => {
       onComplete();

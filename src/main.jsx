@@ -6,10 +6,16 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
-      staleTime: 1000 * 60 * 2,
-      gcTime: 1000 * 60 * 10,
-      retry: 1,
-      refetchOnWindowFocus: false,
+      staleTime: 1000 * 60 * 2, // 2 minutes before stale
+      gcTime: 1000 * 60 * 10, // 10 minutes garbage collection
+      retry: (failureCount, error) => {
+        // Do not retry 401/403/404s to save bandwidth, retry network drops up to 3 times
+        if ([401, 403, 404].includes(error?.response?.status)) return false;
+        return failureCount < 3;
+      },
+      refetchOnWindowFocus: true, // Crucial for the "always live" OTT feel
+      refetchOnReconnect: true, // Instantly sync when campus Wi-Fi reconnects
+      refetchOnMount: false, // Prevent redundant fetches on component remounts
     },
   },
 });

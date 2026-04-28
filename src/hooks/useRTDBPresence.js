@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useRef } from "react";
 import {
   ref,
   onValue,
@@ -15,6 +15,15 @@ export const useRTDBPresence = (userData) => {
   const { currentUser } = useAuth();
   const { setOnlineCount, pushLiveEvent, setLiveEvents } = useConnectiveStore();
 
+  // Track mutable data without triggering effect re-runs
+  const userMeta = useRef({ username: "operator", domain: "General" });
+  useEffect(() => {
+    userMeta.current = {
+      username: userData?.identity?.username || "operator",
+      domain: userData?.identity?.domain || "General",
+    };
+  }, [userData?.identity?.username, userData?.identity?.domain]);
+
   useEffect(() => {
     if (!currentUser?.uid) return;
 
@@ -26,11 +35,19 @@ export const useRTDBPresence = (userData) => {
       set(presenceRef, {
         online: true,
         uid: currentUser.uid,
-        username: userData?.identity?.username || "operator",
-        domain: userData?.identity?.domain || "General",
+        username: userMeta.current.username,
+        domain: userMeta.current.domain,
         ts: serverTimestamp(),
       });
-      onDisconnect(presenceRef).set({ online: false, ts: serverTimestamp() });
+      // MAANG Fix: Cancel any queued disconnects before setting a new one to prevent server-side memory leaks
+      onDisconnect(presenceRef)
+        .cancel()
+        .then(() => {
+          onDisconnect(presenceRef).set({
+            online: false,
+            ts: serverTimestamp(),
+          });
+        });
     });
 
     const presenceListRef = ref(rtdb, "presence");
@@ -57,11 +74,5 @@ export const useRTDBPresence = (userData) => {
       off(telemetryRef, "value", telemetryHandler);
       set(presenceRef, { online: false, ts: serverTimestamp() });
     };
-  }, [
-    setLiveEvents,
-    setOnlineCount,
-    currentUser?.uid,
-    userData?.identity?.username,
-    userData?.identity?.domain,
-  ]);
+  }, [setLiveEvents, setOnlineCount, currentUser?.uid]);
 };
