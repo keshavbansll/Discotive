@@ -17,20 +17,42 @@ import { db } from "../firebase";
 
 // ── Default scoring config (overridden by system/scoring_config) ─────────────
 export const SCORE_DEFAULTS = {
-  // THE NEW STANDARD OF HIRING (Strict Credibility Protocol)
-  vaultVerifiedStrong: 100, // High-signal proof of work
-  vaultVerifiedMedium: 50, // Vetted proof
-  vaultVerifiedWeak: 0, // No inflation for weak assets
-  allianceForged: 25, // Mutual credibility established
-  allianceRequestSent: 0, // Zero points. Prevents spamming connection requests.
-  nodeCoreCompleted: 50, // Major execution milestone
-  nodeBranchCompleted: 20, // Minor execution step
-  taskCompleted: 0, // Basic to-dos do not inflate FICO score
-  taskReverted: 0,
-  videoWatchFull: 0, // Engagement does NOT equal execution
-  appVerified: 0, // Connecting an app is standard, not an achievement
-  githubRepoVerified: 0, // (Assets from Github should be Vault-verified for points instead)
-  onboardingBonus: 50, // OS Initialization
+  // ── Course completion (vault-verified) ───────────────────────────────────
+  courseVerifiedStrong: 25,
+  courseVerifiedMedium: 20,
+  courseVerifiedWeak: 15,
+
+  // ── Vault assets (non-course) ─────────────────────────────────────────────
+  vaultVerifiedStrong: 25,
+  vaultVerifiedMedium: 20,
+  vaultVerifiedWeak: 15,
+
+  // ── GitHub repo synced (vault-verified) ──────────────────────────────────
+  githubRepoExceptional: 100,
+  githubRepoStrong: 50,
+  githubRepoMedium: 30,
+  githubRepoWeak: 15,
+
+  // ── App connections ───────────────────────────────────────────────────────
+  appConnected: 2,
+  appDisconnected: -2,
+
+  // ── Network ───────────────────────────────────────────────────────────────
+  allianceRequestAcceptedSender: 1, // person who sent request
+  allianceRequestAcceptedReceiver: 2, // person who accepted request
+
+  // ── Feed resonance ────────────────────────────────────────────────────────
+  postReactionsPer100: 2, // +2 per 100 reactions on a post
+
+  // ── Learn suggestion accepted ─────────────────────────────────────────────
+  learnSuggestionAccepted: 1,
+
+  // ── Agenda weekly consistency ─────────────────────────────────────────────
+  agendaWeeklyStreak: 1,
+
+  // ── Onboarding ────────────────────────────────────────────────────────────
+  onboardingBonus: 50,
+  profileCompletionBonus: 50,
 };
 
 // ── Cached config ─────────────────────────────────────────────────────────────
@@ -151,21 +173,93 @@ export const awardNodeCompletion = async (userId, nodeType) => {
   if (pts) mutateScore(userId, pts, reason);
 };
 
-export const awardVaultVerification = async (userId, strength) => {
+export const awardVaultVerification = async (
+  userId,
+  strength,
+  assetType = "vault",
+) => {
   const config = await getConfig();
-  const key =
-    strength === "Strong"
-      ? "vaultVerifiedStrong"
-      : strength === "Medium"
-        ? "vaultVerifiedMedium"
-        : "vaultVerifiedWeak";
-  const pts = config[key] ?? SCORE_DEFAULTS[key];
-  return mutateScore(userId, pts, `Vault Asset Verified (${strength})`, true);
+  let keyPrefix = "vaultVerified";
+  if (assetType === "course") keyPrefix = "courseVerified";
+  if (assetType === "github") keyPrefix = "githubRepo";
+
+  let key;
+  if (assetType === "github") {
+    key =
+      strength === "Exceptional"
+        ? "githubRepoExceptional"
+        : strength === "Strong"
+          ? "githubRepoStrong"
+          : strength === "Medium"
+            ? "githubRepoMedium"
+            : "githubRepoWeak";
+  } else {
+    key =
+      strength === "Strong"
+        ? `${keyPrefix}Strong`
+        : strength === "Medium"
+          ? `${keyPrefix}Medium`
+          : `${keyPrefix}Weak`;
+  }
+
+  const pts = config[key] ?? SCORE_DEFAULTS[key] ?? 0;
+  if (pts === 0) return;
+  return mutateScore(
+    userId,
+    pts,
+    `Asset Verified (${assetType} · ${strength})`,
+    true,
+  );
 };
 
-export const awardAllianceAction = async (userId, actionType) => {
+export const awardAppConnection = async (userId, appName, connected = true) => {
+  const config = await getConfig();
+  const pts = connected
+    ? (config.appConnected ?? SCORE_DEFAULTS.appConnected)
+    : (config.appDisconnected ?? SCORE_DEFAULTS.appDisconnected);
+  return mutateScore(
+    userId,
+    pts,
+    connected ? `App Connected: ${appName}` : `App Disconnected: ${appName}`,
+  );
+};
+
+export const awardPostResonance = async (userId, postId, reactionCount) => {
+  const config = await getConfig();
+  const ptsPerHundred =
+    config.postReactionsPer100 ?? SCORE_DEFAULTS.postReactionsPer100;
+  const prev = Math.floor((reactionCount - 1) / 100);
+  const curr = Math.floor(reactionCount / 100);
+  if (curr <= prev) return;
+  const pts = (curr - prev) * ptsPerHundred;
+  return mutateScore(
+    userId,
+    pts,
+    `Post resonance milestone: ${reactionCount} reactions`,
+  );
+};
+
+export const awardLearnSuggestionAccepted = async (userId) => {
+  const config = await getConfig();
+  const pts =
+    config.learnSuggestionAccepted ?? SCORE_DEFAULTS.learnSuggestionAccepted;
+  return mutateScore(userId, pts, "Learn suggestion accepted by admin");
+};
+
+export const awardAgendaWeeklyStreak = async (userId) => {
+  const config = await getConfig();
+  const pts = config.agendaWeeklyStreak ?? SCORE_DEFAULTS.agendaWeeklyStreak;
+  return mutateScore(userId, pts, "7-day Agenda consistency streak");
+};
+
+export const awardAllianceAction = async (
+  userId,
+  actionType,
+  userTier = "ESSENTIAL",
+) => {
   if (!userId) return;
   const config = await getConfig();
+  const dailyMax = userTier === "PRO" ? 20 : 10;
 
   if (actionType === "sent") {
     const { todayStr } = getISTDateStrings();
@@ -175,7 +269,8 @@ export const awardAllianceAction = async (userId, actionType) => {
       if (!snap.exists()) return false;
       const data = snap.data();
       const dailyLimit = data.dailyAllianceSent || { count: 0, date: "" };
-      if (dailyLimit.date === todayStr && dailyLimit.count >= 5) return false;
+      if (dailyLimit.date === todayStr && dailyLimit.count >= dailyMax)
+        return false;
       const newCount = dailyLimit.date === todayStr ? dailyLimit.count + 1 : 1;
       tx.update(userRef, {
         dailyAllianceSent: { count: newCount, date: todayStr },
@@ -183,15 +278,17 @@ export const awardAllianceAction = async (userId, actionType) => {
       return true;
     });
     if (!isAuthorized) return;
-    await mutateScore(
-      userId,
-      config.allianceRequestSent,
-      "Alliance Request Sent",
-    );
-  } else if (actionType === "accepted") {
-    await mutateScore(userId, config.allianceForged, "Alliance Forged");
-  } else {
-    await mutateScore(userId, -5, "Alliance Action Reversed");
+    // No points for sending — only for acceptance
+  } else if (actionType === "accepted_receiver") {
+    const pts =
+      config.allianceRequestAcceptedReceiver ??
+      SCORE_DEFAULTS.allianceRequestAcceptedReceiver;
+    await mutateScore(userId, pts, "Alliance request accepted — you accepted");
+  } else if (actionType === "accepted_sender") {
+    const pts =
+      config.allianceRequestAcceptedSender ??
+      SCORE_DEFAULTS.allianceRequestAcceptedSender;
+    await mutateScore(userId, pts, "Alliance request accepted — they accepted");
   }
 };
 
@@ -235,6 +332,178 @@ export const awardGithubRepoVerification = async (userId, repoName) => {
     `GitHub Repo Verified: ${repoName}`,
     true,
   );
+};
+
+// ── Badge definitions ─────────────────────────────────────────────────────────
+export const BADGE_DEFINITIONS = [
+  {
+    id: "first_login",
+    label: "First Login",
+    icon: "🚀",
+    condition: (u) => !!u.createdAt,
+  },
+  {
+    id: "streak_7",
+    label: "7-Day Streak",
+    icon: "🔥",
+    condition: (u) => (u.discotiveScore?.streak || 0) >= 7,
+  },
+  {
+    id: "streak_30",
+    label: "30-Day Streak",
+    icon: "⚡",
+    condition: (u) => (u.discotiveScore?.streak || 0) >= 30,
+  },
+  {
+    id: "streak_100",
+    label: "Century Consistency",
+    icon: "💎",
+    condition: (u) => (u.discotiveScore?.streak || 0) >= 100,
+  },
+  {
+    id: "vault_5",
+    label: "5 Assets Synced",
+    icon: "🗄️",
+    condition: (u) => (u.vault_count || 0) >= 5,
+  },
+  {
+    id: "vault_20",
+    label: "20 Assets Synced",
+    icon: "🏦",
+    condition: (u) => (u.vault_count || 0) >= 20,
+  },
+  {
+    id: "vault_50",
+    label: "Vault Master",
+    icon: "🔐",
+    condition: (u) => (u.vault_count || 0) >= 50,
+  },
+  {
+    id: "first_alliance",
+    label: "First Alliance",
+    icon: "🤝",
+    condition: (u) => (u.allies?.length || 0) >= 1,
+  },
+  {
+    id: "alliances_25",
+    label: "Network Builder",
+    icon: "🌐",
+    condition: (u) => (u.allies?.length || 0) >= 25,
+  },
+  {
+    id: "first_target",
+    label: "First Target",
+    icon: "🎯",
+    condition: (u) => (u.competitors_count || 0) >= 1,
+  },
+  {
+    id: "profile_100_views",
+    label: "100 Profile Views",
+    icon: "👁️",
+    condition: (u) => (u.profileViews || 0) >= 100,
+  },
+  {
+    id: "profile_1k_views",
+    label: "1K Profile Views",
+    icon: "🌟",
+    condition: (u) => (u.profileViews || 0) >= 1000,
+  },
+  {
+    id: "global_rank_1",
+    label: "Top of the World",
+    icon: "🏆",
+    condition: (u) => u.precomputed?.globalRank === 1,
+  },
+  {
+    id: "top_1_percent",
+    label: "Top 1%",
+    icon: "👑",
+    condition: (u) => (u.precomputed?.globalPercentile || 100) <= 1,
+  },
+  {
+    id: "top_10_percent",
+    label: "Elite Operator",
+    icon: "⭐",
+    condition: (u) => (u.precomputed?.globalPercentile || 100) <= 10,
+  },
+  {
+    id: "profile_complete",
+    label: "Operator Certified",
+    icon: "✅",
+    condition: (u) => (u.profileCompleteness || 0) >= 100,
+  },
+  {
+    id: "pro_member",
+    label: "Pro Member",
+    icon: "💫",
+    condition: (u) => u.tier === "PRO",
+  },
+  {
+    id: "score_500",
+    label: "Rising Operator",
+    icon: "📈",
+    condition: (u) => (u.discotiveScore?.current || 0) >= 500,
+  },
+  {
+    id: "score_1000",
+    label: "Level 1 Operator",
+    icon: "🎖️",
+    condition: (u) => (u.discotiveScore?.current || 0) >= 1000,
+  },
+  {
+    id: "score_5000",
+    label: "Elite Tier",
+    icon: "🦅",
+    condition: (u) => (u.discotiveScore?.current || 0) >= 5000,
+  },
+  {
+    id: "colists_creator",
+    label: "Colist Creator",
+    icon: "📰",
+    condition: (u) => (u.colists_count || 0) >= 1,
+  },
+  {
+    id: "learn_5",
+    label: "Knowledge Seeker",
+    icon: "📚",
+    condition: (u) => (u.learn_completed_count || 0) >= 5,
+  },
+];
+
+/**
+ * Evaluates which badges a user has earned and writes new ones atomically.
+ * Idempotent — never re-awards an already-granted badge.
+ */
+export const evaluateAndAwardBadges = async (userId, userData) => {
+  if (!userId || !userData) return [];
+  const existingBadgeIds = new Set((userData.badges || []).map((b) => b.id));
+  const newBadges = BADGE_DEFINITIONS.filter(
+    (def) => !existingBadgeIds.has(def.id) && def.condition(userData),
+  ).map((def) => ({
+    id: def.id,
+    label: def.label,
+    icon: def.icon,
+    awardedAt: new Date().toISOString(),
+  }));
+
+  if (newBadges.length === 0) return [];
+
+  try {
+    const userRef = doc(db, "users", userId);
+    await runTransaction(db, async (tx) => {
+      const snap = await tx.get(userRef);
+      if (!snap.exists()) return;
+      const existing = snap.data().badges || [];
+      const existingIds = new Set(existing.map((b) => b.id));
+      const toAdd = newBadges.filter((b) => !existingIds.has(b.id));
+      if (toAdd.length === 0) return;
+      tx.update(userRef, { badges: [...existing, ...toAdd] });
+    });
+    return newBadges;
+  } catch (err) {
+    console.error("[ScoreEngine] Badge award failed:", err);
+    return [];
+  }
 };
 
 export const initGhostUserScore = async (userId, displayName, email) => {

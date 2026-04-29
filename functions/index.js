@@ -258,6 +258,7 @@ exports.dailyPercentileCompute = onSchedule(
       .map((d) => ({
         uid: d.id,
         score: d.data().discotiveScore?.current || 0,
+        prevRank: d.data().precomputed?.globalRank || null,
       }))
       .sort((a, b) => b.score - a.score);
 
@@ -279,6 +280,8 @@ exports.dailyPercentileCompute = onSchedule(
         );
 
         batch.update(db.collection("users").doc(user.uid), {
+          "precomputed.prevGlobalRank":
+            scores[i + chunkIdx]?.prevRank ?? globalRank,
           "precomputed.globalRank": globalRank,
           "precomputed.globalPercentile": globalPercentile,
           "precomputed.totalNetwork": totalUsers,
@@ -355,6 +358,50 @@ exports.submitUserReport = onCall(async (request) => {
 
   const docRef = await db.collection("reports").add(reportData);
   return { status: "SUCCESS", id: docRef.id };
+});
+
+// ── Accept Learn Suggestion (Admin-only) + award 1pt to submitter ─────────────
+exports.acceptLearnSuggestion = onCall(async (request) => {
+  if (!request.auth) throw new HttpsError("unauthenticated", "Unauthorized.");
+
+  // Must be admin
+  const adminRef = db.collection("admins").doc(request.auth.uid);
+  const adminSnap = await adminRef.get();
+  if (!adminSnap.exists)
+    throw new HttpsError("permission-denied", "Admins only.");
+
+  const { suggestionId } = request.data;
+  if (!suggestionId)
+    throw new HttpsError("invalid-argument", "Missing suggestionId.");
+
+  const suggRef = db.collection("learn_suggestions").doc(suggestionId);
+  const suggSnap = await suggRef.get();
+  if (!suggSnap.exists)
+    throw new HttpsError("not-found", "Suggestion not found.");
+
+  const suggData = suggSnap.data();
+  if (suggData.status !== "PENDING")
+    throw new HttpsError("failed-precondition", "Already processed.");
+
+  const batch = db.batch();
+  batch.update(suggRef, {
+    status: "ACCEPTED",
+    reviewedAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
+
+  // Award 1pt to submitter
+  if (suggData.submittedBy) {
+    const userRef = db.collection("users").doc(suggData.submittedBy);
+    batch.update(userRef, {
+      "discotiveScore.current": FieldValue.increment(1),
+      "discotiveScore.lastAmount": 1,
+      "discotiveScore.lastReason": "Learn suggestion accepted by admin",
+      "discotiveScore.lastUpdatedAt": new Date().toISOString(),
+    });
+  }
+
+  await batch.commit();
+  return { status: "SUCCESS" };
 });
 
 exports.submitFeedback = onCall(async (request) => {
@@ -1121,10 +1168,12 @@ exports.updateUserSettings = onCall(async (request) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // 15.5 RESONANCE → DISCOTIVE SCORE ENGINE
 // ─────────────────────────────────────────────────────────────────────────────
+// Colist resonance → discotive score: every 100 resonance = 1 point
 exports.processColistResonanceMilestones = onSchedule(
   { schedule: "0 * * * *", timeZone: "Asia/Kolkata", timeoutSeconds: 300 },
   async () => {
     const MILESTONES = [50, 100, 250, 500, 1000];
+    // Resonance payouts (resonance score, not discotive score)
     const PAYOUTS = { 50: 5, 100: 10, 250: 20, 500: 35, 1000: 50 };
 
     // MAANG COST-SAVING FIX: Only check Colists that have been active in the last 2 hours.
@@ -1174,6 +1223,107 @@ exports.processColistResonanceMilestones = onSchedule(
   },
 );
 
+// ─────────────────────────────────────────────────────────────────────────────
+// COLIST RESONANCE → DISCOTIVE SCORE (every 100 resonance = 1 discotive point)
+// ─────────────────────────────────────────────────────────────────────────────
+exports.syncColistResonanceToScore = onSchedule(
+  { schedule: "0 */6 * * *", timeZone: "Asia/Kolkata", timeoutSeconds: 300 },
+  async () => {
+    const snap = await db
+      .collection("colists")
+      .where("isPublic", "==", true)
+      .where("colistScore", ">", 0)
+      .select("authorId", "colistScore", "lastResonanceScoreAwarded")
+      .get();
+
+    if (snap.empty) return;
+
+    const batch = db.batch();
+    let updates = 0;
+
+    for (const docSnap of snap.docs) {
+      const data = docSnap.data();
+      const resonance = data.colistScore || 0;
+      const lastAwarded = data.lastResonanceScoreAwarded || 0;
+      const newMilestones = Math.floor(resonance / 100);
+      const oldMilestones = Math.floor(lastAwarded / 100);
+      if (newMilestones <= oldMilestones) continue;
+
+      const ptsToAward = newMilestones - oldMilestones;
+      const userRef = db.collection("users").doc(data.authorId);
+      batch.update(userRef, {
+        "discotiveScore.current": FieldValue.increment(ptsToAward),
+        "discotiveScore.lastAmount": ptsToAward,
+        "discotiveScore.lastReason": `Colist resonance: ${resonance} total resonance`,
+        "discotiveScore.lastUpdatedAt": new Date().toISOString(),
+      });
+      batch.update(docSnap.ref, { lastResonanceScoreAwarded: resonance });
+      updates++;
+    }
+
+    if (updates > 0) await batch.commit();
+    console.log(`[ColistResonanceSync] Awarded points for ${updates} colists`);
+  },
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LEADERBOARD POSITION CHANGE SCORE (run after dailyPercentileCompute)
+// +1 per 1 position gained, -1 per 3 positions dropped
+// ─────────────────────────────────────────────────────────────────────────────
+exports.applyRankMovementPoints = onSchedule(
+  {
+    schedule: "30 2 * * *",
+    timeZone: "Asia/Kolkata",
+    timeoutSeconds: 540,
+    memory: "1GiB",
+  },
+  async () => {
+    const snap = await db
+      .collection("users")
+      .where("onboardingComplete", "==", true)
+      .select("discotiveScore", "precomputed")
+      .get();
+
+    if (snap.empty) return;
+    const BATCH_SIZE = 450;
+    let processed = 0;
+
+    for (let i = 0; i < snap.docs.length; i += BATCH_SIZE) {
+      const batch = db.batch();
+      const chunk = snap.docs.slice(i, i + BATCH_SIZE);
+      for (const docSnap of chunk) {
+        const data = docSnap.data();
+        const prevRank = data.precomputed?.prevGlobalRank;
+        const currRank = data.precomputed?.globalRank;
+        if (!prevRank || !currRank || prevRank === currRank) continue;
+        const moved = prevRank - currRank; // positive = moved up
+        let pts = 0;
+        if (moved > 0)
+          pts = moved; // +1 per position gained
+        else pts = Math.ceil(moved / 3); // -1 per 3 dropped (moved is negative)
+        if (pts === 0) continue;
+        batch.update(docSnap.ref, {
+          "discotiveScore.current": FieldValue.increment(pts),
+          "discotiveScore.lastAmount": pts,
+          "discotiveScore.lastReason":
+            pts > 0
+              ? `Leaderboard: rose ${moved} positions`
+              : `Leaderboard: dropped ${Math.abs(moved)} positions`,
+          "discotiveScore.lastUpdatedAt": new Date().toISOString(),
+          "precomputed.prevGlobalRank": currRank,
+        });
+        processed++;
+      }
+      await batch.commit();
+    }
+    console.log(
+      `[RankMovement] Applied rank-change points for ${processed} operators`,
+    );
+  },
+);
+
+// Store prev rank when computing percentiles
+// NOTE: patch dailyPercentileCompute to also set precomputed.prevGlobalRank = current rank BEFORE update
 // ─────────────────────────────────────────────────────────────────────────────
 // 16. BOUNTY ESCROW ENGINE (Gen 2)
 // ─────────────────────────────────────────────────────────────────────────────

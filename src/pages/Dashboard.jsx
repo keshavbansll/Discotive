@@ -100,6 +100,39 @@ const G = {
   dimBg: "rgba(191,162,100,0.08)",
   border: "rgba(191,162,100,0.25)",
 };
+
+// ── Badge mini-strip component ───────────────────────────────────────────────
+const BadgeStrip = memo(({ badges = [], onViewAll }) => {
+  if (badges.length === 0) return null;
+  const visible = badges.slice(0, 6);
+  return (
+    <div className="flex items-center gap-2 flex-wrap">
+      {visible.map((badge) => (
+        <div
+          key={badge.id}
+          title={`${badge.label} — earned ${new Date(badge.awardedAt).toLocaleDateString()}`}
+          className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[9px] font-black uppercase tracking-widest cursor-default select-none transition-all hover:scale-105"
+          style={{
+            background: "rgba(191,162,100,0.08)",
+            border: "0.5px solid rgba(191,162,100,0.2)",
+            color: "#D4AF78",
+          }}
+        >
+          <span>{badge.icon}</span>
+          <span>{badge.label}</span>
+        </div>
+      ))}
+      {badges.length > 6 && (
+        <button
+          onClick={onViewAll}
+          className="text-[9px] font-black text-[#888] hover:text-[#BFA264] uppercase tracking-widest transition-colors"
+        >
+          +{badges.length - 6} more
+        </button>
+      )}
+    </div>
+  );
+});
 const V = {
   bg: "#030303",
   depth: "#0A0A0A",
@@ -3333,7 +3366,7 @@ const Dashboard = () => {
   const vaultCount = vaultAssets.length;
   const level = Math.min(Math.floor(score / 1000) + 1, 10);
   const levelPct = ((score % 1000) / 1000) * 100;
-  const isPro = userData?.tier === "PRO" || userData?.tier === "ENTERPRISE";
+  const isPro = userData?.tier === "PRO";
   const operatorName =
     userData?.identity?.firstName ||
     userData?.identity?.fullName?.split(" ")[0] ||

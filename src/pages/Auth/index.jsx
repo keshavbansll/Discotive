@@ -146,7 +146,7 @@ const QUOTES = [
 // CSS — injected globally at mount
 // ─────────────────────────────────────────────────────────────────────────────
 const GLOBAL_CSS = `
-@import url('https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,300..900;1,300..900&family=Poppins:wght@300;400;500;600;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,400..900;1,400..900&family=Inter:wght@300;400;500;600&display=swap');
 
 .ob-root {
   --void: #030303;
@@ -3599,9 +3599,17 @@ export default function AuthOrchestrator() {
             lastLoginDate: today,
             streak: 1,
             lastAmount: 50,
-            lastReason: "OS Booted",
+            lastReason: "Welcome to Discotive — OS initialized",
             lastUpdatedAt: new Date().toISOString(),
           },
+          badges: [
+            {
+              id: "first_login",
+              label: "First Login",
+              icon: "🚀",
+              awardedAt: new Date().toISOString(),
+            },
+          ],
           score_history: [{ date: today, score: 50 }],
           consistency_log: [today],
           login_history: [today],

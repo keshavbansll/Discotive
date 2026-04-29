@@ -6,33 +6,30 @@
 export const TIERS = Object.freeze({
   ESSENTIAL: "ESSENTIAL",
   PRO: "PRO",
-  ENTERPRISE: "ENTERPRISE",
 });
 
 export const TIER_LIMITS = Object.freeze({
   [TIERS.ESSENTIAL]: {
-    maxNodes: 15,
     maxVaultAssets: 5,
     maxStorageBytes: 15 * 1024 * 1024, // 15MB
     canUseJournal: false,
     canXRayLeaderboard: false,
+    canCreateColists: false,
+    canForkColists: false,
     hasProBadge: false,
+    maxAlliancesPerDay: 10,
+    maxComparisonsPerDay: 1,
   },
   [TIERS.PRO]: {
-    maxNodes: Infinity,
     maxVaultAssets: 50,
     maxStorageBytes: 100 * 1024 * 1024, // 100MB
     canUseJournal: true,
-    canXRayLeaderboard: true, 
-    hasProBadge: true,
-  },
-  [TIERS.ENTERPRISE]: {
-    maxNodes: Infinity,
-    maxVaultAssets: Infinity,
-    maxStorageBytes: 1024 * 1024 * 1024, // 1GB
-    canUseJournal: true,
     canXRayLeaderboard: true,
+    canCreateColists: true,
+    canForkColists: true,
     hasProBadge: true,
+    maxAlliancesPerDay: 20,
+    maxComparisonsPerDay: 3,
   },
 });
 

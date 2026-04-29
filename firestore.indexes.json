@@ -735,6 +735,31 @@
         { "fieldPath": "slug", "order": "ASCENDING" },
         { "fieldPath": "isPublic", "order": "ASCENDING" }
       ]
+    },
+    {
+      "collectionGroup": "colists",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "isPublic", "order": "ASCENDING" },
+        { "fieldPath": "colistScore", "order": "DESCENDING" },
+        { "fieldPath": "lastResonanceScoreAwarded", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "users",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "onboardingComplete", "order": "ASCENDING" },
+        { "fieldPath": "precomputed.prevGlobalRank", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "learn_suggestions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "status", "order": "ASCENDING" },
+        { "fieldPath": "submittedBy", "order": "ASCENDING" }
+      ]
     }
   ],
   "fieldOverrides": [

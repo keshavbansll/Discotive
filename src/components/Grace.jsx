@@ -343,7 +343,7 @@ const FLOWS = {
     ],
     ans: {
       includes: {
-        text: "Pro includes: Agenda (private diary), X-Ray competitor analysis on the leaderboard, ability to create and fork Colists, 100MB vault storage (50 assets), 50 alliance requests/day, priority vault verification, daily comparisons (3/day), and ML data opt-out.",
+        text: "Pro includes: Agenda (private diary), X-Ray competitor analysis on the leaderboard, ability to create and fork Colists, 100MB vault storage (50 assets), 20 alliance requests/day, priority vault verification, daily comparisons (3/day), and ML data opt-out.",
         links: [{ label: "See Pro Plans", to: "/premium" }],
       },
       price: {

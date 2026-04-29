@@ -50,9 +50,8 @@ const CACHE_TTL = 1000 * 60 * 5; // 5 minutes
 
 // Daily request limits by tier
 const REQUEST_LIMITS = {
-  ESSENTIAL: 5,
-  PRO: 50,
-  ENTERPRISE: 200,
+  ESSENTIAL: 10,
+  PRO: 20,
 };
 
 // ─── Session-scoped caches (Memory Layer, per-UID) ───────────────────────────
@@ -773,8 +772,9 @@ export const useNetwork = (currentUser, userData) => {
 
       // ── Rate limit check ─────────────────────────────────────────────────
       const today = new Date().toISOString().split("T")[0];
+      const normalizedTier = userTier.toUpperCase();
       const dailyLimit =
-        REQUEST_LIMITS[userTier.toUpperCase()] || REQUEST_LIMITS.ESSENTIAL;
+        REQUEST_LIMITS[normalizedTier] || REQUEST_LIMITS.ESSENTIAL;
       const currentDailyData = userData?.dailyAllianceSent;
       const currentCount =
         currentDailyData?.date === today ? currentDailyData?.count || 0 : 0;
@@ -851,7 +851,7 @@ export const useNetwork = (currentUser, userData) => {
           "alliance_request",
         );
 
-        await awardAllianceAction(uid, "sent");
+        await awardAllianceAction(uid, "sent", userTier);
 
         return { success: true };
       } catch (err) {
@@ -903,8 +903,8 @@ export const useNetwork = (currentUser, userData) => {
 
         // Score both parties
         await Promise.allSettled([
-          awardAllianceAction(uid, "accepted"),
-          awardAllianceAction(requesterId, "accepted"),
+          awardAllianceAction(uid, "accepted_receiver", userTier),
+          awardAllianceAction(requesterId, "accepted_sender"),
         ]);
 
         // Notify the requester

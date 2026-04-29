@@ -8,14 +8,14 @@
  * Tracks completeness across 7 deferred modules. Each module is a lightweight
  * bottom-sheet/modal that accepts the same data the old Step3-Step8 collected.
  *
- * Reward: at 100% completeness → +50 pts bonus + "Operator Certified" badge.
+ * Reward: at 100% completeness → "Operator Certified" badge (no score inflation for profile data).
  */
 
 import React, { useState, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { doc, updateDoc, serverTimestamp } from "firebase/firestore";
 import { db, auth } from "../../firebase";
-import { mutateScore } from "../../lib/scoreEngine";
+import { evaluateAndAwardBadges } from "../../lib/scoreEngine";
 import { cn } from "../../lib/cn";
 import {
   MapPin,
@@ -39,7 +39,7 @@ const MODULES = [
     icon: MapPin,
     label: "Location",
     desc: "State & Country",
-    points: 10,
+    points: 0,
     color: "#10b981",
     fields: ["country", "userState"],
   },
@@ -48,7 +48,7 @@ const MODULES = [
     icon: GraduationCap,
     label: "Background",
     desc: "Education & status",
-    points: 15,
+    points: 0,
     color: "#8b5cf6",
     fields: ["institution", "course", "currentStatus"],
   },
@@ -57,7 +57,7 @@ const MODULES = [
     icon: Briefcase,
     label: "Professional",
     desc: "Bio & experience",
-    points: 20,
+    points: 0,
     color: "#3b82f6",
     fields: ["bio", "niche"],
   },
@@ -66,7 +66,7 @@ const MODULES = [
     icon: Wrench,
     label: "Skills",
     desc: "Tech & tools",
-    points: 15,
+    points: 0,
     color: "#f59e0b",
     fields: ["rawSkills"],
   },
@@ -75,7 +75,7 @@ const MODULES = [
     icon: Wallet,
     label: "Resources",
     desc: "Investment capacity",
-    points: 10,
+    points: 0,
     color: "#ef4444",
     fields: ["financialLaunchpad", "investmentCapacity"],
   },
@@ -146,7 +146,7 @@ function CompletionDrawer({ module, userData, onSave, onClose }) {
             <div>
               <p className="text-sm font-black text-white">{module.label}</p>
               <p className="text-[9px] text-white/40 uppercase tracking-widest">
-                +{module.points} pts on save
+                Required for completion
               </p>
             </div>
           </div>
@@ -376,7 +376,7 @@ function CompletionDrawer({ module, userData, onSave, onClose }) {
             "Saving…"
           ) : (
             <>
-              Save & Earn +{module.points} pts <Sparkles className="w-4 h-4" />
+              Save Module <Sparkles className="w-4 h-4" />
             </>
           )}
         </button>
@@ -447,18 +447,17 @@ const ProfileCompletenessWidget = ({ userData, onUpdate }) => {
     updates["updatedAt"] = serverTimestamp();
     await updateDoc(userRef, updates);
 
-    const module = MODULES.find((m) => m.key === moduleKey);
-    if (module)
-      await mutateScore(
-        uid,
-        module.points,
-        `Profile Completeness: ${module.label}`,
-      );
+    // Modules no longer inflate score. They strictly contribute to the 100% completion badge.
 
-    // If now 100% complete, award bonus
+    // If now 100% complete, award badge immediately
+    const module = MODULES.find((m) => m.key === moduleKey);
     const newTotal = totalEarned + (module?.points || 0);
     if (newTotal >= TOTAL_POINTS) {
-      await mutateScore(uid, 50, "Profile 100% Complete — Bonus");
+      // Trigger badge evaluation when profile reaches 100%
+      await evaluateAndAwardBadges(uid, {
+        ...(userData || {}),
+        profileCompleteness: 100,
+      });
     }
 
     onUpdate?.();
@@ -483,10 +482,10 @@ const ProfileCompletenessWidget = ({ userData, onUpdate }) => {
           </div>
           <div className="text-right">
             <p className="text-[9px] text-white/30 uppercase tracking-widest mb-1">
-              Pts Available
+              Modules Left
             </p>
             <p className="text-sm font-black text-[#BFA264]">
-              +{TOTAL_POINTS - totalEarned} pts
+              {pendingModules.length}
             </p>
           </div>
         </div>
@@ -513,8 +512,8 @@ const ProfileCompletenessWidget = ({ userData, onUpdate }) => {
               <span className="text-[10px] font-bold text-white/50 group-hover:text-white/80">
                 {m.label}
               </span>
-              <span className="text-[9px] text-[#BFA264]/60 font-mono">
-                +{m.points}
+              <span className="text-[9px] font-bold text-white/30 uppercase tracking-widest">
+                Required
               </span>
               <ChevronRight className="w-3 h-3 text-white/20 group-hover:text-white/50" />
             </button>

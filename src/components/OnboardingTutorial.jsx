@@ -7,6 +7,117 @@ import { doc, updateDoc } from "firebase/firestore";
 import { db } from "../firebase";
 
 export const TUTORIAL_KEY = "disc_tut_v3_spotlight";
+export const PAGE_TUTORIAL_KEY = (page) => `disc_tut_page_${page}_v1`;
+
+// Per-page tutorial steps for each main route
+export const PAGE_TUTORIALS = {
+  "/app/leaderboard": [
+    {
+      id: "lb-filters",
+      title: "Filter the Arena",
+      body: "Filter by domain, niche, country, or streak to find where you rank against operators in your exact field.",
+    },
+    {
+      id: "lb-xray",
+      title: "X-Ray Analysis",
+      body: "Pro users can deep-dive any operator's score breakdown. Click any row to inspect their trajectory.",
+    },
+    {
+      id: "lb-compete",
+      title: "Track Rivals",
+      body: "Add any operator to your Competitor Radar. They get notified — keeping everyone sharp.",
+    },
+  ],
+  "/app/vault": [
+    {
+      id: "vault-upload",
+      title: "Upload Credentials",
+      body: "Upload proof of work — certificates, project files, GitHub repos. Every verified asset lifts your score.",
+    },
+    {
+      id: "vault-verify",
+      title: "Verification Pipeline",
+      body: "Admin-reviewed assets earn 15–25 points based on strength. Include the Discotive Learn ID for auto-matched course verification.",
+    },
+    {
+      id: "vault-connectors",
+      title: "App Connectors",
+      body: "Connect GitHub, LinkedIn and other apps for +2 pts each. Live stats surface directly on your profile.",
+    },
+  ],
+  "/app/connective/feed": [
+    {
+      id: "feed-post",
+      title: "Execution Feed",
+      body: "Share wins, discoveries, and milestones. Use @mentions and #hashtags. Your posts build your public reputation.",
+    },
+    {
+      id: "feed-bounty",
+      title: "Bounty System",
+      body: "Stake score points on a question. The best answer unlocks the escrow. Real incentives, real answers.",
+    },
+  ],
+  "/app/connective/network": [
+    {
+      id: "net-alliance",
+      title: "Alliance System",
+      body: "Send up to 10 alliance requests per day (20 for Pro). When accepted, both operators earn points.",
+    },
+    {
+      id: "net-rival",
+      title: "Competitor Radar",
+      body: "Track rivals to benchmark your score. They get an anonymous notification — competitive pressure is healthy.",
+    },
+  ],
+  "/app/learn": [
+    {
+      id: "learn-id",
+      title: "Discotive Learn ID",
+      body: "Every item has a unique Learn ID. Upload your completion certificate to the Vault with this ID for verified score credit.",
+    },
+    {
+      id: "learn-algo",
+      title: "Algorithm Feed",
+      body: "Pro users get an AI-curated feed based on their domain, skills, and score trajectory.",
+    },
+    {
+      id: "learn-suggest",
+      title: "Suggest a Course",
+      body: "Know a resource that's not listed? Suggest it. If accepted by admin, you earn 1 point.",
+    },
+  ],
+  "/app/opportunities": [
+    {
+      id: "opp-match",
+      title: "Selection Probability",
+      body: "Each opportunity shows your estimated selection chance based on your score, domain, and profile completeness.",
+    },
+  ],
+  "/app/agenda": [
+    {
+      id: "agenda-privacy",
+      title: "100% Private",
+      body: "Your Agenda is visible only to you — not even admins have read access. This is your private execution log.",
+    },
+    {
+      id: "agenda-streak",
+      title: "Weekly Consistency Bonus",
+      body: "Log entries for 7 consecutive days to earn +1 Discotive point. Compounding consistency is rewarded.",
+    },
+  ],
+  "/app/settings": [
+    {
+      id: "settings-public",
+      title: "Public Profile Toggle",
+      body: "Control exactly what the world sees. Toggle your profile visibility, score display, and connection permissions.",
+    },
+    {
+      id: "settings-export",
+      title: "Data Export",
+      body: "Download everything Discotive has on you — full GDPR compliance. Your data, your right.",
+    },
+  ],
+};
 
 const STEPS = [
   {

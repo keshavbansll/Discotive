@@ -36,9 +36,8 @@ import { cn } from "../lib/cn";
 // SYSTEM LIMITS
 // ============================================================================
 const LIMITS = {
-  [TIERS.ESSENTIAL]: 1, // Free users get 1 comparison per day
-  [TIERS.PRO]: 3, // Pro users get 3 (to prevent API abuse)
-  [TIERS.ENTERPRISE]: 10,
+  [TIERS.ESSENTIAL]: 1,
+  [TIERS.PRO]: 3,
 };
 
 // ============================================================================

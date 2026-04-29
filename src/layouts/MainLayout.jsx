@@ -414,6 +414,44 @@ const MainLayout = () => {
     };
   }, [searchQuery, searchTab]);
 
+  // ── Per-page first-visit tutorial trigger ────────────────────────────────
+  useEffect(() => {
+    if (!userData?.uid) return;
+    const path = location.pathname;
+    // Import lazily to avoid circular deps
+    import("../components/OnboardingTutorial").then(
+      ({ PAGE_TUTORIAL_KEY, PAGE_TUTORIALS }) => {
+        if (!PAGE_TUTORIALS[path]) return;
+        const key = PAGE_TUTORIAL_KEY(path.replace(/\//g, "_"));
+        if (!localStorage.getItem(key)) {
+          // Set a global event so the page component can pick it up
+          window.dispatchEvent(
+            new CustomEvent("discotive:page_tutorial", { detail: { path } }),
+          );
+        }
+      },
+    );
+  }, [location.pathname, userData?.uid]);
+
+  // ── Per-page first-visit tutorial trigger ────────────────────────────────
+  useEffect(() => {
+    if (!userData?.uid) return;
+    const path = location.pathname;
+    // Import lazily to avoid circular deps
+    import("../components/OnboardingTutorial").then(
+      ({ PAGE_TUTORIAL_KEY, PAGE_TUTORIALS }) => {
+        if (!PAGE_TUTORIALS[path]) return;
+        const key = PAGE_TUTORIAL_KEY(path.replace(/\//g, "_"));
+        if (!localStorage.getItem(key)) {
+          // Set a global event so the page component can pick it up
+          window.dispatchEvent(
+            new CustomEvent("discotive:page_tutorial", { detail: { path } }),
+          );
+        }
+      },
+    );
+  }, [location.pathname, userData?.uid]);
+
   // --- MAANG-GRADE MOBILE SCROLL PHYSICS ---
   useEffect(() => {
     const scrollElement = mainScrollRef.current;
@@ -517,7 +555,7 @@ const MainLayout = () => {
 
   // Dashboard is partially visible for ghost users — not locked, but shows banner
   const isCommandCenter = location.pathname === "/app";
-  const isPro = userData?.tier === "PRO" || userData?.tier === "ENTERPRISE";
+  const isPro = userData?.tier === "PRO";
 
   // Track if DM Panel is currently open via URL query params
   const isDMOpen =
@@ -1005,9 +1043,7 @@ const MainLayout = () => {
               <div className="w-8 h-8 flex items-center justify-center shrink-0">
                 <img
                   src={
-                    userData?.tier === "PRO" || userData?.tier === "ENTERPRISE"
-                      ? "/logo-premium.png"
-                      : "/logo.png"
+                    userData?.tier === "PRO" ? "/logo-premium.png" : "/logo.png"
                   }
                   alt="Discotive Logo"
                   width={32}
@@ -1163,35 +1199,36 @@ const MainLayout = () => {
               ))}
             </div> */}
 
-            {/* Discotive Premium Widget */}
+            {/* Discotive Pro upsell — borderless editorial card */}
             {!isPro && isSidebarOpen && (
-              <div className="mt-8 mb-4 px-2">
-                <div className="relative bg-gradient-to-b from-[#1a1a1a] to-[#0A0A0A] border border-white/5 rounded-2xl p-4 overflow-hidden group">
-                  <h4 className="font-display font-black text-sm text-white mb-1 relative z-10">
-                    Discotive Pro
-                  </h4>
-                  <p className="text-[10px] text-[#888] leading-relaxed mb-3 relative z-10">
-                    Get the max capability of your career through advanced
-                    intelligence.
-                  </p>
-                  <div className="w-full aspect-square bg-[#0A0A0A] rounded-xl mb-3 overflow-hidden border border-white/5 relative z-10">
-                    <img
-                      src="/pro-promo.jpg"
-                      alt="Discotive Pro"
-                      className="w-full h-full object-cover opacity-80 group-hover:opacity-100 transition-opacity"
-                    />
+              <div className="mt-6 mb-4 px-2">
+                <div
+                  className="relative rounded-2xl p-4 overflow-hidden group cursor-pointer"
+                  style={{
+                    background:
+                      "linear-gradient(145deg, rgba(191,162,100,0.06) 0%, rgba(0,0,0,0) 100%)",
+                    border: "0.5px solid rgba(191,162,100,0.15)",
+                  }}
+                  onClick={() => navigate("/premium")}
+                >
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-[9px] font-black text-[#BFA264] uppercase tracking-[0.25em]">
+                      Discotive Pro
+                    </span>
+                    <div className="flex-1 h-px bg-gradient-to-r from-[rgba(191,162,100,0.3)] to-transparent" />
                   </div>
-                  <button
-                    onClick={() => navigate("/premium")}
-                    className="w-full py-2 rounded-lg font-black text-[11px] uppercase tracking-widest text-center relative z-10 hover:opacity-90 transition-opacity shadow-[0_0_15px_rgba(191,162,100,0.1)]"
-                    style={{
-                      background:
-                        "linear-gradient(135deg, #D4AF78 0%, #BFA264 100%)",
-                      color: "#000",
-                    }}
-                  >
-                    Explore
-                  </button>
+                  <p className="text-[11px] text-[#888] leading-relaxed mb-3">
+                    Agenda, X-Ray, Colists, priority verification — the full
+                    career engine.
+                  </p>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-black text-[#D4AF78]">
+                      ₹99 / month
+                    </span>
+                    <div className="flex items-center gap-1 text-[9px] font-black text-[#BFA264] uppercase tracking-widest group-hover:gap-2 transition-all">
+                      Upgrade <span>→</span>
+                    </div>
+                  </div>
                 </div>
               </div>
             )}

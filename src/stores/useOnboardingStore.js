@@ -4,7 +4,7 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 
-const STORE_VERSION = 2; // bump to invalidate stale persisted state
+const STORE_VERSION = 3; // bumped: Enterprise tier removed
 
 const defaultState = {
   // ── Meta ──────────────────────────────────────────────────────────────────
