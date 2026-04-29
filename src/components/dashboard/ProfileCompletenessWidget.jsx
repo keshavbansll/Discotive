@@ -386,7 +386,7 @@ function CompletionDrawer({ module, userData, onSave, onClose }) {
 }
 
 // ─── Main Widget ───────────────────────────────────────────────────────────
-const ProfileCompletenessWidget = ({ userData, onUpdate }) => {
+const ProfileCompletenessWidget = ({ userData, onUpdate, compact = false }) => {
   const [activeModule, setActiveModule] = useState(null);
 
   const deferred = userData?.deferredOnboarding || {};
@@ -491,7 +491,12 @@ const ProfileCompletenessWidget = ({ userData, onUpdate }) => {
         </div>
 
         {/* Progress bar */}
-        <div className="w-full h-1.5 bg-white/[0.04] rounded-full overflow-hidden mb-4">
+        <div
+          className={cn(
+            "w-full h-1.5 bg-white/[0.04] rounded-full overflow-hidden",
+            !compact && "mb-4",
+          )}
+        >
           <motion.div
             initial={{ width: 0 }}
             animate={{ width: `${pct}%` }}
@@ -501,29 +506,31 @@ const ProfileCompletenessWidget = ({ userData, onUpdate }) => {
         </div>
 
         {/* Module chips */}
-        <div className="flex flex-wrap gap-2">
-          {pendingModules.slice(0, 4).map((m) => (
-            <button
-              key={m.key}
-              onClick={() => setActiveModule(m)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-white/[0.07] bg-white/[0.03] hover:bg-white/[0.06] hover:border-white/[0.12] transition-all group"
-            >
-              <m.icon className="w-3 h-3 text-white/40 group-hover:text-white/70" />
-              <span className="text-[10px] font-bold text-white/50 group-hover:text-white/80">
-                {m.label}
+        {!compact && (
+          <div className="flex flex-wrap gap-2">
+            {pendingModules.slice(0, 4).map((m) => (
+              <button
+                key={m.key}
+                onClick={() => setActiveModule(m)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-white/[0.07] bg-white/[0.03] hover:bg-white/[0.06] hover:border-white/[0.12] transition-all group"
+              >
+                <m.icon className="w-3 h-3 text-white/40 group-hover:text-white/70" />
+                <span className="text-[10px] font-bold text-white/50 group-hover:text-white/80">
+                  {m.label}
+                </span>
+                <span className="text-[9px] font-bold text-white/30 uppercase tracking-widest">
+                  Required
+                </span>
+                <ChevronRight className="w-3 h-3 text-white/20 group-hover:text-white/50" />
+              </button>
+            ))}
+            {pendingModules.length > 4 && (
+              <span className="flex items-center px-3 py-1.5 text-[10px] text-white/30 font-bold">
+                +{pendingModules.length - 4} more
               </span>
-              <span className="text-[9px] font-bold text-white/30 uppercase tracking-widest">
-                Required
-              </span>
-              <ChevronRight className="w-3 h-3 text-white/20 group-hover:text-white/50" />
-            </button>
-          ))}
-          {pendingModules.length > 4 && (
-            <span className="flex items-center px-3 py-1.5 text-[10px] text-white/30 font-bold">
-              +{pendingModules.length - 4} more
-            </span>
-          )}
-        </div>
+            )}
+          </div>
+        )}
       </div>
 
       <AnimatePresence>

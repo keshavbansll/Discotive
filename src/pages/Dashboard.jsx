@@ -90,6 +90,37 @@ import {
   BookOpen,
 } from "lucide-react";
 import { cn } from "../lib/cn";
+import PremiumPaywall from "../components/PremiumPaywall";
+
+/* ─── Design tokens ─────────────────────────────────────────────────────── */
+const LiquidButton = ({ children, onClick, className, title }) => (
+  <motion.button
+    onClick={onClick}
+    title={title || "Execute Action"}
+    initial="rest"
+    whileHover="hover"
+    animate="rest"
+    className={cn(
+      "relative overflow-hidden rounded-full border border-white/20 px-6 py-2.5 font-black text-[10px] tracking-widest uppercase group",
+      className,
+    )}
+  >
+    <motion.div
+      className="absolute inset-0 z-0"
+      variants={{
+        rest: { y: "101%", borderRadius: "100% 100% 0 0" },
+        hover: { y: "0%", borderRadius: "0% 0% 0 0" },
+      }}
+      transition={{ duration: 0.38, ease: [0.22, 1, 0.36, 1] }}
+      style={{
+        background: "rgba(255,255,255,0.12)",
+      }}
+    />
+    <span className="relative z-10 text-white/70 group-hover:text-white transition-colors duration-200 flex items-center justify-center gap-2">
+      {children}
+    </span>
+  </motion.button>
+);
 
 /* ─── Design tokens ─────────────────────────────────────────────────────── */
 const G = {
@@ -125,6 +156,7 @@ const BadgeStrip = memo(({ badges = [], onViewAll }) => {
       {badges.length > 6 && (
         <button
           onClick={onViewAll}
+          title="View all earned badges"
           className="text-[9px] font-black text-[#888] hover:text-[#BFA264] uppercase tracking-widest transition-colors"
         >
           +{badges.length - 6} more
@@ -514,8 +546,11 @@ const ConsistencyMatrix = memo(({ userData, horizontal = false }) => {
                   alignItems: "flex-end",
                   display: "flex",
                 }}
+                onClick={() =>
+                  setHoveredPill(hoveredPill === p.id ? null : p.id)
+                }
                 onTouchStart={() => setHoveredPill(p.id)}
-                onTouchEnd={() => setHoveredPill(null)}
+                onTouchEnd={() => setTimeout(() => setHoveredPill(null), 1200)}
                 onMouseEnter={() => setHoveredPill(p.id)}
                 onMouseLeave={() => setHoveredPill(null)}
               >
@@ -534,30 +569,17 @@ const ConsistencyMatrix = memo(({ userData, horizontal = false }) => {
                     </motion.div>
                   )}
                 </AnimatePresence>
-                <motion.div
-                  className="rounded-full"
-                  animate={
-                    p.on
-                      ? {
-                          opacity: [0.6, 1, 0.6],
-                          boxShadow: [
-                            `0 0 4px ${G.base}`,
-                            `0 0 12px ${G.bright}`,
-                            `0 0 4px ${G.base}`,
-                          ],
-                        }
-                      : {}
-                  }
-                  transition={{
-                    duration: p.breath,
-                    repeat: Infinity,
-                    ease: "easeInOut",
-                  }}
+                <div
+                  className={cn(
+                    "rounded-full transition-opacity duration-1000",
+                    p.on ? "animate-pulse" : "",
+                  )}
                   style={{
                     width: 4,
                     height: p.on ? 24 : 12,
                     background: p.on ? G.bright : "rgba(255,255,255,0.06)",
                     opacity: p.on ? 1 : 0.3,
+                    boxShadow: p.on ? `0 0 6px ${G.base}` : "none",
                   }}
                 />
               </div>
@@ -597,30 +619,17 @@ const ConsistencyMatrix = memo(({ userData, horizontal = false }) => {
                 </motion.div>
               )}
             </AnimatePresence>
-            <motion.div
-              className="rounded-full"
-              animate={
-                p.on
-                  ? {
-                      opacity: [0.6, 1, 0.6],
-                      boxShadow: [
-                        `0 0 4px ${G.base}`,
-                        `0 0 12px ${G.bright}`,
-                        `0 0 4px ${G.base}`,
-                      ],
-                    }
-                  : {}
-              }
-              transition={{
-                duration: p.breath,
-                repeat: Infinity,
-                ease: "easeInOut",
-              }}
+            <div
+              className={cn(
+                "rounded-full transition-opacity duration-1000",
+                p.on ? "animate-pulse" : "",
+              )}
               style={{
                 width: 4,
                 height: p.on ? 24 : 12,
                 background: p.on ? G.bright : "rgba(255,255,255,0.06)",
                 opacity: p.on ? 1 : 0.3,
+                boxShadow: p.on ? `0 0 6px ${G.base}` : "none",
               }}
             />
           </div>
@@ -632,44 +641,69 @@ const ConsistencyMatrix = memo(({ userData, horizontal = false }) => {
 
 /* ─── Global Ticker ──────────────────────────────────────────────────────── */
 const GlobalTicker = memo(({ events }) => {
-  const items =
-    events.length > 0
-      ? events
-      : [{ id: "init", text: "⚡ Awaiting live arena signal…" }];
+  const hasEvents = events && events.length > 0;
+  const items = hasEvents
+    ? events
+    : [{ id: "init", text: "⚡ Awaiting live arena signal…" }];
+
   return (
     <div>
       <SectionLabel icon={Radio} color={G.base}>
         Live Signal
       </SectionLabel>
-      <div className="overflow-hidden" style={{ height: 100 }}>
-        <motion.div
-          animate={{ y: ["0%", `-${(items.length - 3) * 33.33}%`] }}
-          transition={{
-            duration: items.length * 3,
-            repeat: Infinity,
-            ease: "linear",
-          }}
-        >
-          {[...items, ...items].map((e, i) => (
-            <div key={`${e.id}_${i}`} className="flex items-start gap-2 py-1.5">
+      <div className="overflow-hidden relative" style={{ height: 100 }}>
+        {hasEvents ? (
+          <motion.div
+            animate={{
+              y: ["0%", `-${Math.max(0, items.length - 3) * 33.33}%`],
+            }}
+            transition={{
+              duration: items.length * 3,
+              repeat: Infinity,
+              ease: "linear",
+            }}
+          >
+            {[...items, ...items].map((e, i) => (
               <div
-                className="mt-1.5 rounded-full shrink-0"
-                style={{
-                  width: 5,
-                  height: 5,
-                  background: G.base,
-                  opacity: 0.7,
-                }}
-              />
-              <span
-                className="text-[10px] font-mono leading-snug"
-                style={{ color: T.dim }}
+                key={`${e.id}_${i}`}
+                className="flex items-start gap-2 py-1.5"
               >
-                {e.text}
-              </span>
-            </div>
-          ))}
-        </motion.div>
+                <div
+                  className="mt-1.5 rounded-full shrink-0"
+                  style={{
+                    width: 5,
+                    height: 5,
+                    background: G.base,
+                    opacity: 0.7,
+                  }}
+                />
+                <span
+                  className="text-[10px] font-mono leading-snug"
+                  style={{ color: T.dim }}
+                >
+                  {e.text}
+                </span>
+              </div>
+            ))}
+          </motion.div>
+        ) : (
+          <div className="flex items-center gap-2 py-1.5 h-full opacity-50">
+            <div
+              className="rounded-full shrink-0 animate-pulse"
+              style={{
+                width: 5,
+                height: 5,
+                background: G.base,
+              }}
+            />
+            <span
+              className="text-[10px] font-mono leading-snug"
+              style={{ color: T.dim }}
+            >
+              {items[0].text}
+            </span>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -680,7 +714,7 @@ const LockedMiniRing = memo(({ label, size = 48, navigate }) => (
   <motion.div
     className="flex flex-col items-center gap-1.5 cursor-pointer group"
     whileHover={{ scale: 1.06 }}
-    onClick={() => navigate?.("/premium")}
+    onClick={navigate}
     title="Upgrade to Pro"
   >
     <div className="relative" style={{ width: size, height: size }}>
@@ -713,65 +747,237 @@ const LockedMiniRing = memo(({ label, size = 48, navigate }) => (
   </motion.div>
 ));
 
-/* ─── Consistency Badges ─────────────────────────────────────────────────── */
-const BADGE_DEFS = [
-  { days: 7, emoji: "🌅", label: "Week One" },
-  { days: 15, emoji: "⚡", label: "15 Days" },
-  { days: 30, emoji: "🔥", label: "Monthly" },
-  { days: 90, emoji: "💎", label: "90 Days" },
-  { days: 180, emoji: "👑", label: "6 Months" },
-  { days: 365, emoji: "🌟", label: "Annual" },
-];
+/* ─── Multi-Vector Achievement Badges ───────────────────────────────────── */
+const BadgeEmptySVG = () => (
+  <svg
+    width="56"
+    height="72"
+    viewBox="0 0 56 72"
+    fill="none"
+    xmlns="http://www.w3.org/2000/svg"
+  >
+    <circle
+      cx="28"
+      cy="28"
+      r="24"
+      stroke="rgba(191,162,100,0.12)"
+      strokeWidth="2"
+      fill="none"
+    />
+    <circle
+      cx="28"
+      cy="28"
+      r="16"
+      stroke="rgba(191,162,100,0.07)"
+      strokeWidth="1.5"
+      fill="none"
+    />
+    <line
+      x1="20"
+      y1="52"
+      x2="12"
+      y2="68"
+      stroke="rgba(191,162,100,0.1)"
+      strokeWidth="2"
+      strokeLinecap="round"
+    />
+    <line
+      x1="36"
+      y1="52"
+      x2="44"
+      y2="68"
+      stroke="rgba(191,162,100,0.1)"
+      strokeWidth="2"
+      strokeLinecap="round"
+    />
+  </svg>
+);
 
-const ConsistencyBadges = memo(({ streak }) => (
-  <div>
-    <SectionLabel icon={Flame} color="#f97316">
-      Consistency Badges
-    </SectionLabel>
-    <div className="grid grid-cols-3 gap-2">
-      {BADGE_DEFS.map((b) => {
-        const earned = streak >= b.days;
-        return (
-          <motion.div
-            key={b.days}
-            whileHover={{ scale: 1.04 }}
-            className="flex flex-col items-center justify-center p-2.5 rounded-xl border text-center transition-all"
-            style={{
-              background: earned
-                ? "rgba(249,115,22,0.07)"
-                : "rgba(255,255,255,0.02)",
-              borderColor: earned
-                ? "rgba(249,115,22,0.22)"
-                : "rgba(255,255,255,0.04)",
-              opacity: earned ? 1 : 0.4,
-            }}
-            title={
-              earned
-                ? `Earned at ${b.days} day streak`
-                : `${b.days - streak} days to go`
-            }
+const AchievementBadges = memo(
+  ({ userData, streak, vaultCount, alliesCount, globalRank, profileViews }) => {
+    const scrollRef = useRef(null);
+    const BADGES = [
+      {
+        id: "streak_7",
+        color: "#f97316",
+        label: "7-Day Streak",
+        unlocked: streak >= 7,
+        emoji: "🔥",
+      },
+      {
+        id: "streak_30",
+        color: "#38bdf8",
+        label: "1 Month Streak",
+        unlocked: streak >= 30,
+        emoji: "⚡",
+      },
+      {
+        id: "streak_100",
+        color: "#a78bfa",
+        label: "Century Streak",
+        unlocked: streak >= 100,
+        emoji: "💎",
+      },
+      {
+        id: "assets_5",
+        color: "#4ADE80",
+        label: "5 Assets Synced",
+        unlocked: vaultCount >= 5,
+        emoji: "🗄️",
+      },
+      {
+        id: "assets_20",
+        color: "#10b981",
+        label: "20 Assets Synced",
+        unlocked: vaultCount >= 20,
+        emoji: "🏦",
+      },
+      {
+        id: "alliance_1",
+        color: "#8b5cf6",
+        label: "First Alliance",
+        unlocked: alliesCount >= 1,
+        emoji: "🤝",
+      },
+      {
+        id: "alliance_25",
+        color: "#a855f7",
+        label: "25 Alliances",
+        unlocked: alliesCount >= 25,
+        emoji: "🌐",
+      },
+      {
+        id: "target_1",
+        color: "#ef4444",
+        label: "First Target",
+        unlocked: (userData?.competitors_count || 0) >= 1,
+        emoji: "🎯",
+      },
+      {
+        id: "rank_1",
+        color: "#BFA264",
+        label: "Global Rank #1",
+        unlocked: globalRank === 1,
+        emoji: "🏆",
+      },
+      {
+        id: "views_100",
+        color: "#06b6d4",
+        label: "100 Profile Views",
+        unlocked: profileViews >= 100,
+        emoji: "👁️",
+      },
+      {
+        id: "views_1k",
+        color: "#0ea5e9",
+        label: "1K Profile Views",
+        unlocked: profileViews >= 1000,
+        emoji: "🌟",
+      },
+      {
+        id: "top_10",
+        color: "#BFA264",
+        label: "Elite Operator",
+        unlocked: (userData?.precomputed?.globalPercentile || 100) <= 10,
+        emoji: "⭐",
+      },
+      {
+        id: "pro",
+        color: "#D4AF78",
+        label: "Pro Member",
+        unlocked: userData?.tier === "PRO",
+        emoji: "💫",
+      },
+    ];
+
+    const earned = BADGES.filter((b) => b.unlocked);
+    const hasEarned = earned.length > 0;
+
+    return (
+      <div>
+        <SectionLabel icon={Award} color="#BFA264">
+          Badges
+        </SectionLabel>
+        {!hasEarned ? (
+          <div className="flex items-center gap-4 py-2 overflow-hidden relative">
+            {[0, 1, 2, 3, 4].map((i) => (
+              <div
+                key={i}
+                className="shrink-0 flex flex-col items-center gap-2"
+                style={{ opacity: Math.max(0.04, 0.18 - i * 0.03) }}
+              >
+                <BadgeEmptySVG />
+              </div>
+            ))}
+            <div
+              className="absolute inset-0 flex items-center justify-start pl-2 pointer-events-none"
+              style={{
+                background:
+                  "linear-gradient(90deg, rgba(10,10,10,0) 0%, rgba(10,10,10,0.85) 100%)",
+              }}
+            />
+            <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-10">
+              <p
+                className="text-[10px] font-black uppercase tracking-widest text-center"
+                style={{ color: "rgba(191,162,100,0.3)" }}
+              >
+                Earn badges by executing
+              </p>
+            </div>
+          </div>
+        ) : (
+          <div
+            ref={scrollRef}
+            className="flex gap-2.5 overflow-x-auto hide-scrollbar pb-1"
+            style={{ WebkitOverflowScrolling: "touch" }}
           >
-            <span className="text-lg leading-none mb-1">
-              {earned ? b.emoji : "🔒"}
-            </span>
-            <span
-              className="text-[7px] font-black uppercase tracking-widest"
-              style={{ color: earned ? "#f97316" : T.dim }}
-            >
-              {b.label}
-            </span>
-            <span
-              className="text-[7px] font-mono mt-0.5"
-              style={{ color: T.dim }}
-            >
-              {b.days}d
-            </span>
-          </motion.div>
-        );
-      })}
-    </div>
-  </div>
-));
+            {BADGES.map((b) => (
+              <motion.div
+                key={b.id}
+                whileHover={{ scale: 1.06 }}
+                whileTap={{ scale: 0.95 }}
+                className="shrink-0 flex flex-col items-center gap-1.5 cursor-default"
+                title={b.unlocked ? `Earned: ${b.label}` : `Locked: ${b.label}`}
+              >
+                <div
+                  className="flex items-center justify-center rounded-2xl transition-all duration-300"
+                  style={{
+                    width: 44,
+                    height: 44,
+                    background: b.unlocked
+                      ? `linear-gradient(135deg, ${b.color}22 0%, ${b.color}08 100%)`
+                      : "rgba(255,255,255,0.02)",
+                    border: b.unlocked
+                      ? `1px solid ${b.color}50`
+                      : "1px solid rgba(255,255,255,0.04)",
+                    opacity: b.unlocked ? 1 : 0.2,
+                    boxShadow: b.unlocked ? `0 0 12px ${b.color}20` : "none",
+                  }}
+                >
+                  {b.unlocked ? (
+                    <span style={{ fontSize: 20, lineHeight: 1 }}>
+                      {b.emoji}
+                    </span>
+                  ) : (
+                    <Lock size={14} className="text-[#333]" />
+                  )}
+                </div>
+                <span
+                  className="text-[8px] font-bold uppercase tracking-wider text-center leading-tight max-w-[48px]"
+                  style={{
+                    color: b.unlocked ? b.color : "rgba(255,255,255,0.12)",
+                  }}
+                >
+                  {b.label}
+                </span>
+              </motion.div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  },
+);
 
 /* ─── HUD Metric Pill ────────────────────────────────────────────────────── */
 const HUDMetric = memo(({ label, value, sub, accent }) => (
@@ -852,7 +1058,8 @@ const SparklineChart = memo(({ tf, setTf, chartData, chartMin, scoreLogs }) => (
         {["24H", "1W", "1M", "ALL"].map((t) => (
           <button
             key={t}
-            onClick={() => setTf(t)}
+            onClick={() => setChartTf(t)}
+            title={`Change timeframe to ${t}`}
             className={cn(
               "text-[8px] font-black uppercase tracking-widest px-2 py-1 rounded-md transition-all",
               tf === t
@@ -981,23 +1188,63 @@ export const HUDPanel = memo(
     chartMin,
     scoreLogs,
     navigate,
+    setShowPremium,
   }) => {
-    const percentiles = {
-      global: globalPct,
-      domain: domainPct,
-      niche: userData?.precomputed?.nichePercentile || 100,
-      parallel: userData?.precomputed?.parallelPercentile || 100,
-    };
+    const operatorName =
+      userData?.identity?.firstName ||
+      userData?.identity?.fullName?.split(" ")[0] ||
+      "Operator";
+    const domain =
+      userData?.identity?.domain || userData?.vision?.passion || "Operator";
+
     return (
       <div
-        className="h-full flex flex-col gap-5 overflow-y-auto custom-scrollbar"
-        style={{ padding: "28px 20px 120px" }}
+        className="h-full flex flex-col gap-5 overflow-y-auto custom-scrollbar relative"
+        style={{ padding: "85px 20px 120px" }}
       >
+        {/* Faded chart background in sidebar */}
+        {chartData.length > 1 && (
+          <div
+            className="absolute inset-0 pointer-events-none z-0 overflow-hidden"
+            style={{ opacity: 0.07 }}
+          >
+            <ResponsiveContainer width="100%" height="100%">
+              <AreaChart
+                data={chartData}
+                margin={{ top: 0, bottom: 0, left: 0, right: 0 }}
+              >
+                <defs>
+                  <linearGradient
+                    id="bgSidebarSparkG"
+                    x1="0"
+                    y1="0"
+                    x2="0"
+                    y2="1"
+                  >
+                    <stop offset="0%" stopColor="#BFA264" stopOpacity={0.6} />
+                    <stop offset="100%" stopColor="#BFA264" stopOpacity={0} />
+                  </linearGradient>
+                </defs>
+                <YAxis domain={[chartMin, "auto"]} hide />
+                <Area
+                  type="monotone"
+                  dataKey="score"
+                  stroke="#BFA264"
+                  strokeWidth={1.5}
+                  fill="url(#bgSidebarSparkG)"
+                  dot={false}
+                  isAnimationActive={false}
+                />
+              </AreaChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+
         <motion.div
           initial={{ opacity: 0, scale: 0.9 }}
           animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: 0.6, delay: 0.1 }}
-          className="flex flex-col items-center gap-3"
+          transition={{ duration: 0.6, delay: 0.05 }}
+          className="relative z-10 flex flex-col items-center gap-3"
         >
           <OrbitalRings
             score={score}
@@ -1005,14 +1252,14 @@ export const HUDPanel = memo(
             globalPct={globalPct}
             domainPct={domainPct}
           />
-          <div className="flex items-center gap-5">
+          <div className="flex items-center gap-4 mt-2">
             <div className="flex items-center gap-1.5">
               <div
                 className="rounded-full"
                 style={{ width: 6, height: 6, background: G.bright }}
               />
               <span className="text-[9px]" style={{ color: T.dim }}>
-                Global Top {globalPct === 100 ? "—" : `${globalPct}%`}
+                Global Position
               </span>
             </div>
             <div className="flex items-center gap-1.5">
@@ -1025,19 +1272,19 @@ export const HUDPanel = memo(
                 }}
               />
               <span className="text-[9px]" style={{ color: T.dim }}>
-                Domain Top {domainPct === 100 ? "—" : `${domainPct}%`}
+                Domain Position
               </span>
             </div>
           </div>
         </motion.div>
 
-        <div style={{ height: 1, background: "rgba(255,255,255,0.05)" }} />
+        {/* Latest Activity moved to main stage header per directive */}
 
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5, delay: 0.2 }}
-          className="tut-velocity"
+          className="tut-velocity relative z-10"
         >
           <SparklineChart
             tf={chartTf}
@@ -1072,25 +1319,25 @@ export const HUDPanel = memo(
           <div className="flex items-center justify-between px-2">
             {[
               {
-                pct: percentiles.global,
+                pct: globalPct,
                 label: "Global",
                 color: G.base,
                 free: true,
               },
               {
-                pct: percentiles.domain,
+                pct: domainPct,
                 label: "Domain",
                 color: "#10b981",
                 free: false,
               },
               {
-                pct: percentiles.niche,
+                pct: userData?.precomputed?.nichePercentile || 100,
                 label: "Niche",
                 color: "#38bdf8",
                 free: false,
               },
               {
-                pct: percentiles.parallel,
+                pct: userData?.precomputed?.parallelPercentile || 100,
                 label: "Path",
                 color: "#8b5cf6",
                 free: false,
@@ -1103,7 +1350,9 @@ export const HUDPanel = memo(
                   key={m.label}
                   label={m.label}
                   color={m.color}
-                  navigate={navigate}
+                  navigate={() =>
+                    setShowPremium ? setShowPremium(true) : navigate("/premium")
+                  }
                 />
               ),
             )}
@@ -1132,43 +1381,7 @@ export const HUDPanel = memo(
           </div>
         </motion.div>
 
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5, delay: 0.4 }}
-        >
-          <div className="flex items-center justify-between mb-1.5">
-            <span
-              className="text-[9px] font-bold uppercase tracking-widest"
-              style={{ color: T.dim }}
-            >
-              Level Progress
-            </span>
-            <span
-              className="text-[9px] font-black font-mono"
-              style={{ color: G.base }}
-            >
-              {Math.round(levelPct)}%
-            </span>
-          </div>
-          <div
-            className="w-full rounded-full overflow-hidden"
-            style={{ height: 3, background: "rgba(255,255,255,0.05)" }}
-          >
-            <motion.div
-              initial={{ width: 0 }}
-              animate={{ width: `${levelPct}%` }}
-              transition={{ duration: 1.4, ease: [0.16, 1, 0.3, 1] }}
-              className="h-full rounded-full"
-              style={{
-                background: `linear-gradient(90deg,${G.deep},${G.bright})`,
-                boxShadow: `0 0 8px rgba(191,162,100,0.5)`,
-              }}
-            />
-          </div>
-        </motion.div>
-
-        <div style={{ height: 1, background: "rgba(255,255,255,0.05)" }} />
+        {/* Level Progress moved to main stage header per directive */}
 
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -1237,18 +1450,14 @@ export const HUDPanel = memo(
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5, delay: 0.52 }}
         >
-          <ConsistencyBadges streak={streak} />
-        </motion.div>
-
-        <div style={{ height: 1, background: "rgba(255,255,255,0.05)" }} />
-
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5, delay: 0.55 }}
-          className="tut-live-signal"
-        >
-          <GlobalTicker events={telemetryEvents} />
+          <AchievementBadges
+            userData={userData}
+            streak={streak}
+            vaultCount={userData?.vault?.length || 0}
+            alliesCount={(userData?.allies || []).length}
+            globalRank={lbRank}
+            profileViews={userData?.profileViews || 0}
+          />
         </motion.div>
       </div>
     );
@@ -1364,7 +1573,7 @@ const HERO_BG = [
 ];
 
 const HeroDirective = memo(
-  ({ vaultCount, isPro, navigate, score, last24h }) => {
+  ({ vaultCount, isPro, navigate, score, last24h, setShowPremium }) => {
     const [activeIdx, setActiveIdx] = useState(0);
     const delta = score - (last24h || score);
     const rankDropped = delta < -5;
@@ -1444,7 +1653,8 @@ const HeroDirective = memo(
           headline: "Go Pro Today.",
           sub: "Unlock the Daily Execution Agenda, competitor X-Ray tracking, and a 100MB verified asset vault.",
           cta: "Upgrade to Pro",
-          ctaFn: () => navigate("/premium"),
+          ctaFn: () =>
+            setShowPremium ? setShowPremium(true) : navigate("/premium"),
           accent: G.bright,
           icon: Crown,
         });
@@ -1569,12 +1779,14 @@ const HeroDirective = memo(
               onClick={() =>
                 setActiveIdx((p) => (p === 0 ? slides.length - 1 : p - 1))
               }
+              title="Previous Slide"
               className="w-10 h-10 rounded-full border border-white/10 flex items-center justify-center text-white/30 hover:bg-white/5 hover:text-white transition-all"
             >
               <ChevronLeft size={16} />
             </button>
             <button
               onClick={() => setActiveIdx((p) => (p + 1) % slides.length)}
+              title="Next Slide"
               className="w-10 h-10 rounded-full border border-white/10 flex items-center justify-center text-white/30 hover:bg-white/5 hover:text-white transition-all"
             >
               <ChevronRight size={16} />
@@ -1889,14 +2101,6 @@ const LearnCard = memo(({ video, idx }) => {
           <div className="w-0 h-0 border-t-[6px] border-t-transparent border-l-[10px] border-l-white border-b-[6px] border-b-transparent ml-1" />
         </div>
       </div>
-      {video.scoreReward > 0 && (
-        <div className="absolute top-2 right-2 flex items-center gap-1 px-2 py-0.5 bg-black/70 backdrop-blur-sm rounded-lg border border-[#BFA264]/30">
-          <Zap size={8} style={{ color: G.base }} />
-          <span className="text-[8px] font-black" style={{ color: G.base }}>
-            +{video.scoreReward}
-          </span>
-        </div>
-      )}
       <div className="absolute bottom-3 left-3 right-3">
         <p className="text-xs font-black text-white leading-tight line-clamp-2 mb-1">
           {video.title}
@@ -1952,6 +2156,7 @@ const Swimlane = memo(
               <>
                 <button
                   onClick={() => scroll(-1)}
+                  title="Scroll Left"
                   className="p-1.5 rounded-full transition-all"
                   style={{ background: "rgba(255,255,255,0.04)", color: T.dim }}
                 >
@@ -1959,6 +2164,7 @@ const Swimlane = memo(
                 </button>
                 <button
                   onClick={() => scroll(1)}
+                  title="Scroll Right"
                   className="p-1.5 rounded-full transition-all"
                   style={{ background: "rgba(255,255,255,0.04)", color: T.dim }}
                 >
@@ -2015,16 +2221,10 @@ const Swimlane = memo(
                 {emptySub}
               </p>
               {emptyCtaLink && emptyCtaLabel && (
-                <Link
-                  to={emptyCtaLink}
-                  className="inline-flex items-center gap-2 text-[10px] font-black uppercase tracking-widest px-5 py-2.5 rounded-full"
-                  style={{
-                    background: G.dimBg,
-                    color: G.bright,
-                    border: `1px solid ${G.border}`,
-                  }}
-                >
-                  {emptyCtaLabel} <ArrowUpRight size={12} />
+                <Link to={emptyCtaLink}>
+                  <LiquidButton title={`Navigate to ${emptyCtaLabel}`}>
+                    {emptyCtaLabel} <ArrowUpRight size={12} />
+                  </LiquidButton>
                 </Link>
               )}
             </div>
@@ -2099,7 +2299,7 @@ const OpportunityRow = memo(({ opp, idx }) => (
 ));
 
 /* ─── Command Actions Strip ──────────────────────────────────────────────── */
-const CommandActions = memo(({ navigate, isPro }) => {
+const CommandActions = memo(({ navigate, isPro, setShowPremium }) => {
   const actions = [
     {
       label: "Learn",
@@ -2143,7 +2343,12 @@ const CommandActions = memo(({ navigate, isPro }) => {
         return (
           <motion.button
             key={a.label}
-            onClick={() => !a.locked && navigate(a.href)}
+            title={
+              a.locked ? `Unlock ${a.label} (Pro Required)` : `Open ${a.label}`
+            }
+            onClick={() =>
+              a.locked ? setShowPremium?.(true) : navigate(a.href)
+            }
             initial={{ opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: i * 0.04 }}
@@ -2216,22 +2421,22 @@ const ProfileStatsBar = memo(({ userData }) => {
 
   const blocks = [
     {
-      title: "Velocity",
-      sub: "Profile",
-      pct: velocityPct,
-      ...getStrengthData(velocityPct),
+      title: "Vault Strength",
+      pct: vaultPct,
+      detail: `${vaultCount} asset${vaultCount !== 1 ? "s" : ""} · ${vaultCount >= 5 ? "Solid foundation" : vaultCount >= 1 ? "Growing" : "Empty"}`,
+      ...getStrengthData(vaultPct),
     },
     {
-      title: "Coverage",
-      sub: "Network",
+      title: "Network Velocity",
       pct: networkPct,
+      detail: `${alliesCount} alliance${alliesCount !== 1 ? "s" : ""} · ${networkPct >= 70 ? "High signal" : networkPct >= 40 ? "Building" : "Low reach"}`,
       ...getStrengthData(networkPct),
     },
     {
-      title: "Strength",
-      sub: "Vault",
-      pct: vaultPct,
-      ...getStrengthData(vaultPct),
+      title: "Consistency",
+      pct: velocityPct,
+      detail: `${streak}-day streak · ${velocityPct >= 70 ? "On fire" : velocityPct >= 40 ? "Steady" : "Inconsistent"}`,
+      ...getStrengthData(velocityPct),
     },
   ];
 
@@ -2243,35 +2448,45 @@ const ProfileStatsBar = memo(({ userData }) => {
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: i * 0.06 }}
-          className="relative group overflow-hidden p-4 rounded-xl border flex flex-col justify-between transition-all duration-300 cursor-default"
+          whileHover={{ scale: 1.02 }}
+          className="relative group overflow-hidden rounded-xl border flex flex-col justify-between transition-all duration-300 cursor-default"
           style={{
             height: 90,
-            background: `linear-gradient(135deg, ${V.surface} 0%, rgba(${b.rgb},0.05) 100%)`,
-            borderColor: `rgba(${b.rgb},0.15)`,
+            background: `linear-gradient(135deg, ${V.surface} 0%, rgba(${b.rgb},0.06) 100%)`,
+            borderColor: `rgba(${b.rgb},0.18)`,
           }}
         >
-          {/* ... */}
-          {/* Hover State Data */}
-          <div
-            className="absolute inset-0 z-20 flex items-center justify-between px-5 opacity-0 group-hover:opacity-100 transition-all duration-300"
-            style={{
-              background: `linear-gradient(135deg, rgba(${b.rgb},0.08) 0%, rgba(${b.rgb},0.15) 100%)`,
-              backdropFilter: "blur(2px)",
-            }}
-          >
-            <div className="flex flex-col">
-              <span
-                className="text-[10px] font-black uppercase tracking-widest"
-                style={{ color: b.color }}
-              >
-                {b.label}
-              </span>
-            </div>
+          {/* Default visible: Just the title centered */}
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 px-3 transition-opacity duration-300 group-hover:opacity-0 active:opacity-0">
             <span
-              className="font-display font-black text-3xl"
+              className="text-[10px] font-black uppercase tracking-widest text-center leading-tight"
+              style={{ color: b.color }}
+            >
+              {b.title}
+            </span>
+          </div>
+          {/* Hover / Click: Detail info & percentage */}
+          <div
+            className="absolute inset-0 flex flex-col items-center justify-center gap-1 px-3 opacity-0 group-hover:opacity-100 active:opacity-100 transition-opacity duration-300 backdrop-blur-sm"
+            style={{ background: `rgba(${b.rgb},0.12)` }}
+          >
+            <span
+              className="font-display font-black text-xl leading-none mb-0.5"
               style={{ color: b.color }}
             >
               {b.pct}%
+            </span>
+            <span
+              className="text-[8px] font-black uppercase tracking-widest text-center"
+              style={{ color: b.color }}
+            >
+              {b.label}
+            </span>
+            <span
+              className="text-[8px] font-medium text-center leading-tight mt-0.5"
+              style={{ color: T.secondary }}
+            >
+              {b.detail}
             </span>
           </div>
         </motion.div>
@@ -2334,7 +2549,7 @@ const LatestActivityStatus = memo(({ log }) => {
 });
 
 /* ─── Agenda Preview Widget ────────────────────────────────────────────── */
-const AgendaPreview = memo(({ userData, isPro, navigate }) => {
+const AgendaPreview = memo(({ userData, isPro, navigate, setShowPremium }) => {
   const [latestEntry, setLatestEntry] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -2369,7 +2584,13 @@ const AgendaPreview = memo(({ userData, isPro, navigate }) => {
   return (
     <div
       className="relative w-full group cursor-pointer"
-      onClick={() => navigate(isPro ? "/app/agenda" : "/premium")}
+      onClick={() =>
+        isPro
+          ? navigate("/app/agenda")
+          : setShowPremium
+            ? setShowPremium(true)
+            : navigate("/premium")
+      }
     >
       <div className="flex items-center justify-between mb-3 px-1">
         <SectionLabel icon={Calendar} color={G.base}>
@@ -2452,6 +2673,7 @@ const MobileDashboard = ({
   userData,
   score,
   lastScore,
+  setShowPremium,
   streak,
   level,
   levelPct,
@@ -2603,7 +2825,6 @@ const MobileDashboard = ({
                 },
                 { label: "Vault", value: vaultCount, color: "#38bdf8" },
                 { label: "Allies", value: alliesCount, color: "#8b5cf6" },
-                { label: "Views", value: profileViews, color: G.base },
               ].map((s, i) => (
                 <div
                   key={i}
@@ -2635,6 +2856,14 @@ const MobileDashboard = ({
         </div>
       </div>
 
+      {/* ── LIVE SIGNAL (above chart on mobile) ── */}
+      <div className="px-4 mb-3 tut-live-signal">
+        <SectionLabel icon={Radio} color={G.base}>
+          Live Signal
+        </SectionLabel>
+        <GlobalTicker events={telemetryEvents} />
+      </div>
+
       {/* ── CHART (compact, full width) ── */}
       <div className="px-4 mt-2 mb-3 tut-velocity">
         <div className="flex items-center justify-between mb-2 px-1">
@@ -2648,7 +2877,8 @@ const MobileDashboard = ({
             {["24H", "1W", "1M", "ALL"].map((t) => (
               <button
                 key={t}
-                onClick={() => setChartTf(t)}
+                onClick={() => setTf(t)}
+                title={`Change timeframe to ${t}`}
                 className={cn(
                   "text-[8px] font-black uppercase px-2 py-1 rounded-md transition-all",
                   chartTf === t
@@ -2702,9 +2932,17 @@ const MobileDashboard = ({
         </div>
       </div>
 
-      {/* ── LATEST ACTIVITY (Minimalist Space Integration) ── */}
+      {/* ── LATEST ACTIVITY ── */}
       <div className="px-5 mb-5 mt-1">
         <LatestActivityStatus log={scoreLogs?.[0]} />
+      </div>
+
+      {/* ── OPERATOR STATS (mobile) ── */}
+      <div className="px-4 mb-5">
+        <SectionLabel icon={Activity} color={G.base}>
+          Operator Stats
+        </SectionLabel>
+        <ProfileStatsBar userData={userData} />
       </div>
 
       {/* ── COMMAND ACTIONS ── */}
@@ -2715,7 +2953,11 @@ const MobileDashboard = ({
         >
           Quick Actions
         </p>
-        <CommandActions navigate={navigate} isPro={isPro} />
+        <CommandActions
+          navigate={navigate}
+          isPro={isPro}
+          setShowPremium={setShowPremium}
+        />
       </div>
 
       {/* ── CONNECTED APPS ── */}
@@ -2732,13 +2974,14 @@ const MobileDashboard = ({
           navigate={navigate}
           score={score}
           last24h={lastScore}
+          setShowPremium={setShowPremium}
         />
       </div>
 
       {/* ── PROFILE COMPLETION WIDGET ── */}
       {!userData?.deferredOnboardingComplete && (
         <div className="px-4 mb-5">
-          <ProfileCompletenessWidget userData={userData} />
+          <ProfileCompletenessWidget userData={userData} compact={true} />
         </div>
       )}
 
@@ -2816,7 +3059,9 @@ const MobileDashboard = ({
                 label={m.label}
                 color={m.color}
                 size={64}
-                navigate={navigate}
+                navigate={() =>
+                  setShowPremium ? setShowPremium(true) : navigate("/premium")
+                }
               />
             ),
           )}
@@ -2861,17 +3106,13 @@ const MobileDashboard = ({
             >
               No rivals tracked yet.
             </p>
-            <button
+            <LiquidButton
               onClick={() => navigate("/app/connective")}
-              className="mt-3 text-[9px] font-black uppercase tracking-widest px-4 py-2 rounded-lg"
-              style={{
-                background: "rgba(239,68,68,0.1)",
-                color: "#F87171",
-                border: "1px solid rgba(239,68,68,0.2)",
-              }}
+              title="Navigate to Connective to add rivals"
+              className="mt-3 border-[#F87171]/40 text-[#F87171]"
             >
               Add Rivals →
-            </button>
+            </LiquidButton>
           </div>
         ) : (
           <div
@@ -2928,17 +3169,13 @@ const MobileDashboard = ({
             >
               No alliances forged.
             </p>
-            <button
+            <LiquidButton
               onClick={() => navigate("/app/connective")}
-              className="mt-3 text-[9px] font-black uppercase tracking-widest px-4 py-2 rounded-lg"
-              style={{
-                background: "rgba(139,92,246,0.1)",
-                color: "#8b5cf6",
-                border: "1px solid rgba(139,92,246,0.2)",
-              }}
+              title="Navigate to Connective to find allies"
+              className="mt-3 border-[#8b5cf6]/40 text-[#8b5cf6]"
             >
               Find Allies →
-            </button>
+            </LiquidButton>
           </div>
         ) : (
           <div
@@ -3031,10 +3268,29 @@ const MobileDashboard = ({
         </div>
       </div>
 
-      {/* ── CONSISTENCY BADGES ── */}
+      {/* ── MILESTONE BADGES ── */}
       <div className="px-4 mb-6">
-        <ConsistencyBadges streak={streak} />
+        <AchievementBadges
+          userData={userData}
+          streak={streak}
+          vaultCount={vaultCount}
+          alliesCount={alliesCount}
+          globalRank={lbRank}
+          profileViews={profileViews}
+        />
       </div>
+
+      {/* ── AGENDA PREVIEW (Pro only on mobile) ── */}
+      {isPro && (
+        <div className="px-4 mb-6 tut-agenda">
+          <AgendaPreview
+            userData={userData}
+            isPro={isPro}
+            navigate={navigate}
+            setShowPremium={setShowPremium}
+          />
+        </div>
+      )}
 
       {/* ── VAULT (horizontal scroll) ── */}
       {vaultAssets.length > 0 && (
@@ -3111,17 +3367,13 @@ const MobileDashboard = ({
             >
               No learning resources in your domain yet.
             </p>
-            <button
+            <LiquidButton
               onClick={() => navigate("/app/learn")}
-              className="mt-3 text-[9px] font-black uppercase tracking-widest px-4 py-2 rounded-lg"
-              style={{
-                background: "rgba(139,92,246,0.1)",
-                color: "#8b5cf6",
-                border: "1px solid rgba(139,92,246,0.2)",
-              }}
+              title="Browse learning resources"
+              className="mt-3 border-[#8b5cf6]/40 text-[#8b5cf6]"
             >
               Browse All →
-            </button>
+            </LiquidButton>
           </div>
         ) : (
           <div
@@ -3138,16 +3390,6 @@ const MobileDashboard = ({
             </div>
           </div>
         )}
-      </div>
-
-      {/* ── LIVE SIGNAL ── */}
-      <div className="px-4 mb-6 tut-live-signal">
-        <GlobalTicker events={telemetryEvents} />
-      </div>
-
-      {/* ── AGENDA PREVIEW (mobile) ── */}
-      <div className="px-4 mb-6 tut-agenda">
-        <AgendaPreview userData={userData} isPro={isPro} navigate={navigate} />
       </div>
     </div>
   );
@@ -3409,8 +3651,10 @@ const Dashboard = () => {
     return Math.max(0, min - Math.ceil((Math.max(...vals) - min) * 0.2 + 5));
   }, [chartData]);
 
-  /* ── HUD toggle ── */
+  /* ── HUD toggle & Layout ── */
   const [isHudOpen, setIsHudOpen] = useState(true);
+  const [sidebarWidth, setSidebarWidth] = useState(35); // 35vw default for 65/35 split
+  const [showPremium, setShowPremium] = useState(false);
 
   // Push notifications
   usePushNotifications(userData?.uid);
@@ -3431,6 +3675,7 @@ const Dashboard = () => {
 
   /* ── Shared props for both layouts ── */
   const sharedProps = {
+    setShowPremium,
     userData,
     score,
     lastScore,
@@ -3482,6 +3727,11 @@ const Dashboard = () => {
         className="text-[#F5F0E8] font-body selection:bg-[rgba(191,162,100,0.3)]"
         style={{ background: V.bg }}
       >
+        <PremiumPaywall
+          isOpen={showPremium}
+          onClose={() => setShowPremium(false)}
+        />
+
         {/* Streak banner */}
         <StreakRiskBanner
           streak={streak}
@@ -3516,50 +3766,163 @@ const Dashboard = () => {
             )}
           </AnimatePresence>
 
-          {/* ── STAGE (75%) ── */}
+          {/* ── STAGE (Dynamic) ── */}
           <main
-            className="flex-1 overflow-y-auto hide-scrollbar relative z-0 transition-all duration-500"
+            className="flex-1 overflow-y-auto hide-scrollbar relative z-0 transition-all duration-0"
             style={{
               scrollBehavior: "smooth",
-              marginRight: isHudOpen ? "25vw" : "0",
+              marginRight: isHudOpen ? `${sidebarWidth}vw` : "0",
             }}
           >
-            <div className="relative z-10 w-full pb-32">
-              <HeroDirective
-                vaultCount={vaultCount}
-                isPro={isPro}
-                navigate={navigate}
-                score={score}
-                last24h={lastScore}
-              />
+            {/* ── SEAMLESS TOP ENVIRONMENT (Matches Mobile Fade) ── */}
+            <div className="relative w-full overflow-hidden">
+              {/* Volumetric Radial Glow - Pure transparent fade */}
+              <div className="absolute inset-0 pointer-events-none z-0 flex justify-center overflow-visible">
+                <div
+                  className="absolute top-0 w-[150%] max-w-[1200px] h-[600px] rounded-[100%] blur-[120px] -translate-y-[45%]"
+                  style={{
+                    background:
+                      "radial-gradient(ellipse at center, rgba(191,162,100,0.12) 0%, rgba(191,162,100,0.03) 40%, transparent 70%)",
+                  }}
+                />
+              </div>
 
+              <div className="relative z-10 w-full pt-12 pb-8">
+                {/* Desktop Master Profile Header */}
+                <motion.div
+                  initial={{ opacity: 0, x: -20 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  transition={{ duration: 0.6 }}
+                  className="mx-8 md:mx-12 mb-8 relative flex flex-col justify-between"
+                >
+                  <div className="relative z-10 w-full flex flex-col gap-6">
+                    <div>
+                      <div className="flex items-center gap-2 mb-1">
+                        {isPro && (
+                          <div
+                            className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-widest"
+                            style={{
+                              background: G.dimBg,
+                              border: `1px solid ${G.border}`,
+                              color: G.bright,
+                            }}
+                          >
+                            <Crown size={8} /> PRO
+                          </div>
+                        )}
+                        <span
+                          className="text-[9px] font-bold uppercase tracking-widest"
+                          style={{ color: T.dim }}
+                        >
+                          Level {level} Operator
+                        </span>
+                      </div>
+                      <h1
+                        className="font-display font-black text-4xl md:text-5xl leading-tight"
+                        style={{ color: T.primary, letterSpacing: "-0.02em" }}
+                      >
+                        {operatorName}
+                      </h1>
+                      <p
+                        className="text-sm mt-0.5 font-mono"
+                        style={{ color: T.dim }}
+                      >
+                        {domain || "General"}
+                      </p>
+                    </div>
+
+                    <div className="w-full flex flex-col gap-4">
+                      <div>
+                        <div className="flex items-center justify-between mb-1.5">
+                          <span
+                            className="text-[9px] font-bold"
+                            style={{ color: T.dim }}
+                          >
+                            Level {level} → {level + 1}
+                          </span>
+                          <span
+                            className="text-[9px] font-black font-mono"
+                            style={{ color: G.base }}
+                          >
+                            {Math.round(levelPct)}%
+                          </span>
+                        </div>
+                        <div
+                          className="w-full rounded-full overflow-hidden"
+                          style={{
+                            height: 2.5,
+                            background: "rgba(255,255,255,0.06)",
+                          }}
+                        >
+                          <motion.div
+                            initial={{ width: 0 }}
+                            animate={{ width: `${levelPct}%` }}
+                            transition={{
+                              duration: 1.4,
+                              ease: [0.16, 1, 0.3, 1],
+                            }}
+                            className="h-full rounded-full"
+                            style={{
+                              background: `linear-gradient(90deg,${G.deep},${G.bright})`,
+                              boxShadow: `0 0 6px rgba(191,162,100,0.5)`,
+                            }}
+                          />
+                        </div>
+                      </div>
+
+                      {scoreLogs?.[0] && (
+                        <div className="mt-1">
+                          <LatestActivityStatus log={scoreLogs[0]} />
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </motion.div>
+
+                {/* Live Signal Area */}
+                <motion.div
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.6, delay: 0.1 }}
+                  className="mx-8 md:mx-12 mb-4 tut-live-signal"
+                >
+                  <GlobalTicker events={telemetryEvents} />
+                </motion.div>
+              </div>
+            </div>
+
+            <div className="relative z-10 w-full pb-32">
               {/* Profile Completeness */}
               {!userData?.deferredOnboardingComplete && (
                 <motion.section
-                  {...FADE_UP(0.07)}
+                  {...FADE_UP(0.06)}
                   className="px-8 md:px-12 pb-6"
                 >
-                  <ProfileCompletenessWidget userData={userData} />
+                  <ProfileCompletenessWidget
+                    userData={userData}
+                    compact={true}
+                  />
                 </motion.section>
               )}
 
               {/* Profile Stats */}
-              <motion.section {...FADE_UP(0.08)} className="px-8 md:px-12 pb-8">
+              <motion.section {...FADE_UP(0.07)} className="px-8 md:px-12 pb-6">
                 <SectionLabel icon={Activity} color={G.base}>
                   Operator Stats
                 </SectionLabel>
                 <ProfileStatsBar userData={userData} />
               </motion.section>
 
-              {/* Latest Activity Connector */}
-              <motion.section
-                {...FADE_UP(0.085)}
-                className="px-8 md:px-12 pb-8"
-              >
-                <div className="px-5 py-3 rounded-xl border border-white/[0.04] bg-white/[0.01]">
-                  <LatestActivityStatus log={scoreLogs?.[0]} />
-                </div>
-              </motion.section>
+              <div className="mt-2 mb-8">
+                <HeroDirective
+                  vaultCount={vaultCount}
+                  isPro={isPro}
+                  navigate={navigate}
+                  score={score}
+                  lastScore={lastScore}
+                  setShowPremium={setShowPremium}
+                />
+              </div>
 
               <div
                 style={{
@@ -3792,12 +4155,13 @@ const Dashboard = () => {
                   userData={userData}
                   isPro={isPro}
                   navigate={navigate}
+                  setShowPremium={setShowPremium}
                 />
               </motion.section>
             </div>
           </main>
 
-          {/* ── HUD (25%) ── */}
+          {/* ── HUD (Dynamic) ── */}
           <AnimatePresence>
             {isHudOpen && (
               <motion.aside
@@ -3807,7 +4171,7 @@ const Dashboard = () => {
                 transition={{ type: "spring", damping: 25, stiffness: 200 }}
                 className="fixed right-0 top-0 bottom-0 hidden lg:flex flex-col z-[100]"
                 style={{
-                  width: "25vw",
+                  width: `${sidebarWidth}vw`,
                   minWidth: 320,
                   background:
                     "linear-gradient(90deg,transparent 0%,rgba(3,3,3,0.78) 15%,rgba(3,3,3,0.88) 100%)",
@@ -3815,6 +4179,35 @@ const Dashboard = () => {
                   WebkitBackdropFilter: "blur(40px) saturate(150%)",
                 }}
               >
+                {/* Drag Handle */}
+                <div
+                  className="absolute left-0 top-0 bottom-0 w-2 cursor-col-resize z-50 hover:bg-white/10 transition-colors"
+                  onMouseDown={(e) => {
+                    const startX = e.clientX;
+                    const startWidth = sidebarWidth;
+                    const onMouseMove = (moveEvent) => {
+                      const deltaX = startX - moveEvent.clientX;
+                      const newWidth =
+                        startWidth + (deltaX / window.innerWidth) * 100;
+                      if (newWidth < 20) {
+                        setIsHudOpen(false);
+                        setSidebarWidth(35);
+                        document.removeEventListener("mousemove", onMouseMove);
+                        document.removeEventListener("mouseup", onMouseUp);
+                      } else if (newWidth > 38) {
+                        setSidebarWidth(38);
+                      } else {
+                        setSidebarWidth(newWidth);
+                      }
+                    };
+                    const onMouseUp = () => {
+                      document.removeEventListener("mousemove", onMouseMove);
+                      document.removeEventListener("mouseup", onMouseUp);
+                    };
+                    document.addEventListener("mousemove", onMouseMove);
+                    document.addEventListener("mouseup", onMouseUp);
+                  }}
+                />
                 <button
                   onClick={() => setIsHudOpen(false)}
                   className="fixed top-32 right-6 z-[9999] flex items-center justify-center text-white/30 hover:text-white transition-all group bg-[#050505]/80 backdrop-blur-xl p-2 rounded-full border border-white/5 shadow-[0_0_30px_rgba(0,0,0,0.8)]"
@@ -3833,45 +4226,6 @@ const Dashboard = () => {
                     background: `radial-gradient(circle,${G.dimBg} 0%,transparent 70%)`,
                   }}
                 />
-
-                <div
-                  className="relative z-10 flex items-center justify-between px-6 pt-5 pb-4"
-                  style={{ borderBottom: "1px solid rgba(255,255,255,0.04)" }}
-                >
-                  <div>
-                    <span
-                      className="text-[8px] font-black uppercase tracking-widest"
-                      style={{ color: T.dim }}
-                    >
-                      {isPro ? "Pro Clearance" : "Essential Tier"}
-                    </span>
-                    <p
-                      className="text-sm font-black leading-tight mt-0.5"
-                      style={{ color: T.primary }}
-                    >
-                      {operatorName}
-                    </p>
-                  </div>
-                  <div
-                    className="flex items-center gap-1.5 px-2.5 py-1 rounded-full"
-                    style={{
-                      background: isPro ? G.dimBg : "rgba(255,255,255,0.04)",
-                      border: `1px solid ${isPro ? G.border : "rgba(255,255,255,0.06)"}`,
-                    }}
-                  >
-                    {isPro ? (
-                      <Crown size={10} style={{ color: G.bright }} />
-                    ) : (
-                      <Shield size={10} style={{ color: T.dim }} />
-                    )}
-                    <span
-                      className="text-[9px] font-black uppercase tracking-wider"
-                      style={{ color: isPro ? G.bright : T.dim }}
-                    >
-                      Lv {level}
-                    </span>
-                  </div>
-                </div>
 
                 <div className="relative z-10 flex-1 overflow-y-auto custom-scrollbar">
                   <HUDPanel
@@ -3893,6 +4247,7 @@ const Dashboard = () => {
                     chartMin={chartMin}
                     scoreLogs={scoreLogs}
                     navigate={navigate}
+                    setShowPremium={setShowPremium}
                   />
                 </div>
               </motion.aside>

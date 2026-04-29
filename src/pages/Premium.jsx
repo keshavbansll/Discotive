@@ -574,7 +574,7 @@ const Premium = () => {
     );
   }
 
-  const isPro = userData?.tier === "PRO" || userData?.tier === "ENTERPRISE";
+  const isPro = userData?.tier === "PRO";
 
   const layoutProps = {
     currentPricing,

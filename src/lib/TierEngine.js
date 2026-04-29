@@ -11,7 +11,7 @@ export const TIERS = Object.freeze({
 export const TIER_LIMITS = Object.freeze({
   [TIERS.ESSENTIAL]: {
     maxVaultAssets: 5,
-    maxStorageBytes: 15 * 1024 * 1024, // 15MB
+    maxStorageBytes: 25 * 1024 * 1024, // 25MB Buffer
     canUseJournal: false,
     canXRayLeaderboard: false,
     canCreateColists: false,
@@ -21,15 +21,15 @@ export const TIER_LIMITS = Object.freeze({
     maxComparisonsPerDay: 1,
   },
   [TIERS.PRO]: {
-    maxVaultAssets: 50,
-    maxStorageBytes: 100 * 1024 * 1024, // 100MB
+    maxVaultAssets: 9999, // Uncapped scaling for heavy ops
+    maxStorageBytes: 500 * 1024 * 1024, // 500MB
     canUseJournal: true,
     canXRayLeaderboard: true,
     canCreateColists: true,
     canForkColists: true,
     hasProBadge: true,
     maxAlliancesPerDay: 20,
-    maxComparisonsPerDay: 3,
+    maxComparisonsPerDay: 999,
   },
 });
 

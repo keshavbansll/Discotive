@@ -128,7 +128,6 @@ const RouteMetadataManager = () => {
       finance: "Financial Ledger | Discotive",
       opportunities: "Opportunities | Discotive",
       hubs: "Hubs | Discotive",
-      roadmap: "Execution Agent | Discotive",
       podcasts: "Podcasts & Media | Discotive",
       assessments: "Workshops & Assessments | Discotive",
       discover: "Discover | Discotive",
@@ -309,10 +308,6 @@ function App() {
                   }
                 />
                 <Route index element={<Dashboard />} />
-                <Route
-                  path="agent"
-                  element={<ComingSoon title="Execution Agent" />}
-                />
                 <Route
                   path="leaderboard"
                   element={

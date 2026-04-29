@@ -295,12 +295,27 @@ service cloud.firestore {
     // =========================================================================
     // 11. SCORE LOG
     // =========================================================================
-    match /users/{userId}/score_log/{document=**} {
+    match /users/{userId}/score_log/{logId} {
       allow read: if isOwner(userId);
       allow create: if isOwner(userId)
         && request.resource.data.change is number
         && request.resource.data.reason is string
-        && request.resource.data.score is number;
+        && request.resource.data.score is number
+        // Validate bounds for action types
+        && (
+          (request.resource.data.action == "COURSE_STRONG" && request.resource.data.change == 25) ||
+          (request.resource.data.action == "COURSE_MEDIUM" && request.resource.data.change == 20) ||
+          (request.resource.data.action == "COURSE_WEAK" && request.resource.data.change == 15) ||
+          (request.resource.data.action == "APP_CONNECT" && request.resource.data.change == 2) ||
+          (request.resource.data.action == "APP_DISCONNECT" && request.resource.data.change == -2) ||
+          (request.resource.data.action == "GITHUB_SYNC_WEAK" && request.resource.data.change == 15) ||
+          (request.resource.data.action == "GITHUB_SYNC_MEDIUM" && request.resource.data.change == 30) ||
+          (request.resource.data.action == "GITHUB_SYNC_STRONG" && request.resource.data.change == 50) ||
+          (request.resource.data.action == "GITHUB_SYNC_EXCEPTIONAL" && request.resource.data.change == 100) ||
+          (request.resource.data.action == "SIGNUP" && request.resource.data.change == 50) ||
+          (request.resource.data.action == "AGENDA_CONSISTENCY" && request.resource.data.change == 1) ||
+          (request.resource.data.action == "COURSE_ACCEPTED" && request.resource.data.change == 1)
+        );
       allow update, delete: if isAdmin();
     }
 
@@ -365,7 +380,17 @@ service cloud.firestore {
         && request.resource.data.receiverId != request.auth.uid
         && request.resource.data.status == "PENDING"
         && request.resource.data.requesterName is string
-        && request.resource.data.receiverName is string;
+        && request.resource.data.receiverName is string
+        // Daily Connection Rate Limiting Protocol
+        && (
+          // Limit to 10 for Essential
+          (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.tier == "ESSENTIAL" && 
+           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.dailyAllianceSent < 10) 
+          || 
+          // Limit to 20 for PRO
+          (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.tier == "PRO" && 
+           get(/databases/$(database)/documents/users/$(request.auth.uid)).data.dailyAllianceSent < 20)
+        );
       allow update: if isAuthenticated()
         && (
           (resource.data.receiverId == request.auth.uid

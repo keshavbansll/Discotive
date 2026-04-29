@@ -68,11 +68,13 @@ import {
   TrendingUp,
   TrendingDown,
   RefreshCw,
+  Crown,
 } from "lucide-react";
 
 import { cn } from "../lib/cn";
 import FeedbackModal from "../components/FeedbackModal";
 import TelemetryData from "../components/TelemetryData";
+import PremiumPaywall from "../components/PremiumPaywall";
 
 import SupportTicketModal from "../components/SupportTicketModal";
 import UserReportModal from "../components/UserReportModal";
@@ -106,7 +108,7 @@ const upperContentNavItems = [
 const lowerContentNavItems = [
   { icon: FolderOpen, label: "Asset Vault", path: "/app/vault" },
   { icon: GraduationCap, label: "Learn", path: "/app/learn" },
-  { icon: Calendar, label: "Agenda", path: "/app/agenda" },
+  { icon: Calendar, label: "Agenda", path: "/app/agenda", proOnly: true },
 ];
 
 const moreNavItems = [
@@ -298,6 +300,7 @@ const MainLayout = () => {
   }, []);
 
   const [isSupportTicketOpen, setIsSupportTicketOpen] = useState(false);
+  const [showPremiumPaywall, setShowPremiumPaywall] = useState(false);
 
   const [deferredPrompt, setDeferredPrompt] = useState(null);
   const [isInstallable, setIsInstallable] = useState(false);
@@ -655,6 +658,8 @@ const MainLayout = () => {
         (r) => r === item.path || item.path.startsWith(r + "/"),
       );
 
+    const isProLocked = !isPro && item.proOnly;
+
     return (
       <div className="flex flex-col gap-1 w-full">
         <a
@@ -662,18 +667,25 @@ const MainLayout = () => {
           onClick={
             isItemLocked
               ? (e) => handleInstantNav(item.path, e)
-              : item.subItems
+              : isProLocked
                 ? (e) => {
                     e.preventDefault();
-                    if (!isCollapsed) setIsSubMenuOpen(!isSubMenuOpen);
+                    setShowPremiumPaywall(true);
                   }
-                : (e) => handleInstantNav(item.path, e)
+                : item.subItems
+                  ? (e) => {
+                      e.preventDefault();
+                      if (!isCollapsed) setIsSubMenuOpen(!isSubMenuOpen);
+                    }
+                  : (e) => handleInstantNav(item.path, e)
           }
           className={cn(
             "flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200 group relative w-full cursor-pointer",
             isItemLocked
               ? "text-[#444] hover:bg-[#111] font-medium"
-              : "text-[#F5F0E8]/60 hover:text-white font-medium",
+              : isProLocked
+                ? "text-[#BFA264]/60 hover:bg-[#BFA264]/10 hover:text-[#D4AF78] font-medium"
+                : "text-[#F5F0E8]/60 hover:text-white font-medium",
           )}
           title={isCollapsed ? item.label : undefined}
         >
@@ -718,6 +730,12 @@ const MainLayout = () => {
           )}
           {isItemLocked && isCollapsed && (
             <span className="absolute top-1 right-1 w-1.5 h-1.5 bg-[#333] rounded-full" />
+          )}
+          {isProLocked && !isCollapsed && (
+            <Crown className="w-3.5 h-3.5 text-[#BFA264]/70 shrink-0" />
+          )}
+          {isProLocked && isCollapsed && (
+            <span className="absolute top-1 right-1 w-1.5 h-1.5 bg-[#BFA264] rounded-full shadow-[0_0_8px_rgba(191,162,100,0.8)]" />
           )}
         </a>
 
@@ -916,13 +934,16 @@ const MainLayout = () => {
           >
             <Settings className="w-4 h-4 text-[#888]" /> Settings
           </a>
-          <a
-            href="/premium"
-            onClick={(e) => handleInstantNav("/premium", e)}
-            className="px-4 py-2.5 flex items-center gap-3 text-[#ccc] hover:bg-[#111] transition-colors text-xs md:text-sm"
+          <button
+            onClick={(e) => {
+              e.preventDefault();
+              setShowProfileMenu(false);
+              setShowPremiumPaywall(true);
+            }}
+            className="w-full px-4 py-2.5 flex items-center gap-3 text-[#ccc] hover:bg-[#111] transition-colors text-xs md:text-sm text-left"
           >
             <Shield className="w-4 h-4 text-[#888]" /> Discotive Pro
-          </a>
+          </button>
           <button className="w-full px-4 py-2.5 flex items-center justify-between text-[#ccc] hover:bg-[#111] transition-colors text-xs md:text-sm text-left">
             <div className="flex items-center gap-3">
               <Moon className="w-4 h-4 text-[#888]" /> Appearance: Dark
@@ -1199,34 +1220,42 @@ const MainLayout = () => {
               ))}
             </div> */}
 
-            {/* Discotive Pro upsell — borderless editorial card */}
+            {/* Discotive Pro upsell — seamless sidebar integration */}
             {!isPro && isSidebarOpen && (
-              <div className="mt-6 mb-4 px-2">
+              <div className="mt-8 mb-6">
                 <div
-                  className="relative rounded-2xl p-4 overflow-hidden group cursor-pointer"
-                  style={{
-                    background:
-                      "linear-gradient(145deg, rgba(191,162,100,0.06) 0%, rgba(0,0,0,0) 100%)",
-                    border: "0.5px solid rgba(191,162,100,0.15)",
-                  }}
-                  onClick={() => navigate("/premium")}
+                  className="relative w-full flex flex-col justify-end group cursor-pointer border-none bg-transparent"
+                  style={{ minHeight: "160px" }}
+                  onClick={() => setShowPremiumPaywall(true)}
                 >
-                  <div className="flex items-center gap-2 mb-2">
-                    <span className="text-[9px] font-black text-[#BFA264] uppercase tracking-[0.25em]">
-                      Discotive Pro
-                    </span>
-                    <div className="flex-1 h-px bg-gradient-to-r from-[rgba(191,162,100,0.3)] to-transparent" />
+                  {/* Fading Image Background merged into Sidebar */}
+                  <div className="absolute inset-0 z-0 opacity-30 group-hover:opacity-50 transition-opacity duration-700 pointer-events-none">
+                    <img
+                      src="/pro-promo.jpg"
+                      alt="Premium"
+                      className="w-full h-full object-cover object-top"
+                      style={{
+                        WebkitMaskImage:
+                          "linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,0) 80%)",
+                        maskImage:
+                          "linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,0) 80%)",
+                      }}
+                    />
                   </div>
-                  <p className="text-[11px] text-[#888] leading-relaxed mb-3">
-                    Agenda, X-Ray, Colists, priority verification — the full
-                    career engine.
-                  </p>
-                  <div className="flex items-center justify-between">
-                    <span className="text-[10px] font-black text-[#D4AF78]">
-                      ₹99 / month
-                    </span>
-                    <div className="flex items-center gap-1 text-[9px] font-black text-[#BFA264] uppercase tracking-widest group-hover:gap-2 transition-all">
-                      Upgrade <span>→</span>
+
+                  {/* Content Stacked Below */}
+                  <div className="relative z-10 px-5 flex flex-col pb-2">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-[10px] font-black text-[#D4AF78] uppercase tracking-[0.25em]">
+                        Discotive Pro
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-[#666] leading-relaxed mb-4 pr-2 font-medium">
+                      Agenda, X-Ray, Colists, and the full Career Engine.
+                    </p>
+                    <div className="flex items-center gap-2 text-[9px] font-black text-[#F5F0E8] uppercase tracking-widest group-hover:text-[#D4AF78] transition-colors">
+                      Upgrade{" "}
+                      <ArrowRight className="w-3 h-3 transition-transform group-hover:translate-x-1" />
                     </div>
                   </div>
                 </div>
@@ -2093,10 +2122,13 @@ const MainLayout = () => {
                 {/* Premium & Admin */}
                 <div className="space-y-2">
                   {!isPro && (
-                    <a
-                      href="/premium"
-                      onClick={(e) => handleInstantNav("/premium", e)}
-                      className="flex items-center justify-between p-4 bg-gradient-to-r from-[rgba(191,162,100,0.15)] to-transparent border border-[rgba(191,162,100,0.25)] rounded-2xl active:bg-[rgba(191,162,100,0.2)]"
+                    <button
+                      onClick={(e) => {
+                        e.preventDefault();
+                        setIsMobileMenuOpen(false);
+                        setShowPremiumPaywall(true);
+                      }}
+                      className="w-full flex items-center justify-between p-4 bg-gradient-to-r from-[rgba(191,162,100,0.15)] to-transparent border border-[rgba(191,162,100,0.25)] rounded-2xl active:bg-[rgba(191,162,100,0.2)]"
                     >
                       <div className="flex items-center gap-4">
                         <Shield className="w-5 h-5 text-[#D4AF78]" />
@@ -2105,7 +2137,7 @@ const MainLayout = () => {
                         </span>
                       </div>
                       <Zap className="w-4 h-4 text-[#D4AF78]" />
-                    </a>
+                    </button>
                   )}
                   {isAdmin && (
                     <a
@@ -2191,6 +2223,11 @@ const MainLayout = () => {
         isOpen={isRightSidebarOpen}
         onClose={() => setIsRightSidebarOpen(false)}
         userData={userData}
+      />
+
+      <PremiumPaywall
+        isOpen={showPremiumPaywall}
+        onClose={() => setShowPremiumPaywall(false)}
       />
     </div>
   );
