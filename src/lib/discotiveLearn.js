@@ -91,6 +91,7 @@ export const COURSE_PLATFORMS = [
   { id: "linkedin", label: "LinkedIn Learning", color: "#0A66C2" },
   { id: "skillshare", label: "Skillshare", color: "#00AC2E" },
   { id: "pluralsight", label: "Pluralsight", color: "#F15B2A" },
+  { id: "youtube", label: "YouTube", color: "#FF0000" },
   { id: "alison", label: "Alison", color: "#8BC34A" },
   { id: "nptel", label: "NPTEL", color: "#FF6B35" },
   { id: "swayam", label: "SWAYAM", color: "#0099FF" },
@@ -287,6 +288,25 @@ export const calculateVideoWatchScore = (watchedPct) => {
   return { earned: 0, tier: "none", pct: watchedPct };
 };
 
+/**
+ * Calculates Discotive Score reward based on course difficulty.
+ * Hard/Expert = 25 pts | Intermediate = 15 pts | Beginner = 5 pts
+ * Score ONLY awarded after admin verification of vault certificate.
+ */
+
+export const calculateCourseScoreReward = (difficulty) => {
+  switch (difficulty) {
+    case "Expert":
+    case "Advanced":
+      return 25;
+    case "Intermediate":
+      return 15;
+    case "Beginner":
+    default:
+      return 5;
+  }
+};
+
 // ─── Completion map from vault ─────────────────────────────────────────────────
 export const buildCompletionMap = (vault = []) => {
   const map = {};
@@ -330,7 +350,7 @@ export const createCourse = async (data, adminEmail) => {
     eligibility: data.eligibility || "",
     industryRelevance: data.industryRelevance || "Medium",
     verificationTier: data.verificationTier || "Medium",
-    scoreReward: Number(data.scoreReward) || 50,
+    scoreReward: calculateCourseScoreReward(data.difficulty || "Beginner"),
     enrollmentCount: 0,
     rating: Number(data.rating) || 0,
     isFeatured: !!data.isFeatured,

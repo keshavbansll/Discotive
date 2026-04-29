@@ -1144,9 +1144,29 @@ const GitHubConnector = ({ userData, onVaultAssetAdded, addToast }) => {
 
   /* ── GitHub API Fetch ─────────────────────────────────────────────────── */
   const fetchGitHubData = useCallback(
-    async (username) => {
+    async (username, forceRefresh = false) => {
       setLoading(true);
       setError(null);
+
+      // MAANG Optimization: 15-minute Session Cache to prevent GitHub IP Bans
+      const cacheKey = `disc_gh_cache_${username}`;
+      if (!forceRefresh) {
+        try {
+          const cached = sessionStorage.getItem(cacheKey);
+          if (cached) {
+            const { timestamp, data } = JSON.parse(cached);
+            if (Date.now() - timestamp < 15 * 60 * 1000) {
+              setGithubData(data);
+              setPhase("connected");
+              setLoading(false);
+              setRefreshing(false);
+              return;
+            }
+          }
+        } catch (e) {
+          /* ignore cache parse errors */
+        }
+      }
 
       try {
         const headers = { Accept: "application/vnd.github.v3+json" };
@@ -1257,6 +1277,23 @@ const GitHubConnector = ({ userData, onVaultAssetAdded, addToast }) => {
       }
     },
     [uid, userData?.connectors?.github?.username],
+  );
+
+  const data = {
+    user,
+    repos: repoList,
+    languages,
+    commitsByDay,
+    stats: { totalStars, recentCommits },
+  };
+
+  setGithubData(data);
+  setPhase("connected");
+
+  // Save to cache
+  sessionStorage.setItem(
+    cacheKey,
+    JSON.stringify({ timestamp: Date.now(), data }),
   );
 
   /* ── Restore persisted connection ─────────────────────────────────────── */

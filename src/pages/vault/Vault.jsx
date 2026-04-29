@@ -322,19 +322,19 @@ const STRENGTH_CONFIG = {
     color: "#10b981",
     bg: "rgba(16,185,129,0.10)",
     border: "rgba(16,185,129,0.25)",
-    pts: 30,
+    pts: 100, // MAANG Fix: Synced with backend Strict Credibility Protocol
   },
   Medium: {
     color: "#f59e0b",
     bg: "rgba(245,158,11,0.10)",
     border: "rgba(245,158,11,0.25)",
-    pts: 20,
+    pts: 50,
   },
   Weak: {
     color: "#f97316",
     bg: "rgba(249,115,22,0.10)",
     border: "rgba(249,115,22,0.25)",
-    pts: 10,
+    pts: 0,
   },
 };
 

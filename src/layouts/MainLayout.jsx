@@ -1087,7 +1087,7 @@ const MainLayout = () => {
               ))}
             </div>
 
-            <div className="space-y-1">
+            {/* <div className="space-y-1">
               {isSidebarOpen ? (
                 <p className="px-3 text-[10px] font-bold text-[#555] uppercase tracking-[0.2em] mb-2 mt-4">
                   Execution
@@ -1104,7 +1104,7 @@ const MainLayout = () => {
                   isCollapsed={!isSidebarOpen}
                 />
               ))}
-            </div>
+            </div> */}
 
             <div className="space-y-1">
               {isSidebarOpen ? (
@@ -1144,7 +1144,7 @@ const MainLayout = () => {
               ))}
             </div>
 
-            <div className="space-y-1">
+            {/* <div className="space-y-1">
               {isSidebarOpen ? (
                 <p className="px-3 text-[10px] font-bold text-[#555] uppercase tracking-[0.2em] mb-2 mt-4">
                   More from Discotive
@@ -1161,7 +1161,7 @@ const MainLayout = () => {
                   isCollapsed={!isSidebarOpen}
                 />
               ))}
-            </div>
+            </div> */}
 
             {/* Discotive Premium Widget */}
             {!isPro && isSidebarOpen && (

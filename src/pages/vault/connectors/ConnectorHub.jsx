@@ -77,7 +77,7 @@ const CONNECTOR_REGISTRY = [
     accentBorder: "rgba(230,237,243,0.12)",
     description: "Repos, commit activity, code portfolio",
     component: "GitHubConnector",
-    earnText: "Up to +120 pts per repo",
+    earnText: "Up to +100 pts per verified repo",
   },
   {
     key: "youtube",

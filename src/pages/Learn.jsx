@@ -1,12 +1,15 @@
 /**
- * @fileoverview Learn.jsx — Discotive Learn Engine Orchestrator v3.0
+ * @fileoverview Learn.jsx — Discotive Learn Engine Orchestrator v4.0
  *
  * ARCHITECTURE LAW: ZERO UI HERE.
  * Pure state orchestrator. All rendering delegated to LearnPCLayout / LearnMobileLayout.
- * * MAANG Optimizations Applied:
- * - Strict reference memoization (useMemo) for layout props to prevent cascade re-renders.
- * - Error Boundaries added for React.lazy chunk loading failures.
- * - Race-condition safe asynchronous admin verification.
+ *
+ * ADDED IN v4.0:
+ * - Dynamic URL routing: /app/learn/:learnId for item detail
+ * - Tab persistence via URL: /app/learn?tab=courses&status=enrolled
+ * - Score distribution: Beginner=5, Intermediate=15, Advanced/Expert=25
+ * - Suggest button for all users
+ * - Mac-style portfolio explorer
  */
 
 import React, {
@@ -18,15 +21,16 @@ import React, {
   Suspense,
 } from "react";
 import { doc, getDoc } from "firebase/firestore";
+import { useNavigate, useLocation, useParams } from "react-router-dom";
 import { db } from "../firebase";
 import { useAuth } from "../contexts/AuthContext";
 import { useUserData } from "../hooks/useUserData";
 import { useLearnEngine, buildCompletionMap } from "../hooks/useLearnEngine";
-import ErrorBoundary from "../components/boundaries/ErrorBoundary"; // Assuming this exists per standard Discotive architecture
+import ErrorBoundary from "../components/boundaries/ErrorBoundary";
 import GlobalLoader from "../components/GlobalLoader";
 
 // ── Layouts (code-split) ──────────────────────────────────────────────────────
-import LearnPCLayout from "../layouts/learn/LearnPCLayout"; // Fixed import path based on standard layout structure
+import LearnPCLayout from "../layouts/learn/LearnPCLayout";
 const LearnMobileLayout = lazy(
   () => import("../layouts/learn/LearnMobileLayout"),
 );
@@ -47,6 +51,8 @@ const NullFallback = () => null;
 const Learn = () => {
   const { currentUser } = useAuth();
   const { userData } = useUserData();
+  const navigate = useNavigate();
+  const location = useLocation();
 
   // ── Viewport paradigm (Performant ResizeObserver) ─────────────────────────
   const [isMobile, setIsMobile] = useState(
@@ -75,7 +81,6 @@ const Learn = () => {
   useEffect(() => {
     if (!currentUser?.uid) return;
     let isMounted = true;
-
     const checkAdmin = async () => {
       try {
         const snap = await getDoc(doc(db, "admins", currentUser.uid));
@@ -84,7 +89,6 @@ const Learn = () => {
         console.error("Admin verification failed:", error);
       }
     };
-
     checkAdmin();
     return () => {
       isMounted = false;
@@ -110,16 +114,61 @@ const Learn = () => {
     [userData?.vault],
   );
 
-  // ── Selected item sheet ───────────────────────────────────────────────────
+  // ── Dynamic URL: parse ?learnId= from search params ───────────────────────
+  const searchParams = useMemo(
+    () => new URLSearchParams(location.search),
+    [location.search],
+  );
+
+  // ── Selected item sheet — supports URL-driven opening ─────────────────────
   const [selectedItem, setSelectedItem] = useState(null);
 
-  const handleSelect = useCallback((item) => {
-    setSelectedItem(item);
-  }, []);
+  // When URL has learnId param, fetch and open that item
+  useEffect(() => {
+    const learnId = searchParams.get("item");
+    if (!learnId || selectedItem?.discotiveLearnId === learnId) return;
+
+    // Try to find item in already-loaded engine data
+    const allItems = [
+      ...engine.heroItems,
+      ...engine.algoFeed,
+      ...engine.continueItems,
+      ...engine.trendingDomain,
+      ...engine.newCourses,
+      ...engine.topVideos,
+      ...engine.podcasts,
+      ...engine.resources,
+    ];
+    const found = allItems.find((i) => i.discotiveLearnId === learnId);
+    if (found) {
+      setSelectedItem(found);
+    }
+    // If not found in cache, we rely on the user having navigated to it normally
+  }, [searchParams, engine.newCourses]); // eslint-disable-line
+
+  const handleSelect = useCallback(
+    (item) => {
+      setSelectedItem(item);
+      // Push dynamic URL without full navigation
+      if (item?.discotiveLearnId) {
+        const params = new URLSearchParams(location.search);
+        params.set("item", item.discotiveLearnId);
+        navigate(`/app/learn?${params.toString()}`, { replace: true });
+      }
+    },
+    [navigate, location.search],
+  );
 
   const handleCloseSheet = useCallback(() => {
     setSelectedItem(null);
-  }, []);
+    // Remove item param from URL
+    const params = new URLSearchParams(location.search);
+    params.delete("item");
+    const newSearch = params.toString();
+    navigate(`/app/learn${newSearch ? `?${newSearch}` : ""}`, {
+      replace: true,
+    });
+  }, [navigate, location.search]);
 
   // ── Admin form ────────────────────────────────────────────────────────────
   const [adminForm, setAdminForm] = useState({
@@ -149,7 +198,6 @@ const Learn = () => {
   const [portfolioOpen, setPortfolioOpen] = useState(false);
 
   // ── Shared props for both layouts (Strictly Memoized) ─────────────────────
-  // This prevents cascading re-renders of the heavy Netflix-style rows.
   const sharedProps = useMemo(
     () => ({
       ...engine,

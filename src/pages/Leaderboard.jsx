@@ -1164,23 +1164,36 @@ const PlayerSidebar = ({
           <p className="text-[8px] font-black text-white/30 uppercase tracking-widest text-center mb-3">
             Execution Telemetry
           </p>
-          <div className="h-[160px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <RadarChart cx="50%" cy="50%" outerRadius="65%" data={radarData}>
-                <PolarGrid stroke="rgba(255,255,255,0.06)" />
-                <PolarAngleAxis
-                  dataKey="metric"
-                  tick={{ fill: "rgba(255,255,255,0.3)", fontSize: 8 }}
-                />
-                <Radar
-                  name="Operator"
-                  dataKey="val"
-                  stroke="#f59e0b"
-                  fill="#f59e0b"
-                  fillOpacity={0.15}
-                />
-              </RadarChart>
-            </ResponsiveContainer>
+          <div className="h-[160px] relative">
+            {/* MAANG Fix: Delay chart mounting until the sidebar finishes sliding in to prevent ResizeObserver layout thrashing */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.3, duration: 0.3 }}
+              className="absolute inset-0"
+            >
+              <ResponsiveContainer width="100%" height="100%">
+                <RadarChart
+                  cx="50%"
+                  cy="50%"
+                  outerRadius="65%"
+                  data={radarData}
+                >
+                  <PolarGrid stroke="rgba(255,255,255,0.06)" />
+                  <PolarAngleAxis
+                    dataKey="metric"
+                    tick={{ fill: "rgba(255,255,255,0.3)", fontSize: 8 }}
+                  />
+                  <Radar
+                    name="Operator"
+                    dataKey="val"
+                    stroke="#f59e0b"
+                    fill="#f59e0b"
+                    fillOpacity={0.15}
+                  />
+                </RadarChart>
+              </ResponsiveContainer>
+            </motion.div>
           </div>
         </div>
 
@@ -1556,7 +1569,19 @@ const Leaderboard = () => {
 
       // Notification logic (async, non-blocking)
       const uid = userData.uid || userData.id;
-      if (uid) maybeWriteRankNotification(uid, newRank, total).catch(() => {});
+
+      // MAANG Fix: ONLY award milestone notifications for the pure Global leaderboard.
+      // Prevents extreme notification spam and fake dopamine when toggling filters.
+      const isPureGlobal =
+        !filters.domain &&
+        !filters.niche &&
+        !filters.level &&
+        !filters.country &&
+        !filters.search;
+
+      if (uid && isPureGlobal) {
+        maybeWriteRankNotification(uid, newRank, total).catch(() => {});
+      }
     } catch (e) {
       console.error("[Leaderboard] Rank engine:", e);
     }
@@ -1574,6 +1599,7 @@ const Leaderboard = () => {
     executeFetch("initial");
     fetchRankAndCount();
   }, [
+    filters.search, // CRITICAL: This ensures the fetch actually fires when the debounce completes
     filters.domain,
     filters.niche,
     filters.level,
@@ -1581,17 +1607,16 @@ const Leaderboard = () => {
     filters.sortBy,
     filters.pageSize,
     userLoading,
-  ]); // eslint-disable-line
+  ]);
 
-  // Search debounce
+  // MAANG Fix: Pure state-driven debounce. Removes stale-closure fetch calls.
   useEffect(() => {
     if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
     searchDebounceRef.current = setTimeout(() => {
       setFilters((f) => ({ ...f, search: searchInput }));
-      if (!userLoading) executeFetch("initial");
     }, 500);
     return () => clearTimeout(searchDebounceRef.current);
-  }, [searchInput]); // eslint-disable-line
+  }, [searchInput]);
 
   // ── Derived ──────────────────────────────────────────────────────────────
   const isFirstPage = page === 1;

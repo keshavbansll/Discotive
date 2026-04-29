@@ -122,7 +122,7 @@ const FADE_UP = (delay = 0) => ({
    DATA HOOKS
 ══════════════════════════════════════════════════════════════════════════ */
 
-const useScoreLog = (uid) => {
+export const useScoreLog = (uid) => {
   const [logs, setLogs] = useState([]);
   const fetchedRef = useRef(false);
   useEffect(() => {
@@ -252,7 +252,7 @@ const useOpportunities = (uid, domain) => {
   return opps;
 };
 
-const useLbRank = (uid, score, domain) => {
+export const useLbRank = (uid, score, domain) => {
   const [rank, setRank] = useState("?");
   const [filter, setFilter] = useState("Global");
   useEffect(() => {
@@ -928,7 +928,7 @@ const MiniRadialRing = memo(
 );
 
 /* ─── HUD Panel (Desktop right rail — animated) ──────────────────────────── */
-const HUDPanel = memo(
+export const HUDPanel = memo(
   ({
     score,
     lastScore,

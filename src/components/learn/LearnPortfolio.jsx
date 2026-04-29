@@ -1,12 +1,16 @@
 /**
- * @fileoverview LearnPortfolio.jsx — Pro User Learning Portfolio
- * @description
- * A premium-gated, full-screen Netflix-style overlay where operators curate their
- * completed learning assets. Features fluid animations, grouping by content type,
- * visibility toggling, and shareable links.
+ * @fileoverview LearnPortfolio.jsx — Discotive Learn Portfolio v5.0
+ * Mac-style file explorer UI, premium gate, dynamic shareable URLs,
+ * visibility toggling, grouping by type. Zero onSnapshot.
  */
 
-import React, { useState, useEffect, useMemo, useCallback } from "react";
+import React, {
+  useState,
+  useEffect,
+  useMemo,
+  useCallback,
+  useRef,
+} from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   collection,
@@ -31,13 +35,27 @@ import {
   FileText,
   Star,
   Award,
+  ChevronRight,
+  ChevronDown,
+  Crown,
+  FolderOpen,
+  Folder,
+  CheckCircle2,
+  Clock,
+  ExternalLink,
+  Copy,
+  Check,
+  Grid,
+  List,
 } from "lucide-react";
-import { TYPE_CONFIG, getYouTubeThumbnail } from "../../lib/discotiveLearn";
+import { TYPE_CONFIG } from "../../lib/discotiveLearn";
+import { useNavigate } from "react-router-dom";
 
 // ─── Design Tokens ─────────────────────────────────────────────────────────────
 const G = {
   base: "#BFA264",
   bright: "#D4AF78",
+  deep: "#8B7240",
   dimBg: "rgba(191,162,100,0.08)",
   border: "rgba(191,162,100,0.2)",
 };
@@ -54,660 +72,733 @@ const T = {
   dim: "rgba(245,240,232,0.28)",
 };
 
-// ─── Icons mapping ─────────────────────────────────────────────────────────────
-const TypeIcon = ({ type, size = 14, color }) => {
-  const icons = {
-    course: BookOpen,
-    video: Play,
-    podcast: Headphones,
-    resource: FileText,
-  };
-  const Icon = icons[type] || BookOpen;
+// ─── Icon map ─────────────────────────────────────────────────────────────────
+const TYPE_ICON = {
+  course: BookOpen,
+  video: Play,
+  podcast: Headphones,
+  resource: FileText,
+};
+
+// ─── Mac-style Sidebar Tree Item ─────────────────────────────────────────────
+const SidebarItem = ({
+  label,
+  count,
+  icon: Icon,
+  color,
+  active,
+  onClick,
+  isGroup,
+}) => (
+  <button
+    onClick={onClick}
+    className="w-full flex items-center gap-2 px-3 py-1.5 rounded-lg transition-all text-left"
+    style={{
+      background: active ? "rgba(255,255,255,0.07)" : "transparent",
+      color: active ? T.primary : T.secondary,
+    }}
+  >
+    {isGroup && (
+      <ChevronRight
+        className="w-3 h-3 shrink-0"
+        style={{ color: T.dim, transform: "rotate(90deg)" }}
+      />
+    )}
+    {Icon && (
+      <Icon
+        className="w-3.5 h-3.5 shrink-0"
+        style={{ color: active ? color : T.dim }}
+      />
+    )}
+    <span className="text-xs font-semibold flex-1 truncate">{label}</span>
+    {count !== undefined && (
+      <span
+        className="text-[9px] font-bold px-1.5 py-0.5 rounded-full"
+        style={{ background: "rgba(255,255,255,0.06)", color: T.dim }}
+      >
+        {count}
+      </span>
+    )}
+  </button>
+);
+
+// ─── File Explorer Row ────────────────────────────────────────────────────────
+const FileRow = ({ item, selected, onClick, onDelete, onToggleVisibility }) => {
+  const tc = TYPE_CONFIG[item.type] || TYPE_CONFIG.course;
+  const Icon = TYPE_ICON[item.type] || BookOpen;
+  const [hovered, setHovered] = useState(false);
+
   return (
-    <Icon size={size} color={color || TYPE_CONFIG[type]?.color || G.base} />
+    <motion.div
+      initial={{ opacity: 0, x: -6 }}
+      animate={{ opacity: 1, x: 0 }}
+      exit={{ opacity: 0, x: 6 }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      onClick={onClick}
+      className="flex items-center gap-3 px-4 py-2.5 cursor-pointer transition-all select-none"
+      style={{
+        background: selected
+          ? "rgba(191,162,100,0.08)"
+          : hovered
+            ? "rgba(255,255,255,0.03)"
+            : "transparent",
+        borderLeft: selected ? `2px solid ${G.base}` : "2px solid transparent",
+      }}
+    >
+      {/* File icon */}
+      <div
+        className="w-7 h-7 rounded-lg flex items-center justify-center shrink-0"
+        style={{
+          background: `${tc.color}18`,
+          border: `1px solid ${tc.color}30`,
+        }}
+      >
+        <Icon className="w-3.5 h-3.5" style={{ color: tc.color }} />
+      </div>
+
+      {/* Name */}
+      <div className="flex-1 min-w-0">
+        <p
+          className="text-xs font-semibold truncate"
+          style={{ color: T.primary }}
+        >
+          {item.title}
+        </p>
+        <p className="text-[9px] truncate" style={{ color: T.dim }}>
+          {item.platform || tc.label} ·{" "}
+          {new Date(
+            item.addedAt?.toDate?.() || item.addedAt || Date.now(),
+          ).toLocaleDateString("en-US", {
+            month: "short",
+            day: "numeric",
+            year: "numeric",
+          })}
+        </p>
+      </div>
+
+      {/* Visibility */}
+      <div
+        className="flex items-center gap-1.5 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
+        style={{ opacity: hovered ? 1 : 0 }}
+      >
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onToggleVisibility(item.id, !item.isPublic);
+          }}
+          className="w-6 h-6 rounded-md flex items-center justify-center transition-all"
+          style={{ background: "rgba(255,255,255,0.05)" }}
+          title={item.isPublic ? "Make Private" : "Make Public"}
+        >
+          {item.isPublic ? (
+            <Globe className="w-3 h-3 text-green-400" />
+          ) : (
+            <EyeOff className="w-3 h-3" style={{ color: T.dim }} />
+          )}
+        </button>
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onDelete(item.id);
+          }}
+          className="w-6 h-6 rounded-md flex items-center justify-center transition-all"
+          style={{ background: "rgba(248,113,113,0.06)" }}
+          title="Remove"
+        >
+          <Trash2 className="w-3 h-3 text-red-400" />
+        </button>
+      </div>
+
+      {/* Public badge */}
+      {!hovered && item.isPublic && (
+        <Globe className="w-3 h-3 shrink-0 text-green-400/60" />
+      )}
+    </motion.div>
   );
 };
 
-// ─── Subcomponents ─────────────────────────────────────────────────────────────
+// ─── Detail Preview ───────────────────────────────────────────────────────────
+const DetailPreview = ({ item, onDelete, onToggleVisibility }) => {
+  const [copied, setCopied] = useState(false);
+  const tc = TYPE_CONFIG[item?.type] || TYPE_CONFIG.course;
+  const Icon = TYPE_ICON[item?.type] || BookOpen;
 
-const PremiumGate = ({ onClose, isMobile }) => (
-  <motion.div
-    initial={{ opacity: 0 }}
-    animate={{ opacity: 1 }}
-    exit={{ opacity: 0 }}
-    style={{
-      position: "fixed",
-      inset: 0,
-      background: "rgba(3,3,3,0.95)",
-      backdropFilter: "blur(12px)",
-      zIndex: 9999,
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "center",
-      padding: 20,
-    }}
-  >
-    <button
-      onClick={onClose}
-      style={{
-        position: "absolute",
-        top: 24,
-        right: 24,
-        background: V.surface,
-        border: `1px solid ${V.border}`,
-        color: T.primary,
-        width: 40,
-        height: 40,
-        borderRadius: "50%",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-        cursor: "pointer",
-        zIndex: 10,
-      }}
-    >
-      <X size={20} />
-    </button>
-
-    <motion.div
-      initial={{ scale: 0.95, y: 20 }}
-      animate={{ scale: 1, y: 0 }}
-      style={{
-        background: V.elevated,
-        border: `1px solid ${G.border}`,
-        borderRadius: 24,
-        padding: isMobile ? 30 : 50,
-        maxWidth: 500,
-        textAlign: "center",
-        position: "relative",
-        overflow: "hidden",
-      }}
-    >
+  if (!item) {
+    return (
       <div
-        style={{
-          position: "absolute",
-          top: "-50%",
-          left: "-50%",
-          width: "200%",
-          height: "200%",
-          background: `radial-gradient(circle at center, ${G.dimBg} 0%, transparent 60%)`,
-          zIndex: 0,
-          pointerEvents: "none",
-        }}
-      />
-      <div style={{ position: "relative", zIndex: 1 }}>
-        <div
-          style={{
-            width: 64,
-            height: 64,
-            borderRadius: "50%",
-            background: `linear-gradient(135deg, ${G.base}, ${G.bright})`,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            margin: "0 auto 24px",
-            boxShadow: `0 0 30px ${G.dimBg}`,
-          }}
-        >
-          <Lock size={32} color="#000" />
-        </div>
-        <h2
-          style={{
-            fontSize: isMobile ? 24 : 32,
-            fontWeight: 800,
-            color: T.primary,
-            fontFamily: "'Montserrat', sans-serif",
-            marginBottom: 16,
-          }}
-        >
-          PRO PORTFOLIO
-        </h2>
-        <p
-          style={{
-            fontSize: 14,
-            color: T.secondary,
-            lineHeight: 1.6,
-            fontFamily: "'Poppins', sans-serif",
-            marginBottom: 32,
-          }}
-        >
-          Curate a verifiable learning portfolio. Showcase your completed
-          courses, masterclasses, and technical resources to the world with a
-          public link. Stop telling people what you know. Show them.
-        </p>
-        <button
-          style={{
-            background: `linear-gradient(135deg, ${G.base}, ${G.bright})`,
-            color: "#000",
-            border: "none",
-            padding: "16px 32px",
-            borderRadius: 12,
-            fontSize: 14,
-            fontWeight: 800,
-            fontFamily: "'Montserrat', sans-serif",
-            letterSpacing: "0.05em",
-            cursor: "pointer",
-            width: "100%",
-            textTransform: "uppercase",
-          }}
-          onClick={() => {
-            // Logic to redirect to upgrade
-            window.location.href = "/premium";
-          }}
-        >
-          Upgrade to Pro
-        </button>
+        className="flex-1 flex flex-col items-center justify-center gap-3"
+        style={{ color: T.dim }}
+      >
+        <FolderOpen className="w-12 h-12 opacity-20" />
+        <p className="text-xs font-semibold">Select an item to preview</p>
       </div>
-    </motion.div>
-  </motion.div>
-);
+    );
+  }
 
-const PortfolioItemCard = ({
-  item,
-  onDelete,
-  onToggleVisibility,
-  isMobile,
-}) => {
-  const [hovered, setHovered] = useState(false);
-  const typeConfig = TYPE_CONFIG[item.type] || TYPE_CONFIG.course;
+  const handleCopy = () => {
+    navigator.clipboard.writeText(item.discotiveLearnId || "");
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  };
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, scale: 0.95 }}
-      onHoverStart={() => !isMobile && setHovered(true)}
-      onHoverEnd={() => !isMobile && setHovered(false)}
-      style={{
-        background: V.surface,
-        borderRadius: 0, // Borderless design
-        border: `1px solid ${hovered ? typeConfig.border : V.border}`,
-        overflow: "hidden",
-        position: "relative",
-        transition: "border 0.3s ease",
-      }}
-    >
+    <div className="flex-1 flex flex-col overflow-y-auto custom-scrollbar">
       {/* Thumbnail */}
       <div
-        style={{
-          aspectRatio: "16/9",
-          position: "relative",
-          background: V.depth,
-        }}
+        className="relative w-full"
+        style={{ height: 160, background: V.depth, flexShrink: 0 }}
       >
         {item.thumbnailUrl ? (
           <img
             src={item.thumbnailUrl}
             alt={item.title}
-            style={{ width: "100%", height: "100%", objectFit: "cover" }}
+            className="w-full h-full object-cover"
           />
         ) : (
-          <div
-            style={{
-              width: "100%",
-              height: "100%",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              background: `linear-gradient(135deg, ${V.surface}, ${V.depth})`,
-            }}
-          >
-            <TypeIcon
-              type={item.type}
-              size={40}
-              color={typeConfig.color + "40"}
+          <div className="w-full h-full flex items-center justify-center">
+            <Icon
+              className="w-12 h-12 opacity-10"
+              style={{ color: tc.color }}
             />
           </div>
         )}
-
-        {/* Visibility Badge */}
         <div
-          onClick={(e) => {
-            e.stopPropagation();
-            onToggleVisibility(item.id, !item.isPublic);
-          }}
+          className="absolute inset-0"
           style={{
-            position: "absolute",
-            top: 8,
-            left: 8,
-            background: "rgba(0,0,0,0.7)",
-            backdropFilter: "blur(4px)",
-            padding: "4px 8px",
-            borderRadius: 4,
-            display: "flex",
-            alignItems: "center",
-            gap: 6,
-            cursor: "pointer",
-            border: `1px solid ${item.isPublic ? "rgba(74,222,128,0.3)" : "rgba(239,68,68,0.3)"}`,
+            background: "linear-gradient(to top, rgba(3,3,3,0.9), transparent)",
           }}
-        >
-          {item.isPublic ? (
-            <Globe size={10} color="#4ADE80" />
-          ) : (
-            <EyeOff size={10} color="#EF4444" />
-          )}
+        />
+        {/* Type badge */}
+        <div className="absolute top-3 left-3">
           <span
+            className="px-2 py-0.5 rounded-md text-[8px] font-black uppercase tracking-widest"
             style={{
-              fontSize: 8,
-              fontWeight: 800,
-              color: item.isPublic ? "#4ADE80" : "#EF4444",
-              fontFamily: "'Montserrat', sans-serif",
-              letterSpacing: "0.1em",
+              background: `${tc.color}22`,
+              border: `1px solid ${tc.color}40`,
+              color: tc.color,
             }}
           >
-            {item.isPublic ? "PUBLIC" : "PRIVATE"}
+            {tc.label}
           </span>
+        </div>
+        {/* Visibility */}
+        <div className="absolute top-3 right-3">
+          {item.isPublic ? (
+            <span
+              className="flex items-center gap-1 px-2 py-0.5 rounded-md text-[8px] font-bold"
+              style={{ background: "rgba(74,222,128,0.15)", color: "#4ADE80" }}
+            >
+              <Globe className="w-2.5 h-2.5" /> Public
+            </span>
+          ) : (
+            <span
+              className="flex items-center gap-1 px-2 py-0.5 rounded-md text-[8px] font-bold"
+              style={{ background: "rgba(255,255,255,0.06)", color: T.dim }}
+            >
+              <EyeOff className="w-2.5 h-2.5" /> Private
+            </span>
+          )}
         </div>
       </div>
 
-      {/* Content */}
-      <div style={{ padding: "12px" }}>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 6,
-            marginBottom: 8,
-          }}
+      {/* Info */}
+      <div className="p-4 space-y-3 flex-1">
+        <h3
+          className="text-sm font-black leading-snug"
+          style={{ color: T.primary }}
         >
-          <TypeIcon type={item.type} size={12} color={typeConfig.color} />
-          <span
-            style={{
-              fontSize: 9,
-              fontWeight: 700,
-              color: typeConfig.color,
-              fontFamily: "'Montserrat', sans-serif",
-              letterSpacing: "0.1em",
-              textTransform: "uppercase",
-            }}
-          >
-            {typeConfig.label}
-          </span>
-          <span
-            style={{
-              fontSize: 9,
-              color: T.dim,
-              marginLeft: "auto",
-              fontFamily: "'Poppins', sans-serif",
-            }}
+          {item.title}
+        </h3>
+
+        {item.platform && (
+          <p
+            className="text-[10px] font-bold uppercase tracking-widest"
+            style={{ color: T.dim }}
           >
             {item.platform}
+          </p>
+        )}
+
+        {/* Learn ID */}
+        {item.discotiveLearnId && (
+          <button
+            onClick={handleCopy}
+            className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg transition-all"
+            style={{
+              background: "rgba(255,255,255,0.03)",
+              border: "1px solid rgba(255,255,255,0.06)",
+            }}
+          >
+            <span
+              className="text-[8px] font-black uppercase tracking-widest"
+              style={{ color: T.dim }}
+            >
+              ID
+            </span>
+            <span
+              className="font-mono text-[9px] flex-1 text-left truncate"
+              style={{ color: T.secondary }}
+            >
+              {item.discotiveLearnId}
+            </span>
+            {copied ? (
+              <Check className="w-3 h-3 text-green-400 shrink-0" />
+            ) : (
+              <Copy className="w-3 h-3 shrink-0" style={{ color: T.dim }} />
+            )}
+          </button>
+        )}
+
+        {/* Added date */}
+        <div className="flex items-center gap-2" style={{ color: T.dim }}>
+          <Clock className="w-3 h-3" />
+          <span className="text-[10px]">
+            Added{" "}
+            {new Date(
+              item.addedAt?.toDate?.() || item.addedAt || Date.now(),
+            ).toLocaleDateString("en-US", {
+              month: "long",
+              day: "numeric",
+              year: "numeric",
+            })}
           </span>
         </div>
 
-        <h4
-          style={{
-            fontSize: 13,
-            fontWeight: 600,
-            color: T.primary,
-            fontFamily: "'Poppins', sans-serif",
-            margin: 0,
-            marginBottom: 12,
-            display: "-webkit-box",
-            WebkitLineClamp: 2,
-            WebkitBoxOrient: "vertical",
-            overflow: "hidden",
-            lineHeight: 1.4,
-          }}
-        >
-          {item.title}
-        </h4>
-
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-          }}
-        >
-          <span
-            style={{
-              fontSize: 10,
-              color: T.secondary,
-              fontFamily: "'Poppins', sans-serif",
-            }}
-          >
-            Added: {new Date(item.addedAt?.seconds * 1000).toLocaleDateString()}
-          </span>
-
+        {/* Actions */}
+        <div className="pt-2 flex flex-col gap-2">
           <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onDelete(item.id);
-            }}
+            onClick={() => onToggleVisibility(item.id, !item.isPublic)}
+            className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
             style={{
-              background: "transparent",
-              border: "none",
-              color: T.dim,
-              cursor: "pointer",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              padding: 4,
-              transition: "color 0.2s ease",
+              background: item.isPublic
+                ? "rgba(248,113,113,0.06)"
+                : "rgba(74,222,128,0.07)",
+              border: item.isPublic
+                ? "1px solid rgba(248,113,113,0.15)"
+                : "1px solid rgba(74,222,128,0.2)",
+              color: item.isPublic ? "#F87171" : "#4ADE80",
             }}
-            onMouseEnter={(e) => (e.currentTarget.style.color = "#EF4444")}
-            onMouseLeave={(e) => (e.currentTarget.style.color = T.dim)}
           >
-            <Trash2 size={14} />
+            {item.isPublic ? (
+              <>
+                <EyeOff className="w-3.5 h-3.5" /> Make Private
+              </>
+            ) : (
+              <>
+                <Globe className="w-3.5 h-3.5" /> Make Public
+              </>
+            )}
+          </button>
+          <button
+            onClick={() => onDelete(item.id)}
+            className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
+            style={{
+              background: "rgba(248,113,113,0.06)",
+              border: "1px solid rgba(248,113,113,0.12)",
+              color: "#F87171",
+            }}
+          >
+            <Trash2 className="w-3.5 h-3.5" /> Remove
           </button>
         </div>
       </div>
+    </div>
+  );
+};
+
+// ─── Premium Gate ─────────────────────────────────────────────────────────────
+const PremiumGate = ({ onClose }) => {
+  const navigate = useNavigate();
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-[9999] flex items-center justify-center p-6"
+      style={{ background: "rgba(3,3,3,0.96)", backdropFilter: "blur(16px)" }}
+    >
+      <button
+        onClick={onClose}
+        className="absolute top-6 right-6 w-9 h-9 rounded-full flex items-center justify-center"
+        style={{
+          background: V.surface,
+          border: `1px solid ${V.border}`,
+          color: T.primary,
+        }}
+      >
+        <X className="w-4 h-4" />
+      </button>
+      <motion.div
+        initial={{ scale: 0.95, y: 20 }}
+        animate={{ scale: 1, y: 0 }}
+        className="relative max-w-md w-full rounded-3xl overflow-hidden p-8 text-center"
+        style={{ background: V.elevated, border: `1px solid ${G.border}` }}
+      >
+        <div
+          className="absolute inset-0 pointer-events-none"
+          style={{
+            background: `radial-gradient(circle at 50% 0%, ${G.dimBg}, transparent 60%)`,
+          }}
+        />
+        <div className="relative">
+          <div
+            className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-5"
+            style={{
+              background: `linear-gradient(135deg, ${G.deep}, ${G.bright})`,
+            }}
+          >
+            <Crown className="w-8 h-8" style={{ color: "#000" }} />
+          </div>
+          <h2 className="text-2xl font-black mb-3" style={{ color: T.primary }}>
+            PRO PORTFOLIO
+          </h2>
+          <p
+            className="text-sm leading-relaxed mb-6"
+            style={{ color: T.secondary }}
+          >
+            Curate and share a verifiable learning portfolio. Showcase completed
+            courses, masterclasses, and technical resources with a public link.
+            Stop telling people what you know. Show them.
+          </p>
+          <button
+            onClick={() => navigate("/premium")}
+            className="w-full py-4 rounded-2xl text-sm font-black uppercase tracking-widest"
+            style={{
+              background: `linear-gradient(135deg, ${G.base}, ${G.bright})`,
+              color: "#000",
+            }}
+          >
+            Upgrade to Pro
+          </button>
+        </div>
+      </motion.div>
     </motion.div>
   );
 };
 
-// ─── Main Component ────────────────────────────────────────────────────────────
-
+// ─── Main Component ───────────────────────────────────────────────────────────
 const LearnPortfolio = ({ uid, userData, isPremium, onClose, isMobile }) => {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [selected, setSelected] = useState(null); // selected item ID
+  const [activeGroup, setActiveGroup] = useState("all");
+  const [copied, setCopied] = useState(false);
+  const [viewMode, setViewMode] = useState("list"); // "list" | "grid"
 
-  // Fetch logic
-  const fetchPortfolio = useCallback(async () => {
-    if (!uid) return;
-    setLoading(true);
-    try {
-      const q = query(
-        collection(db, "users", uid, "learn_portfolio"),
-        orderBy("completedAt", "desc"),
-      );
-      const snap = await getDocs(q);
-      setItems(snap.docs.map((doc) => ({ id: doc.id, ...doc.data() })));
-    } catch (error) {
-      console.error("Error fetching portfolio:", error);
-    } finally {
-      setLoading(false);
-    }
-  }, [uid]);
-
+  // Fetch portfolio
   useEffect(() => {
-    fetchPortfolio();
-  }, [fetchPortfolio]);
-
-  // Handlers
-  const handleDelete = async (docId) => {
-    if (!window.confirm("Remove this item from your portfolio?")) return;
-    try {
-      await deleteDoc(doc(db, "users", uid, "learn_portfolio", docId));
-      setItems((prev) => prev.filter((i) => i.id !== docId));
-    } catch (error) {
-      console.error("Error deleting:", error);
+    if (!uid || !isPremium) {
+      setLoading(false);
+      return;
     }
-  };
+    const fetch = async () => {
+      try {
+        const snap = await getDocs(
+          query(
+            collection(db, "users", uid, "learn_portfolio"),
+            orderBy("addedAt", "desc"),
+          ),
+        );
+        setItems(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+      } catch (err) {
+        console.error("[LearnPortfolio] Fetch failed:", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetch();
+  }, [uid, isPremium]);
 
-  const handleToggleVisibility = async (docId, newStatus) => {
-    try {
-      await updateDoc(doc(db, "users", uid, "learn_portfolio", docId), {
-        isPublic: newStatus,
-      });
+  const grouped = useMemo(() => {
+    const g = { course: [], video: [], podcast: [], resource: [] };
+    items.forEach((item) => {
+      if (g[item.type]) g[item.type].push(item);
+    });
+    return g;
+  }, [items]);
+
+  const displayItems = useMemo(() => {
+    if (activeGroup === "all") return items;
+    return grouped[activeGroup] || [];
+  }, [activeGroup, items, grouped]);
+
+  const selectedItem = useMemo(
+    () => items.find((i) => i.id === selected),
+    [items, selected],
+  );
+
+  const handleDelete = useCallback(
+    async (docId) => {
+      if (!uid) return;
+      setItems((prev) => prev.filter((i) => i.id !== docId));
+      if (selected === docId) setSelected(null);
+      try {
+        await deleteDoc(doc(db, "users", uid, "learn_portfolio", docId));
+      } catch (err) {
+        console.error(err);
+      }
+    },
+    [uid, selected],
+  );
+
+  const handleToggleVisibility = useCallback(
+    async (docId, newStatus) => {
+      if (!uid) return;
       setItems((prev) =>
         prev.map((i) => (i.id === docId ? { ...i, isPublic: newStatus } : i)),
       );
-    } catch (error) {
-      console.error("Error updating visibility:", error);
-    }
-  };
+      try {
+        await updateDoc(doc(db, "users", uid, "learn_portfolio", docId), {
+          isPublic: newStatus,
+        });
+      } catch (err) {
+        console.error(err);
+      }
+    },
+    [uid],
+  );
 
   const handleCopyLink = () => {
-    const url = `${window.location.origin}/@${userData?.handle}/learning`;
-    navigator.clipboard.writeText(url);
-    alert("Public Portfolio Link Copied!");
+    const handle = userData?.identity?.username || userData?.handle || uid;
+    navigator.clipboard.writeText(
+      `${window.location.origin}/@${handle}/learning`,
+    );
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
   };
 
-  // Grouping
-  const grouped = useMemo(() => {
-    const groups = { course: [], video: [], podcast: [], resource: [] };
-    items.forEach((item) => {
-      if (groups[item.type]) groups[item.type].push(item);
-    });
-    return groups;
-  }, [items]);
-
-  if (!isPremium) {
-    return <PremiumGate onClose={onClose} isMobile={isMobile} />;
-  }
+  if (!isPremium) return <PremiumGate onClose={onClose} />;
 
   return (
     <motion.div
-      initial={{ x: "100%", opacity: 0 }}
-      animate={{ x: 0, opacity: 1 }}
-      exit={{ x: "100%", opacity: 0 }}
-      transition={{ type: "spring", damping: 25, stiffness: 200 }}
-      style={{
-        position: "fixed",
-        inset: 0,
-        background: V.bg,
-        zIndex: 9999,
-        display: "flex",
-        flexDirection: "column",
-        overflow: "hidden",
-      }}
+      initial={{ opacity: 0, scale: 0.98 }}
+      animate={{ opacity: 1, scale: 1 }}
+      exit={{ opacity: 0, scale: 0.98 }}
+      transition={{ duration: 0.2 }}
+      className="fixed inset-0 z-[9999] flex flex-col"
+      style={{ background: V.bg }}
     >
-      {/* Header */}
-      <header
+      {/* Mac-style Title Bar */}
+      <div
+        className="flex items-center gap-3 px-4 shrink-0"
         style={{
-          height: 80,
-          borderBottom: `1px solid ${V.border}`,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "space-between",
-          padding: isMobile ? "0 20px" : "0 40px",
+          height: 52,
           background: V.surface,
-          flexShrink: 0,
+          borderBottom: `1px solid ${V.border}`,
         }}
       >
-        <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-          <div
-            style={{
-              width: 40,
-              height: 40,
-              background: G.dimBg,
-              borderRadius: 8,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            <Award size={20} color={G.base} />
-          </div>
-          <div>
-            <h1
-              style={{
-                fontSize: 18,
-                fontWeight: 800,
-                color: T.primary,
-                fontFamily: "'Montserrat', sans-serif",
-                margin: 0,
-                letterSpacing: "0.02em",
-              }}
-            >
-              LEARN PORTFOLIO
-            </h1>
-            <p
-              style={{
-                fontSize: 11,
-                color: T.secondary,
-                fontFamily: "'Poppins', sans-serif",
-                margin: 0,
-              }}
-            >
-              Curated proof of your intellectual curiosity.
-            </p>
-          </div>
-        </div>
-
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <button
-            onClick={handleCopyLink}
-            style={{
-              background: "transparent",
-              border: `1px solid ${V.border}`,
-              color: T.primary,
-              height: 36,
-              padding: "0 16px",
-              borderRadius: 8,
-              display: "flex",
-              alignItems: "center",
-              gap: 8,
-              fontSize: 11,
-              fontWeight: 600,
-              fontFamily: "'Montserrat', sans-serif",
-              cursor: "pointer",
-            }}
-          >
-            <Share2 size={14} />
-            {!isMobile && "Share Public Link"}
-          </button>
+        {/* Traffic lights */}
+        <div className="flex items-center gap-1.5">
           <button
             onClick={onClose}
+            className="w-3 h-3 rounded-full transition-all hover:brightness-110"
+            style={{ background: "#FF5F57" }}
+          />
+          <div
+            className="w-3 h-3 rounded-full"
+            style={{ background: "#FEBC2E" }}
+          />
+          <div
+            className="w-3 h-3 rounded-full"
+            style={{ background: "#28C840" }}
+          />
+        </div>
+
+        {/* Title */}
+        <div className="flex-1 flex items-center justify-center">
+          <span
+            className="text-[11px] font-semibold"
+            style={{ color: T.secondary }}
+          >
+            Learn Portfolio
+          </span>
+        </div>
+
+        {/* Right actions */}
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setViewMode(viewMode === "list" ? "grid" : "list")}
+            className="w-7 h-7 rounded-lg flex items-center justify-center transition-all"
+            style={{ background: "rgba(255,255,255,0.05)", color: T.dim }}
+          >
+            {viewMode === "list" ? (
+              <Grid className="w-3.5 h-3.5" />
+            ) : (
+              <List className="w-3.5 h-3.5" />
+            )}
+          </button>
+          <button
+            onClick={handleCopyLink}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-widest transition-all"
             style={{
-              width: 36,
-              height: 36,
-              borderRadius: 8,
-              background: V.elevated,
-              border: `1px solid ${V.border}`,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              color: T.primary,
-              cursor: "pointer",
+              background: G.dimBg,
+              border: `1px solid ${G.border}`,
+              color: G.bright,
             }}
           >
-            <X size={18} />
+            {copied ? (
+              <Check className="w-3 h-3" />
+            ) : (
+              <Share2 className="w-3 h-3" />
+            )}
+            {!isMobile && (copied ? "Copied" : "Share")}
           </button>
         </div>
-      </header>
+      </div>
 
-      {/* Content Area */}
-      <main
-        style={{
-          flex: 1,
-          overflowY: "auto",
-          padding: isMobile ? 20 : 40,
-        }}
-      >
-        {loading ? (
+      {/* Body: sidebar + file list + preview */}
+      <div className="flex flex-1 overflow-hidden">
+        {/* Sidebar */}
+        {!isMobile && (
           <div
+            className="flex flex-col gap-0.5 p-2 shrink-0 overflow-y-auto custom-scrollbar"
             style={{
-              color: T.dim,
-              textAlign: "center",
-              marginTop: 100,
-              fontFamily: "'Poppins', sans-serif",
+              width: 180,
+              borderRight: `1px solid ${V.border}`,
+              background: V.depth,
             }}
           >
-            Loading portfolio...
-          </div>
-        ) : items.length === 0 ? (
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              justifyContent: "center",
-              height: "100%",
-              textAlign: "center",
-              color: T.secondary,
-              fontFamily: "'Poppins', sans-serif",
-            }}
-          >
-            <Star size={48} color={T.dim} style={{ marginBottom: 16 }} />
-            <h3
-              style={{
-                fontSize: 18,
-                fontWeight: 600,
-                color: T.primary,
-                marginBottom: 8,
-              }}
+            <p
+              className="text-[8px] font-black uppercase tracking-widest px-3 py-2"
+              style={{ color: T.dim }}
             >
-              Your Portfolio is Empty
-            </h3>
-            <p style={{ fontSize: 13, maxWidth: 300 }}>
-              Complete courses, watch videos, and read resources to add them
-              here and build your public knowledge base.
+              My Library
             </p>
-          </div>
-        ) : (
-          <div
-            style={{
-              display: "flex",
-              flexDirection: "column",
-              gap: 40,
-              paddingBottom: 60,
-            }}
-          >
-            {/* Render rows for each category that has items */}
+            <SidebarItem
+              label="All Items"
+              count={items.length}
+              icon={FolderOpen}
+              color={G.bright}
+              active={activeGroup === "all"}
+              onClick={() => setActiveGroup("all")}
+            />
+            <div className="h-px my-1" style={{ background: V.border }} />
             {Object.entries(grouped).map(([type, typeItems]) => {
-              if (typeItems.length === 0) return null;
-              const typeConfig = TYPE_CONFIG[type];
-
+              if (!typeItems.length) return null;
+              const Icon = TYPE_ICON[type] || BookOpen;
+              const tc = TYPE_CONFIG[type] || TYPE_CONFIG.course;
               return (
-                <section key={type}>
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 8,
-                      marginBottom: 16,
-                    }}
-                  >
-                    <TypeIcon type={type} size={18} color={typeConfig.color} />
-                    <h3
-                      style={{
-                        fontSize: 16,
-                        fontWeight: 800,
-                        color: T.primary,
-                        fontFamily: "'Montserrat', sans-serif",
-                        margin: 0,
-                        letterSpacing: "0.05em",
-                        textTransform: "uppercase",
-                      }}
-                    >
-                      {typeConfig.plural}
-                    </h3>
-                    <div
-                      style={{
-                        marginLeft: 8,
-                        background: V.elevated,
-                        padding: "2px 8px",
-                        borderRadius: 12,
-                        fontSize: 10,
-                        color: T.secondary,
-                        border: `1px solid ${V.border}`,
-                      }}
-                    >
-                      {typeItems.length}
-                    </div>
-                  </div>
-
-                  {/* Grid Layout for items */}
-                  <div
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: isMobile
-                        ? "1fr"
-                        : "repeat(auto-fill, minmax(280px, 1fr))",
-                      gap: 20,
-                    }}
-                  >
-                    <AnimatePresence>
-                      {typeItems.map((item) => (
-                        <PortfolioItemCard
-                          key={item.id}
-                          item={item}
-                          isMobile={isMobile}
-                          onDelete={handleDelete}
-                          onToggleVisibility={handleToggleVisibility}
-                        />
-                      ))}
-                    </AnimatePresence>
-                  </div>
-                </section>
+                <SidebarItem
+                  key={type}
+                  label={tc.plural}
+                  count={typeItems.length}
+                  icon={Icon}
+                  color={tc.color}
+                  active={activeGroup === type}
+                  onClick={() => setActiveGroup(type)}
+                  isGroup
+                />
               );
             })}
           </div>
         )}
-      </main>
+
+        {/* File list */}
+        <div
+          className="flex flex-col overflow-hidden"
+          style={{
+            flex: isMobile ? 1 : "0 0 320px",
+            borderRight: isMobile ? "none" : `1px solid ${V.border}`,
+          }}
+        >
+          {/* Column headers (Mac Finder style) */}
+          <div
+            className="flex items-center gap-3 px-4 py-2 shrink-0"
+            style={{
+              borderBottom: `1px solid ${V.border}`,
+              background: V.elevated,
+            }}
+          >
+            <span
+              className="text-[8px] font-black uppercase tracking-widest flex-1"
+              style={{ color: T.dim }}
+            >
+              Name
+            </span>
+            <span
+              className="text-[8px] font-black uppercase tracking-widest w-20 text-right"
+              style={{ color: T.dim }}
+            >
+              Date Added
+            </span>
+          </div>
+
+          {/* Items */}
+          <div className="flex-1 overflow-y-auto custom-scrollbar">
+            {loading ? (
+              <div className="flex flex-col gap-2 p-3">
+                {[1, 2, 3, 4].map((i) => (
+                  <div
+                    key={i}
+                    className="h-10 rounded-lg animate-pulse"
+                    style={{ background: "rgba(255,255,255,0.03)" }}
+                  />
+                ))}
+              </div>
+            ) : displayItems.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-full gap-3 p-6 text-center">
+                <Folder
+                  className="w-10 h-10 opacity-20"
+                  style={{ color: T.dim }}
+                />
+                <p className="text-xs font-semibold" style={{ color: T.dim }}>
+                  {activeGroup === "all"
+                    ? "No items yet"
+                    : `No ${activeGroup}s yet`}
+                </p>
+                <p
+                  className="text-[10px] leading-relaxed"
+                  style={{ color: "rgba(245,240,232,0.15)" }}
+                >
+                  Complete content and add it to your portfolio from the detail
+                  sheet.
+                </p>
+              </div>
+            ) : (
+              <AnimatePresence>
+                {displayItems.map((item) => (
+                  <FileRow
+                    key={item.id}
+                    item={item}
+                    selected={selected === item.id}
+                    onClick={() =>
+                      setSelected(item.id === selected ? null : item.id)
+                    }
+                    onDelete={handleDelete}
+                    onToggleVisibility={handleToggleVisibility}
+                  />
+                ))}
+              </AnimatePresence>
+            )}
+          </div>
+
+          {/* Status bar */}
+          <div
+            className="flex items-center px-4 py-1.5 shrink-0"
+            style={{
+              borderTop: `1px solid ${V.border}`,
+              background: V.elevated,
+            }}
+          >
+            <span className="text-[9px] font-mono" style={{ color: T.dim }}>
+              {displayItems.length} item{displayItems.length !== 1 ? "s" : ""}
+              {selectedItem ? " · 1 selected" : ""}
+            </span>
+          </div>
+        </div>
+
+        {/* Detail preview (desktop only) */}
+        {!isMobile && (
+          <div className="flex-1 flex flex-col overflow-hidden">
+            <DetailPreview
+              item={selectedItem}
+              onDelete={handleDelete}
+              onToggleVisibility={handleToggleVisibility}
+            />
+          </div>
+        )}
+      </div>
     </motion.div>
   );
 };

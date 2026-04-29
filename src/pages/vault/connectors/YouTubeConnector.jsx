@@ -160,6 +160,8 @@ const HeroCarousel = memo(({ videos, onDelete }) => {
                 alt={active.title}
                 className="w-full h-full object-cover"
                 onError={(e) => {
+                  // MAANG Fix: Nullify the handler to prevent an infinite loop if the fallback also 404s
+                  e.target.onerror = null;
                   e.target.src = `https://img.youtube.com/vi/${ytId}/hqdefault.jpg`;
                 }}
               />
