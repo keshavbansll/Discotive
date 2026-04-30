@@ -107,7 +107,7 @@ const upperContentNavItems = [
 
 const lowerContentNavItems = [
   { icon: FolderOpen, label: "Asset Vault", path: "/app/vault" },
-  { icon: GraduationCap, label: "Learn", path: "/app/learn" },
+  // { icon: GraduationCap, label: "Learn", path: "/app/learn" },
   { icon: Calendar, label: "Agenda", path: "/app/agenda", proOnly: true },
 ];
 

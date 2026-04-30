@@ -234,14 +234,15 @@ const useAlliances = (allyIds) => {
   const prevIds = useRef("");
 
   useEffect(() => {
-    const idsString = (allyIds || []).join(",");
-    if (!allyIds || !allyIds.length || idsString === prevIds.current) return;
+    const uniqueAllyIds = [...new Set(allyIds || [])];
+    const idsString = uniqueAllyIds.join(",");
+    if (!uniqueAllyIds.length || idsString === prevIds.current) return;
     prevIds.current = idsString;
 
     const fetchAllies = async () => {
       setLoading(true);
       try {
-        const top20Ids = allyIds.slice(0, 20);
+        const top20Ids = uniqueAllyIds.slice(0, 20);
         const chunks = [];
         for (let i = 0; i < top20Ids.length; i += 10) {
           chunks.push(top20Ids.slice(i, i + 10));
@@ -498,6 +499,31 @@ const OrbitalRings = memo(({ score, lastScore = 0, size = 180 }) => {
 /* ─── Consistency Matrix ─────────────────────────────────────────────────── */
 const ConsistencyMatrix = memo(({ userData, horizontal = false }) => {
   const [hoveredPill, setHoveredPill] = useState(null);
+  const scrollContainerRef = useRef(null);
+
+  const scrollToLatest = useCallback(() => {
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollTo({
+        left: scrollContainerRef.current.scrollWidth,
+        behavior: "smooth",
+      });
+    }
+  }, []);
+
+  useEffect(() => {
+    if (horizontal) {
+      const timer = setTimeout(scrollToLatest, 300);
+      return () => clearTimeout(timer);
+    }
+  }, [horizontal, scrollToLatest]);
+
+  useEffect(() => {
+    if (!horizontal) return;
+    const closeTooltips = () => setHoveredPill(null);
+    document.addEventListener("touchstart", closeTooltips);
+    return () => document.removeEventListener("touchstart", closeTooltips);
+  }, [horizontal]);
+
   const pills = useMemo(() => {
     const active = new Set();
     (userData?.consistency_log || []).forEach((s) => {
@@ -522,64 +548,98 @@ const ConsistencyMatrix = memo(({ userData, horizontal = false }) => {
     });
   }, [userData]);
 
+  // MAANG FIX: Global click handler to close tooltips on outside tap
+  useEffect(() => {
+    if (!horizontal) return;
+    const closePill = () => setHoveredPill(null);
+    document.addEventListener("click", closePill);
+    return () => document.removeEventListener("click", closePill);
+  }, [horizontal]);
+
   if (horizontal) {
+    const hoveredDateStr =
+      hoveredPill !== null
+        ? pills.find((p) => p.id === hoveredPill)?.str
+        : null;
+
     return (
-      <div>
-        <SectionLabel icon={BarChart2} color={G.base}>
-          28-Day Consistency
-        </SectionLabel>
+      <div className="relative w-full">
+        <div className="flex items-center justify-between mb-1 px-1 h-6">
+          <div className="flex items-center gap-3">
+            <SectionLabel icon={BarChart2} color={G.base}>
+              Consistency Table
+            </SectionLabel>
+            {/* MAANG FIX: Dynamic Header Tooltip prevents layout clipping/z-index issues on mobile */}
+            <AnimatePresence mode="wait">
+              {hoveredDateStr && (
+                <motion.div
+                  initial={{ opacity: 0, x: -10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: 5 }}
+                  className="text-[10px] font-mono font-black px-2 py-0.5 rounded-md -mt-3"
+                  style={{
+                    background: "rgba(191,162,100,0.15)",
+                    color: G.bright,
+                    border: `1px solid ${G.border}`,
+                  }}
+                >
+                  {new Date(hoveredDateStr).toLocaleDateString(undefined, {
+                    month: "short",
+                    day: "numeric",
+                  })}
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              scrollToLatest();
+            }}
+            className="p-1.5 -mt-3 rounded-full hover:bg-white/5 text-white/30 hover:text-white transition-colors border border-transparent hover:border-white/10"
+            title="Snap to Present"
+          >
+            <BarChart2 size={12} className="rotate-90" />
+          </button>
+        </div>
         <div
-          className="overflow-x-auto hide-scrollbar pb-1"
+          ref={scrollContainerRef}
+          className="overflow-x-auto hide-scrollbar pb-2 px-2 pt-1"
           style={{ WebkitOverflowScrolling: "touch" }}
         >
           <div
-            className="flex items-end gap-1.5 px-1"
-            style={{ minWidth: "max-content" }}
+            className="flex items-end"
+            style={{ minWidth: "max-content", gap: "2px" }}
           >
             {pills.map((p) => (
               <div
                 key={p.id}
-                className="relative flex justify-center"
+                className="relative flex justify-center cursor-pointer touch-manipulation group"
                 style={{
-                  minWidth: 44,
-                  height: 44,
+                  minWidth: 26, // MAANG FIX: Horizontally tight but vertically accessible 44px equivalent target
+                  height: 54,
                   alignItems: "flex-end",
                   display: "flex",
+                  paddingBottom: "4px",
                 }}
-                onClick={() =>
-                  setHoveredPill(hoveredPill === p.id ? null : p.id)
-                }
-                onTouchStart={() => setHoveredPill(p.id)}
-                onTouchEnd={() => setTimeout(() => setHoveredPill(null), 1200)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setHoveredPill(hoveredPill === p.id ? null : p.id);
+                }}
                 onMouseEnter={() => setHoveredPill(p.id)}
                 onMouseLeave={() => setHoveredPill(null)}
               >
-                <AnimatePresence>
-                  {hoveredPill === p.id && (
-                    <motion.div
-                      initial={{ opacity: 0, y: 4 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0 }}
-                      className="absolute bottom-full mb-1 bg-[#050505] border border-[#BFA264]/40 text-[#BFA264] text-[9px] font-mono font-bold px-2 py-0.5 rounded-lg shadow-2xl pointer-events-none whitespace-nowrap z-50"
-                    >
-                      {new Date(p.str).toLocaleDateString(undefined, {
-                        month: "short",
-                        day: "numeric",
-                      })}
-                    </motion.div>
-                  )}
-                </AnimatePresence>
                 <div
                   className={cn(
-                    "rounded-full transition-opacity duration-1000",
-                    p.on ? "animate-pulse" : "",
+                    "rounded-full transition-all duration-300",
+                    p.on ? "animate-pulse" : "group-hover:bg-white/30",
                   )}
                   style={{
-                    width: 4,
-                    height: p.on ? 24 : 12,
-                    background: p.on ? G.bright : "rgba(255,255,255,0.06)",
-                    opacity: p.on ? 1 : 0.3,
-                    boxShadow: p.on ? `0 0 6px ${G.base}` : "none",
+                    width: 8, // MAANG FIX: Thicker pills for visibility
+                    height: p.on ? 48 : 22, // MAANG FIX: Taller baseline for empty state
+                    background: p.on ? G.bright : "rgba(255,255,255,0.25)", // MAANG FIX: Pitch-black visible contrast
+                    opacity: p.on ? 1 : 0.6,
+                    boxShadow: p.on ? `0 0 12px ${G.base}` : "none",
                   }}
                 />
               </div>
@@ -593,7 +653,7 @@ const ConsistencyMatrix = memo(({ userData, horizontal = false }) => {
   return (
     <div>
       <SectionLabel icon={BarChart2} color={G.base}>
-        Consistency Engine
+        Consistency Table
       </SectionLabel>
       <div className="flex items-center justify-between">
         {pills.map((p) => (
@@ -647,64 +707,56 @@ const GlobalTicker = memo(({ events }) => {
     : [{ id: "init", text: "⚡ Awaiting live arena signal…" }];
 
   return (
-    <div>
-      <SectionLabel icon={Radio} color={G.base}>
-        Live Signal
-      </SectionLabel>
-      <div className="overflow-hidden relative" style={{ height: 100 }}>
-        {hasEvents ? (
-          <motion.div
-            animate={{
-              y: ["0%", `-${Math.max(0, items.length - 3) * 33.33}%`],
-            }}
-            transition={{
-              duration: items.length * 3,
-              repeat: Infinity,
-              ease: "linear",
-            }}
-          >
-            {[...items, ...items].map((e, i) => (
+    <div className="overflow-hidden relative w-full" style={{ height: 100 }}>
+      {hasEvents ? (
+        <motion.div
+          animate={{
+            y: ["0%", `-${Math.max(0, items.length - 3) * 33.33}%`],
+          }}
+          transition={{
+            duration: items.length * 3,
+            repeat: Infinity,
+            ease: "linear",
+          }}
+        >
+          {[...items, ...items].map((e, i) => (
+            <div key={`${e.id}_${i}`} className="flex items-start gap-2 py-1.5">
               <div
-                key={`${e.id}_${i}`}
-                className="flex items-start gap-2 py-1.5"
+                className="mt-1.5 rounded-full shrink-0"
+                style={{
+                  width: 5,
+                  height: 5,
+                  background: G.base,
+                  opacity: 0.7,
+                }}
+              />
+              <span
+                className="text-[10px] font-mono leading-snug"
+                style={{ color: T.dim }}
               >
-                <div
-                  className="mt-1.5 rounded-full shrink-0"
-                  style={{
-                    width: 5,
-                    height: 5,
-                    background: G.base,
-                    opacity: 0.7,
-                  }}
-                />
-                <span
-                  className="text-[10px] font-mono leading-snug"
-                  style={{ color: T.dim }}
-                >
-                  {e.text}
-                </span>
-              </div>
-            ))}
-          </motion.div>
-        ) : (
-          <div className="flex items-center gap-2 py-1.5 h-full opacity-50">
-            <div
-              className="rounded-full shrink-0 animate-pulse"
-              style={{
-                width: 5,
-                height: 5,
-                background: G.base,
-              }}
-            />
-            <span
-              className="text-[10px] font-mono leading-snug"
-              style={{ color: T.dim }}
-            >
-              {items[0].text}
-            </span>
-          </div>
-        )}
-      </div>
+                {e.text}
+              </span>
+            </div>
+          ))}
+        </motion.div>
+      ) : (
+        <div className="flex items-center gap-2 py-1.5 h-full opacity-50">
+          <div
+            className="rounded-full shrink-0 animate-pulse"
+            style={{
+              width: 5,
+              height: 5,
+              background: G.base,
+            }}
+          />
+          <span
+            className="text-[10px] font-mono leading-snug"
+            style={{ color: T.dim }}
+          >
+            {items[0].text}
+          </span>
+        </div>
+      )}
     </div>
   );
 });
@@ -1058,7 +1110,7 @@ const SparklineChart = memo(({ tf, setTf, chartData, chartMin, scoreLogs }) => (
         {["24H", "1W", "1M", "ALL"].map((t) => (
           <button
             key={t}
-            onClick={() => setChartTf(t)}
+            onClick={() => setTf(t)}
             title={`Change timeframe to ${t}`}
             className={cn(
               "text-[8px] font-black uppercase tracking-widest px-2 py-1 rounded-md transition-all",
@@ -1660,7 +1712,15 @@ const HeroDirective = memo(
         });
       }
       return s;
-    }, [rankDropped, vaultCount, isPro, score, delta, navigate]);
+    }, [
+      rankDropped,
+      vaultCount,
+      isPro,
+      score,
+      delta,
+      navigate,
+      setShowPremium,
+    ]);
 
     const activeSlide = slides[activeIdx];
     const Icon = activeSlide.icon;
@@ -2877,7 +2937,7 @@ const MobileDashboard = ({
             {["24H", "1W", "1M", "ALL"].map((t) => (
               <button
                 key={t}
-                onClick={() => setTf(t)}
+                onClick={() => setChartTf(t)}
                 title={`Change timeframe to ${t}`}
                 className={cn(
                   "text-[8px] font-black uppercase px-2 py-1 rounded-md transition-all",
@@ -2945,6 +3005,69 @@ const MobileDashboard = ({
         <ProfileStatsBar userData={userData} />
       </div>
 
+      {/* ── RIVALS (horizontal scroll) ── */}
+      <div className="mb-6 tut-rivals">
+        <div className="flex items-center justify-between mb-3 px-4">
+          <div className="flex items-center gap-2">
+            <Crosshair size={12} style={{ color: "#F87171" }} />
+            <span
+              className="text-[9px] font-black uppercase tracking-widest"
+              style={{ color: T.dim }}
+            >
+              Rivals
+            </span>
+          </div>
+          <Link
+            to="/app/connective"
+            className="text-[9px] font-black uppercase tracking-widest flex items-center gap-1"
+            style={{ color: G.base }}
+          >
+            Network <ArrowUpRight size={9} />
+          </Link>
+        </div>
+        {rivals.length === 0 ? (
+          <div
+            className="px-4 py-5 mx-4 rounded-xl border border-dashed text-center"
+            style={{
+              borderColor: "rgba(239,68,68,0.2)",
+              background: "rgba(239,68,68,0.04)",
+            }}
+          >
+            <Crosshair
+              size={24}
+              style={{ color: "rgba(239,68,68,0.3)", margin: "0 auto 8px" }}
+            />
+            <p
+              className="text-xs font-black"
+              style={{ color: "rgba(239,68,68,0.5)" }}
+            >
+              No rivals tracked yet.
+            </p>
+            <LiquidButton
+              onClick={() => navigate("/app/connective")}
+              title="Navigate to Connective to add rivals"
+              className="mt-3 border-[#F87171]/40 text-[#F87171]"
+            >
+              Add Rivals →
+            </LiquidButton>
+          </div>
+        ) : (
+          <div
+            className="overflow-x-auto hide-scrollbar px-4"
+            style={{ WebkitOverflowScrolling: "touch" }}
+          >
+            <div
+              className="flex gap-3"
+              style={{ scrollSnapType: "x mandatory" }}
+            >
+              {rivals.map((r, i) => (
+                <RivalCard key={r.id} rival={r} userScore={score} idx={i} />
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* ── COMMAND ACTIONS ── */}
       <div className="px-4 mb-5 tut-quick-actions">
         <p
@@ -2959,6 +3082,13 @@ const MobileDashboard = ({
           setShowPremium={setShowPremium}
         />
       </div>
+
+      {/* ── PROFILE COMPLETION WIDGET ── */}
+      {!userData?.deferredOnboardingComplete && (
+        <div className="px-4 mb-5">
+          <ProfileCompletenessWidget userData={userData} compact={true} />
+        </div>
+      )}
 
       {/* ── CONNECTED APPS ── */}
       <div className="px-4 mb-5">
@@ -2977,13 +3107,6 @@ const MobileDashboard = ({
           setShowPremium={setShowPremium}
         />
       </div>
-
-      {/* ── PROFILE COMPLETION WIDGET ── */}
-      {!userData?.deferredOnboardingComplete && (
-        <div className="px-4 mb-5">
-          <ProfileCompletenessWidget userData={userData} compact={true} />
-        </div>
-      )}
 
       {/* ── OPPORTUNITIES ── */}
       <div className="px-4 mb-6 tut-opportunities">
@@ -3068,69 +3191,6 @@ const MobileDashboard = ({
         </div>
       </div>
 
-      {/* ── RIVALS (horizontal scroll) ── */}
-      <div className="mb-6 tut-rivals">
-        <div className="flex items-center justify-between mb-3 px-4">
-          <div className="flex items-center gap-2">
-            <Crosshair size={12} style={{ color: "#F87171" }} />
-            <span
-              className="text-[9px] font-black uppercase tracking-widest"
-              style={{ color: T.dim }}
-            >
-              Rivals
-            </span>
-          </div>
-          <Link
-            to="/app/connective"
-            className="text-[9px] font-black uppercase tracking-widest flex items-center gap-1"
-            style={{ color: G.base }}
-          >
-            Network <ArrowUpRight size={9} />
-          </Link>
-        </div>
-        {rivals.length === 0 ? (
-          <div
-            className="px-4 py-5 mx-4 rounded-xl border border-dashed text-center"
-            style={{
-              borderColor: "rgba(239,68,68,0.2)",
-              background: "rgba(239,68,68,0.04)",
-            }}
-          >
-            <Crosshair
-              size={24}
-              style={{ color: "rgba(239,68,68,0.3)", margin: "0 auto 8px" }}
-            />
-            <p
-              className="text-xs font-black"
-              style={{ color: "rgba(239,68,68,0.5)" }}
-            >
-              No rivals tracked yet.
-            </p>
-            <LiquidButton
-              onClick={() => navigate("/app/connective")}
-              title="Navigate to Connective to add rivals"
-              className="mt-3 border-[#F87171]/40 text-[#F87171]"
-            >
-              Add Rivals →
-            </LiquidButton>
-          </div>
-        ) : (
-          <div
-            className="overflow-x-auto hide-scrollbar px-4"
-            style={{ WebkitOverflowScrolling: "touch" }}
-          >
-            <div
-              className="flex gap-3"
-              style={{ scrollSnapType: "x mandatory" }}
-            >
-              {rivals.map((r, i) => (
-                <RivalCard key={r.id} rival={r} userScore={score} idx={i} />
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-
       {/* ── ALLIANCES (horizontal scroll) ── */}
       <div className="mb-6 tut-alliances">
         <div className="flex items-center justify-between mb-3 px-4">
@@ -3205,6 +3265,66 @@ const MobileDashboard = ({
                   </div>
                 </div>
               )}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* ── VAULT (horizontal scroll) ── */}
+      <div className="mb-6 tut-vault">
+        <div className="flex items-center justify-between mb-3 px-4">
+          <div className="flex items-center gap-2">
+            <Database size={12} style={{ color: G.base }} />
+            <span
+              className="text-[9px] font-black uppercase tracking-widest"
+              style={{ color: T.dim }}
+            >
+              Vault
+            </span>
+          </div>
+          <Link
+            to="/app/vault"
+            className="text-[9px] font-black uppercase tracking-widest flex items-center gap-1"
+            style={{ color: G.base }}
+          >
+            Full Vault <ArrowUpRight size={9} />
+          </Link>
+        </div>
+        {vaultAssets.length === 0 ? (
+          <div
+            className="px-4 py-5 mx-4 rounded-xl border border-dashed text-center"
+            style={{
+              borderColor: "rgba(191,162,100,0.2)",
+              background: "rgba(191,162,100,0.04)",
+            }}
+          >
+            <Database
+              size={24}
+              style={{ color: "rgba(191,162,100,0.3)", margin: "0 auto 8px" }}
+            />
+            <p className="text-xs font-black text-[#D4AF78]">Vault Empty</p>
+            <p className="text-[10px] mt-1 text-white/40">
+              Establish proof of work to build your foundation.
+            </p>
+            <LiquidButton
+              onClick={() => navigate("/app/vault")}
+              className="mt-3"
+            >
+              Upload First Asset →
+            </LiquidButton>
+          </div>
+        ) : (
+          <div
+            className="overflow-x-auto hide-scrollbar px-4"
+            style={{ WebkitOverflowScrolling: "touch" }}
+          >
+            <div
+              className="flex gap-3"
+              style={{ scrollSnapType: "x mandatory" }}
+            >
+              {vaultAssets.map((a, i) => (
+                <VaultCard key={a.id || i} asset={a} idx={i} />
+              ))}
             </div>
           </div>
         )}
@@ -3289,43 +3409,6 @@ const MobileDashboard = ({
             navigate={navigate}
             setShowPremium={setShowPremium}
           />
-        </div>
-      )}
-
-      {/* ── VAULT (horizontal scroll) ── */}
-      {vaultAssets.length > 0 && (
-        <div className="mb-6">
-          <div className="flex items-center justify-between mb-3 px-4">
-            <div className="flex items-center gap-2">
-              <Database size={12} style={{ color: G.base }} />
-              <span
-                className="text-[9px] font-black uppercase tracking-widest"
-                style={{ color: T.dim }}
-              >
-                Vault Arsenal
-              </span>
-            </div>
-            <Link
-              to="/app/vault"
-              className="text-[9px] font-black uppercase tracking-widest flex items-center gap-1"
-              style={{ color: G.base }}
-            >
-              Full Vault <ArrowUpRight size={9} />
-            </Link>
-          </div>
-          <div
-            className="overflow-x-auto hide-scrollbar px-4"
-            style={{ WebkitOverflowScrolling: "touch" }}
-          >
-            <div
-              className="flex gap-3"
-              style={{ scrollSnapType: "x mandatory" }}
-            >
-              {vaultAssets.map((a, i) => (
-                <VaultCard key={a.id || i} asset={a} idx={i} />
-              ))}
-            </div>
-          </div>
         </div>
       )}
 
@@ -3886,6 +3969,9 @@ const Dashboard = () => {
                   transition={{ duration: 0.6, delay: 0.1 }}
                   className="mx-8 md:mx-12 mb-4 tut-live-signal"
                 >
+                  <SectionLabel icon={Radio} color={G.base}>
+                    Live Signal
+                  </SectionLabel>
                   <GlobalTicker events={telemetryEvents} />
                 </motion.div>
               </div>
@@ -3912,6 +3998,37 @@ const Dashboard = () => {
                 </SectionLabel>
                 <ProfileStatsBar userData={userData} />
               </motion.section>
+
+              {/* Rivals */}
+              <motion.section
+                {...FADE_UP(0.08)}
+                className="pb-14 pl-8 md:pl-12 tut-rivals"
+              >
+                <Swimlane
+                  label="Rivals"
+                  icon={Crosshair}
+                  iconColor="#F87171"
+                  cta="Network"
+                  ctaLink="/app/connective"
+                  isEmpty={rivals.length === 0}
+                  emptyTitle="No rivals tracked yet."
+                  emptySub="Go to Connective → Network to mark operators as rivals and track their momentum here in real-time."
+                  emptyCtaLabel="Connective"
+                  emptyCtaLink="/app/connective"
+                >
+                  {rivals.map((r, i) => (
+                    <RivalCard key={r.id} rival={r} userScore={score} idx={i} />
+                  ))}
+                </Swimlane>
+              </motion.section>
+
+              <div
+                style={{
+                  height: 1,
+                  background: "rgba(255,255,255,0.03)",
+                  marginBottom: 40,
+                }}
+              />
 
               <div className="mt-2 mb-8">
                 <HeroDirective
@@ -3992,37 +4109,6 @@ const Dashboard = () => {
                     ))}
                   </div>
                 )}
-              </motion.section>
-
-              <div
-                style={{
-                  height: 1,
-                  background: "rgba(255,255,255,0.03)",
-                  marginBottom: 40,
-                }}
-              />
-
-              {/* Rivals */}
-              <motion.section
-                {...FADE_UP(0.16)}
-                className="pb-14 pl-8 md:pl-12 tut-rivals"
-              >
-                <Swimlane
-                  label="Rivals"
-                  icon={Crosshair}
-                  iconColor="#F87171"
-                  cta="Network"
-                  ctaLink="/app/connective"
-                  isEmpty={rivals.length === 0}
-                  emptyTitle="No rivals tracked yet."
-                  emptySub="Go to Connective → Network to mark operators as rivals and track their momentum here in real-time."
-                  emptyCtaLabel="Connective"
-                  emptyCtaLink="/app/connective"
-                >
-                  {rivals.map((r, i) => (
-                    <RivalCard key={r.id} rival={r} userScore={score} idx={i} />
-                  ))}
-                </Swimlane>
               </motion.section>
 
               <div
@@ -4121,7 +4207,7 @@ const Dashboard = () => {
                 className="pb-14 pl-8 md:pl-12"
               >
                 <Swimlane
-                  label="Vault Arsenal"
+                  label="Vault"
                   icon={Database}
                   iconColor={G.base}
                   cta="Full Vault"
