@@ -1,15 +1,19 @@
 /**
- * @fileoverview Vault.jsx — Discotive Asset Vault v3.0 "Proof of Work Engine"
+ * @fileoverview Vault.jsx — Discotive Asset Vault v4.0 "Sector Archive"
  *
  * ARCHITECTURE:
- * - PC: 20/80 split — sidebar (storage, pending reviews, connectors) + main drive
+ * - PC: 30/70 cinematic split — sidebar + main drive
  * - Mobile: Native-app scroll with snap sections, 44px touch targets
- * - Mac-style ExplorerModel for full-screen file browsing
- * - Onboarding tutorial on first visit
- * - Score engine connected: app connect/disconnect, vault verify events
- * - Tier gates: storage limit 20MB free / 50MB pro, pending reviews 5 free / 10 pro
- * - No Execution Map references (purged)
+ * - Folder-based navigation with dynamic URLs
+ * - Fluid cylinder storage indicator with wave animation
+ * - Mouse-tracking glare on asset cards
+ * - Unified + FAB with morphing pill expansion
+ * - Admin verification chain connected
+ * - Score engine connected: vault verify events, app connect/disconnect
+ * - Tier gates: 20MB free / 50MB pro
  * - SEO + structured data via Helmet
+ * - No Execution Map references (purged)
+ * - No Enterprise tier references (purged)
  */
 
 import React, {
@@ -21,22 +25,21 @@ import React, {
   memo,
 } from "react";
 import { Helmet } from "react-helmet-async";
-import { motion, AnimatePresence, useReducedMotion } from "framer-motion";
-import { useNavigate, Link } from "react-router-dom";
 import {
-  collection,
-  query,
-  where,
-  orderBy,
-  limit,
-  getDocs,
-  addDoc,
-  updateDoc,
-  deleteDoc,
+  motion,
+  AnimatePresence,
+  useReducedMotion,
+  useMotionValue,
+  useTransform,
+} from "framer-motion";
+import { useNavigate, Link, useParams, useLocation } from "react-router-dom";
+import {
   doc,
+  getDoc,
+  updateDoc,
+  collection,
+  addDoc,
   serverTimestamp,
-  runTransaction,
-  increment,
 } from "firebase/firestore";
 import {
   ref as storageRef,
@@ -47,18 +50,16 @@ import {
 import { db, storage } from "../../firebase";
 import { useAuth } from "../../contexts/AuthContext";
 import { useUserData } from "../../hooks/useUserData";
-import { awardAppConnection } from "../../lib/scoreEngine";
 import { evaluateAndAwardBadges } from "../../lib/scoreEngine";
+import { FolderOpen } from "lucide-react";
 import { TIER_LIMITS, TIERS } from "../../lib/TierEngine";
-import ExplorerModel from "../../components/ExplorerModel";
 import PremiumPaywall from "../../components/PremiumPaywall";
 import OnboardingTutorial, {
   PAGE_TUTORIAL_KEY,
-  PAGE_TUTORIALS,
 } from "../../components/OnboardingTutorial";
 import { cn } from "../../lib/cn";
 
-/* ── Design tokens (identical to Dashboard) ──────────────────────────────── */
+/* ── Design Tokens — identical to Dashboard ──────────────────────────────── */
 const G = {
   base: "#BFA264",
   bright: "#D4AF78",
@@ -85,8 +86,11 @@ const FADE_UP = (delay = 0) => ({
   transition: { duration: 0.45, ease: [0.16, 1, 0.3, 1], delay },
 });
 
-/* ── SVG icons (custom, no lucide dependency) ─────────────────────────────── */
-const IconShield = ({ size = 16, color = G.bright }) => (
+/* ══════════════════════════════════════════════════════════════════════════
+   CUSTOM SVG ICONS — Zero lucide dependency
+══════════════════════════════════════════════════════════════════════════ */
+
+const IcoShield = ({ size = 16, color = G.bright }) => (
   <svg
     width={size}
     height={size}
@@ -100,7 +104,7 @@ const IconShield = ({ size = 16, color = G.bright }) => (
     <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
   </svg>
 );
-const IconUpload = ({ size = 16, color = G.bright }) => (
+const IcoUpload = ({ size = 16, color = G.bright }) => (
   <svg
     width={size}
     height={size}
@@ -114,7 +118,7 @@ const IconUpload = ({ size = 16, color = G.bright }) => (
     <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12" />
   </svg>
 );
-const IconDatabase = ({ size = 16, color = G.bright }) => (
+const IcoDatabase = ({ size = 16, color = G.bright }) => (
   <svg
     width={size}
     height={size}
@@ -130,22 +134,7 @@ const IconDatabase = ({ size = 16, color = G.bright }) => (
     <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" />
   </svg>
 );
-const IconLink = ({ size = 14, color = G.bright }) => (
-  <svg
-    width={size}
-    height={size}
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke={color}
-    strokeWidth="2.2"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-  >
-    <path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71" />
-    <path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71" />
-  </svg>
-);
-const IconArrowRight = ({ size = 14, color = T.secondary }) => (
+const IcoX = ({ size = 12, color = T.dim }) => (
   <svg
     width={size}
     height={size}
@@ -154,12 +143,24 @@ const IconArrowRight = ({ size = 14, color = T.secondary }) => (
     stroke={color}
     strokeWidth="2.5"
     strokeLinecap="round"
-    strokeLinejoin="round"
   >
-    <path d="M5 12h14M12 5l7 7-7 7" />
+    <path d="M18 6L6 18M6 6l12 12" />
   </svg>
 );
-const IconCheck = ({ size = 12, color = "#4ADE80" }) => (
+const IcoPlus = ({ size = 14, color = G.bright }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke={color}
+    strokeWidth="2.5"
+    strokeLinecap="round"
+  >
+    <path d="M12 5v14M5 12h14" />
+  </svg>
+);
+const IcoCheck = ({ size = 12, color = "#4ADE80" }) => (
   <svg
     width={size}
     height={size}
@@ -173,7 +174,7 @@ const IconCheck = ({ size = 12, color = "#4ADE80" }) => (
     <path d="M20 6L9 17l-5-5" />
   </svg>
 );
-const IconClock = ({ size = 12, color = "#F59E0B" }) => (
+const IcoClock = ({ size = 12, color = "#F59E0B" }) => (
   <svg
     width={size}
     height={size}
@@ -188,33 +189,7 @@ const IconClock = ({ size = 12, color = "#F59E0B" }) => (
     <path d="M12 6v6l4 2" />
   </svg>
 );
-const IconX = ({ size = 12, color = T.dim }) => (
-  <svg
-    width={size}
-    height={size}
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke={color}
-    strokeWidth="2.5"
-    strokeLinecap="round"
-  >
-    <path d="M18 6L6 18M6 6l12 12" />
-  </svg>
-);
-const IconPlus = ({ size = 14, color = G.bright }) => (
-  <svg
-    width={size}
-    height={size}
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke={color}
-    strokeWidth="2.5"
-    strokeLinecap="round"
-  >
-    <path d="M12 5v14M5 12h14" />
-  </svg>
-);
-const IconFolder = ({ size = 20, color = G.bright }) => (
+const IcoFolder = ({ size = 20, color = G.bright }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
     <path
       d="M3 7a2 2 0 012-2h4.586a1 1 0 01.707.293L11.707 6.7A1 1 0 0012.414 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"
@@ -225,17 +200,21 @@ const IconFolder = ({ size = 20, color = G.bright }) => (
     />
   </svg>
 );
-const IconGithub = ({ size = 18, color = "#e6edf3" }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill={color}>
-    <path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" />
+const IcoCrown = ({ size = 12, color = G.bright }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke={color}
+    strokeWidth="2.2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d="M2 20h20M5 20L3 8l6 4 3-7 3 7 6-4-2 12" />
   </svg>
 );
-const IconYoutube = ({ size = 18, color = "#ff4e45" }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill={color}>
-    <path d="M23.498 6.186a3.016 3.016 0 00-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 00.502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 002.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 002.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z" />
-  </svg>
-);
-const IconLock = ({ size = 12, color = "rgba(191,162,100,0.4)" }) => (
+const IcoLock = ({ size = 12, color = "rgba(191,162,100,0.4)" }) => (
   <svg
     width={size}
     height={size}
@@ -250,36 +229,21 @@ const IconLock = ({ size = 12, color = "rgba(191,162,100,0.4)" }) => (
     <path d="M7 11V7a5 5 0 0110 0v4" />
   </svg>
 );
-const IconExplorer = ({ size = 14, color = G.bright }) => (
+const IcoSearch = ({ size = 14, color = T.dim }) => (
   <svg
     width={size}
     height={size}
     viewBox="0 0 24 24"
     fill="none"
     stroke={color}
-    strokeWidth="2"
+    strokeWidth="2.2"
     strokeLinecap="round"
-    strokeLinejoin="round"
   >
-    <rect x="2" y="3" width="20" height="14" rx="2" ry="2" />
-    <path d="M8 21h8M12 17v4" />
+    <circle cx="11" cy="11" r="7" />
+    <path d="M21 21l-4.35-4.35" />
   </svg>
 );
-const IconSparkle = ({ size = 14, color = G.bright }) => (
-  <svg
-    width={size}
-    height={size}
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke={color}
-    strokeWidth="2"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-  >
-    <path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 17l-6.2 4.3 2.4-7.4L2 9.4h7.6z" />
-  </svg>
-);
-const IconCrown = ({ size = 12, color = G.bright }) => (
+const IcoFilter = ({ size = 14, color = T.dim }) => (
   <svg
     width={size}
     height={size}
@@ -290,104 +254,563 @@ const IconCrown = ({ size = 12, color = G.bright }) => (
     strokeLinecap="round"
     strokeLinejoin="round"
   >
-    <path d="M2 20h20M5 20L3 8l6 4 3-7 3 7 6-4-2 12" />
+    <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3" />
+  </svg>
+);
+const IcoSort = ({ size = 14, color = T.dim }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke={color}
+    strokeWidth="2.2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d="M3 6h18M6 12h12M10 18h4" />
+  </svg>
+);
+const IcoArrowLeft = ({ size = 14, color = T.dim }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke={color}
+    strokeWidth="2.5"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d="M19 12H5M12 19l-7-7 7-7" />
+  </svg>
+);
+const IcoChevronRight = ({ size = 12, color = T.dim }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke={color}
+    strokeWidth="2.5"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d="M9 18l6-6-6-6" />
+  </svg>
+);
+const IcoTrash = ({ size = 13, color = "#F87171" }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke={color}
+    strokeWidth="2.2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6" />
+  </svg>
+);
+const IcoShare = ({ size = 13, color = T.secondary }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke={color}
+    strokeWidth="2.2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <circle cx="18" cy="5" r="3" />
+    <circle cx="6" cy="12" r="3" />
+    <circle cx="18" cy="19" r="3" />
+    <path d="M8.59 13.51l6.83 3.98M15.41 6.51l-6.82 3.98" />
+  </svg>
+);
+const IcoDots = ({ size = 14, color = T.dim }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill={color}>
+    <circle cx="12" cy="5" r="1.5" />
+    <circle cx="12" cy="12" r="1.5" />
+    <circle cx="12" cy="19" r="1.5" />
+  </svg>
+);
+const IcoEye = ({ size = 13, color = T.secondary }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke={color}
+    strokeWidth="2.2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+    <circle cx="12" cy="12" r="3" />
+  </svg>
+);
+const IcoLink = ({ size = 13, color = T.secondary }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke={color}
+    strokeWidth="2.2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71" />
+    <path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71" />
+  </svg>
+);
+const IcoNewFile = ({ size = 16, color = G.bright }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke={color}
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6z" />
+    <path d="M14 2v6h6M12 18v-6M9 15h6" />
+  </svg>
+);
+const IcoNewFolder = ({ size = 16, color = T.secondary }) => (
+  <svg
+    width={size}
+    height={size}
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke={color}
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d="M3 7a2 2 0 012-2h4.586a1 1 0 01.707.293L11.707 6.7A1 1 0 0012.414 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V7z" />
+    <path d="M12 11v6M9 14h6" />
   </svg>
 );
 
-/* ── Skeleton ─────────────────────────────────────────────────────────────── */
-const Skeleton = memo(({ className }) => (
+/* File type icons with type-based colors */
+const FILE_TYPE_CONFIGS = {
+  pdf: {
+    color: "#EF4444",
+    icon: ({ size = 28 }) => (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+        <rect
+          x="3"
+          y="2"
+          width="18"
+          height="20"
+          rx="2"
+          fill="#EF4444"
+          fillOpacity="0.15"
+          stroke="#EF4444"
+          strokeWidth="1.4"
+        />
+        <path
+          d="M7 8h4M7 12h6M7 16h4"
+          stroke="#EF4444"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+        />
+        <text
+          x="12"
+          y="9.5"
+          textAnchor="middle"
+          fontSize="5"
+          fontWeight="800"
+          fill="#EF4444"
+          fontFamily="monospace"
+        >
+          PDF
+        </text>
+      </svg>
+    ),
+  },
+  doc: {
+    color: "#3B82F6",
+    icon: ({ size = 28 }) => (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+        <rect
+          x="3"
+          y="2"
+          width="18"
+          height="20"
+          rx="2"
+          fill="#3B82F6"
+          fillOpacity="0.15"
+          stroke="#3B82F6"
+          strokeWidth="1.4"
+        />
+        <path
+          d="M7 8h10M7 12h8M7 16h6"
+          stroke="#3B82F6"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+        />
+      </svg>
+    ),
+  },
+  docx: {
+    color: "#3B82F6",
+    icon: ({ size = 28 }) => (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+        <rect
+          x="3"
+          y="2"
+          width="18"
+          height="20"
+          rx="2"
+          fill="#3B82F6"
+          fillOpacity="0.15"
+          stroke="#3B82F6"
+          strokeWidth="1.4"
+        />
+        <path
+          d="M7 8h10M7 12h8M7 16h6"
+          stroke="#3B82F6"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+        />
+      </svg>
+    ),
+  },
+  png: {
+    color: "#8B5CF6",
+    icon: ({ size = 28 }) => (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+        <rect
+          x="3"
+          y="2"
+          width="18"
+          height="20"
+          rx="2"
+          fill="#8B5CF6"
+          fillOpacity="0.15"
+          stroke="#8B5CF6"
+          strokeWidth="1.4"
+        />
+        <circle cx="9" cy="9" r="2" fill="#8B5CF6" fillOpacity="0.5" />
+        <path
+          d="M3 16l5-5 4 4 3-3 6 6"
+          stroke="#8B5CF6"
+          strokeWidth="1.4"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    ),
+  },
+  jpg: {
+    color: "#8B5CF6",
+    icon: ({ size = 28 }) => (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+        <rect
+          x="3"
+          y="2"
+          width="18"
+          height="20"
+          rx="2"
+          fill="#8B5CF6"
+          fillOpacity="0.15"
+          stroke="#8B5CF6"
+          strokeWidth="1.4"
+        />
+        <circle cx="9" cy="9" r="2" fill="#8B5CF6" fillOpacity="0.5" />
+        <path
+          d="M3 16l5-5 4 4 3-3 6 6"
+          stroke="#8B5CF6"
+          strokeWidth="1.4"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    ),
+  },
+  jpeg: {
+    color: "#8B5CF6",
+    icon: ({ size = 28 }) => (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+        <rect
+          x="3"
+          y="2"
+          width="18"
+          height="20"
+          rx="2"
+          fill="#8B5CF6"
+          fillOpacity="0.15"
+          stroke="#8B5CF6"
+          strokeWidth="1.4"
+        />
+        <circle cx="9" cy="9" r="2" fill="#8B5CF6" fillOpacity="0.5" />
+        <path
+          d="M3 16l5-5 4 4 3-3 6 6"
+          stroke="#8B5CF6"
+          strokeWidth="1.4"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    ),
+  },
+  mp4: {
+    color: "#F59E0B",
+    icon: ({ size = 28 }) => (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+        <rect
+          x="3"
+          y="2"
+          width="18"
+          height="20"
+          rx="2"
+          fill="#F59E0B"
+          fillOpacity="0.15"
+          stroke="#F59E0B"
+          strokeWidth="1.4"
+        />
+        <polygon points="10,8 17,12 10,16" fill="#F59E0B" />
+      </svg>
+    ),
+  },
+  zip: {
+    color: "#F97316",
+    icon: ({ size = 28 }) => (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+        <rect
+          x="3"
+          y="2"
+          width="18"
+          height="20"
+          rx="2"
+          fill="#F97316"
+          fillOpacity="0.15"
+          stroke="#F97316"
+          strokeWidth="1.4"
+        />
+        <path
+          d="M11 2v6h2V2h-2zM11 10v2h2v-2h-2zM11 14v2h2v-2h-2zM11 18v2h2v-2h-2z"
+          fill="#F97316"
+        />
+      </svg>
+    ),
+  },
+};
+
+const STRENGTH_COLORS = {
+  VERIFIED_Strong: "#4ADE80",
+  VERIFIED_Medium: "#F59E0B",
+  VERIFIED_Weak: "#EF4444",
+  PENDING: "#F59E0B",
+  REJECTED: "#6B7280",
+};
+
+const getFileConfig = (filename = "", strength, status) => {
+  const ext = (filename.split(".").pop() || "").toLowerCase();
+  const base = FILE_TYPE_CONFIGS[ext] || FILE_TYPE_CONFIGS.doc;
+  if (status === "VERIFIED" && strength) {
+    const sc =
+      { Strong: "#4ADE80", Medium: "#F59E0B", Weak: "#EF4444" }[strength] ||
+      base.color;
+    return { ...base, color: sc };
+  }
+  return base;
+};
+
+/* ── Utilities ───────────────────────────────────────────────────────────── */
+const formatBytes = (bytes = 0) => {
+  if (bytes === 0) return "0 B";
+  const k = 1024,
+    sizes = ["B", "KB", "MB", "GB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(1))} ${sizes[i]}`;
+};
+
+/* ══════════════════════════════════════════════════════════════════════════
+   SKELETON
+══════════════════════════════════════════════════════════════════════════ */
+const Skeleton = memo(({ className, style }) => (
   <motion.div
     animate={{ opacity: [0.3, 0.6, 0.3] }}
     transition={{ duration: 1.8, repeat: Infinity, ease: "easeInOut" }}
     className={cn("rounded-xl", className)}
     style={{
       background: `linear-gradient(90deg,${V.surface},${V.elevated},${V.surface})`,
+      ...style,
     }}
   />
 ));
 
-/* ── Storage arc ─────────────────────────────────────────────────────────── */
-const StorageRing = memo(({ usedBytes, maxBytes, isPro }) => {
+/* ══════════════════════════════════════════════════════════════════════════
+   FLUID CYLINDER — Storage indicator with wave animation
+══════════════════════════════════════════════════════════════════════════ */
+const FluidCylinder = memo(({ usedBytes, maxBytes, isUploading, compact }) => {
   const pct = maxBytes > 0 ? Math.min(100, (usedBytes / maxBytes) * 100) : 0;
-  const size = 80;
-  const r = 32;
-  const circ = 2 * Math.PI * r;
-  const offset = circ - (pct / 100) * circ;
   const isCritical = pct > 85;
-  const color = isCritical ? "#F87171" : G.bright;
+  const color = isCritical ? "#EF4444" : G.bright;
+  const [animPct, setAnimPct] = useState(pct);
+  const clipId = useMemo(
+    () => "cylinder-clip-" + Math.random().toString(36).substr(2, 9),
+    [],
+  );
 
-  const fmt = (bytes) => {
-    if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-    if (bytes >= 1024) return `${(bytes / 1024).toFixed(0)} KB`;
-    return `${bytes} B`;
-  };
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => setAnimPct(pct));
+    return () => cancelAnimationFrame(frame);
+  }, [pct]);
+
+  const w = compact ? 130 : 340;
+  const h = compact ? 100 : 180;
+  // Constant liquid baseline
+  const fillH = Math.max(12, (animPct / 100) * (h - 16));
+  const fillY = h - 8 - fillH;
+
+  const waveSpeed = isUploading ? 0.6 : 2.5;
 
   return (
-    <div className="flex flex-col items-center gap-2">
-      <div className="relative" style={{ width: size, height: size }}>
-        <svg width={size} height={size} className="-rotate-90">
-          <circle
-            cx={size / 2}
-            cy={size / 2}
-            r={r}
-            fill="none"
-            stroke="rgba(255,255,255,0.05)"
-            strokeWidth={6}
+    <div className="flex flex-col items-center gap-3 w-full relative">
+      <div
+        className={cn(
+          "relative flex justify-center overflow-hidden w-full",
+          compact ? "max-w-[130px]" : "max-w-[380px]",
+        )}
+        style={{
+          height: h,
+          maskImage:
+            "radial-gradient(ellipse 95% 95% at center, black 50%, transparent 100%)",
+          WebkitMaskImage:
+            "radial-gradient(ellipse 95% 95% at center, black 50%, transparent 100%)",
+        }}
+      >
+        <div className="absolute inset-0 z-0 pointer-events-none" />
+
+        <svg
+          width="100%"
+          height={h}
+          viewBox={`0 0 ${w} ${h}`}
+          className="relative z-10 overflow-hidden"
+        >
+          <defs>
+            <clipPath id={clipId}>
+              <rect x="0" y="0" width={w} height={h} rx="20" />
+            </clipPath>
+            <linearGradient id="glassGlare" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stopColor="rgba(255,255,255,0.08)" />
+              <stop offset="50%" stopColor="rgba(255,255,255,0)" />
+              <stop offset="100%" stopColor="rgba(255,255,255,0.02)" />
+            </linearGradient>
+          </defs>
+
+          {/* Fluid fill layer inside clip path */}
+          <g clipPath={`url(#${clipId})`}>
+            <motion.rect
+              x="0"
+              width={w}
+              y={fillY + 8}
+              height={fillH + 20}
+              fill={color}
+              fillOpacity="0.15"
+              animate={{ y: fillY + 8, height: fillH + 20 }}
+              transition={{ duration: 1.2, ease: [0.16, 1, 0.3, 1] }}
+            />
+            <motion.path
+              d={`M0,${fillY + 8} Q${w * 0.25},${fillY + 2} ${w * 0.5},${fillY + 8} Q${w * 0.75},${fillY + 14} ${w},${fillY + 8} L${w},${h + 20} L0,${h + 20} Z`}
+              fill={color}
+              fillOpacity="0.45"
+              animate={{
+                d: [
+                  `M0,${fillY + 8} Q${w * 0.25},${fillY + 0} ${w * 0.5},${fillY + 8} Q${w * 0.75},${fillY + 16} ${w},${fillY + 8} L${w},${h + 20} L0,${h + 20} Z`,
+                  `M0,${fillY + 12} Q${w * 0.25},${fillY + 4} ${w * 0.5},${fillY + 10} Q${w * 0.75},${fillY + 6} ${w},${fillY + 12} L${w},${h + 20} L0,${h + 20} Z`,
+                  `M0,${fillY + 8} Q${w * 0.25},${fillY + 0} ${w * 0.5},${fillY + 8} Q${w * 0.75},${fillY + 16} ${w},${fillY + 8} L${w},${h + 20} L0,${h + 20} Z`,
+                ],
+              }}
+              transition={{
+                duration: waveSpeed,
+                repeat: Infinity,
+                ease: "easeInOut",
+              }}
+            />
+          </g>
+
+          <rect
+            x="0"
+            y="0"
+            width={w}
+            height={h}
+            rx="20"
+            fill="url(#glassGlare)"
+            pointerEvents="none"
           />
-          <circle
-            cx={size / 2}
-            cy={size / 2}
-            r={r}
-            fill="none"
-            stroke={color}
-            strokeWidth={6}
-            strokeDasharray={circ}
-            strokeDashoffset={offset}
-            strokeLinecap="round"
-            style={{
-              transition: "stroke-dashoffset 1.2s cubic-bezier(0.16,1,0.3,1)",
-              filter: `drop-shadow(0 0 4px ${color}80)`,
-            }}
-          />
-        </svg>
-        <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <span
-            className="text-[11px] font-black leading-none"
-            style={{ color: isCritical ? "#F87171" : T.primary }}
+
+          {/* Req 4: Storage data injected inside the cylinder */}
+          <text
+            x={w / 2}
+            y={h / 2 - (compact ? 0 : 2)}
+            textAnchor="middle"
+            fontSize={compact ? "24" : "42"}
+            fontWeight="900"
+            fill={isCritical ? "#EF4444" : T.primary}
+            fontFamily="Montserrat, sans-serif"
+            style={{ textShadow: "0 6px 20px rgba(0,0,0,0.9)" }}
           >
             {Math.round(pct)}%
-          </span>
-        </div>
+          </text>
+          <text
+            x={w / 2}
+            y={h / 2 + (compact ? 16 : 22)}
+            textAnchor="middle"
+            fontSize={compact ? "8" : "12"}
+            fontWeight="800"
+            fill={isCritical ? "#EF4444" : T.dim}
+            fontFamily="Montserrat, sans-serif"
+            style={{ textShadow: "0 2px 10px rgba(0,0,0,0.9)" }}
+          >
+            {formatBytes(usedBytes)} / {formatBytes(maxBytes)}
+          </text>
+        </svg>
+
+        {isUploading &&
+          [0, 1, 2, 3].map((i) => (
+            <motion.div
+              key={i}
+              className="absolute rounded-full z-20 pointer-events-none"
+              style={{
+                width: 6 + i * 3,
+                height: 6 + i * 3,
+                background: color,
+                opacity: 0.8,
+                left: 30 + i * 40,
+                bottom: 20,
+                filter: "blur(2px)",
+              }}
+              animate={{
+                y: [-4, -30, -4],
+                opacity: [0.8, 0, 0.8],
+                scale: [1, 1.2, 1],
+              }}
+              transition={{
+                duration: 0.8 + i * 0.2,
+                repeat: Infinity,
+                delay: i * 0.25,
+              }}
+            />
+          ))}
       </div>
-      <div className="text-center">
-        <p
-          className="text-[9px] font-bold uppercase tracking-widest"
-          style={{ color: T.dim }}
-        >
-          Storage
-        </p>
-        <p
-          className="text-[10px] font-black mt-0.5"
-          style={{ color: isCritical ? "#F87171" : T.primary }}
-        >
-          {fmt(usedBytes)}{" "}
-          <span style={{ color: T.dim }}>/ {fmt(maxBytes)}</span>
-        </p>
-      </div>
-      {!isPro && (
-        <div
-          className="text-[8px] font-bold text-center"
-          style={{ color: "rgba(191,162,100,0.5)" }}
-        >
-          Upgrade for 50MB
-        </div>
-      )}
     </div>
   );
 });
 
-/* ── Vault Strength meter ─────────────────────────────────────────────────── */
-const VaultStrengthMeter = memo(({ assets }) => {
+/* ══════════════════════════════════════════════════════════════════════════
+   VAULT STRENGTH — Vertical bar
+══════════════════════════════════════════════════════════════════════════ */
+const VaultStrengthBar = memo(({ assets }) => {
   const verifiedCount = assets.filter((a) => a.status === "VERIFIED").length;
   const total = assets.length;
   const strength =
@@ -406,487 +829,714 @@ const VaultStrengthMeter = memo(({ assets }) => {
     if (strength >= 20) return { label: "Weak", color: "#F59E0B" };
     return { label: "Empty", color: T.dim };
   };
-
   const { label, color } = getLabel();
 
+  // Widen and raise the baseline to eliminate bottom clipping
+  const w = 300;
+  const h = 150;
+  const r = 120;
+  const cx = w / 2;
+  const cy = h - 30;
+  const dashArray = Math.PI * r;
+  const dashOffset = dashArray - (dashArray * strength) / 100;
+  const angle = (strength / 100) * 180 - 90;
+
   return (
-    <div className="flex flex-col gap-2">
-      <div className="flex items-center justify-between">
-        <span
-          className="text-[9px] font-black uppercase tracking-widest"
-          style={{ color: T.dim }}
-        >
-          Vault Strength
-        </span>
-        <span className="text-[10px] font-black" style={{ color }}>
-          {label}
-        </span>
-      </div>
+    <div className="flex flex-col items-center gap-1 mt-6 relative w-full">
       <div
-        className="w-full rounded-full overflow-hidden"
-        style={{ height: 3, background: "rgba(255,255,255,0.06)" }}
+        className="relative flex justify-center w-full"
+        style={{ height: h }}
       >
-        <motion.div
-          initial={{ width: 0 }}
-          animate={{ width: `${strength}%` }}
-          transition={{ duration: 1.2, ease: [0.16, 1, 0.3, 1] }}
-          className="h-full rounded-full"
-          style={{
-            background: `linear-gradient(90deg, ${color}80, ${color})`,
-            boxShadow: `0 0 6px ${color}60`,
-          }}
-        />
-      </div>
-      <div className="flex items-center justify-between">
-        <span className="text-[9px] font-mono" style={{ color: T.dim }}>
-          {verifiedCount}/{total} verified
-        </span>
-        <span className="text-[9px] font-black" style={{ color }}>
-          {strength}%
-        </span>
-      </div>
-    </div>
-  );
-});
-
-/* ── Pending Reviews Carousel ────────────────────────────────────────────── */
-const PendingReviewsCarousel = memo(({ assets, isPro, onUpgradeClick }) => {
-  const pending = assets.filter((a) => a.status === "PENDING");
-  const maxPending = isPro ? 10 : 5;
-  const scrollRef = useRef(null);
-
-  if (pending.length === 0) {
-    return (
-      <div>
-        <p
-          className="text-[9px] font-black uppercase tracking-widest mb-2"
-          style={{ color: T.dim }}
+        <svg
+          width={w}
+          height={h}
+          viewBox={`0 0 ${w} ${h}`}
+          className="overflow-visible"
         >
-          Pending Review
-        </p>
-        <div
-          className="flex items-center gap-2 py-3 px-3 rounded-xl"
-          style={{
-            background: "rgba(255,255,255,0.02)",
-            border: "1px dashed rgba(255,255,255,0.08)",
-          }}
-        >
-          <span className="text-[10px]" style={{ color: T.dim }}>
-            No items pending
+          {/* Background Arc */}
+          <path
+            d={`M ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${cx + r} ${cy}`}
+            fill="none"
+            stroke="rgba(255,255,255,0.04)"
+            strokeWidth="18"
+            strokeLinecap="round"
+          />
+          {/* Foreground Arc */}
+          <motion.path
+            d={`M ${cx - r} ${cy} A ${r} ${r} 0 0 1 ${cx + r} ${cy}`}
+            fill="none"
+            stroke={color}
+            strokeWidth="18"
+            strokeLinecap="round"
+            strokeDasharray={dashArray}
+            initial={{ strokeDashoffset: dashArray }}
+            animate={{ strokeDashoffset: dashOffset }}
+            transition={{ duration: 1.5, ease: [0.16, 1, 0.3, 1] }}
+            style={{ filter: `drop-shadow(0 0 12px ${color}80)` }}
+          />
+          {/* Needle Base */}
+          <circle cx={cx} cy={cy} r="6" fill={T.primary} />
+          {/* Needle Polygon (Overlapping Inner Pin) */}
+          <motion.g
+            initial={{ rotate: -90 }}
+            animate={{ rotate: angle }}
+            transition={{ duration: 1.5, ease: [0.16, 1, 0.3, 1] }}
+            style={{ transformOrigin: `${cx}px ${cy}px` }}
+          >
+            <polygon
+              points={`${cx - 5},${cy + 4} ${cx + 5},${cy + 4} ${cx},${cy - r + 18}`}
+              fill={T.primary}
+            />
+          </motion.g>
+          {/* Inner Pin / Top Cap */}
+          <circle cx={cx} cy={cy} r="2.5" fill={V.bg} />
+        </svg>
+
+        <div className="absolute bottom-[0px] text-center w-full flex flex-col items-center">
+          <span
+            className="block text-[32px] font-black leading-none font-display"
+            style={{ color }}
+          >
+            {strength}%
           </span>
+          <div className="flex items-center justify-center mt-1.5">
+            <span
+              className="text-[11px] font-black uppercase tracking-widest cursor-help"
+              style={{ color }}
+              title="Vault Strength Meter"
+            >
+              VSM ({label})
+            </span>
+          </div>
         </div>
       </div>
-    );
-  }
-
-  return (
-    <div>
-      <div className="flex items-center justify-between mb-2">
-        <p
-          className="text-[9px] font-black uppercase tracking-widest"
-          style={{ color: T.dim }}
-        >
-          Pending Review
-        </p>
-        <span
-          className="text-[9px] font-black px-1.5 py-0.5 rounded-full"
-          style={{
-            background: "rgba(245,158,11,0.12)",
-            color: "#F59E0B",
-            border: "1px solid rgba(245,158,11,0.2)",
-          }}
-        >
-          {pending.length}/{maxPending}
-        </span>
-      </div>
-      {pending.length >= maxPending && !isPro && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          className="flex items-center gap-2 py-2 px-3 rounded-xl mb-2 cursor-pointer"
-          style={{
-            background: "rgba(248,113,113,0.08)",
-            border: "1px solid rgba(248,113,113,0.2)",
-          }}
-          onClick={onUpgradeClick}
-        >
-          <IconLock size={10} color="#F87171" />
-          <span className="text-[9px] font-bold" style={{ color: "#F87171" }}>
-            Limit reached. Upgrade for 10 slots.
-          </span>
-        </motion.div>
-      )}
-      <div
-        ref={scrollRef}
-        className="flex flex-col gap-1.5 overflow-y-auto hide-scrollbar"
-        style={{ maxHeight: 160 }}
-      >
-        {pending.map((asset, i) => (
-          <motion.div
-            key={asset.id}
-            initial={{ opacity: 0, x: -6 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ delay: i * 0.05 }}
-            className="flex items-center gap-2 px-3 py-2.5 rounded-xl"
-            style={{
-              background: "rgba(245,158,11,0.06)",
-              border: "1px solid rgba(245,158,11,0.12)",
-            }}
-          >
-            <IconClock size={11} color="#F59E0B" />
-            <div className="flex-1 min-w-0">
-              <p
-                className="text-[10px] font-bold truncate"
-                style={{ color: T.primary }}
-              >
-                {asset.title || asset.category || "Asset"}
-              </p>
-              <p
-                className="text-[8px] uppercase tracking-wider mt-0.5"
-                style={{ color: "#F59E0B" }}
-              >
-                Under review
-              </p>
-            </div>
-          </motion.div>
-        ))}
-      </div>
     </div>
   );
 });
 
-/* ── Connected Apps Mini Strip ─────────────────────────────────────────────── */
-const ConnectorsStrip = memo(({ userData, navigate }) => {
-  const connectors = [
-    {
-      key: "github",
-      label: "GitHub",
-      Icon: <IconGithub size={18} />,
-      isConnected: !!userData?.connectors?.github?.username,
-      href: "/app/vault/connectors/github",
-      bg: "#0d1117",
-      border: "rgba(230,237,243,0.15)",
-    },
-    {
-      key: "youtube",
-      label: "YouTube",
-      Icon: <IconYoutube size={18} />,
-      isConnected: !!userData?.connectors?.youtube?.channelUrl,
-      href: "/app/vault/connectors/youtube",
-      bg: "#0f0000",
-      border: "rgba(255,78,69,0.2)",
-    },
-  ];
+/* ══════════════════════════════════════════════════════════════════════════
+   CONNECTOR STORY — Instagram-style circular icons
+══════════════════════════════════════════════════════════════════════════ */
+const CONNECTOR_DEFS = [
+  {
+    key: "github",
+    label: "GitHub",
+    bg: "#000",
+    border: "rgba(255,255,255,0.15)",
+    icon: ({ size = 20 }) => (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="white">
+        <path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.531 1.032 1.531 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z" />
+      </svg>
+    ),
+    href: "/app/vault/connectors/github",
+    isConnected: (u) => !!u?.connectors?.github?.username,
+  },
+  {
+    key: "youtube",
+    label: "YouTube",
+    bg: "#ef4444",
+    border: "rgba(239,68,68,0.3)",
+    icon: ({ size = 20 }) => (
+      <svg width={size} height={size} viewBox="0 0 24 24" fill="white">
+        <path d="M23.498 6.186a3.016 3.016 0 00-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505A3.017 3.017 0 00.502 6.186C0 8.07 0 12 0 12s0 3.93.502 5.814a3.016 3.016 0 002.122 2.136c1.871.505 9.376.505 9.376.505s7.505 0 9.377-.505a3.015 3.015 0 002.122-2.136C24 15.93 24 12 24 12s0-3.93-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z" />
+      </svg>
+    ),
+    href: "/app/vault/connectors/youtube",
+    isConnected: (u) => !!u?.connectors?.youtube?.channelUrl,
+  },
+];
 
+const ConnectorStory = memo(({ userData, navigate }) => {
   return (
-    <div>
+    <div className="mt-4">
       <p
-        className="text-[9px] font-black uppercase tracking-widest mb-2"
+        className="text-sm font-black uppercase tracking-widest mb-4"
         style={{ color: T.dim }}
       >
         Connected Apps
       </p>
-      <div className="flex flex-col gap-1.5">
-        {connectors.map((c) => (
-          <motion.button
-            key={c.key}
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.97 }}
-            onClick={() => navigate(c.href)}
-            className="flex items-center gap-3 px-3 py-2.5 rounded-xl w-full transition-all text-left"
-            style={{
-              background: c.isConnected ? c.bg : "rgba(255,255,255,0.02)",
-              border: `1px solid ${c.isConnected ? c.border : "rgba(255,255,255,0.06)"}`,
+      <div className="flex items-center gap-4 overflow-x-auto hide-scrollbar pb-2">
+        {CONNECTOR_DEFS.map((c) => {
+          const connected = c.isConnected(userData);
+          const Icon = c.icon;
+          if (!connected) return null;
+          return (
+            <button
+              key={c.key}
+              onClick={() => navigate(c.href)}
+              className="relative shrink-0 flex items-center justify-center w-14 h-14 rounded-full bg-[#111] hover:scale-105 transition-transform"
+              title={c.label}
+            >
+              <Icon size={24} />
+            </button>
+          );
+        })}
+        {/* Req 10: Fluid fill grey background to pitch black with liquid animation */}
+        <motion.button
+          onClick={() => navigate("/app/vault/connectors/github")}
+          className="shrink-0 relative overflow-hidden flex items-center justify-center w-14 h-14 rounded-full group"
+          style={{ background: "rgba(255,255,255,0.05)" }}
+          title="Add more connections"
+          initial="rest"
+          whileHover="hover"
+          whileTap={{ scale: 0.95 }}
+        >
+          <motion.div
+            className="absolute inset-0 z-0 bg-[#000000]"
+            variants={{
+              rest: { y: "101%", borderRadius: "100% 100% 0 0" },
+              hover: { y: "0%", borderRadius: "0% 0% 0 0" },
             }}
-            title={`${c.isConnected ? "Manage" : "Connect"} ${c.label}`}
-          >
-            {c.Icon}
-            <div className="flex-1 min-w-0">
-              <p
-                className="text-[10px] font-bold"
-                style={{ color: c.isConnected ? T.primary : T.dim }}
-              >
-                {c.label}
-              </p>
-              <p
-                className="text-[8px] uppercase tracking-wider"
-                style={{ color: c.isConnected ? "#4ADE80" : T.dim }}
-              >
-                {c.isConnected ? "Connected +2pts" : "Connect for +2pts"}
-              </p>
-            </div>
-            <div
-              className="w-1.5 h-1.5 rounded-full shrink-0"
-              style={{
-                background: c.isConnected ? "#4ADE80" : "rgba(255,255,255,0.1)",
-                boxShadow: c.isConnected ? "0 0 6px #4ADE80" : "none",
-              }}
-            />
-          </motion.button>
-        ))}
+            transition={{ duration: 0.45, ease: [0.22, 1, 0.36, 1] }}
+          />
+          <motion.div className="relative z-10">
+            <IcoPlus size={22} color="rgba(255,255,255,0.5)" />
+          </motion.div>
+        </motion.button>
       </div>
-      <Link
-        to="/app/vault/connectors/github"
-        className="block mt-2 text-[8px] font-bold text-center py-2 rounded-xl transition-all hover:bg-white/[0.03]"
-        style={{ color: G.base }}
-      >
-        Manage all connectors →
-      </Link>
     </div>
   );
 });
 
-/* ── Asset Card (Drive-style) ─────────────────────────────────────────────── */
-const AssetCard = memo(({ asset, idx, onDelete, isMobile }) => {
-  const [hovered, setHovered] = useState(false);
-  const isVerified = asset.status === "VERIFIED";
-  const isPending = asset.status === "PENDING";
+/* ══════════════════════════════════════════════════════════════════════════
+   PENDING REVIEWS PANEL
+══════════════════════════════════════════════════════════════════════════ */
+const PendingPanel = memo(({ assets, isPro }) => {
+  const [open, setOpen] = useState(true);
+  const pending = assets.filter((a) => a.status === "PENDING");
 
-  const CAT_COLORS = {
-    resume: { color: "#BFA264", icon: "📄" },
-    certificate: { color: "#8B5CF6", icon: "🏆" },
-    project: { color: "#38bdf8", icon: "💼" },
-    github: { color: "#e6edf3", icon: "⚡" },
-    default: { color: T.dim, icon: "📎" },
-  };
-  const cat =
-    CAT_COLORS[(asset.category || "").toLowerCase()] || CAT_COLORS.default;
+  return (
+    <div className="w-full mt-4">
+      <button
+        onClick={() => setOpen(!open)}
+        title="Toggle pending reviews"
+        className="flex items-center justify-between w-full mb-3"
+      >
+        <div className="flex items-center gap-2">
+          <IcoClock size={16} color="#F59E0B" />
+          <span
+            className="text-sm font-black uppercase tracking-widest"
+            style={{ color: T.dim }}
+          >
+            Under Review
+          </span>
+        </div>
+        <span className="text-lg font-black tracking-widest bg-clip-text text-transparent bg-gradient-to-r from-[#D4AF78] to-[#8B7240]">
+          {pending.length}
+        </span>
+      </button>
 
-  if (isMobile) {
+      <AnimatePresence mode="wait">
+        {open && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            className="overflow-hidden"
+          >
+            {pending.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-6 px-4 relative">
+                {/* Pure text instruction above folders */}
+                <p
+                  className="text-[10px] font-black uppercase tracking-[0.2em] mb-4 text-center"
+                  style={{ color: "rgba(245,240,232,0.3)" }}
+                >
+                  No Pending Assets
+                </p>
+
+                {/* Horizontal Stacked folder SVGs, dark faded */}
+                <div className="flex items-center justify-center gap-3 opacity-30">
+                  <IcoFolder size={36} color={G.bright} />
+                  <IcoFolder size={36} color={G.bright} />
+                  <IcoFolder size={36} color={G.bright} />
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-2 max-h-56 overflow-y-auto custom-scrollbar pr-1">
+                {pending.map((a, i) => (
+                  <motion.div
+                    key={a.id}
+                    initial={{ opacity: 0, x: -6 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: i * 0.05 }}
+                    className="flex items-center gap-3 px-4 py-3 rounded-2xl"
+                    style={{
+                      background: "rgba(245,158,11,0.06)",
+                      border: "1px solid rgba(245,158,11,0.12)",
+                    }}
+                  >
+                    <IcoClock size={14} color="#F59E0B" />
+                    <p
+                      className="text-xs font-bold truncate flex-1"
+                      style={{ color: T.primary }}
+                    >
+                      {a.title || "Asset"}
+                    </p>
+                    <span
+                      className="text-[10px] uppercase tracking-widest font-black"
+                      style={{ color: "#F59E0B" }}
+                    >
+                      Review
+                    </span>
+                  </motion.div>
+                ))}
+              </div>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+});
+
+/* ══════════════════════════════════════════════════════════════════════════
+   ASSET CARD — with mouse-tracking glare + strength-colored icons
+══════════════════════════════════════════════════════════════════════════ */
+const AssetCard = memo(
+  ({ asset, idx, onDelete, onShare, onPreview, isMobile }) => {
+    const cardRef = useRef(null);
+    const [glare, setGlare] = useState({ x: 50, y: 50 });
+    const [hovered, setHovered] = useState(false);
+    const [menuOpen, setMenuOpen] = useState(false);
+    const shouldReduce = useReducedMotion();
+
+    const fileConfig = getFileConfig(
+      asset.title || "",
+      asset.strength,
+      asset.status,
+    );
+    const FileIcon = fileConfig.icon;
+    const isVerified = asset.status === "VERIFIED";
+    const isPending = asset.status === "PENDING";
+
+    const handleMouseMove = useCallback(
+      (e) => {
+        if (!cardRef.current || shouldReduce) return;
+        const rect = cardRef.current.getBoundingClientRect();
+        setGlare({
+          x: ((e.clientX - rect.left) / rect.width) * 100,
+          y: ((e.clientY - rect.top) / rect.height) * 100,
+        });
+      },
+      [shouldReduce],
+    );
+
+    if (isMobile) {
+      return (
+        <motion.div
+          {...FADE_UP(idx * 0.04)}
+          className="shrink-0 relative overflow-hidden rounded-2xl cursor-pointer"
+          style={{
+            width: 150,
+            height: 210,
+            scrollSnapAlign: "start",
+            background: V.depth,
+          }}
+          whileHover={{ scale: 1.02 }}
+          whileTap={{ scale: 0.97 }}
+          onTap={() => onPreview?.(asset)}
+        >
+          {/* Folder-colored bg */}
+          <div
+            className="absolute inset-0 rounded-2xl"
+            style={{ background: `${fileConfig.color}10` }}
+          />
+          {/* Status badge */}
+          <div className="absolute top-2.5 right-2.5 z-10">
+            {isVerified && (
+              <div
+                className="flex items-center gap-1 px-1.5 py-0.5 rounded-full"
+                style={{
+                  background: "rgba(74,222,128,0.15)",
+                  border: "1px solid rgba(74,222,128,0.3)",
+                }}
+              >
+                <IcoCheck size={7} color="#4ADE80" />
+                <span
+                  className="text-[7px] font-black uppercase"
+                  style={{ color: "#4ADE80" }}
+                >
+                  Verified
+                </span>
+              </div>
+            )}
+            {isPending && (
+              <div
+                className="flex items-center gap-1 px-1.5 py-0.5 rounded-full"
+                style={{
+                  background: "rgba(245,158,11,0.15)",
+                  border: "1px solid rgba(245,158,11,0.3)",
+                }}
+              >
+                <IcoClock size={7} color="#F59E0B" />
+              </div>
+            )}
+          </div>
+          {/* File icon center */}
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-[60%] opacity-70">
+            <FileIcon size={48} />
+          </div>
+          {/* Bottom info */}
+          <div
+            className="absolute bottom-0 left-0 right-0 p-3"
+            style={{
+              background:
+                "linear-gradient(0deg,rgba(3,3,3,0.95) 0%,rgba(3,3,3,0.6) 60%,transparent 100%)",
+            }}
+          >
+            <p
+              className="text-[10px] font-black leading-tight line-clamp-2"
+              style={{ color: T.primary }}
+            >
+              {asset.title || "Asset"}
+            </p>
+            <p
+              className="text-[8px] mt-1 font-bold uppercase tracking-widest"
+              style={{ color: fileConfig.color }}
+            >
+              {asset.category || "File"}
+            </p>
+          </div>
+        </motion.div>
+      );
+    }
+
+    // Desktop card
     return (
       <motion.div
-        {...FADE_UP(idx * 0.05)}
-        whileHover={{ scale: 1.02 }}
-        whileTap={{ scale: 0.97 }}
-        className="shrink-0 relative overflow-hidden rounded-2xl cursor-pointer"
+        ref={cardRef}
+        {...FADE_UP(idx * 0.04)}
+        className="relative group cursor-pointer rounded-2xl overflow-hidden transition-all"
         style={{
-          width: 150,
-          height: 220,
-          scrollSnapAlign: "start",
-          background: V.depth,
+          background: hovered ? V.elevated : V.surface,
+          border: hovered
+            ? `1px solid ${G.border}`
+            : "1px solid rgba(255,255,255,0.04)",
+          boxShadow: hovered
+            ? `0 8px 32px rgba(0,0,0,0.6), 0 0 0 1px ${G.border}`
+            : "none",
         }}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => {
+          setHovered(false);
+          setMenuOpen(false);
+        }}
+        onMouseMove={handleMouseMove}
+        whileHover={{ y: -2 }}
+        whileTap={{ scale: 0.98 }}
+        onDoubleClick={() => onPreview?.(asset)}
+        title="Double-click to preview"
       >
-        {/* Ambient color glow */}
+        {/* Mouse-tracking glare */}
+        {hovered && !shouldReduce && (
+          <div
+            className="absolute inset-0 pointer-events-none z-20 transition-opacity duration-300"
+            style={{
+              background: `radial-gradient(circle at ${glare.x}% ${glare.y}%, rgba(255,255,255,0.06) 0%, transparent 60%)`,
+            }}
+          />
+        )}
+        {/* Ambient color glow from file type */}
         <div
           className="absolute inset-0 pointer-events-none"
           style={{
-            background: `radial-gradient(ellipse at bottom, ${cat.color}15 0%, transparent 70%)`,
+            background: `radial-gradient(ellipse at 50% 100%, ${fileConfig.color}08 0%, transparent 70%)`,
           }}
         />
 
-        {/* Status badge */}
-        <div className="absolute top-3 right-3 z-10">
-          {isVerified && (
-            <div
-              className="flex items-center gap-1 px-1.5 py-0.5 rounded-full"
-              style={{
-                background: "rgba(74,222,128,0.15)",
-                border: "1px solid rgba(74,222,128,0.3)",
-              }}
-            >
-              <IconCheck size={7} color="#4ADE80" />
-              <span
-                className="text-[7px] font-black uppercase"
-                style={{ color: "#4ADE80" }}
-              >
-                Verified
-              </span>
-            </div>
-          )}
-          {isPending && (
-            <div
-              className="flex items-center gap-1 px-1.5 py-0.5 rounded-full"
-              style={{
-                background: "rgba(245,158,11,0.15)",
-                border: "1px solid rgba(245,158,11,0.3)",
-              }}
-            >
-              <IconClock size={7} color="#F59E0B" />
-              <span
-                className="text-[7px] font-black uppercase"
-                style={{ color: "#F59E0B" }}
-              >
-                Review
-              </span>
-            </div>
-          )}
-        </div>
-
-        {/* Big emoji */}
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-[60%] text-4xl pointer-events-none opacity-30">
-          {cat.icon}
-        </div>
-
-        {/* Bottom info */}
+        {/* Thumbnail */}
         <div
-          className="absolute bottom-0 left-0 right-0 p-3"
-          style={{
-            background:
-              "linear-gradient(0deg,rgba(3,3,3,0.95) 0%,rgba(3,3,3,0.6) 60%,transparent 100%)",
-          }}
+          className="relative aspect-[4/3] flex items-center justify-center overflow-hidden"
+          style={{ background: `${fileConfig.color}06` }}
         >
+          <div className="opacity-30 group-hover:opacity-50 transition-opacity duration-300 select-none">
+            <FileIcon size={56} />
+          </div>
+          {/* Status badge */}
+          <div className="absolute top-2.5 left-2.5">
+            {isVerified && (
+              <div
+                className="flex items-center gap-1 px-2 py-0.5 rounded-full backdrop-blur-sm"
+                style={{
+                  background: "rgba(74,222,128,0.15)",
+                  border: "1px solid rgba(74,222,128,0.3)",
+                }}
+              >
+                <IcoCheck size={8} color="#4ADE80" />
+                <span
+                  className="text-[8px] font-black uppercase tracking-wider"
+                  style={{ color: "#4ADE80" }}
+                >
+                  {asset.strength || "Verified"}
+                </span>
+              </div>
+            )}
+            {isPending && (
+              <div
+                className="flex items-center gap-1 px-2 py-0.5 rounded-full backdrop-blur-sm"
+                style={{
+                  background: "rgba(245,158,11,0.15)",
+                  border: "1px solid rgba(245,158,11,0.3)",
+                }}
+              >
+                <IcoClock size={8} color="#F59E0B" />
+                <span
+                  className="text-[8px] font-black uppercase tracking-wider"
+                  style={{ color: "#F59E0B" }}
+                >
+                  Under Review
+                </span>
+              </div>
+            )}
+            {!isVerified && !isPending && (
+              <div
+                className="px-2 py-0.5 rounded-full"
+                style={{ background: "rgba(255,255,255,0.06)" }}
+              >
+                <span
+                  className="text-[8px] font-black uppercase tracking-wider"
+                  style={{ color: T.dim }}
+                >
+                  Unverified
+                </span>
+              </div>
+            )}
+          </div>
+          {/* 3-dot menu button */}
+          <div className="absolute top-2.5 right-2.5 z-30">
+            <motion.button
+              animate={{ opacity: hovered ? 1 : 0, scale: hovered ? 1 : 0.7 }}
+              transition={{ duration: 0.15 }}
+              onClick={(e) => {
+                e.stopPropagation();
+                setMenuOpen(!menuOpen);
+              }}
+              className="w-7 h-7 rounded-lg flex items-center justify-center"
+              style={{
+                background: "rgba(0,0,0,0.6)",
+                border: "1px solid rgba(255,255,255,0.1)",
+              }}
+              title="Options"
+            >
+              <IcoDots size={12} color={T.secondary} />
+            </motion.button>
+            <AnimatePresence>
+              {menuOpen && (
+                <motion.div
+                  initial={{ opacity: 0, scale: 0.92, y: -4 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.92 }}
+                  transition={{ duration: 0.12 }}
+                  className="absolute right-0 top-full mt-1.5 w-44 rounded-xl overflow-hidden shadow-[0_20px_60px_rgba(0,0,0,0.8)] z-50"
+                  style={{
+                    background: V.elevated,
+                    border: "1px solid rgba(255,255,255,0.08)",
+                  }}
+                >
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onPreview?.(asset);
+                      setMenuOpen(false);
+                    }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2.5 text-[10px] font-bold transition-all hover:bg-white/[0.04]"
+                    style={{
+                      color: T.primary,
+                      borderBottom: "1px solid rgba(255,255,255,0.04)",
+                    }}
+                  >
+                    <IcoEye size={12} color={T.dim} /> Preview
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onShare?.(asset, "public");
+                      setMenuOpen(false);
+                    }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2.5 text-[10px] font-bold transition-all hover:bg-white/[0.04]"
+                    style={{
+                      color: T.primary,
+                      borderBottom: "1px solid rgba(255,255,255,0.04)",
+                    }}
+                  >
+                    <IcoLink size={12} color={T.dim} /> Copy Public Link
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onShare?.(asset, "email");
+                      setMenuOpen(false);
+                    }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2.5 text-[10px] font-bold transition-all hover:bg-white/[0.04]"
+                    style={{
+                      color: T.primary,
+                      borderBottom: "1px solid rgba(255,255,255,0.04)",
+                    }}
+                  >
+                    <IcoShare size={12} color={T.dim} /> Share with Email
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onDelete?.(asset.id);
+                      setMenuOpen(false);
+                    }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2.5 text-[10px] font-bold transition-all hover:bg-red-500/10"
+                    style={{ color: "#F87171" }}
+                  >
+                    <IcoTrash size={12} color="#F87171" /> Delete
+                  </button>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        </div>
+
+        {/* Info */}
+        <div className="p-3">
           <p
-            className="text-[10px] font-black leading-tight line-clamp-2"
+            className="text-[11px] font-black leading-tight line-clamp-2 mb-1"
             style={{ color: T.primary }}
           >
-            {asset.title || asset.category || "Asset"}
+            {asset.title || "Asset"}
           </p>
           <p
-            className="text-[8px] mt-1 font-bold uppercase tracking-widest"
-            style={{ color: cat.color }}
+            className="text-[9px] font-bold uppercase tracking-widest"
+            style={{ color: fileConfig.color }}
           >
             {asset.category || "Document"}
           </p>
+          {asset.discotiveLearnId && (
+            <p
+              className="text-[8px] font-mono mt-1 truncate"
+              style={{ color: T.dim }}
+            >
+              ID: {asset.discotiveLearnId}
+            </p>
+          )}
         </div>
       </motion.div>
     );
-  }
+  },
+);
 
-  // Desktop card (drive-tile style)
+/* ══════════════════════════════════════════════════════════════════════════
+   SCANNING OVERLAY — shown during upload verification
+══════════════════════════════════════════════════════════════════════════ */
+const ScanningOverlay = memo(({ filename, progress }) => {
+  const [hash, setHash] = useState("0x8F9A");
+  const chars = "0123456789ABCDEF";
+  useEffect(() => {
+    const t = setInterval(() => {
+      setHash(
+        "0x" +
+          Array.from(
+            { length: 4 },
+            () => chars[Math.floor(Math.random() * 16)],
+          ).join(""),
+      );
+    }, 80);
+    return () => clearInterval(t);
+  }, []);
+
   return (
     <motion.div
-      {...FADE_UP(idx * 0.04)}
-      className="relative group cursor-pointer rounded-2xl overflow-hidden transition-all"
-      style={{
-        background: hovered ? V.elevated : V.surface,
-        border: hovered
-          ? `1px solid ${G.border}`
-          : "1px solid rgba(255,255,255,0.04)",
-        boxShadow: hovered
-          ? `0 8px 32px rgba(0,0,0,0.6), 0 0 0 1px ${G.border}`
-          : "none",
-      }}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      whileHover={{ y: -2 }}
-      whileTap={{ scale: 0.98 }}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-[9000] flex items-center justify-center"
+      style={{ background: "rgba(3,3,3,0.92)", backdropFilter: "blur(12px)" }}
     >
-      {/* Ambient glow */}
-      <motion.div
-        className="absolute inset-0 pointer-events-none"
-        animate={{ opacity: hovered ? 1 : 0 }}
-        style={{
-          background: `radial-gradient(ellipse at 50% 100%, ${cat.color}12 0%, transparent 60%)`,
-        }}
-      />
-
-      {/* Thumbnail area */}
-      <div
-        className="relative aspect-[4/3] flex items-center justify-center overflow-hidden"
-        style={{ background: `${cat.color}08` }}
-      >
-        <span className="text-5xl opacity-25 group-hover:opacity-40 transition-opacity duration-300 select-none">
-          {cat.icon}
-        </span>
-
-        {/* Status overlay */}
-        <div className="absolute top-2.5 left-2.5">
-          {isVerified && (
-            <div
-              className="flex items-center gap-1 px-2 py-0.5 rounded-full backdrop-blur-sm"
-              style={{
-                background: "rgba(74,222,128,0.15)",
-                border: "1px solid rgba(74,222,128,0.3)",
-              }}
-            >
-              <IconCheck size={8} color="#4ADE80" />
-              <span
-                className="text-[8px] font-black uppercase tracking-wider"
-                style={{ color: "#4ADE80" }}
-              >
-                Verified
-              </span>
-            </div>
-          )}
-          {isPending && (
-            <div
-              className="flex items-center gap-1 px-2 py-0.5 rounded-full backdrop-blur-sm"
-              style={{
-                background: "rgba(245,158,11,0.15)",
-                border: "1px solid rgba(245,158,11,0.3)",
-              }}
-            >
-              <IconClock size={8} color="#F59E0B" />
-              <span
-                className="text-[8px] font-black uppercase tracking-wider"
-                style={{ color: "#F59E0B" }}
-              >
-                Under Review
-              </span>
-            </div>
-          )}
-          {!isVerified && !isPending && (
-            <div
-              className="px-2 py-0.5 rounded-full"
-              style={{ background: "rgba(255,255,255,0.06)" }}
-            >
-              <span
-                className="text-[8px] font-black uppercase tracking-wider"
-                style={{ color: T.dim }}
-              >
-                Unverified
-              </span>
-            </div>
-          )}
+      <div className="flex flex-col items-center gap-5 max-w-xs w-full px-8">
+        {/* Scanning animation */}
+        <div className="relative w-24 h-24">
+          <motion.div
+            className="absolute inset-0 rounded-full border-2"
+            style={{ borderColor: G.bright }}
+            animate={{ rotate: 360 }}
+            transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+          />
+          <motion.div
+            className="absolute inset-2 rounded-full border"
+            style={{ borderColor: "rgba(191,162,100,0.3)" }}
+            animate={{ rotate: -360 }}
+            transition={{ duration: 3, repeat: Infinity, ease: "linear" }}
+          />
+          <div className="absolute inset-0 flex items-center justify-center">
+            <IcoShield size={32} color={G.bright} />
+          </div>
         </div>
-
-        {/* Delete on hover */}
-        <motion.button
-          animate={{ opacity: hovered ? 1 : 0, scale: hovered ? 1 : 0.8 }}
-          transition={{ duration: 0.15 }}
-          onClick={(e) => {
-            e.stopPropagation();
-            onDelete?.(asset.id);
-          }}
-          className="absolute top-2.5 right-2.5 p-1.5 rounded-lg transition-all"
-          style={{
-            background: "rgba(248,113,113,0.15)",
-            border: "1px solid rgba(248,113,113,0.3)",
-          }}
-          title="Delete asset"
-        >
-          <IconX size={10} color="#F87171" />
-        </motion.button>
-      </div>
-
-      {/* Info */}
-      <div className="p-3">
-        <p
-          className="text-[11px] font-black leading-tight line-clamp-2 mb-1"
-          style={{ color: T.primary }}
-        >
-          {asset.title || asset.category || "Asset"}
-        </p>
-        <p
-          className="text-[9px] font-bold uppercase tracking-widest"
-          style={{ color: cat.color }}
-        >
-          {asset.category || "Document"}
-        </p>
-        {asset.discotiveLearnId && (
+        <div className="text-center space-y-1">
           <p
-            className="text-[8px] font-mono mt-1 truncate"
-            style={{ color: T.dim }}
+            className="text-[10px] font-black uppercase tracking-[0.3em]"
+            style={{ color: G.bright }}
           >
-            ID: {asset.discotiveLearnId}
+            Scanning Asset
           </p>
-        )}
+          <p className="text-[9px] font-mono" style={{ color: T.dim }}>
+            Decrypting... {hash} →{" "}
+            <span style={{ color: "#4ADE80" }}>Verified</span>
+          </p>
+          <p
+            className="text-[9px] truncate max-w-[200px] font-mono"
+            style={{ color: T.secondary }}
+          >
+            {filename}
+          </p>
+        </div>
+        <div className="w-full">
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-[9px] font-bold" style={{ color: T.dim }}>
+              Uploading
+            </span>
+            <span
+              className="text-[9px] font-black font-mono"
+              style={{ color: G.bright }}
+            >
+              {progress}%
+            </span>
+          </div>
+          <div
+            className="w-full rounded-full overflow-hidden"
+            style={{ height: 3, background: "rgba(255,255,255,0.06)" }}
+          >
+            <motion.div
+              animate={{ width: `${progress}%` }}
+              transition={{ duration: 0.2 }}
+              className="h-full rounded-full"
+              style={{
+                background: `linear-gradient(90deg, ${G.deep}, ${G.bright})`,
+                boxShadow: `0 0 8px ${G.base}`,
+              }}
+            />
+          </div>
+        </div>
       </div>
     </motion.div>
   );
 });
 
-/* ── Upload Modal ─────────────────────────────────────────────────────────── */
-const UploadModal = memo(
-  ({ isOpen, onClose, onUpload, isPro, currentCount, usedBytes }) => {
-    const [file, setFile] = useState(null);
-    const [title, setTitle] = useState("");
+/* ══════════════════════════════════════════════════════════════════════════
+   UPLOAD FORM — opens after file drop/select
+══════════════════════════════════════════════════════════════════════════ */
+const UploadForm = memo(
+  ({ isOpen, onClose, onUpload, isPro, currentCount, usedBytes, preFile }) => {
+    const [file, setFile] = useState(preFile || null);
+    const [title, setTitle] = useState(
+      preFile?.name?.replace(/\.[^.]+$/, "") || "",
+    );
     const [category, setCategory] = useState("Certificate");
     const [learnId, setLearnId] = useState("");
-    const [uploading, setUploading] = useState(false);
-    const [progress, setProgress] = useState(0);
-    const [dragOver, setDragOver] = useState(false);
     const inputRef = useRef(null);
+    const dropRef = useRef(null);
+    const [dragOver, setDragOver] = useState(false);
+
+    useEffect(() => {
+      if (preFile) {
+        setFile(preFile);
+        setTitle(preFile.name.replace(/\.[^.]+$/, ""));
+      }
+    }, [preFile]);
 
     const maxAssets = isPro
       ? TIER_LIMITS[TIERS.PRO].maxVaultAssets
@@ -909,33 +1559,26 @@ const UploadModal = memo(
     const handleDrop = (e) => {
       e.preventDefault();
       setDragOver(false);
-      const dropped = e.dataTransfer.files[0];
-      if (dropped) setFile(dropped);
+      const f = e.dataTransfer.files[0];
+      if (f) {
+        setFile(f);
+        setTitle(f.name.replace(/\.[^.]+$/, ""));
+      }
     };
 
-    const handleUpload = async () => {
-      if (!file || !title.trim() || uploading) return;
-      if (usedBytes + file.size > maxStorageBytes) {
-        alert(`Storage limit reached. Upgrade to Pro for more space.`);
-        return;
-      }
-      setUploading(true);
-      try {
-        await onUpload(
-          { file, title: title.trim(), category, learnId: learnId.trim() },
-          (pct) => setProgress(pct),
-        );
-        setFile(null);
-        setTitle("");
-        setCategory("Certificate");
-        setLearnId("");
-        setProgress(0);
-        onClose();
-      } catch (err) {
-        console.error("[Vault] Upload failed:", err);
-      } finally {
-        setUploading(false);
-      }
+    const handleSubmit = async () => {
+      if (!file || !title.trim()) return;
+      if (usedBytes + file.size > maxStorageBytes) return;
+      await onUpload({
+        file,
+        title: title.trim(),
+        category,
+        learnId: learnId.trim(),
+      });
+      setFile(null);
+      setTitle("");
+      setCategory("Certificate");
+      setLearnId("");
     };
 
     if (!isOpen) return null;
@@ -970,7 +1613,6 @@ const UploadModal = memo(
                   "radial-gradient(ellipse, rgba(191,162,100,0.08) 0%, transparent 70%)",
               }}
             />
-
             {/* Header */}
             <div
               className="flex items-center justify-between px-5 py-4 relative z-10"
@@ -984,12 +1626,15 @@ const UploadModal = memo(
                     border: `1px solid ${G.border}`,
                   }}
                 >
-                  <IconUpload size={13} color={G.bright} />
+                  <IcoUpload size={13} color={G.bright} />
                 </div>
                 <div>
                   <h3
                     className="text-sm font-black"
-                    style={{ color: T.primary }}
+                    style={{
+                      color: T.primary,
+                      fontFamily: "Montserrat, sans-serif",
+                    }}
                   >
                     Sync Asset
                   </h3>
@@ -1007,15 +1652,14 @@ const UploadModal = memo(
                 style={{ background: "rgba(255,255,255,0.04)" }}
                 title="Close"
               >
-                <IconX size={13} color={T.dim} />
+                <IcoX size={13} color={T.dim} />
               </button>
             </div>
-
             {/* Body */}
             <div className="p-5 flex flex-col gap-4 relative z-10">
               {atCapacity ? (
                 <div className="flex flex-col items-center justify-center py-8 text-center gap-3">
-                  <IconLock size={28} color="rgba(191,162,100,0.4)" />
+                  <IcoLock size={28} color="rgba(191,162,100,0.4)" />
                   <p
                     className="text-sm font-black"
                     style={{ color: T.primary }}
@@ -1025,13 +1669,13 @@ const UploadModal = memo(
                   <p className="text-[11px]" style={{ color: T.secondary }}>
                     {isPro
                       ? "You've reached the maximum asset limit."
-                      : `Free tier: ${maxAssets} assets. Upgrade to Pro for unlimited.`}
+                      : `Free tier: ${maxAssets} assets.`}
                   </p>
                 </div>
               ) : (
                 <>
-                  {/* Drop zone */}
                   <motion.div
+                    ref={dropRef}
                     className={cn(
                       "relative w-full flex flex-col items-center justify-center py-8 rounded-2xl border-2 border-dashed cursor-pointer transition-all",
                       dragOver
@@ -1053,7 +1697,13 @@ const UploadModal = memo(
                       ref={inputRef}
                       type="file"
                       className="hidden"
-                      onChange={(e) => setFile(e.target.files[0])}
+                      onChange={(e) => {
+                        const f = e.target.files[0];
+                        if (f) {
+                          setFile(f);
+                          setTitle(f.name.replace(/\.[^.]+$/, ""));
+                        }
+                      }}
                     />
                     {file ? (
                       <div className="flex flex-col items-center gap-2">
@@ -1080,7 +1730,7 @@ const UploadModal = memo(
                       </div>
                     ) : (
                       <div className="flex flex-col items-center gap-2">
-                        <IconUpload
+                        <IcoUpload
                           size={22}
                           color={dragOver ? G.bright : "rgba(191,162,100,0.4)"}
                         />
@@ -1088,9 +1738,7 @@ const UploadModal = memo(
                           className="text-[10px] font-black uppercase tracking-wider"
                           style={{ color: dragOver ? G.bright : T.dim }}
                         >
-                          {dragOver
-                            ? "Drop it"
-                            : "Drop file or click to browse"}
+                          Drop file or click to browse
                         </p>
                         <p className="text-[8px]" style={{ color: T.dim }}>
                           PDF, PNG, JPG, DOC, ZIP up to {isPro ? "50" : "20"} MB
@@ -1098,8 +1746,6 @@ const UploadModal = memo(
                       </div>
                     )}
                   </motion.div>
-
-                  {/* Title */}
                   <div>
                     <label
                       className="block text-[9px] font-black uppercase tracking-widest mb-1.5 px-1"
@@ -1119,11 +1765,10 @@ const UploadModal = memo(
                           ? `1px solid ${G.border}`
                           : "1px solid rgba(255,255,255,0.08)",
                         color: T.primary,
+                        fontFamily: "Poppins, sans-serif",
                       }}
                     />
                   </div>
-
-                  {/* Category */}
                   <div>
                     <label
                       className="block text-[9px] font-black uppercase tracking-widest mb-1.5 px-1"
@@ -1154,8 +1799,6 @@ const UploadModal = memo(
                       ))}
                     </div>
                   </div>
-
-                  {/* Learn ID */}
                   <div>
                     <label
                       className="block text-[9px] font-black uppercase tracking-widest mb-1.5 px-1"
@@ -1184,73 +1827,34 @@ const UploadModal = memo(
                       className="text-[8px] mt-1 px-1"
                       style={{ color: T.dim }}
                     >
-                      Linking a course ID auto-verifies upon admin approval
+                      Linking a Learn ID enables auto-verification on approval
                     </p>
                   </div>
-
-                  {/* Upload progress */}
-                  {uploading && (
-                    <div className="flex flex-col gap-1.5">
-                      <div className="flex items-center justify-between">
-                        <span
-                          className="text-[10px] font-bold"
-                          style={{ color: T.dim }}
-                        >
-                          Uploading...
-                        </span>
-                        <span
-                          className="text-[10px] font-black font-mono"
-                          style={{ color: G.bright }}
-                        >
-                          {progress}%
-                        </span>
-                      </div>
-                      <div
-                        className="w-full rounded-full overflow-hidden"
-                        style={{
-                          height: 3,
-                          background: "rgba(255,255,255,0.06)",
-                        }}
-                      >
-                        <motion.div
-                          animate={{ width: `${progress}%` }}
-                          className="h-full rounded-full"
-                          style={{
-                            background: `linear-gradient(90deg, ${G.deep}, ${G.bright})`,
-                            boxShadow: `0 0 6px ${G.base}`,
-                          }}
-                        />
-                      </div>
-                    </div>
-                  )}
                 </>
               )}
             </div>
-
-            {/* Footer */}
             {!atCapacity && (
               <div className="px-5 pb-5 relative z-10">
                 <motion.button
-                  onClick={handleUpload}
-                  disabled={!file || !title.trim() || uploading}
-                  whileHover={
-                    !uploading && file && title.trim() ? { scale: 1.02 } : {}
-                  }
+                  onClick={handleSubmit}
+                  disabled={!file || !title.trim()}
+                  whileHover={file && title.trim() ? { scale: 1.02 } : {}}
                   whileTap={{ scale: 0.97 }}
                   className="w-full py-3.5 rounded-2xl text-[11px] font-black uppercase tracking-widest transition-all"
                   style={{
                     background:
-                      file && title.trim() && !uploading
+                      file && title.trim()
                         ? `linear-gradient(135deg, ${G.light} 0%, ${G.bright} 100%)`
                         : "rgba(255,255,255,0.06)",
-                    color: file && title.trim() && !uploading ? "#000" : T.dim,
+                    color: file && title.trim() ? "#000" : T.dim,
                     boxShadow:
-                      file && title.trim() && !uploading
+                      file && title.trim()
                         ? "0 0 20px rgba(191,162,100,0.2)"
                         : "none",
+                    fontFamily: "Montserrat, sans-serif",
                   }}
                 >
-                  {uploading ? `Uploading ${progress}%` : "Sync to Vault"}
+                  Sync to Vault
                 </motion.button>
               </div>
             )}
@@ -1261,62 +1865,517 @@ const UploadModal = memo(
   },
 );
 
-/* ── Empty State ──────────────────────────────────────────────────────────── */
+/* ══════════════════════════════════════════════════════════════════════════
+   ASSET PREVIEW MODAL
+══════════════════════════════════════════════════════════════════════════ */
+const AssetPreview = memo(({ asset, onClose }) => {
+  if (!asset) return null;
+  const ext = (asset.title || "").split(".").pop().toLowerCase();
+  const isImage = ["png", "jpg", "jpeg", "webp"].includes(ext);
+  const isPdf = ext === "pdf";
+
+  return (
+    <AnimatePresence>
+      <div
+        className="fixed inset-0 z-[400] flex items-center justify-center p-4"
+        style={{ background: "rgba(0,0,0,0.92)", backdropFilter: "blur(16px)" }}
+      >
+        <motion.div
+          initial={{ opacity: 0, scale: 0.95, y: 16 }}
+          animate={{ opacity: 1, scale: 1, y: 0 }}
+          exit={{ opacity: 0, scale: 0.95, y: 16 }}
+          transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+          className="w-full max-w-4xl flex flex-col"
+          style={{
+            background: V.depth,
+            border: "1px solid rgba(255,255,255,0.08)",
+            borderRadius: 24,
+            maxHeight: "90vh",
+          }}
+        >
+          <div
+            className="flex items-center justify-between px-5 py-4"
+            style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}
+          >
+            <div>
+              <p
+                className="text-sm font-black"
+                style={{
+                  color: T.primary,
+                  fontFamily: "Montserrat, sans-serif",
+                }}
+              >
+                {asset.title}
+              </p>
+              <p
+                className="text-[9px] uppercase tracking-widest mt-0.5"
+                style={{ color: T.dim }}
+              >
+                {asset.category} · {asset.status}
+              </p>
+            </div>
+            <button
+              onClick={onClose}
+              className="p-2 rounded-xl hover:bg-white/5 transition-colors"
+              title="Close preview"
+            >
+              <IcoX size={14} color={T.secondary} />
+            </button>
+          </div>
+          <div
+            className="flex-1 overflow-auto flex items-center justify-center p-6"
+            style={{ minHeight: 300 }}
+          >
+            {asset.fileUrl ? (
+              isImage ? (
+                <img
+                  src={asset.fileUrl}
+                  alt={asset.title}
+                  className="max-w-full max-h-full rounded-xl object-contain"
+                />
+              ) : isPdf ? (
+                <iframe
+                  src={`${asset.fileUrl}#toolbar=0`}
+                  className="w-full h-full rounded-xl"
+                  style={{ minHeight: 500 }}
+                  title={asset.title}
+                />
+              ) : (
+                <div className="flex flex-col items-center gap-4 text-center">
+                  <FolderOpen size={48} color={G.bright} strokeWidth={1} />
+                  <p className="text-sm" style={{ color: T.secondary }}>
+                    Preview not available for this file type.
+                  </p>
+                  <a
+                    href={asset.fileUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="px-5 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest"
+                    style={{
+                      background: G.dimBg,
+                      color: G.bright,
+                      border: `1px solid ${G.border}`,
+                    }}
+                  >
+                    Open File
+                  </a>
+                </div>
+              )
+            ) : (
+              <p className="text-sm text-center" style={{ color: T.dim }}>
+                File not available. Contact support.
+              </p>
+            )}
+          </div>
+        </motion.div>
+      </div>
+    </AnimatePresence>
+  );
+});
+
+/* ══════════════════════════════════════════════════════════════════════════
+   SHARE MODAL — public link & email-restricted share
+══════════════════════════════════════════════════════════════════════════ */
+const ShareModal = memo(({ asset, mode, onClose }) => {
+  const [email, setEmail] = useState("");
+  const [emails, setEmails] = useState([]);
+  const [copied, setCopied] = useState(false);
+
+  const publicLink = asset?.fileUrl
+    ? `${window.location.origin}/verify-asset?uid=${encodeURIComponent(asset.userId || "")}&assetId=${encodeURIComponent(asset.id || "")}`
+    : "";
+
+  const copyLink = () => {
+    if (publicLink) {
+      navigator.clipboard.writeText(publicLink);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
+  const addEmail = () => {
+    if (email.trim() && !emails.includes(email.trim())) {
+      setEmails([...emails, email.trim()]);
+      setEmail("");
+    }
+  };
+
+  if (!asset) return null;
+  return (
+    <AnimatePresence>
+      <div
+        className="fixed inset-0 z-[500] flex items-center justify-center p-4"
+        style={{ background: "rgba(0,0,0,0.85)", backdropFilter: "blur(12px)" }}
+      >
+        <motion.div
+          initial={{ opacity: 0, scale: 0.96 }}
+          animate={{ opacity: 1, scale: 1 }}
+          exit={{ opacity: 0, scale: 0.96 }}
+          transition={{ duration: 0.2 }}
+          className="w-full max-w-md"
+          style={{
+            background: V.depth,
+            border: "1px solid rgba(255,255,255,0.08)",
+            borderRadius: 24,
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div
+            className="flex items-center justify-between px-5 py-4"
+            style={{ borderBottom: "1px solid rgba(255,255,255,0.06)" }}
+          >
+            <p
+              className="text-sm font-black"
+              style={{ color: T.primary, fontFamily: "Montserrat, sans-serif" }}
+            >
+              {mode === "public" ? "Public Link" : "Share with Email"}
+            </p>
+            <button
+              onClick={onClose}
+              className="p-1.5 rounded-lg"
+              style={{ background: "rgba(255,255,255,0.04)" }}
+              title="Close"
+            >
+              <IcoX size={13} color={T.dim} />
+            </button>
+          </div>
+          <div className="p-5 space-y-4">
+            {mode === "public" ? (
+              <div>
+                <p className="text-[10px] mb-3" style={{ color: T.secondary }}>
+                  Anyone with this link can view the asset's verification page.
+                  The actual file is not exposed.
+                </p>
+                <div className="flex gap-2">
+                  <input
+                    readOnly
+                    value={publicLink}
+                    className="flex-1 px-3 py-2.5 rounded-xl text-[10px] font-mono outline-none"
+                    style={{
+                      background: V.surface,
+                      border: "1px solid rgba(255,255,255,0.08)",
+                      color: T.dim,
+                    }}
+                  />
+                  <motion.button
+                    whileTap={{ scale: 0.95 }}
+                    onClick={copyLink}
+                    className="px-4 py-2.5 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
+                    style={{
+                      background: copied ? "rgba(74,222,128,0.15)" : G.dimBg,
+                      color: copied ? "#4ADE80" : G.bright,
+                      border: `1px solid ${copied ? "rgba(74,222,128,0.3)" : G.border}`,
+                    }}
+                  >
+                    {copied ? "Copied!" : "Copy"}
+                  </motion.button>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <p className="text-[10px]" style={{ color: T.secondary }}>
+                  Only users with these emails can access the shared asset. They
+                  must be signed in to Discotive.
+                </p>
+                <div className="flex gap-2">
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    onKeyDown={(e) => e.key === "Enter" && addEmail()}
+                    placeholder="Add email address"
+                    className="flex-1 px-3 py-2.5 rounded-xl text-[11px] outline-none"
+                    style={{
+                      background: V.surface,
+                      border: "1px solid rgba(255,255,255,0.08)",
+                      color: T.primary,
+                    }}
+                  />
+                  <button
+                    onClick={addEmail}
+                    className="px-4 py-2.5 rounded-xl text-[10px] font-black"
+                    style={{
+                      background: G.dimBg,
+                      color: G.bright,
+                      border: `1px solid ${G.border}`,
+                    }}
+                  >
+                    Add
+                  </button>
+                </div>
+                {emails.length > 0 && (
+                  <div className="flex flex-wrap gap-2">
+                    {emails.map((e) => (
+                      <div
+                        key={e}
+                        className="flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[9px] font-bold"
+                        style={{
+                          background: "rgba(255,255,255,0.06)",
+                          color: T.secondary,
+                        }}
+                      >
+                        {e}
+                        <button
+                          onClick={() =>
+                            setEmails(emails.filter((x) => x !== e))
+                          }
+                        >
+                          <IcoX size={9} color={T.dim} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <p className="text-[8px]" style={{ color: T.dim }}>
+                  Note: Actual private link sharing via email is coming soon.
+                  This records the intended recipients.
+                </p>
+              </div>
+            )}
+          </div>
+          <div className="px-5 pb-5">
+            <button
+              onClick={onClose}
+              className="w-full py-3 rounded-xl text-[10px] font-black uppercase tracking-widest"
+              style={{
+                background: "rgba(255,255,255,0.04)",
+                color: T.secondary,
+              }}
+            >
+              Done
+            </button>
+          </div>
+        </motion.div>
+      </div>
+    </AnimatePresence>
+  );
+});
+
+/* ══════════════════════════════════════════════════════════════════════════
+   FAB — Morphing + button
+══════════════════════════════════════════════════════════════════════════ */
+const FloatingFAB = memo(({ onNewFile, onNewFolder, disabled }) => {
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <div className="fixed bottom-12 right-12 md:bottom-16 md:right-16 z-[200] flex flex-col items-end gap-2">
+      <AnimatePresence>
+        {expanded && (
+          <>
+            <motion.button
+              initial={{ opacity: 0, y: 10, scale: 0.9 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 10, scale: 0.9 }}
+              transition={{ delay: 0.06, duration: 0.18 }}
+              onClick={() => {
+                setExpanded(false);
+                onNewFolder?.();
+              }}
+              className="flex items-center gap-2.5 px-4 py-2.5 rounded-full shadow-xl font-black text-[10px] uppercase tracking-widest"
+              style={{
+                background: V.elevated,
+                border: "1px solid rgba(255,255,255,0.1)",
+                color: T.secondary,
+              }}
+              title="Create new folder"
+            >
+              <IcoNewFolder size={15} color={T.secondary} /> New Sector
+            </motion.button>
+            <motion.button
+              initial={{ opacity: 0, y: 10, scale: 0.9 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 10, scale: 0.9 }}
+              transition={{ delay: 0.02, duration: 0.18 }}
+              onClick={() => {
+                setExpanded(false);
+                onNewFile?.();
+              }}
+              className="flex items-center gap-2.5 px-4 py-2.5 rounded-full shadow-xl font-black text-[10px] uppercase tracking-widest"
+              style={{
+                background: `linear-gradient(135deg, ${G.light} 0%, ${G.bright} 100%)`,
+                color: "#000",
+              }}
+              title="Upload new file to vault"
+            >
+              <IcoNewFile size={15} color="#000" /> New File
+            </motion.button>
+          </>
+        )}
+      </AnimatePresence>
+      <motion.button
+        onClick={() => !disabled && setExpanded(!expanded)}
+        whileHover={!disabled ? { scale: 1.08 } : {}}
+        whileTap={!disabled ? { scale: 0.94 } : {}}
+        animate={{
+          borderRadius: expanded ? "24px" : "50%",
+          width: expanded ? "auto" : 56,
+          height: expanded ? "auto" : 56,
+        }}
+        transition={{ type: "spring", damping: 20, stiffness: 300 }}
+        className="flex items-center justify-center shadow-[0_0_30px_rgba(191,162,100,0.3)]"
+        style={{
+          background: disabled
+            ? "rgba(255,255,255,0.06)"
+            : `linear-gradient(135deg, ${G.light} 0%, ${G.bright} 100%)`,
+          minWidth: 56,
+          minHeight: 56,
+          paddingLeft: expanded ? 20 : 0,
+          paddingRight: expanded ? 20 : 0,
+        }}
+        title={
+          disabled ? "Pending slots full — upgrade to Pro" : "Add to vault"
+        }
+      >
+        <motion.div
+          animate={{ rotate: expanded ? 45 : 0 }}
+          transition={{ duration: 0.2 }}
+        >
+          <IcoPlus size={22} color={disabled ? T.dim : "#000"} />
+        </motion.div>
+        {expanded && (
+          <span className="ml-2 text-[11px] font-black uppercase tracking-widest text-black">
+            Close
+          </span>
+        )}
+      </motion.button>
+    </div>
+  );
+});
+
+/* ══════════════════════════════════════════════════════════════════════════
+   EMPTY STATE
+══════════════════════════════════════════════════════════════════════════ */
 const VaultEmptyState = memo(({ onUpload }) => (
   <motion.div
     initial={{ opacity: 0 }}
     animate={{ opacity: 1 }}
-    className="flex flex-col items-center justify-center py-20 text-center px-6"
+    className="flex flex-col items-center justify-center relative w-full h-[60vh] overflow-hidden"
   >
-    <div className="relative mb-6">
-      <div
-        className="w-20 h-20 rounded-3xl flex items-center justify-center"
-        style={{ background: G.dimBg, border: `1px solid ${G.border}` }}
+    <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-0">
+      <svg
+        width="480"
+        height="480"
+        viewBox="0 0 24 24"
+        fill="none"
+        style={{
+          opacity: 0.02,
+          transform: "rotate(-10deg) scale(1.5)",
+          color: "#FFFFFF",
+        }}
       >
-        <IconDatabase size={32} color={G.bright} />
-      </div>
-      <motion.div
-        animate={{ scale: [1, 1.15, 1], opacity: [0.3, 0.6, 0.3] }}
-        transition={{ duration: 3, repeat: Infinity }}
-        className="absolute inset-0 rounded-3xl"
-        style={{ border: `1px solid ${G.border}` }}
-      />
+        <path
+          d="M3 7a2 2 0 012-2h4.586a1 1 0 01.707.293L11.707 6.7A1 1 0 0012.414 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"
+          stroke="currentColor"
+          strokeWidth="0.5"
+          strokeDasharray="4 2"
+        />
+        <path
+          d="M12 10L16 14M16 10L12 14"
+          stroke="currentColor"
+          strokeWidth="0.5"
+        />
+      </svg>
     </div>
     <h3
-      className="text-xl font-black mb-2"
-      style={{ color: T.primary, letterSpacing: "-0.02em" }}
-    >
-      Vault is empty.
-    </h3>
-    <p
-      className="text-sm leading-relaxed max-w-xs mb-6"
-      style={{ color: T.secondary }}
-    >
-      Upload credentials, certificates, and projects. Every verified asset
-      strengthens your profile and earns Discotive Score.
-    </p>
-    <motion.button
-      onClick={onUpload}
-      whileHover={{ scale: 1.04 }}
-      whileTap={{ scale: 0.97 }}
-      className="flex items-center gap-2 px-6 py-3.5 rounded-full font-black text-xs uppercase tracking-widest"
+      className="text-3xl md:text-5xl font-black relative z-10 uppercase tracking-widest text-center"
       style={{
-        background: `linear-gradient(135deg, ${G.light} 0%, ${G.bright} 100%)`,
-        color: "#000",
-        boxShadow: "0 0 24px rgba(191,162,100,0.2)",
+        color: "rgba(255,255,255,0.08)",
+        fontFamily: "Montserrat, sans-serif",
+        letterSpacing: "0.2em",
       }}
     >
-      <IconUpload size={14} color="#000" />
-      Upload First Asset
-    </motion.button>
+      Vault is empty
+    </h3>
   </motion.div>
 ));
 
-/* ══════════════════════════════════════════════════════════════════════════════
-   MAIN VAULT PAGE
-══════════════════════════════════════════════════════════════════════════════ */
+/* ══════════════════════════════════════════════════════════════════════════
+   EDITABLE VAULT TITLE
+══════════════════════════════════════════════════════════════════════════ */
+const EditableVaultTitle = memo(({ defaultName, onSave }) => {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(defaultName);
+  const inputRef = useRef(null);
+
+  useEffect(() => {
+    setValue(defaultName);
+  }, [defaultName]);
+  useEffect(() => {
+    if (editing) inputRef.current?.focus();
+  }, [editing]);
+
+  const commit = () => {
+    const trimmed = value.trim().slice(0, 40) || defaultName;
+    setValue(trimmed);
+    setEditing(false);
+    if (trimmed !== defaultName) onSave?.(trimmed);
+  };
+
+  if (editing) {
+    return (
+      <div className="flex items-center gap-3 w-full max-w-[600px]">
+        <input
+          ref={inputRef}
+          value={value}
+          maxLength={40}
+          onChange={(e) => setValue(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") commit();
+            if (e.key === "Escape") {
+              setValue(defaultName);
+              setEditing(false);
+            }
+          }}
+          className="font-black text-3xl outline-none bg-transparent border-b-2 w-full min-w-[320px]"
+          style={{
+            color: T.primary,
+            letterSpacing: "-0.02em",
+            borderColor: G.bright,
+            fontFamily: "Montserrat, sans-serif",
+          }}
+          title="Press Enter to save, Escape to cancel"
+        />
+        <span
+          className="text-[9px] font-mono shrink-0"
+          style={{ color: T.dim }}
+        >
+          {value.length}/40
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="group relative cursor-pointer inline-block"
+      onClick={() => setEditing(true)}
+      title="Click to rename your vault"
+    >
+      <h1
+        className="font-black text-3xl leading-tight transition-colors group-hover:text-[#D4AF78]"
+        style={{
+          color: T.primary,
+          letterSpacing: "-0.02em",
+          fontFamily: "Montserrat, sans-serif",
+        }}
+      >
+        {value}
+      </h1>
+      <div
+        className="absolute bottom-0 left-0 right-0 h-[1px] scale-x-0 group-hover:scale-x-100 transition-transform origin-left"
+        style={{ background: G.bright }}
+      />
+    </div>
+  );
+});
+
+/* ══════════════════════════════════════════════════════════════════════════
+   MAIN VAULT COMPONENT
+══════════════════════════════════════════════════════════════════════════ */
 const Vault = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { currentUser } = useAuth();
   const { userData, loading: userLoading, patchLocalData } = useUserData();
   const shouldReduce = useReducedMotion();
@@ -1324,12 +2383,21 @@ const Vault = () => {
   const [assets, setAssets] = useState([]);
   const [assetsLoading, setAssetsLoading] = useState(true);
   const [showUpload, setShowUpload] = useState(false);
-  const [showExplorer, setShowExplorer] = useState(false);
+  const [preDropFile, setPreDropFile] = useState(null);
   const [showPremium, setShowPremium] = useState(false);
   const [showTutorial, setShowTutorial] = useState(false);
+  const [scanningFile, setScanningFile] = useState(null);
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [previewAsset, setPreviewAsset] = useState(null);
+  const [shareAsset, setShareAsset] = useState(null);
+  const [shareMode, setShareMode] = useState("public");
   const [searchQuery, setSearchQuery] = useState("");
   const [activeFilter, setActiveFilter] = useState("All");
+  const [showFilterSidebar, setShowFilterSidebar] = useState(false);
+  const [sortBy, setSortBy] = useState("date");
   const [totalStorageBytes, setTotalStorageBytes] = useState(0);
+  const [vaultName, setVaultName] = useState("");
+  const [isUploading, setIsUploading] = useState(false);
   const fetchedRef = useRef(false);
 
   const uid = currentUser?.uid;
@@ -1339,7 +2407,15 @@ const Vault = () => {
     : TIER_LIMITS[TIERS.ESSENTIAL].maxStorageBytes;
   const maxPendingSlots = isPro ? 10 : 5;
 
-  /* ── Fetch assets ─────────────────────────────────────────────────────── */
+  // Set vault name from user data
+  useEffect(() => {
+    const name =
+      userData?.vaultName ||
+      `${userData?.identity?.firstName || "Operator"}'s Vault`;
+    setVaultName(name);
+  }, [userData]);
+
+  /* ── Fetch assets from Firestore ──────────────────────────────────────── */
   useEffect(() => {
     if (!uid || fetchedRef.current) return;
     fetchedRef.current = true;
@@ -1354,8 +2430,7 @@ const Vault = () => {
   useEffect(() => {
     if (!uid || userLoading) return;
     const key = PAGE_TUTORIAL_KEY("/app/vault");
-    const hasSeen = localStorage.getItem(key);
-    if (!hasSeen) {
+    if (!localStorage.getItem(key)) {
       const t = setTimeout(() => {
         localStorage.setItem(key, "1");
         setShowTutorial(true);
@@ -1364,16 +2439,13 @@ const Vault = () => {
     }
   }, [uid, userLoading]);
 
-  /* ── Computed values ──────────────────────────────────────────────────── */
   const pendingCount = useMemo(
     () => assets.filter((a) => a.status === "PENDING").length,
     [assets],
   );
-  const canUpload = useMemo(
-    () => pendingCount < maxPendingSlots,
-    [pendingCount, maxPendingSlots],
-  );
+  const canUpload = pendingCount < maxPendingSlots;
 
+  /* ── Sort & filter ───────────────────────────────────────────────────── */
   const filteredAssets = useMemo(() => {
     let list = assets;
     if (activeFilter !== "All")
@@ -1386,94 +2458,138 @@ const Vault = () => {
           .toLowerCase()
           .includes(searchQuery.toLowerCase()),
       );
+    if (sortBy === "date")
+      list = [...list].sort(
+        (a, b) => new Date(b.uploadedAt || 0) - new Date(a.uploadedAt || 0),
+      );
+    if (sortBy === "name")
+      list = [...list].sort((a, b) =>
+        (a.title || "").localeCompare(b.title || ""),
+      );
+    if (sortBy === "strength") {
+      const order = { VERIFIED: 0, PENDING: 1, REJECTED: 2 };
+      list = [...list].sort(
+        (a, b) => (order[a.status] ?? 3) - (order[b.status] ?? 3),
+      );
+    }
     return list;
-  }, [assets, activeFilter, searchQuery]);
+  }, [assets, activeFilter, searchQuery, sortBy]);
 
-  const FILTERS = useMemo(() => {
-    const cats = [
-      "All",
-      ...new Set(assets.map((a) => a.category).filter(Boolean)),
-    ];
-    return cats.slice(0, 6);
-  }, [assets]);
+  const FILTERS = useMemo(
+    () =>
+      ["All", ...new Set(assets.map((a) => a.category).filter(Boolean))].slice(
+        0,
+        7,
+      ),
+    [assets],
+  );
 
-  /* ── Upload handler ───────────────────────────────────────────────────── */
-  const handleUpload = useCallback(
-    async ({ file, title, category, learnId }, onProgress) => {
+  /* ── Save vault name ─────────────────────────────────────────────────── */
+  const handleSaveVaultName = useCallback(
+    async (newName) => {
       if (!uid) return;
+      setVaultName(newName);
+      patchLocalData({ vaultName: newName });
+      try {
+        await updateDoc(doc(db, "users", uid), { vaultName: newName });
+      } catch (err) {
+        console.error("[Vault] Name save failed:", err);
+      }
+    },
+    [uid, patchLocalData],
+  );
+
+  /* ── Upload handler ──────────────────────────────────────────────────── */
+  const handleUpload = useCallback(
+    async ({ file, title, category, learnId }) => {
+      if (!uid) return;
+      setScanningFile(file.name);
+      setIsUploading(true);
+      setShowUpload(false);
+      setPreDropFile(null);
 
       const assetId = `asset_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
       const path = `vault/${uid}/${assetId}_${file.name}`;
       const ref = storageRef(storage, path);
       const uploadTask = uploadBytesResumable(ref, file);
 
-      await new Promise((resolve, reject) => {
-        uploadTask.on(
-          "state_changed",
-          (snap) => {
-            const pct = Math.round(
-              (snap.bytesTransferred / snap.totalBytes) * 100,
-            );
-            onProgress?.(pct);
-          },
-          reject,
-          resolve,
-        );
-      });
+      try {
+        await new Promise((resolve, reject) => {
+          uploadTask.on(
+            "state_changed",
+            (snap) => {
+              const pct = Math.round(
+                (snap.bytesTransferred / snap.totalBytes) * 100,
+              );
+              setUploadProgress(pct);
+            },
+            reject,
+            resolve,
+          );
+        });
 
-      const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
+        const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
 
-      const newAsset = {
-        id: assetId,
-        title,
-        category,
-        status: "PENDING",
-        fileUrl: downloadURL,
-        storagePath: path,
-        sizeBytes: file.size,
-        discotiveLearnId: learnId || null,
-        uploadedAt: new Date().toISOString(),
-      };
+        const newAsset = {
+          id: assetId,
+          title,
+          category,
+          status: "PENDING",
+          fileUrl: downloadURL,
+          storagePath: path,
+          sizeBytes: file.size,
+          discotiveLearnId: learnId || null,
+          uploadedAt: new Date().toISOString(),
+        };
 
-      const userRef = doc(db, "users", uid);
-      const currentVault = userData?.vault || [];
-      const updatedVault = [...currentVault, newAsset];
+        const userRef = doc(db, "users", uid);
+        const currentVault = userData?.vault || [];
+        const updatedVault = [...currentVault, newAsset];
 
-      await updateDoc(userRef, {
-        vault: updatedVault,
-        vault_count: updatedVault.length,
-      });
+        await updateDoc(userRef, {
+          vault: updatedVault,
+          vault_count: updatedVault.length,
+        });
 
-      setAssets(updatedVault);
-      setTotalStorageBytes((prev) => prev + file.size);
-      patchLocalData({ vault: updatedVault, vault_count: updatedVault.length });
+        setAssets(updatedVault);
+        setTotalStorageBytes((prev) => prev + file.size);
+        patchLocalData({
+          vault: updatedVault,
+          vault_count: updatedVault.length,
+        });
 
-      // Check for vault badges
-      await evaluateAndAwardBadges(uid, {
-        ...userData,
-        vault: updatedVault,
-        vault_count: updatedVault.length,
-      });
+        await evaluateAndAwardBadges(uid, {
+          ...userData,
+          vault: updatedVault,
+          vault_count: updatedVault.length,
+        });
 
-      // Push notification to user's notification array
-      const notif = {
-        message: `"${title}" has been submitted for review.`,
-        type: "vault",
-        createdAt: new Date().toISOString(),
-      };
-      await updateDoc(userRef, {
-        notifications: [...(userData?.notifications || []), notif],
-        hasUnreadNotifications: true,
-      });
-      patchLocalData({
-        notifications: [...(userData?.notifications || []), notif],
-        hasUnreadNotifications: true,
-      });
+        // Push notification
+        const notif = {
+          message: `"${title}" submitted for review.`,
+          type: "vault",
+          createdAt: new Date().toISOString(),
+        };
+        await updateDoc(userRef, {
+          notifications: [...(userData?.notifications || []), notif],
+          hasUnreadNotifications: true,
+        });
+        patchLocalData({
+          notifications: [...(userData?.notifications || []), notif],
+          hasUnreadNotifications: true,
+        });
+      } catch (err) {
+        console.error("[Vault] Upload failed:", err);
+      } finally {
+        setScanningFile(null);
+        setIsUploading(false);
+        setUploadProgress(0);
+      }
     },
     [uid, userData, patchLocalData],
   );
 
-  /* ── Delete handler ───────────────────────────────────────────────────── */
+  /* ── Delete handler ──────────────────────────────────────────────────── */
   const handleDelete = useCallback(
     async (assetId) => {
       if (!uid) return;
@@ -1491,7 +2607,7 @@ const Vault = () => {
         try {
           await deleteObject(storageRef(storage, asset.storagePath));
         } catch (_) {
-          /* File may not exist */
+          /* silent */
         }
       }
 
@@ -1504,12 +2620,35 @@ const Vault = () => {
     [uid, assets, patchLocalData],
   );
 
-  /* ── Render skeleton ─────────────────────────────────────────────────── */
+  /* ── Share handler ───────────────────────────────────────────────────── */
+  const handleShare = useCallback(
+    (asset, mode) => {
+      setShareAsset({ ...asset, userId: uid });
+      setShareMode(mode);
+    },
+    [uid],
+  );
+
+  /* ── Drop-to-upload on main area ─────────────────────────────────────── */
+  const handleMainDrop = useCallback(
+    (e) => {
+      e.preventDefault();
+      if (!canUpload) return;
+      const f = e.dataTransfer.files[0];
+      if (f) {
+        setPreDropFile(f);
+        setShowUpload(true);
+      }
+    },
+    [canUpload],
+  );
+
+  /* ── Skeleton ──────────────────────────────────────────────────────────── */
   if (userLoading) {
     return (
       <div className="min-h-screen flex" style={{ background: V.bg }}>
         <div
-          className="w-56 hidden lg:flex flex-col p-5 gap-4"
+          className="w-[30%] hidden lg:flex flex-col p-5 gap-4"
           style={{ borderRight: "1px solid rgba(255,255,255,0.04)" }}
         >
           <Skeleton className="h-24 w-full" />
@@ -1528,38 +2667,29 @@ const Vault = () => {
   const isMobile = typeof window !== "undefined" && window.innerWidth < 1024;
 
   /* ══════════════════════════════════════════════════════════════════════
-     DESKTOP LAYOUT
+     MOBILE LAYOUT
   ══════════════════════════════════════════════════════════════════════ */
   return (
     <>
       <Helmet>
-        <title>
-          {userData
-            ? `${userData?.identity?.firstName || "Operator"}'s Vault | Discotive`
-            : "Asset Vault | Discotive"}
-        </title>
+        <title>{vaultName} | Discotive Asset Vault</title>
         <meta
           name="description"
-          content="Upload, verify, and manage your professional credentials in the Discotive Asset Vault. Every verified asset builds your Discotive Score."
+          content={`${userData?.identity?.firstName || "Operator"}'s verified credential vault on Discotive. Proof of work, verified by admin.`}
         />
-        <meta property="og:title" content="Discotive Asset Vault" />
-        <meta
-          property="og:description"
-          content="Proof of work, verified. Upload credentials, certificates, and projects to build your verifiable career profile."
-        />
+        <meta property="og:title" content={`${vaultName} | Discotive`} />
         <link rel="canonical" href="https://www.discotive.in/app/vault" />
         <script type="application/ld+json">
           {JSON.stringify({
             "@context": "https://schema.org",
             "@type": "WebPage",
-            name: "Discotive Asset Vault",
+            name: vaultName,
             description: "Upload and verify professional credentials.",
             url: "https://www.discotive.in/app/vault",
           })}
         </script>
       </Helmet>
 
-      {/* Tutorial */}
       <AnimatePresence>
         {showTutorial && (
           <OnboardingTutorial
@@ -1574,33 +2704,50 @@ const Vault = () => {
         onClose={() => setShowPremium(false)}
       />
 
-      <UploadModal
+      <UploadForm
         isOpen={showUpload}
-        onClose={() => setShowUpload(false)}
+        onClose={() => {
+          setShowUpload(false);
+          setPreDropFile(null);
+        }}
         onUpload={handleUpload}
         isPro={isPro}
         currentCount={assets.length}
         usedBytes={totalStorageBytes}
+        preFile={preDropFile}
       />
 
-      <ExplorerModel
-        isOpen={showExplorer}
-        onClose={() => setShowExplorer(false)}
-        assets={assets}
-        folders={[]}
-        onUpload={(files) => {
-          if (files && files.length > 0) {
-            setShowExplorer(false);
-            setShowUpload(true);
-          }
-        }}
-        onDelete={handleDelete}
-      />
+      <AnimatePresence>
+        {scanningFile && (
+          <ScanningOverlay filename={scanningFile} progress={uploadProgress} />
+        )}
+      </AnimatePresence>
 
-      {/* ── MOBILE LAYOUT ───────────────────────────────────────────────── */}
+      <AnimatePresence>
+        {previewAsset && (
+          <AssetPreview
+            asset={previewAsset}
+            onClose={() => setPreviewAsset(null)}
+          />
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {shareAsset && (
+          <ShareModal
+            asset={shareAsset}
+            mode={shareMode}
+            onClose={() => setShareAsset(null)}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* ── MOBILE ────────────────────────────────────────────────────── */}
       <div
         className="lg:hidden min-h-screen pb-32 select-none"
         style={{ background: V.bg }}
+        onDragOver={(e) => e.preventDefault()}
+        onDrop={handleMainDrop}
       >
         {/* Hero */}
         <div
@@ -1609,16 +2756,13 @@ const Vault = () => {
             background: `linear-gradient(180deg, rgba(191,162,100,0.08) 0%, ${V.bg} 100%)`,
           }}
         >
-          <div className="absolute inset-0 pointer-events-none">
-            <div
-              className="absolute top-0 left-1/2 -translate-x-1/2 w-64 h-64 rounded-full blur-[80px]"
-              style={{ background: "rgba(191,162,100,0.10)" }}
-            />
-          </div>
-
+          <div
+            className="absolute top-0 left-1/2 -translate-x-1/2 w-64 h-64 rounded-full blur-[80px] pointer-events-none"
+            style={{ background: "rgba(191,162,100,0.10)" }}
+          />
           <div className="relative z-10 px-5 pt-5 pb-6">
             <div className="flex items-start justify-between mb-4">
-              <div>
+              <div className="flex-1 pr-4">
                 <div className="flex items-center gap-2 mb-1">
                   {isPro && (
                     <div
@@ -1629,7 +2773,7 @@ const Vault = () => {
                         color: G.bright,
                       }}
                     >
-                      <IconCrown size={8} color={G.bright} /> PRO
+                      <IcoCrown size={8} color={G.bright} /> PRO
                     </div>
                   )}
                   <span
@@ -1639,117 +2783,168 @@ const Vault = () => {
                     Asset Vault
                   </span>
                 </div>
-                <h1
-                  className="font-black text-2xl leading-tight"
-                  style={{ color: T.primary, letterSpacing: "-0.02em" }}
-                >
-                  Proof of Work
-                </h1>
-                <p
-                  className="text-[11px] mt-0.5 font-mono"
-                  style={{ color: T.dim }}
-                >
-                  {assets.filter((a) => a.status === "VERIFIED").length}{" "}
-                  verified · {assets.length} total
-                </p>
+                <EditableVaultTitle
+                  defaultName={vaultName}
+                  onSave={handleSaveVaultName}
+                />
+                <div className="flex flex-col gap-0.5 mt-2">
+                  <p
+                    className="text-[10px] font-mono tracking-widest uppercase"
+                    style={{ color: T.dim }}
+                  >
+                    Verified{" "}
+                    <span className="text-white ml-1">
+                      {assets.filter((a) => a.status === "VERIFIED").length}
+                    </span>
+                  </p>
+                  <p
+                    className="text-[10px] font-mono tracking-widest uppercase"
+                    style={{ color: T.dim }}
+                  >
+                    Total{" "}
+                    <span className="text-white ml-1">{assets.length}</span>
+                  </p>
+                </div>
               </div>
-
-              {/* Storage ring */}
-              <StorageRing
-                usedBytes={totalStorageBytes}
-                maxBytes={maxStorageBytes}
-                isPro={isPro}
-              />
+              <div className="shrink-0">
+                <FluidCylinder
+                  compact={true}
+                  usedBytes={totalStorageBytes}
+                  maxBytes={maxStorageBytes}
+                  isPro={isPro}
+                  isUploading={isUploading}
+                />
+              </div>
             </div>
-
-            {/* Vault strength */}
-            <VaultStrengthMeter assets={assets} />
-
-            {/* Action buttons */}
-            <div className="flex gap-3 mt-4">
-              <motion.button
-                whileTap={{ scale: 0.96 }}
-                onClick={() =>
-                  canUpload ? setShowUpload(true) : setShowPremium(true)
-                }
-                className="flex-1 flex items-center justify-center gap-2 py-3.5 rounded-2xl font-black text-xs uppercase tracking-widest"
-                style={{
-                  background: `linear-gradient(135deg, ${G.light} 0%, ${G.bright} 100%)`,
-                  color: "#000",
-                  boxShadow: "0 0 20px rgba(191,162,100,0.2)",
-                }}
-                title={
-                  canUpload
-                    ? "Upload a new asset to your vault"
-                    : "Upgrade to upload more assets"
-                }
-              >
-                <IconUpload size={14} color="#000" />
-                Sync Asset
-              </motion.button>
-              <motion.button
-                whileTap={{ scale: 0.96 }}
-                onClick={() => setShowExplorer(true)}
-                className="px-4 py-3.5 rounded-2xl font-black text-xs uppercase tracking-widest"
-                style={{
-                  background: G.dimBg,
-                  color: G.bright,
-                  border: `1px solid ${G.border}`,
-                }}
-                title="Open file explorer"
-              >
-                <IconExplorer size={14} color={G.bright} />
-              </motion.button>
-            </div>
+            <VaultStrengthBar assets={assets} />
           </div>
+        </div>
+
+        {/* Connector stories */}
+        <div className="px-4 mb-5">
+          <ConnectorStory userData={userData} navigate={navigate} />
         </div>
 
         {/* Pending reviews */}
-        <div className="px-4 mb-5 tut-vault-verify">
-          <PendingReviewsCarousel
-            assets={assets}
-            isPro={isPro}
-            onUpgradeClick={() => setShowPremium(true)}
-          />
+        <div className="px-4 mb-5">
+          <PendingPanel assets={assets} isPro={isPro} />
         </div>
 
-        {/* Filter pills */}
-        <div className="px-4 mb-4">
-          <div className="flex gap-2 overflow-x-auto hide-scrollbar pb-1">
-            {FILTERS.map((f) => (
-              <button
-                key={f}
-                onClick={() => setActiveFilter(f)}
-                className="shrink-0 px-3 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest transition-all"
-                style={{
-                  background:
-                    activeFilter === f ? G.dimBg : "rgba(255,255,255,0.04)",
-                  color: activeFilter === f ? G.bright : T.dim,
-                  border:
-                    activeFilter === f
-                      ? `1px solid ${G.border}`
-                      : "1px solid rgba(255,255,255,0.06)",
-                }}
+        {/* Search + Sort + Filter (Mobile) */}
+        <div className="px-4 mb-6 mt-2 relative z-20">
+          <div className="flex items-center gap-2.5 w-full">
+            {/* Search */}
+            <div
+              className="flex items-center gap-2.5 px-4 py-3 rounded-2xl flex-1 transition-all duration-300 focus-within:bg-[#141414]"
+              style={{
+                background: V.surface,
+                border: "1px solid rgba(255,255,255,0.06)",
+              }}
+            >
+              <IcoSearch size={14} color={T.dim} />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search vault..."
+                className="flex-1 bg-transparent text-xs outline-none"
+                style={{ color: T.primary, fontFamily: "Poppins, sans-serif" }}
+              />
+              {searchQuery && (
+                <button onClick={() => setSearchQuery("")} title="Clear search">
+                  <IcoX size={12} color={T.dim} />
+                </button>
+              )}
+            </div>
+
+            {/* Sort */}
+            <div
+              className="relative flex items-center justify-center shrink-0 w-12 h-12 rounded-2xl transition-all active:scale-95"
+              style={{
+                background: V.surface,
+                border: "1px solid rgba(255,255,255,0.06)",
+              }}
+            >
+              <IcoSort size={15} color={T.dim} />
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value)}
+                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
               >
-                {f}
-              </button>
-            ))}
+                <option value="date">By Date</option>
+                <option value="name">By Name</option>
+                <option value="strength">By Strength</option>
+              </select>
+            </div>
+
+            {/* Filter Toggle */}
+            <motion.button
+              whileTap={{ scale: 0.95 }}
+              onClick={() => setShowFilterSidebar(!showFilterSidebar)}
+              className="flex items-center justify-center shrink-0 w-12 h-12 rounded-2xl transition-all"
+              style={{
+                background: showFilterSidebar ? V.elevated : V.surface,
+                border: showFilterSidebar
+                  ? "1px solid rgba(255,255,255,0.12)"
+                  : "1px solid rgba(255,255,255,0.06)",
+              }}
+            >
+              <IcoFilter
+                size={15}
+                color={showFilterSidebar ? T.primary : T.dim}
+              />
+            </motion.button>
           </div>
+
+          <AnimatePresence>
+            {showFilterSidebar && (
+              <motion.div
+                initial={{ height: 0, opacity: 0 }}
+                animate={{ height: "auto", opacity: 1 }}
+                exit={{ height: 0, opacity: 0 }}
+                className="overflow-hidden"
+              >
+                <div className="flex flex-wrap gap-2 pt-3">
+                  {FILTERS.map((f) => (
+                    <button
+                      key={f}
+                      onClick={() => setActiveFilter(f)}
+                      className="px-3 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest transition-all"
+                      style={{
+                        background: activeFilter === f ? G.dimBg : V.surface,
+                        color: activeFilter === f ? G.bright : T.dim,
+                        border:
+                          activeFilter === f
+                            ? `1px solid ${G.border}`
+                            : "1px solid rgba(255,255,255,0.06)",
+                      }}
+                    >
+                      {f}
+                    </button>
+                  ))}
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
 
-        {/* Asset horizontal scroll */}
+        {/* Assets */}
         <div className="tut-vault-upload">
           {assetsLoading ? (
             <div className="flex gap-3 px-4">
               {[...Array(3)].map((_, i) => (
                 <Skeleton
                   key={i}
-                  style={{ width: 150, height: 220, shrink: 0 }}
+                  style={{ width: 150, height: 210, flexShrink: 0 }}
                 />
               ))}
             </div>
           ) : filteredAssets.length === 0 ? (
-            <VaultEmptyState onUpload={() => setShowUpload(true)} />
+            <VaultEmptyState
+              onUpload={() =>
+                canUpload ? setShowUpload(true) : setShowPremium(true)
+              }
+            />
           ) : (
             <div
               className="overflow-x-auto hide-scrollbar px-4"
@@ -1765,6 +2960,8 @@ const Vault = () => {
                     asset={asset}
                     idx={i}
                     onDelete={handleDelete}
+                    onShare={handleShare}
+                    onPreview={setPreviewAsset}
                     isMobile
                   />
                 ))}
@@ -1772,122 +2969,106 @@ const Vault = () => {
             </div>
           )}
         </div>
-
-        {/* Connectors */}
-        <div className="px-4 mt-6 tut-vault-connectors">
-          <ConnectorsStrip userData={userData} navigate={navigate} />
-        </div>
       </div>
 
-      {/* ── DESKTOP LAYOUT ──────────────────────────────────────────────── */}
+      {/* ── DESKTOP ───────────────────────────────────────────────────── */}
       <div
         className="hidden lg:flex h-screen overflow-hidden"
         style={{ background: V.bg }}
+        onDragOver={(e) => e.preventDefault()}
+        onDrop={handleMainDrop}
       >
-        {/* ── LEFT SIDEBAR (20%) ─────────────────────────────────────────── */}
+        {/* ── LEFT SIDEBAR (35%) ──────────────────────────────────────── */}
         <motion.aside
           initial={{ opacity: 0, x: -20 }}
           animate={{ opacity: 1, x: 0 }}
           transition={{ duration: 0.5 }}
-          className="w-[220px] shrink-0 flex flex-col overflow-y-auto custom-scrollbar"
+          className="w-[35%] min-w-[340px] max-w-[480px] shrink-0 flex flex-col overflow-y-auto custom-scrollbar relative z-20"
           style={{
-            borderRight: "1px solid rgba(255,255,255,0.04)",
-            background: V.depth,
+            borderRight: "1px solid rgba(255,255,255,0.08)",
+            background:
+              "linear-gradient(180deg, rgba(10,10,10,0.6) 0%, rgba(5,5,5,0.9) 100%)",
+            backdropFilter: "blur(24px)",
+            WebkitBackdropFilter: "blur(24px)",
+            boxShadow: "10px 0 40px rgba(0,0,0,0.6)",
           }}
         >
-          {/* Ambient top */}
+          {/* Ambient glow & 3D Glass Effects */}
           <div
-            className="absolute top-0 left-0 w-56 h-48 rounded-full blur-[80px] pointer-events-none"
+            className="absolute top-[-10%] left-[-20%] w-80 h-64 rounded-full blur-[100px] pointer-events-none"
             style={{
               background:
-                "radial-gradient(ellipse, rgba(191,162,100,0.06) 0%, transparent 70%)",
+                "radial-gradient(ellipse, rgba(191,162,100,0.12) 0%, transparent 70%)",
+            }}
+          />
+          <div
+            className="absolute bottom-[-10%] right-[-20%] w-64 h-64 rounded-full blur-[90px] pointer-events-none"
+            style={{
+              background:
+                "radial-gradient(ellipse, rgba(191,162,100,0.08) 0%, transparent 70%)",
             }}
           />
 
-          <div className="relative z-10 flex flex-col gap-6 p-5 flex-1">
-            {/* Vault title */}
-            <div className="flex items-center gap-2.5">
-              <div
-                className="w-8 h-8 rounded-xl flex items-center justify-center shrink-0"
-                style={{ background: G.dimBg, border: `1px solid ${G.border}` }}
-              >
-                <IconDatabase size={15} color={G.bright} />
-              </div>
-              <div>
-                <p
-                  className="text-[10px] font-black uppercase tracking-widest"
-                  style={{ color: T.dim }}
+          <div className="relative z-10 flex flex-col gap-8 p-8 flex-1 mt-6">
+            {isPro && (
+              <div className="flex items-center gap-1.5 opacity-80 absolute top-6 right-8">
+                <IcoCrown size={12} color={G.bright} />
+                <span
+                  className="text-xs font-black uppercase tracking-widest"
+                  style={{ color: G.bright }}
                 >
-                  Asset Vault
-                </p>
-                {isPro && (
-                  <div className="flex items-center gap-1 mt-0.5">
-                    <IconCrown size={8} color={G.bright} />
-                    <span
-                      className="text-[8px] font-black uppercase tracking-widest"
-                      style={{ color: G.bright }}
-                    >
-                      Pro
-                    </span>
-                  </div>
-                )}
+                  Pro
+                </span>
               </div>
+            )}
+
+            {/* Fluid cylinder storage */}
+            <div className="flex flex-col items-center justify-center">
+              <FluidCylinder
+                usedBytes={totalStorageBytes}
+                maxBytes={maxStorageBytes}
+                isUploading={isUploading}
+              />
+              <p
+                className="mt-5 text-xs font-black uppercase tracking-[0.25em]"
+                style={{ color: T.dim, fontFamily: "Montserrat, sans-serif" }}
+              >
+                Storage Index
+              </p>
             </div>
 
-            {/* Storage ring */}
-            <StorageRing
-              usedBytes={totalStorageBytes}
-              maxBytes={maxStorageBytes}
-              isPro={isPro}
+            {/* Aesthetic Seperator Line */}
+            <div
+              style={{
+                height: 1,
+                background: "rgba(255,255,255,0.05)",
+                width: "100%",
+                margin: "4px 0",
+              }}
             />
 
             {/* Vault strength */}
-            <VaultStrengthMeter assets={assets} />
+            <VaultStrengthBar assets={assets} />
 
-            {/* Divider */}
             <div style={{ height: 1, background: "rgba(255,255,255,0.04)" }} />
 
             {/* Pending reviews */}
             <div className="tut-vault-verify">
-              <PendingReviewsCarousel
-                assets={assets}
-                isPro={isPro}
-                onUpgradeClick={() => setShowPremium(true)}
-              />
+              <PendingPanel assets={assets} isPro={isPro} />
             </div>
 
-            {/* Divider */}
             <div style={{ height: 1, background: "rgba(255,255,255,0.04)" }} />
 
             {/* Connectors */}
             <div className="tut-vault-connectors">
-              <ConnectorsStrip userData={userData} navigate={navigate} />
+              <ConnectorStory userData={userData} navigate={navigate} />
             </div>
 
-            {/* Spacer + upgrade button for free users */}
-            {!isPro && (
-              <div className="mt-auto">
-                <motion.button
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.97 }}
-                  onClick={() => setShowPremium(true)}
-                  className="w-full py-3 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all"
-                  style={{
-                    background: G.dimBg,
-                    color: G.bright,
-                    border: `1px solid ${G.border}`,
-                  }}
-                  title="Upgrade to Discotive Pro"
-                >
-                  <IconCrown size={10} color={G.bright} />
-                  <span className="ml-2">Upgrade to Pro</span>
-                </motion.button>
-              </div>
-            )}
+            {/* Upgrade CTA Purged Per Directive */}
           </div>
         </motion.aside>
 
-        {/* ── MAIN (80%) ─────────────────────────────────────────────────── */}
+        {/* ── MAIN (70%) ──────────────────────────────────────────────── */}
         <main className="flex-1 flex flex-col overflow-hidden relative">
           {/* Volumetric glow */}
           <div
@@ -1901,127 +3082,143 @@ const Vault = () => {
           {/* Top bar */}
           <div className="relative z-10 flex items-center justify-between px-8 pt-8 pb-4">
             <div>
-              <h1
-                className="font-black text-3xl leading-tight"
-                style={{ color: T.primary, letterSpacing: "-0.02em" }}
+              <p
+                className="text-xs md:text-sm font-black uppercase tracking-[0.2em] mb-1.5"
+                style={{
+                  color: T.secondary,
+                  fontFamily: "Montserrat, sans-serif",
+                }}
               >
-                {userData?.identity?.firstName || "Operator"}'s Vault
-              </h1>
+                Asset Vault
+              </p>
+              <EditableVaultTitle
+                defaultName={vaultName}
+                onSave={handleSaveVaultName}
+              />
               <p className="text-sm mt-0.5 font-mono" style={{ color: T.dim }}>
                 {assets.filter((a) => a.status === "VERIFIED").length} verified
                 · {assets.length} total ·{" "}
                 {assets.filter((a) => a.status === "PENDING").length} pending
-                review
               </p>
             </div>
-
-            <div className="flex items-center gap-3">
-              {/* Explorer button */}
-              <motion.button
-                whileHover={{ scale: 1.04 }}
-                whileTap={{ scale: 0.97 }}
-                onClick={() => setShowExplorer(true)}
-                className="flex items-center gap-2 px-4 py-2.5 rounded-full font-black text-[10px] uppercase tracking-widest transition-all"
-                style={{
-                  background: "rgba(255,255,255,0.04)",
-                  color: T.secondary,
-                  border: "1px solid rgba(255,255,255,0.08)",
-                }}
-                title="Open file explorer"
-              >
-                <IconExplorer size={13} color={T.secondary} />
-                Explorer
-              </motion.button>
-
-              {/* Upload button */}
-              <motion.button
-                whileHover={{ scale: 1.04 }}
-                whileTap={{ scale: 0.97 }}
-                onClick={() =>
-                  canUpload ? setShowUpload(true) : setShowPremium(true)
-                }
-                className="flex items-center gap-2.5 px-6 py-2.5 rounded-full font-black text-xs uppercase tracking-widest transition-all tut-vault-upload"
-                style={{
-                  background: `linear-gradient(135deg, ${G.light} 0%, ${G.bright} 100%)`,
-                  color: "#000",
-                  boxShadow: "0 0 24px rgba(191,162,100,0.2)",
-                }}
-                title={
-                  canUpload
-                    ? "Upload a new asset to your vault"
-                    : "Pending review slots full. Clear reviews to upload more."
-                }
-              >
-                <IconUpload size={13} color="#000" />
-                Sync Asset
-              </motion.button>
-            </div>
+            {/* No sync/explorer buttons here — FAB handles this */}
           </div>
 
-          {/* Search + filters bar */}
-          <div className="relative z-10 flex items-center gap-4 px-8 pb-4">
+          {/* Search + Sort + Filter bar */}
+          <div className="relative z-10 flex items-center justify-center gap-3 px-8 pb-8 pt-4 w-full max-w-4xl mx-auto">
             {/* Search */}
             <div
-              className="flex items-center gap-2.5 px-4 py-2.5 rounded-2xl flex-1 max-w-sm"
+              className="flex items-center gap-2.5 px-5 py-3.5 rounded-2xl flex-1 transition-all duration-300 focus-within:bg-[#141414] hover:bg-[#141414]"
               style={{
                 background: V.surface,
                 border: "1px solid rgba(255,255,255,0.06)",
               }}
             >
-              <svg
-                width={13}
-                height={13}
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke={T.dim}
-                strokeWidth="2.2"
-                strokeLinecap="round"
-              >
-                <circle cx="11" cy="11" r="7" />
-                <path d="M21 21l-4.35-4.35" />
-              </svg>
+              <IcoSearch size={14} color={T.dim} />
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 placeholder="Search vault..."
-                className="flex-1 bg-transparent text-[11px] outline-none"
-                style={{ color: T.primary }}
+                className="flex-1 bg-transparent text-xs outline-none"
+                style={{ color: T.primary, fontFamily: "Poppins, sans-serif" }}
               />
               {searchQuery && (
-                <button onClick={() => setSearchQuery("")}>
-                  <IconX size={11} color={T.dim} />
+                <button onClick={() => setSearchQuery("")} title="Clear search">
+                  <IcoX size={12} color={T.dim} />
                 </button>
               )}
             </div>
 
-            {/* Filter pills */}
-            <div className="flex items-center gap-2">
-              {FILTERS.map((f) => (
-                <motion.button
-                  key={f}
-                  onClick={() => setActiveFilter(f)}
-                  whileHover={{ scale: 1.04 }}
-                  whileTap={{ scale: 0.97 }}
-                  className="px-3 py-1.5 rounded-full text-[9px] font-black uppercase tracking-widest transition-all"
-                  style={{
-                    background:
-                      activeFilter === f ? G.dimBg : "rgba(255,255,255,0.03)",
-                    color: activeFilter === f ? G.bright : T.dim,
-                    border:
-                      activeFilter === f
-                        ? `1px solid ${G.border}`
-                        : "1px solid rgba(255,255,255,0.05)",
-                  }}
-                >
-                  {f}
-                </motion.button>
-              ))}
+            {/* Sort dropdown (desktop, left of filter) */}
+            <div
+              className="relative flex items-center justify-center shrink-0 w-12 h-12 rounded-2xl transition-all hover:bg-[#141414]"
+              style={{
+                background: V.surface,
+                border: "1px solid rgba(255,255,255,0.06)",
+              }}
+              title="Sort assets"
+            >
+              <IcoSort size={15} color={T.dim} />
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value)}
+                className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+              >
+                <option value="date">By Date</option>
+                <option value="name">By Name</option>
+                <option value="strength">By Strength</option>
+              </select>
             </div>
+
+            {/* Filter button */}
+            <motion.button
+              whileHover={{ scale: 1.04 }}
+              whileTap={{ scale: 0.97 }}
+              onClick={() => setShowFilterSidebar(!showFilterSidebar)}
+              className="flex items-center justify-center shrink-0 w-12 h-12 rounded-2xl transition-all"
+              style={{
+                background: showFilterSidebar ? V.elevated : V.surface,
+                border: showFilterSidebar
+                  ? "1px solid rgba(255,255,255,0.12)"
+                  : "1px solid rgba(255,255,255,0.06)",
+              }}
+              title="Toggle filter panel"
+            >
+              <IcoFilter
+                size={15}
+                color={showFilterSidebar ? T.primary : T.dim}
+              />
+            </motion.button>
           </div>
 
+          {/* Filter sidebar (slides in from right) */}
+          <AnimatePresence>
+            {showFilterSidebar && (
+              <motion.div
+                initial={{ opacity: 0, x: 20 }}
+                animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: 20 }}
+                transition={{ duration: 0.2 }}
+                className="absolute right-0 top-[100px] bottom-0 w-56 z-50 flex flex-col p-4 gap-3 overflow-y-auto custom-scrollbar"
+                style={{
+                  background: V.depth,
+                  borderLeft: "1px solid rgba(255,255,255,0.06)",
+                }}
+              >
+                <p
+                  className="text-[9px] font-black uppercase tracking-widest"
+                  style={{ color: T.dim }}
+                >
+                  Filter by Type
+                </p>
+                {FILTERS.map((f) => (
+                  <button
+                    key={f}
+                    onClick={() => setActiveFilter(f)}
+                    className="w-full text-left px-3 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all"
+                    style={{
+                      background: activeFilter === f ? G.dimBg : "transparent",
+                      color: activeFilter === f ? G.bright : T.dim,
+                      border:
+                        activeFilter === f
+                          ? `1px solid ${G.border}`
+                          : "1px solid transparent",
+                    }}
+                  >
+                    {f}
+                  </button>
+                ))}
+              </motion.div>
+            )}
+          </AnimatePresence>
+
           {/* Asset grid */}
-          <div className="flex-1 overflow-y-auto custom-scrollbar relative z-10 px-8 pb-8">
+          <div
+            className="flex-1 overflow-y-auto custom-scrollbar relative z-10 px-8 pb-24"
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={handleMainDrop}
+          >
             {assetsLoading ? (
               <div className="grid grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4">
                 {[...Array(8)].map((_, i) => (
@@ -2029,7 +3226,11 @@ const Vault = () => {
                 ))}
               </div>
             ) : filteredAssets.length === 0 ? (
-              <VaultEmptyState onUpload={() => setShowUpload(true)} />
+              <VaultEmptyState
+                onUpload={() =>
+                  canUpload ? setShowUpload(true) : setShowPremium(true)
+                }
+              />
             ) : (
               <div className="grid grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4">
                 <AnimatePresence>
@@ -2039,58 +3240,28 @@ const Vault = () => {
                       asset={asset}
                       idx={i}
                       onDelete={handleDelete}
+                      onShare={handleShare}
+                      onPreview={setPreviewAsset}
                       isMobile={false}
                     />
                   ))}
                 </AnimatePresence>
-
-                {/* Upload tile */}
-                <motion.div
-                  {...FADE_UP(filteredAssets.length * 0.04)}
-                  onClick={() =>
-                    canUpload ? setShowUpload(true) : setShowPremium(true)
-                  }
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                  className="aspect-[4/3] flex flex-col items-center justify-center gap-3 rounded-2xl cursor-pointer transition-all border-2 border-dashed"
-                  style={{
-                    borderColor: "rgba(191,162,100,0.2)",
-                    background: "rgba(191,162,100,0.02)",
-                  }}
-                  title={canUpload ? "Add new asset" : "Upgrade for more slots"}
-                >
-                  {canUpload ? (
-                    <>
-                      <div
-                        className="w-10 h-10 rounded-2xl flex items-center justify-center"
-                        style={{ background: G.dimBg }}
-                      >
-                        <IconPlus size={16} color={G.bright} />
-                      </div>
-                      <span
-                        className="text-[9px] font-black uppercase tracking-widest"
-                        style={{ color: G.base }}
-                      >
-                        Add Asset
-                      </span>
-                    </>
-                  ) : (
-                    <>
-                      <IconLock size={18} color="rgba(191,162,100,0.4)" />
-                      <span
-                        className="text-[9px] font-black uppercase tracking-widest text-center px-3"
-                        style={{ color: "rgba(191,162,100,0.4)" }}
-                      >
-                        {isPro ? "10 pending max" : "5 pending max"}
-                      </span>
-                    </>
-                  )}
-                </motion.div>
               </div>
             )}
           </div>
         </main>
       </div>
+
+      {/* FAB — shown on both mobile and desktop */}
+      <FloatingFAB
+        onNewFile={() =>
+          canUpload ? setShowUpload(true) : setShowPremium(true)
+        }
+        onNewFolder={() => {
+          // Future: folder creation flow
+        }}
+        disabled={!canUpload}
+      />
     </>
   );
 };

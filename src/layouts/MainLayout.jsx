@@ -94,25 +94,25 @@ const upperMiddleNavItems = [
 
 const upperContentNavItems = [
   { icon: Trophy, label: "Leaderboard", path: "/app/leaderboard" },
-  {
-    icon: Users,
-    label: "Connective",
-    path: "/app/connective/network",
-    subItems: [
-      { label: "Feed", path: "/app/connective/feed" },
-      { label: "Network", path: "/app/connective/network" },
-    ],
-  },
+  // {
+  //   icon: Users,
+  //   label: "Connective",
+  //   path: "/app/connective/network",
+  //   subItems: [
+  //     { label: "Feed", path: "/app/connective/feed" },
+  //     { label: "Network", path: "/app/connective/network" },
+  //   ],
+  // },
 ];
 
 const lowerContentNavItems = [
   { icon: FolderOpen, label: "Asset Vault", path: "/app/vault" },
   // { icon: GraduationCap, label: "Learn", path: "/app/learn" },
-  { icon: Calendar, label: "Agenda", path: "/app/agenda", proOnly: true },
 ];
 
 const moreNavItems = [
-  { icon: BookOpen, label: "Colists", path: "/colists", external: true },
+  // { icon: BookOpen, label: "Colists", path: "/colists", external: true },
+  { icon: Calendar, label: "Agenda", path: "/app/agenda", proOnly: true },
 ];
 
 const bottomNavItems = [
@@ -1201,7 +1201,7 @@ const MainLayout = () => {
               ))}
             </div>
 
-            {/* <div className="space-y-1">
+            <div className="space-y-1">
               {isSidebarOpen ? (
                 <p className="px-3 text-[10px] font-bold text-[#555] uppercase tracking-[0.2em] mb-2 mt-4">
                   More from Discotive
@@ -1218,7 +1218,7 @@ const MainLayout = () => {
                   isCollapsed={!isSidebarOpen}
                 />
               ))}
-            </div> */}
+            </div>
 
             {/* Discotive Pro upsell — seamless sidebar integration */}
             {!isPro && isSidebarOpen && (
